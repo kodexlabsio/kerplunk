@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+from konstruct.analysis.query import search_nodes
 from konstruct.core.graph import Graph, Node, column_id, relation_key
 
 
@@ -306,6 +307,18 @@ def test_an_index_is_made_again_only_when_its_basis_changes() -> None:
     assert query_all() == ['graph', 'nodes', 'relations']
     g.changed()
     assert query_all() == ['graph', 'nodes', 'relations']
+
+
+def test_search_keeps_its_index_when_an_edge_changes_and_sees_new_nodes() -> None:
+    g = small_graph()
+    assert [n.id for n in search_nodes(g, 'refunds')] == []
+    index = g._indexes['search'][1]
+    g.add_edge('model.shop.orders', 'exposure.shop.dashboard', 'feeds', role='reference')
+    g.add_edge('model.shop.customers', 'exposure.shop.dashboard', 'feeds')
+    assert [n.id for n in search_nodes(g, 'dashboard')] == ['exposure.shop.dashboard']
+    assert g._indexes['search'][1] is index
+    g.add_node(Node('model.shop.refunds', 'model', 'refunds', relation='db.main.refunds'))
+    assert [n.id for n in search_nodes(g, 'refunds')] == ['model.shop.refunds']
 
 
 def test_changed_makes_queries_see_an_edit_in_place() -> None:

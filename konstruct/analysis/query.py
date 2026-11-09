@@ -6,13 +6,12 @@ and people; ``result.to_dict()`` is the same content as plain data, for JSON and
 
 from __future__ import annotations
 
-import math
 import re
-from collections import Counter
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Literal
 
+from konstruct import _core
 from konstruct.core.graph import RELATION_KINDS, Graph, Node, Step
 
 
@@ -351,75 +350,49 @@ def path(graph: Graph, start_ref: str, end_ref: str) -> PathResult:
 
 
 _TOKEN = re.compile(r'[a-z0-9]+')
-_STOPWORDS = frozenset(
-    'a an and are as at be by do does for from how i in is it of on or the to what which who why with '
-    'where when this that these those me my we our there their any all if can could would should will '
-    'show tell find list give get about into used use uses using'.split()
-)
-
-
-def _tokens(text: str) -> list[str]:
-    return [t for t in _TOKEN.findall(text.lower()) if t not in _STOPWORDS]
-
-
-def _variants(token: str) -> set[str]:
-    forms = {token}
-    if len(token) > 3 and token.endswith('s'):
-        forms.add(token[:-1])
-    if len(token) > 4 and token.endswith('es'):
-        forms.add(token[:-2])
-    return forms
 
 
 def search_nodes(graph: Graph, text: str, limit: int = 20, kinds: list[str] | None = None) -> list[Node]:
     return [node for node, _ in _scored(graph, text, limit, kinds)]
 
 
+class _SearchIndex:
+    """Every node's words for ranked search, in the native core (``konstruct._core``). Text is
+    folded to lower case here, by Python, so matching folds case exactly as ``str.lower`` does."""
+
+    def __init__(self, graph: Graph) -> None:
+        self.nodes = list(graph.nodes.values())
+        labels = [graph.label(n) for n in self.nodes]
+        synonyms = [
+            [s.lower() for s in n.attrs.get('synonyms', [])] if n.kind == 'term' else [] for n in self.nodes
+        ]
+        self.core = _core.SearchIndex(
+            [n.id for n in self.nodes],
+            [n.kind for n in self.nodes],
+            [
+                1 if n.kind == 'term' else 2 if n.kind in RELATION_KINDS else 3 if n.kind == 'test' else 0
+                for n in self.nodes
+            ],
+            [n.name.lower() for n in self.nodes],
+            [label.lower() for label in labels],
+            # A node's names: its label, relation key and, for a business term, its synonyms.
+            [
+                f'{label} {n.relation or ""} {" ".join(words)}'.lower()
+                for n, label, words in zip(self.nodes, labels, synonyms, strict=True)
+            ],
+            [(n.description or '').lower() for n in self.nodes],
+            synonyms,
+        )
+
+
 def _scored(graph: Graph, text: str, limit: int, kinds: list[str] | None) -> list[tuple[Node, float]]:
-    tokens = _tokens(text)
-    if not tokens:
-        return []
-    needle = text.strip().lower()
-    total = max(len(graph.nodes), 1)
-    frequency: Counter[str] = Counter()
-    names: dict[str, set[str]] = {}
-    for node in graph.nodes.values():
-        synonyms = ' '.join(node.attrs.get('synonyms', [])) if node.kind == 'term' else ''
-        words = set(_TOKEN.findall(f'{graph.label(node)} {node.relation or ""} {synonyms}'.lower()))
-        names[node.id] = words
-        frequency.update(words)
-    scored: list[tuple[Node, float]] = []
-    for node in graph.nodes.values():
-        if kinds and node.kind not in kinds:
-            continue
-        label = graph.label(node).lower()
-        name_words = names[node.id]
-        description = set(_TOKEN.findall((node.description or '').lower()))
-        score = 0.0
-        for token in tokens:
-            forms = _variants(token)
-            weight = math.log(1 + total / (1 + max(frequency[f] for f in forms)))
-            if forms & name_words:
-                score += 3 * weight
-            elif any(f in label for f in forms):
-                score += 1.5 * weight
-            if forms & description:
-                score += 0.5 * weight
-        if not score:
-            continue
-        synonym = node.kind == 'term' and needle in (s.lower() for s in node.attrs.get('synonyms', []))
-        if label == needle or node.name.lower() == needle or synonym:
-            score += 10
-        if node.kind == 'term':
-            # A business term is what a person asking in words usually means.
-            score *= 1.5
-        elif node.kind in RELATION_KINDS:
-            score *= 1.2
-        elif node.kind == 'test':
-            score *= 0.5
-        scored.append((node, score))
-    scored.sort(key=lambda pair: (-pair[1], len(pair[0].id), pair[0].id))
-    return scored[:limit]
+    """Nodes ranked by the words of ``text``: a word scores by its rarity across the graph, most
+    in a node's name, less in its label, a little in its description. Exact names, business terms
+    and relations rank higher, and tests lower."""
+    # Made from the nodes alone, so an edge added or removed keeps it.
+    index = graph.indexed('search', _SearchIndex, basis='nodes')
+    found = index.core.search(text.lower(), text.strip().lower(), limit if limit >= 0 else None, kinds or [])
+    return [(index.nodes[ordinal], score) for ordinal, score in found][:limit]
 
 
 @dataclass
