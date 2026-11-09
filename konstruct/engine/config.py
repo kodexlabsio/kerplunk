@@ -316,6 +316,10 @@ def load_config(root: Path, out_dir: Path | None = None) -> Config:
     warehouses = data.get('warehouse')
     if isinstance(warehouses, dict):
         warehouses = [warehouses]
+    repositories = data.get('repositories', [])
+    if not isinstance(repositories, list) or not all(isinstance(p, str) for p in repositories):
+        # A [repositories] table would otherwise be read as a list of its keys.
+        raise ConfigError('repositories is a list of paths: repositories = ["../marketing"]')
     config = Config(
         root=root,
         out_dir=(out_dir or root / str(data.get('out_dir', 'konstruct-out'))).resolve(),
@@ -323,7 +327,7 @@ def load_config(root: Path, out_dir: Path | None = None) -> Config:
         default_catalog=data.get('default_catalog'),
         default_schema=data.get('default_schema'),
         exclude=list(data.get('exclude', [])),
-        repositories=[(root / p).resolve() for p in data.get('repositories', [])],
+        repositories=[(root / p).resolve() for p in repositories],
         run_dbt=bool(dbt.get('run', True)),
         dbt_projects=[root / p for p in dbt['projects']] if 'projects' in dbt else None,
         dag_paths=[root / p for p in airflow['dags']] if 'dags' in airflow else None,

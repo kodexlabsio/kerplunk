@@ -11,7 +11,7 @@ import pytest
 
 from konstruct.core.graph import Graph, Node
 from konstruct.engine.build import Cache, RelationIndex, build
-from konstruct.engine.config import load_config
+from konstruct.engine.config import ConfigError, load_config
 
 from .test_warehouse import require
 
@@ -438,3 +438,9 @@ def test_lists_of_structs_and_maps_from_duckdb(tmp_path: Path) -> None:
     totals = result.totals()
     assert totals['unexplained'] == 0
     assert totals['confirmed'] == totals['claimed'] == 4
+
+
+def test_repositories_must_be_a_list_of_paths(tmp_path: Path) -> None:
+    (tmp_path / 'konstruct.toml').write_text('[repositories]\npaths = ["../other"]\n')
+    with pytest.raises(ConfigError, match='repositories is a list of paths'):
+        load_config(tmp_path)

@@ -153,7 +153,7 @@ def test_repositories_that_share_a_warehouse_share_its_pack_terms(tmp_path: Path
         root.mkdir()
         (root / 'konstruct.toml').write_text(f'[[warehouse]]\ntype = "duckdb"\npath = "{shared}"\n')
     (main / 'konstruct.toml').write_text(
-        (main / 'konstruct.toml').read_text() + '\n[repositories]\npaths = ["../marketing"]\n'
+        'repositories = ["../marketing"]\n' + (main / 'konstruct.toml').read_text()
     )
     graph = Project(main).build(run_dbt=False).graph
     assert [n for n in graph.nodes if n.startswith('term.stripe_customer')] == ['term.stripe_customer']
