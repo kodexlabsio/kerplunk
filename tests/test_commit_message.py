@@ -58,11 +58,29 @@ def test_accepts(message: str) -> None:
         ('feat(dbt): Add x\n\n\U0001f916 Generated', 'AI attribution'),
         ('feat(dbt): Add x\n\nAssisted-by: anything', 'AI attribution'),
         ('', 'empty'),
+        ('feat(cli): Add x\n\nUseful for the investor deck.', 'business'),
+        ('docs(readme): Explain the pricing tiers', 'business'),
+        ('feat(mcp): Add x\n\nThis grows ARR.', 'business'),
+        ('chore: Prepare the seed fundraise', 'business'),
+        ('docs: Note the VC feedback', 'business'),
     ],
 )
 def test_rejects(message: str, fragment: str) -> None:
     errors = ccm.check(message)
     assert any(fragment in error for error in errors), errors
+
+
+@pytest.mark.parametrize(
+    'message',
+    [
+        'feat(sql): Parse the arrangement of window frames',
+        'fix(dbt): Read the tam_score column',
+        'feat(cli): Price nothing, compute everything',
+        'fix(warehouse): Handle an empty VARCHAR column',
+    ],
+)
+def test_business_words_need_whole_words(message: str) -> None:
+    assert ccm.check(message) == []
 
 
 def test_human_co_author_is_allowed() -> None:
