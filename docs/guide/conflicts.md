@@ -7,13 +7,14 @@ $ konstruct conflicts
 1 conflicting definition among 5 computed columns.
 
 revenue
-  daily_revenue.revenue  vs  daily_performance.total_revenue  (have names that mean the same thing; downstream weight 6)
-    a: daily_revenue.revenue = SUM(orders.amount)
+  daily_revenue.revenue  vs  daily_performance.total_revenue
+    Compared because they have names that mean the same thing; downstream weight 6.
+    a  daily_revenue.revenue = SUM(orders.amount)
        in finance/revenue.sql; feeds 1 columns
-    b: daily_performance.total_revenue = SUM(orders.amount)
+    b  daily_performance.total_revenue = SUM(orders.amount)
        in marketing/daily.sql; feeds 1 tasks, 2 columns
        carried into weekly.revenue
-    - filter only in daily_revenue.revenue: WHERE: orders.status = 'completed'  (finance/revenue.sql)
+    - filter only in daily_revenue.revenue: WHERE orders.status = 'completed'  (finance/revenue.sql)
 ```
 
 - **Which columns are compared.** Computed columns whose names mean the same thing once qualifiers and synonyms are folded together (`revenue`, `total_revenue`, `sales_amount`), columns named like a business term or its synonyms in `definitions.yml`, and columns bound to the same term. Keys, plain copies and columns derived from one another are left out: a column built from another inherits its definition and is listed as *carried into* it.

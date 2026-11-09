@@ -4,23 +4,23 @@ Konstruct derives an ontology of the data stack from its graph: the business obj
 
 ```text
 $ konstruct ontology
-3 entities, 2 measures, 2 relationships, 0 rule violations.
+Ontology: 3 entities, 2 measures, 2 relationships and no rule violations.
 
-Entities
-  customer  key customer_id: customers, stg_customers  (term 'Customer')
-  order  key order_id: orders, stg_orders
-  payment  key payment_id: stg_payments
+Entities (3)
+  customer  key customer_id  customers, stg_customers  term 'Customer'
+  order     key order_id     orders, stg_orders
+  payment   key payment_id   stg_payments
 
-Measures
-  Customer lifetime value  [approved, Priya Shah (Head of Finance), one row per customer]
-    customers.customer_lifetime_value = SUM(raw_payments.amount / 100)  verified 2/2
-    customer_ltv.lifetime_value = SUM(raw_payments.amount / 100)  verified 3/3
-  Order amount  [approved, Priya Shah (Head of Finance), one row per order]
-    orders.amount = SUM(raw_payments.amount / 100)  verified 2/2
+Measures (2)
+  Customer lifetime value  approved  Priya Shah (Head of Finance), one row per customer
+    customer_ltv.lifetime_value        = SUM(raw_payments.amount / 100)  verified 3/3
+    customers.customer_lifetime_value  = SUM(raw_payments.amount / 100)  verified 2/2
+  Order amount  approved  Priya Shah (Head of Finance), one row per order
+    orders.amount  = SUM(raw_payments.amount / 100)  verified 2/2
 
-Relationships
-  order -> customer  many-to-one  orders.customer_id = customers.customer_id  (tested)
-  payment -> order  many-to-one  stg_payments.order_id = stg_orders.order_id
+Relationships (2)
+  order → customer  many-to-one  orders.customer_id = customers.customer_id   tested
+  payment → order   many-to-one  stg_payments.order_id = stg_orders.order_id
 ```
 
 ## What It Contains

@@ -8,10 +8,12 @@ The base is the merge base with main unless `--base` names another commit or a d
 
 ```text
 $ konstruct diff
-1 breaking change, 1 column changed, 1 column removed, 1 column added, row logic changed in 1 relation, 1 DAG changed, 1 exposure affected.
+Diff main..working tree (4 files changed)
+1 breaking change, 1 column changed, 1 column removed, 1 column added, row logic changed in 1
+relation, 1 DAG changed, 1 exposure affected.
 
 models/orders.sql  (model orders, modified)
-  rows     + WHERE: jaffle_shop.main.stg_orders.status <> 'returned'
+  rows     + WHERE jaffle_shop.main.stg_orders.status <> 'returned'
            affects 10 tests, 1 exposure and 1 task downstream (exposures: customer_dashboard)
 
 models/staging/stg_payments.sql  (model stg_payments, modified)
@@ -19,10 +21,12 @@ models/staging/stg_payments.sql  (model stg_payments, modified)
   changed  amount
              was  jaffle_shop.main.raw_payments.amount / 100
              now  jaffle_shop.main.raw_payments.amount / 100.0 * 1.2
-           affects 7 columns, 3 relations, 5 tests, 1 exposure and 2 tasks downstream (exposures: customer_dashboard)
+           affects 7 columns, 3 relations, 5 tests, 1 exposure and 2 tasks downstream (exposures:
+           customer_dashboard)
   removed  payment_method
            BREAKS orders, which still reads it
-           affects 4 columns, 1 relation, 5 tests, 1 exposure and 1 task downstream (exposures: customer_dashboard)
+           affects 4 columns, 1 relation, 5 tests, 1 exposure and 1 task downstream (exposures:
+           customer_dashboard)
 
 dags/jaffle_shop_daily.py  (DAG jaffle_shop_daily, modified)
   runs     task `dbt_run_marts`: no longer runs orders
@@ -38,19 +42,23 @@ dbt models are compared by rendering their Jinja without dbt (see How Lineage Wo
 
 ```text
 $ konstruct history ltv.total
-ltv.total: 2 formula changes; 'lifetime value' last approved by Grace in 745d991, before the latest formula change
-  defined in ltv.sql
-  2026-01-05 c9e560a Ada: Add lifetime value
-    added: SUM(orders.amount)
-    term 'lifetime value': definition none -> What a customer has paid us.
-    term 'lifetime value': owner none -> Ada
-    term 'lifetime value': status none -> draft
-  2026-02-01 745d991 Grace: Approve lifetime value
-    term 'lifetime value': owner Ada -> Grace
-    term 'lifetime value': status draft -> approved
-  2026-04-01 d71c2ce Linus: Net of refunds
-    was: SUM(orders.amount)
-    now: SUM(orders.amount - orders.refund)
+History of ltv.total (ltv.sql)
+2 formula changes; 'lifetime value' last approved by Grace in 745d991, before the latest formula
+change.
+
+  2026-01-05  c9e560a  Ada  Add lifetime value
+    added  SUM(orders.amount)
+    term  'lifetime value'  definition  none → What a customer has paid us.
+                            owner       none → Ada
+                            status      none → draft
+
+  2026-02-01  745d991  Grace  Approve lifetime value
+    term  'lifetime value'  owner   Ada → Grace
+                            status  draft → approved
+
+  2026-04-01  d71c2ce  Linus  Net of refunds
+    was  SUM(orders.amount)
+    now  SUM(orders.amount - orders.refund)
 ```
 
 The summary says whether a bound term was approved after the latest formula change, so a formula that changed after its approval stands out. Commits are ordered by ancestry, not by date, so a change rebased onto a branch after an approval comes after it. A term is approved by a commit that makes its status `approved`, or that moves its `approved` date while it stays approved; a term that first appears already approved, such as a renamed one, is not an approval. Where the history is incomplete (a shallow clone, or more commits than `--limit`, default 50), or a version's SQL cannot be analysed, a note says so. `--json` gives the same result for scripts and agents, which can also ask through the `history` MCP tool.

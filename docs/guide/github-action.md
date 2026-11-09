@@ -53,6 +53,8 @@ A conflict between columns the change does not touch does not fail it; a change 
 $ konstruct gate
 Gate failed: 1 finding to fix before proposing the change.
 
-conflicting-definition: gross.revenue computes 'revenue' differently from ltv.revenue (filter WHERE: orders.status <> 'void') (sql/gross.sql)
-  fix: Compute it the way the existing column does, or name the difference in definitions.yml.
+conflicting-definition: gross.revenue computes 'revenue' differently from ltv.revenue (filter
+  WHERE: orders.status <> 'void')
+  file  sql/gross.sql
+  fix   Compute it the way the existing column does, or name the difference in definitions.yml.
 ```
