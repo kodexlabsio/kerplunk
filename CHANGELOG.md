@@ -1,3 +1,10 @@
+## v0.11.9 (2026-11-09)
+
+### Feat
+
+- **build**: Read the SQL in PySpark jobs for column lineage
+- **cli**: Add konstruct gate, the check a change passes before it is proposed
+
 ## v0.11.8 (2026-11-09)
 
 ### Feat
