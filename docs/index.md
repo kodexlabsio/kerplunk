@@ -44,6 +44,7 @@ guide/reviewing-changes
 guide/github-action
 guide/definitions
 guide/ontology
+guide/ossie
 guide/conflicts
 guide/usage
 guide/exporting

@@ -23,6 +23,9 @@ paths = ["sql/**/*.sql"]          # default: .sql files outside dbt folders and 
 [definitions]
 paths = ["definitions.yml"]       # business terms; default: every definitions.yml
 
+[ossie]
+paths = ["semantic/"]             # Apache Ossie models; default: every *.ossie.yaml
+
 [usage]                           # column usage from query history; off by default
 enabled = true
 days = 90

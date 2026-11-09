@@ -591,7 +591,9 @@ def describe(graph: Graph, ref: str) -> Description:
         {_neighbour(graph, o) for _, o in graph.downstream_edges(node.id) if graph.nodes[o].kind != 'dag'}
     )
     result.terms = sorted(
-        _term_label(graph, graph.nodes[e.source]) for e in graph.in_edges(node.id, 'defines')
+        _term_label(graph, graph.nodes[e.source])
+        for e in graph.in_edges(node.id, 'defines')
+        if e.attrs.get('role') != 'input'
     )
     if node.kind == 'term':
         result.defines = sorted(
@@ -755,7 +757,11 @@ def define(graph: Graph, ref: str) -> Definitions:
         if len(found) == 1:
             target = found[0]
             column = item(graph, target)
-            terms = [graph.nodes[e.source] for e in graph.in_edges(target.id, 'defines')]
+            terms = [
+                graph.nodes[e.source]
+                for e in graph.in_edges(target.id, 'defines')
+                if e.attrs.get('role') != 'input'
+            ]
         elif len(found) > 1:
             raise QueryError(f'{ref!r} is ambiguous; use one of: {", ".join(n.id for n in found[:10])}')
         else:

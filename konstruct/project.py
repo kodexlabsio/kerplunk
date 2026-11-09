@@ -430,7 +430,8 @@ class Project:
 
         Args:
             fmt: ``openlineage`` (JSON lines of static ``JobEvent`` objects with schema and column
-                lineage facets), ``mermaid``, ``dot`` or ``csv`` (one row per column edge).
+                lineage facets), ``mermaid``, ``dot``, ``csv`` (one row per column edge) or ``ossie``
+                (the ontology as an Apache Ossie semantic model).
             select: Only the lineage, both directions, of this table or column.
             columns: For ``mermaid`` and ``dot``, draw columns and column lineage.
             namespace: For ``openlineage``, the dataset namespace (default ``<dialect>://konstruct``).

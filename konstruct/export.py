@@ -1,4 +1,4 @@
-"""Export the graph for other tools: OpenLineage, Mermaid, Graphviz DOT and CSV.
+"""Export the graph for other tools: OpenLineage, Mermaid, Graphviz DOT, CSV and Apache Ossie.
 
 * ``openlineage``: one OpenLineage ``JobEvent`` per relation that something builds (a dbt model,
   a SQL file, an Airflow or Dagster task's SQL), as JSON lines. Each lists its input datasets and
@@ -11,8 +11,9 @@
 * ``mermaid`` and ``dot``: the relation graph (or the columns of each relation with
   ``columns=True``) for documentation and pull requests.
 * ``csv``: one row per column lineage edge, for spreadsheets and warehouses.
+* ``ossie``: the ontology as an Apache Ossie semantic model (see :mod:`konstruct.ossie`).
 
-``select`` restricts any format to the lineage of one node, upstream and downstream.
+``select`` restricts any format but ``ossie`` to the lineage of one node, upstream and downstream.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ import json
 import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
 
 import sqlglot
@@ -31,8 +33,8 @@ from sqlglot import exp
 from konstruct import __version__
 from konstruct.graph import RELATION_KINDS, Graph, Node
 
-Format = Literal['openlineage', 'mermaid', 'dot', 'csv']
-FORMATS: tuple[str, ...] = ('openlineage', 'mermaid', 'dot', 'csv')
+Format = Literal['openlineage', 'mermaid', 'dot', 'csv', 'ossie']
+FORMATS: tuple[str, ...] = ('openlineage', 'mermaid', 'dot', 'csv', 'ossie')
 
 PRODUCER = f'https://github.com/kodexlabsio/konstruct/tree/v{__version__}'
 SPEC = 'https://openlineage.io/spec/2-0-2/OpenLineage.json'
@@ -59,6 +61,14 @@ def export(
     event_time: str | None = None,
 ) -> str:
     """The graph (or the lineage of ``select``) in ``fmt``; see the module docstring."""
+    if fmt == 'ossie':
+        from konstruct.ontology import derive
+        from konstruct.ossie import export as ossie_export
+
+        if select is not None:
+            raise ValueError('the ossie export is the whole ontology; it does not take a selection')
+        root = graph.meta.get('root')
+        return ossie_export(graph, derive(graph), name=Path(str(root)).name if root else None)
     keep = _selection(graph, select) if select is not None else None
     if fmt == 'openlineage':
         return openlineage(

@@ -90,6 +90,8 @@ class MeasureColumn:
     """Lineage edges on the way to source."""
     usage: int | None = None
     """The column's usage score from query history (0 to 100), when usage is on."""
+    id: str | None = field(default=None, repr=False)
+    """The column's graph id, for tools; not written to ``ontology.yml``."""
 
 
 @dataclass
@@ -119,7 +121,10 @@ class Measure:
     columns: list[MeasureColumn] = field(default_factory=list)
     """The columns that hold it, each with its formula."""
     path: str | None = None
-    """The definitions file that defines it, with the line."""
+    """The file that defines it, with the line."""
+    expression: str | None = None
+    """For a measure defined as a metric in an Apache Ossie model, the metric's own expression; its
+    columns are then the columns the expression reads."""
 
 
 @dataclass
@@ -139,6 +144,8 @@ class Relationship:
     """Whether a dbt ``relationships`` test vouches for it, rather than only a join."""
     evidence: list[str] = field(default_factory=list)
     """The tests and joins that show it."""
+    columns: tuple[str, str] | None = field(default=None, repr=False)
+    """The graph ids of the joining columns in ``via``, for tools; not written to ``ontology.yml``."""
 
 
 @dataclass
@@ -188,7 +195,12 @@ class Ontology:
             for measure in self.measures:
                 about = ', '.join(x for x in (measure.status, measure.owner, measure.grain) if x)
                 lines.append(f'  {measure.name}  [{about}]')
-                for column in measure.columns:
+                if measure.expression:
+                    lines.append(
+                        f'    = {measure.expression}  (reads {", ".join(c.column for c in measure.columns) or "no column"})'
+                    )
+                # A metric's columns are its inputs, already listed with its expression.
+                for column in [] if measure.expression else measure.columns:
                     checked = f'  verified {column.verified}/{column.edges}' if column.edges else ''
                     partial = '  (partial)' if not column.complete else ''
                     lines.append(f'    {column.column} = {column.formula or "?"}{checked}{partial}')
@@ -253,7 +265,7 @@ def _normal(name: str) -> str:
     return re.sub(r'[\s_-]+', ' ', name.strip().lower())
 
 
-_INTERNAL = frozenset({'key_ids'})
+_INTERNAL = frozenset({'key_ids', 'id', 'columns'})
 
 
 def _compact(data: dict[str, Any]) -> dict[str, Any]:
@@ -399,6 +411,9 @@ class _Deriver:
                         # A unique email or name is not what identifies the business object.
                         if id_like(column.name):
                             found.setdefault(column.id, []).append(f'unique test on {graph.label(column)}')
+            elif node.kind == 'column' and node.attrs.get('ossie_key'):
+                self.unique.add(node.id)
+                found.setdefault(node.id, []).append(f'primary key in {node.attrs["ossie_key"]}')
             elif node.kind in RELATION_KINDS:
                 for attr, what in (('primary_key', 'primary key'), ('identifier_fields', 'identifier field')):
                     names = node.attrs.get(attr) or []
@@ -552,6 +567,7 @@ class _Deriver:
             currency=term.attrs.get('currency'),
             filters=list(term.attrs.get('filters', [])),
             path=_where(term),
+            expression=term.attrs.get('formula'),
         )
         columns = self.bound_columns(term)
         for column in columns:
@@ -567,10 +583,13 @@ class _Deriver:
                     verified=verified,
                     edges=edges,
                     usage=int(usage['score']) if isinstance(usage, dict) and 'score' in usage else None,
+                    id=column.id,
                 )
             )
+        # A metric's columns are its inputs, not columns that each hold the measure.
+        compared = [] if result.expression else columns
         result.columns.sort(key=lambda c: c.column)
-        for conflict in measure_conflicts(graph, term.name, columns):
+        for conflict in measure_conflicts(graph, term.name, compared):
             differences = '; '.join(f'{d.kind} {d.detail}' for d in conflict.differences[:3])
             self.rules['one-formula-per-measure'].violations.append(
                 f'{term.name!r} ({result.path}): {conflict.a.label} and {conflict.b.label} differ ({differences})'
@@ -614,6 +633,10 @@ class _Deriver:
                             add(left, right, evidence, False)
                         if left.id in self.keys:
                             add(right, left, evidence, False)
+        for item in graph.meta.get('ossie_relationships', []) or []:
+            many, one = graph.nodes.get(item.get('from', '')), graph.nodes.get(item.get('to', ''))
+            if many is not None and one is not None:
+                add(many, one, f'Ossie relationship {item.get("name")} ({item.get("path")})', False)
         result = []
         for (source_entity, target_entity, _), (candidates, evidences) in found.items():
             # The columns a relationships test vouches for come first, then the shortest join.
@@ -622,7 +645,15 @@ class _Deriver:
             if target_id in self.unique:
                 cardinality = 'one-to-one' if source_id in self.unique else 'many-to-one'
             result.append(
-                Relationship(source_entity, target_entity, via, cardinality, tested, sorted(evidences))
+                Relationship(
+                    source_entity,
+                    target_entity,
+                    via,
+                    cardinality,
+                    tested,
+                    sorted(evidences),
+                    columns=(source_id, target_id),
+                )
             )
         return sorted(result, key=lambda r: (r.source, r.target, r.via))
 

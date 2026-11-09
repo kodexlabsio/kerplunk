@@ -133,11 +133,20 @@ class _Namer:
         self.sqlglot = Dialect.get_or_raise(dialect)
         self.cache: dict[str, Node | None] = {}
         self.texts: dict[str, str] = {}
+        self.qualified = False
 
     def relation(self, key: str) -> Node | None:
         if key not in self.cache:
             self.cache[key] = self.graph.node_for_relation(key)
         return self.cache[key]
+
+    def column(self, name: str, relation: Node) -> exp.Column:
+        """``relation.name`` as a column: the relation's short label, or with ``qualified``, its full
+        relation key, which stays unambiguous where two relations share a label."""
+        if self.qualified and relation.relation:
+            *prefix, table = relation.relation.split('.')
+            return exp.column(name, table, *reversed(prefix), quoted=False)
+        return exp.column(name, table=self.graph.label(relation), quoted=False)
 
     def resolve(self, column: exp.Column) -> tuple[Node, str] | None:
         """The relation node and column name a qualified column refers to: the longest prefix of
@@ -168,7 +177,7 @@ class _Namer:
                 found = self.resolve(node)
                 if found is not None:
                     relation, name = found
-                    return exp.column(name, table=self.graph.label(relation), quoted=False)
+                    return self.column(name, relation)
             return node
 
         return _unparen(tree.transform(rename)).sql(dialect=self.sqlglot, copy=False)
@@ -234,11 +243,12 @@ class _Composed:
 class Explainer:
     """Explains columns of one graph, composing each column once however many ask for it."""
 
-    def __init__(self, graph: Graph, max_composed: int = MAX_COMPOSED) -> None:
+    def __init__(self, graph: Graph, max_composed: int = MAX_COMPOSED, *, qualified: bool = False) -> None:
         self.graph = graph
         self.max_composed = max_composed
         dialect = graph.meta.get('dialect')
         self.namer = _Namer(graph, dialect if isinstance(dialect, str) else None)
+        self.namer.qualified = qualified
         self.memo: dict[str, _Composed] = {}
         self.active: set[str] = set()
         self.short_memo: dict[str, str | None] = {}
@@ -296,7 +306,7 @@ class Explainer:
                 return item
             relation, name = found
             # Whatever happens next, a column that stays in the formula gets its short name.
-            short = exp.column(name, table=graph.label(relation), quoted=False)
+            short = self.namer.column(name, relation)
             target = (
                 by_name.get((relation.id, name.lower()))
                 or (by_relation.get((relation.relation.lower(), name.lower())) if relation.relation else None)

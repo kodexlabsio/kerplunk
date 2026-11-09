@@ -20,6 +20,7 @@ from konstruct.config import (
     discover_dag_files,
     discover_dagster_files,
     discover_definitions_files,
+    discover_ossie_files,
     discover_sql_files,
     discover_warehouses,
     load_config,
@@ -296,6 +297,7 @@ class Builder:
         self.load_dagster(schema_key)
         self.load_sql_files(projects, used_sql, schema_key)
         self.load_definitions()
+        self.load_ossie()
         self.load_usage()
         self.graph.meta['dialect'] = self.dialect
         self.graph.meta['default_catalog'] = self.default_catalog
@@ -860,6 +862,73 @@ class Builder:
                 + (f'; {unmatched} not in the graph' if unmatched else ''),
             }
         )
+
+    def load_ossie(self) -> None:
+        """Apache Ossie semantic models: each metric becomes a measure bound to the columns it reads,
+        a primary key marks an entity key, and a relationship links two entities."""
+        from konstruct import ossie
+
+        relationships: list[dict[str, str]] = []
+        for path in discover_ossie_files(self.config):
+            self.watch(path)
+            rel = self.rel_path(path)
+            try:
+                parsed = ossie.parse_file(path, rel)
+            except OSError as error:
+                self.graph.warn(f'ossie: cannot read {rel}: {error}')
+                continue
+            for problem in parsed.errors:
+                self.graph.warn(f'ossie: {problem}')
+            count = 0
+            for model in parsed.models:
+                binding = ossie.bind(self.graph, model)
+                for problem in binding.problems:
+                    self.graph.warn(f'ossie: {problem}')
+                for key in binding.keys:
+                    key.attrs.setdefault('ossie_key', rel)
+                for many, one, name in binding.relationships:
+                    relationships.append({'from': many.id, 'to': one.id, 'name': name, 'path': rel})
+                for metric in model.metrics:
+                    columns = binding.metrics.get(metric.name)
+                    if columns is None or metric.name in binding.failed:
+                        continue
+                    node_id = f'term.{definitions.slug(metric.name)}'
+                    if node_id in self.graph.nodes:
+                        self.graph.warn(
+                            f'ossie: {rel}: metric {metric.name!r} has the same name as a term already '
+                            'defined; the existing term is kept'
+                        )
+                        continue
+                    attrs: dict[str, Any] = {'kind': 'measure', 'formula': metric.sql, 'model': model.name}
+                    if metric.dialect:
+                        attrs['formula_dialect'] = metric.dialect
+                    if metric.name in binding.portable:
+                        attrs['ossie_expression'], attrs['ossie_columns'] = binding.portable[metric.name]
+                    if metric.name in binding.datasets:
+                        attrs['ossie_dataset'] = binding.datasets[metric.name]
+                    if metric.synonyms:
+                        attrs['synonyms'] = metric.synonyms
+                    term = self.graph.add_node(
+                        Node(
+                            node_id,
+                            'term',
+                            metric.name,
+                            description=metric.description,
+                            path=rel,
+                            origins=['ossie'],
+                            attrs=attrs,
+                        )
+                    )
+                    # The columns a metric reads are its inputs; none of them holds the measure.
+                    for column in columns:
+                        self.graph.add_edge(term.id, column.id, 'defines', role='input')
+                    count += 1
+            self.sources.append(
+                {'input': 'ossie', 'path': rel, 'detail': f'{count} metric{"s" if count != 1 else ""}'}
+            )
+            self.inputs['ossie_metrics'] = self.inputs.get('ossie_metrics', 0) + count
+        if relationships:
+            self.graph.meta['ossie_relationships'] = relationships
 
     def load_definitions(self) -> None:
         """Business terms from definitions.yml, attached to the columns they name."""

@@ -429,6 +429,9 @@ def find_conflicts(graph: Graph, limit: int | None = None) -> Conflicts:
         else:
             groups['name:' + ' '.join(sorted(words))].append(column)
         for edge in graph.in_edges(column.id, 'defines'):
+            # A column a metric reads is its input, not a column that holds the measure.
+            if edge.attrs.get('role') == 'input':
+                continue
             name = graph.nodes[edge.source].name
             if column not in groups[f'term:{name}']:
                 groups[f'term:{name}'].append(column)

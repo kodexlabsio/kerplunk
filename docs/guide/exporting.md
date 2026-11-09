@@ -8,6 +8,7 @@
 | `mermaid` | A `flowchart` of tables, models and tasks, or of columns with `--columns` | Documentation, pull requests, GitHub renders it inline |
 | `dot` | A Graphviz graph, with column ports under `--columns` | Large static diagrams |
 | `csv` | One row per column edge: relation, column, upstream relation and column, transform, verification and expression | Spreadsheets, or a lineage table in the warehouse |
+| `ossie` | The [ontology](ontology.md) as an Apache Ossie semantic model: datasets, relationships, and each measure as a metric with its composed formula and a `KONSTRUCT` extension for status, owner and verification (see [Apache Ossie Models](ossie.md)) | Semantic layers and BI tools that read Ossie |
 
 ```bash
 konstruct export openlineage -o lineage.jsonl --namespace duckdb://analytics

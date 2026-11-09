@@ -556,11 +556,17 @@ def parser() -> argparse.ArgumentParser:
     _query_options(query)
     query.set_defaults(func=cmd_query)
 
-    exporting = add('export', 'the graph as OpenLineage, Mermaid, Graphviz DOT or CSV')
-    exporting.add_argument('format', choices=['openlineage', 'mermaid', 'dot', 'csv'])
+    exporting = add(
+        'export',
+        'the graph as OpenLineage, Mermaid, Graphviz DOT or CSV, or the ontology as an Apache Ossie model',
+    )
+    exporting.add_argument('format', choices=['openlineage', 'mermaid', 'dot', 'csv', 'ossie'])
     exporting.add_argument('-o', '--output', metavar='FILE', help='write to FILE instead of stdout')
     exporting.add_argument(
-        '-s', '--select', metavar='NAME', help='only the lineage of this table or column, both directions'
+        '-s',
+        '--select',
+        metavar='NAME',
+        help='only the lineage of this table or column, both directions (not for ossie)',
     )
     exporting.add_argument(
         '--columns', action='store_true', help='mermaid and dot: draw columns and column lineage'
