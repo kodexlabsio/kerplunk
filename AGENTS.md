@@ -24,7 +24,7 @@ Action and a single offline HTML page.
 | `docs/` | Sphinx documentation in MyST Markdown, Read the Docs theme |
 | `tests/` | pytest suites, golden files in `tests/golden/`, fixtures in `tests/fixtures/` |
 | `examples/jaffle_shop` | dbt Labs' jaffle_shop_duckdb (Apache-2.0) with a DAG and `definitions.yml` |
-| `.kodex/scripts/` | Project scripts: commit rules, services, benchmark, demo tapes, viewer build check |
+| `.kodex/scripts/` | Project scripts: commit rules, services, benchmark, agent benchmark, demo tapes, viewer build check |
 | `action.yml` | The GitHub Action |
 
 ## Commands
