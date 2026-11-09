@@ -151,12 +151,7 @@ class Project:
         from konstruct.build import build
 
         config = config or self.config()
-        if run_dbt is not None:
-            config.run_dbt = run_dbt
-        if not warehouses:
-            config.warehouses = []
-        if dialect:
-            config.dialect = dialect
+        config.override(run_dbt=run_dbt, warehouses=warehouses, dialect=dialect)
         result = build(config, update=update)
         self.out_dir = config.out_dir
         self._graph = result.graph

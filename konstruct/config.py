@@ -9,6 +9,7 @@ Example ``konstruct.toml``::
     default_catalog = "analytics"         # for unqualified tables in Airflow and SQL files
     default_schema = "public"
     exclude = ["scratch/**"]
+    repositories = ["../marketing"]       # other repositories built into the same graph
 
     [dbt]
     projects = ["transform"]              # default: every dbt_project.yml found
@@ -176,11 +177,30 @@ class Config:
     dag_paths: list[Path] | None = None
     dagster_paths: list[Path] | None = None
     definitions_paths: list[Path] | None = None
+    repositories: list[Path] = field(default_factory=list)
     sql_paths: list[str] | None = None
     warehouses: list[WarehouseConfig] | None = None
     discover_warehouses: bool = True
     config_file: Path | None = None
     usage: UsageSettings = field(default_factory=lambda: _usage_settings({}))
+    options: dict[str, Any] = field(default_factory=dict)
+    """Build options given on the command line or to :meth:`konstruct.Project.build`, which apply
+    to every repository built into the graph, not only this one."""
+
+    def override(
+        self, *, run_dbt: bool | None = None, warehouses: bool = True, dialect: str | None = None
+    ) -> None:
+        """Apply build options over the configuration files: ``run_dbt=False`` never runs dbt,
+        ``warehouses=False`` connects to no warehouse, ``dialect`` replaces the detected one."""
+        if run_dbt is not None:
+            self.run_dbt = run_dbt
+            self.options['run_dbt'] = run_dbt
+        if not warehouses:
+            self.warehouses = []
+            self.options['warehouses'] = False
+        if dialect:
+            self.dialect = dialect
+            self.options['dialect'] = dialect
 
     def excluded(self, path: Path) -> bool:
         try:
@@ -237,6 +257,7 @@ def load_config(root: Path, out_dir: Path | None = None) -> Config:
         default_catalog=data.get('default_catalog'),
         default_schema=data.get('default_schema'),
         exclude=list(data.get('exclude', [])),
+        repositories=[(root / p).resolve() for p in data.get('repositories', [])],
         run_dbt=bool(dbt.get('run', True)),
         dbt_projects=[root / p for p in dbt['projects']] if 'projects' in dbt else None,
         dag_paths=[root / p for p in airflow['dags']] if 'dags' in airflow else None,

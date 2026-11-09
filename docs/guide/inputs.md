@@ -14,6 +14,18 @@
 | **BigQuery** | Datasets, tables, views and view queries through the client API, with nested `RECORD` fields and their descriptions, through `konstruct[bigquery]` | v0 |
 | **Databricks** | Unity Catalog `information_schema` for each catalogue, including struct columns, through `konstruct[databricks]` | v0 |
 
+## Several Repositories
+
+`repositories` in `konstruct.toml` lists other repositories to build into the same graph, such as a marketing dbt project that reads tables a finance repository builds:
+
+```toml
+repositories = ["../marketing", "../platform/airflow"]
+```
+
+Each repository is built with its own configuration (its own `konstruct.toml`, if it has one), under the options of the build that lists it: `--no-dbt`, `--no-warehouse` and `--dialect` apply to every repository. Its analyses are cached under `konstruct-out/repositories/<name>/` of the repository that lists it; the name is the folder's, with its parent's added when two folders share one (`b-analytics`). Konstruct writes nothing to the other repositories, though dbt writes its usual `target/` there when it runs. The repositories a listed repository lists in turn are not followed.
+
+A relation two repositories share is one node, and a model one repository builds that another reads as a dbt source is linked column by column, so `impact` and `trace` cross from one repository to the next. Two different things with the same id, such as two dbt packages both called `shop` with a model `stg` in different schemas, stay apart: the later repository's keeps its id with `@<name>` added (`model.shop.stg@marketing`). Nodes from another repository carry its name in `repository` and their paths relative to this one, the build watches their files for `--update` and `konstruct status`, and their warnings are prefixed with the repository's name.
+
 ## How Lineage Works
 
 - Konstruct qualifies each statement against the columns it knows (from the dbt catalog, the warehouse, or the lineage of upstream models, processed in dependency order), so `SELECT *` expands. sqlglot then follows every output column through CTEs, subqueries, aliases, unions and window functions to physical columns.

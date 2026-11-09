@@ -86,12 +86,9 @@ def cmd_build(args: argparse.Namespace, console: Console) -> int:
         console.error(f'{root} is not a directory')
         return 1
     config = load_config(root, Path(args.out) if args.out else None)
-    if args.no_dbt:
-        config.run_dbt = False
-    if args.no_warehouse:
-        config.warehouses = []
-    if args.dialect:
-        config.dialect = args.dialect
+    config.override(
+        run_dbt=False if args.no_dbt else None, warehouses=not args.no_warehouse, dialect=args.dialect
+    )
     if not args.json:
         console.info(f'building {config.root}')
     result = build(config, update=args.update)

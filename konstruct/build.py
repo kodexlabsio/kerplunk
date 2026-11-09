@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -21,6 +22,7 @@ from konstruct.config import (
     discover_definitions_files,
     discover_sql_files,
     discover_warehouses,
+    load_config,
 )
 from konstruct.graph import RELATION_KINDS, Edge, Graph, Node, relation_key
 from konstruct.sql import PLACEHOLDER, StatementLineage, analyse, dialect_for, strip_templating
@@ -443,26 +445,7 @@ class Builder:
     def link_shared_relations(self) -> None:
         """Connect nodes that describe one physical relation, such as a seed and the dbt source
         that reads the table it loads: the producer feeds the reader, column by column."""
-        for _, nodes in self.graph.shared_relations():
-            reader = nodes[0]
-            for producer in nodes[1:]:
-                if producer.kind not in ('model', 'snapshot', 'seed') or reader.kind != 'source':
-                    continue
-                self.graph.add_edge(producer.id, reader.id, 'feeds', same_relation=True)
-                for column in self.graph.columns_of(producer.id):
-                    mirror = self.graph.column(reader.id, column.name)
-                    if mirror is None:
-                        mirror = self.graph.add_column(
-                            reader,
-                            column.name,
-                            data_type=column.data_type,
-                            description=column.description,
-                            origin='dbt',
-                            attrs={'from_relation': producer.id},
-                        )
-                    self.graph.add_edge(
-                        mirror.id, column.id, 'derived_from', transform='direct', same_relation=True
-                    )
+        link_shared_relations(self.graph)
 
     def warn_missing_catalogs(self) -> None:
         for loaded in self.loads:
@@ -1337,6 +1320,163 @@ def _topological(models: list[dbt.ModelSql]) -> list[dbt.ModelSql]:
     return ordered
 
 
+def link_shared_relations(graph: Graph) -> None:
+    """Connect nodes that describe one physical relation, such as a seed and the dbt source
+    that reads the table it loads: the producer feeds the reader, column by column."""
+    for _, nodes in graph.shared_relations():
+        reader = nodes[0]
+        for producer in nodes[1:]:
+            if producer.kind not in ('model', 'snapshot', 'seed') or reader.kind != 'source':
+                continue
+            graph.add_edge(producer.id, reader.id, 'feeds', same_relation=True)
+            for column in graph.columns_of(producer.id):
+                mirror = graph.column(reader.id, column.name)
+                if mirror is None:
+                    mirror = graph.add_column(
+                        reader,
+                        column.name,
+                        data_type=column.data_type,
+                        description=column.description,
+                        origin='dbt',
+                        attrs={'from_relation': producer.id},
+                    )
+                graph.add_edge(mirror.id, column.id, 'derived_from', transform='direct', same_relation=True)
+
+
+def repository_name(config: Config, path: Path, taken: Iterable[str]) -> str:
+    """A name for another repository that no earlier one has: its folder's name, or with its
+    parent's when two folders share a name (``a-analytics``)."""
+    used = set(taken)
+    for name in (path.name, f'{path.parent.name}-{path.name}'):
+        if name not in used:
+            return name
+    number = 2
+    while f'{path.name}-{number}' in used:
+        number += 1
+    return f'{path.name}-{number}'
+
+
+def merge_repository(
+    graph: Graph,
+    config: Config,
+    path: Path,
+    name: str,
+    *,
+    update: bool,
+    terms: dict[str, str] | None = None,
+) -> Builder | None:
+    """Build another repository with its own configuration, under this build's options, and add
+    its graph to ``graph``: a relation it shares with this one is the same node, and a relation
+    one repository builds and the other reads as a dbt source is linked column by column. A node
+    whose id this graph already uses for something else (another relation, or a test or task
+    from another file) keeps its id with ``@name`` added, so the two never merge."""
+    if not path.is_dir():
+        graph.warn(f'repositories: {os.path.relpath(path, config.root)} is not a directory')
+        return None
+    sub_config = load_config(path, config.out_dir / 'repositories' / name)
+    sub_config.override(**config.options)
+    builder = Builder(sub_config, update=update)
+    other = builder.run()
+    builder.cache.save()
+
+    def moved(file: str) -> str:
+        return os.path.relpath(path / file, config.root)
+
+    renamed: dict[str, str] = {}
+    for node in other.nodes.values():
+        if node.kind == 'column':
+            continue
+        existing = graph.nodes.get(node.id)
+        if existing is None:
+            continue
+        shared = (
+            node.kind in RELATION_KINDS and existing.kind == node.kind and existing.relation == node.relation
+        )
+        if not shared and not (
+            node.kind not in RELATION_KINDS and node.path and moved(node.path) == existing.path
+        ):
+            renamed[node.id] = f'{node.id}@{name}'
+
+    def new_id(node_id: str) -> str:
+        parent, sep, column = node_id.partition('#')
+        return renamed[parent] + sep + column if parent in renamed else node_id
+
+    for node in other.nodes.values():
+        node.id = new_id(node.id)
+        if node.parent:
+            node.parent = new_id(node.parent)
+        if node.id in graph.nodes:
+            continue
+        if node.kind == 'term' and terms is not None:
+            terms[node.id] = f'{name}: {_term_where(node)}'
+        if node.path:
+            node.path = moved(node.path)
+        node.attrs['repository'] = name
+        graph.add_node(node)
+    for edge in other.edges:
+        graph.add_edge(new_id(edge.source), new_id(edge.target), edge.kind, **edge.attrs)
+    for warning in other.warnings:
+        graph.warn(f'{name}: {warning}')
+    for source in other.meta.get('sources', []):
+        if source.get('path'):
+            source['path'] = ', '.join(moved(p) for p in str(source['path']).split(', '))
+        graph.meta.setdefault('sources', []).append({**source, 'repository': name})
+    graph.meta['watched'] = sorted(
+        {*graph.meta.get('watched', []), *(moved(w) for w in other.meta.get('watched', []))}
+    )
+    graph.meta.setdefault('repositories', []).append(os.path.relpath(path, config.root))
+    return builder
+
+
+def _term_where(term: Node) -> str:
+    """How the build's definitions warnings name ``term`` (see ``Builder.load_definitions``)."""
+    return f'definitions: {term.path}:{term.attrs.get("line")}: term {term.name!r}'
+
+
+def bind_across_repositories(graph: Graph, wheres: dict[str, str]) -> None:
+    """Each repository binds its business terms before the graphs are merged, so a term that names
+    a column another repository builds is bound here, and its own warning withdrawn; the same goes
+    for a required filter that reads such a column. ``wheres`` gives, for each term from another
+    repository, the prefix of its warnings. A term defined in more than one repository is a
+    warning, as the repositories should share one definition."""
+    terms = [n for n in graph.nodes.values() if n.kind == 'term']
+    resolved: set[str] = set()  # warnings that no longer hold
+    for term in terms:
+        where = wheres.get(term.id) or _term_where(term)
+        bound = {e.target for e in graph.out_edges(term.id, 'defines')}
+        for ref in term.attrs.get('columns', []) or []:
+            target, _ = _bind(graph, str(ref))
+            if target is None or target.id in bound:
+                continue
+            graph.add_edge(term.id, target.id, 'defines')
+            bound.add(target.id)
+            resolved.update(w for w in graph.warnings if w.startswith(f'{where}: bound column {str(ref)!r} '))
+        relations = {
+            graph.label(graph.parent_of(t) or t) for t in (graph.nodes.get(i) for i in bound) if t is not None
+        }
+        for warning in graph.warnings:
+            match = _FILTER_MISSING.match(warning[len(where) :]) if warning.startswith(where) else None
+            if match is None:
+                continue
+            column = match[1]
+            candidates = [column] if '.' in column else [f'{r}.{column}' for r in relations]
+            if any(_bind(graph, c)[0] is not None for c in candidates):
+                resolved.add(warning)
+    graph.warnings = [w for w in graph.warnings if w not in resolved]
+    by_name: dict[str, list[Node]] = {}
+    for term in terms:
+        by_name.setdefault(term.name.lower(), []).append(term)
+    for same in by_name.values():
+        if len(same) > 1:
+            places = ', '.join(sorted(f'{t.path}:{t.attrs.get("line")}' for t in same))
+            graph.warn(
+                f'definitions: term {same[0].name!r} is defined in more than one repository ({places})'
+            )
+
+
+_FILTER_MISSING = re.compile(r": required filter .+ reads '(.+?)', which does not exist$")
+
+
 def build(config: Config, *, update: bool = False) -> BuildResult:
     """Build the graph for ``config`` and write ``graph.json``, ``REPORT.md``, ``graph.html`` and ``ontology.yml``; :meth:`konstruct.Project.build` is the usual way in."""
     from konstruct.html import write_html
@@ -1346,6 +1486,17 @@ def build(config: Config, *, update: bool = False) -> BuildResult:
     started = time.perf_counter()
     builder = Builder(config, update=update)
     graph = builder.run()
+    names: list[str] = []
+    others: list[Builder] = []
+    wheres: dict[str, str] = {}
+    for repository in config.repositories:
+        names.append(repository_name(config, repository, names))
+        merged = merge_repository(graph, config, repository, names[-1], update=update, terms=wheres)
+        if merged is not None:
+            others.append(merged)
+    if config.repositories:
+        link_shared_relations(graph)
+        bind_across_repositories(graph, wheres)
     graph.meta['dialect'] = builder.dialect or dialect_for(None)
     config.out_dir.mkdir(parents=True, exist_ok=True)
     graph_path = config.out_dir / 'graph.json'
@@ -1369,7 +1520,15 @@ def build(config: Config, *, update: bool = False) -> BuildResult:
         graph=graph,
         outputs=outputs,
         seconds=time.perf_counter() - started,
-        cache_hits=builder.cache.hits,
-        cache_misses=builder.cache.misses,
-        inputs=builder.inputs,
+        cache_hits=builder.cache.hits + sum(o.cache.hits for o in others),
+        cache_misses=builder.cache.misses + sum(o.cache.misses for o in others),
+        inputs=_total_inputs([builder, *others]),
     )
+
+
+def _total_inputs(builders: list[Builder]) -> dict[str, int]:
+    total: dict[str, int] = {}
+    for builder in builders:
+        for key, count in builder.inputs.items():
+            total[key] = total.get(key, 0) + count
+    return total

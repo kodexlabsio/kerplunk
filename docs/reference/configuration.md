@@ -8,6 +8,7 @@ default_catalog = "analytics"     # for unqualified tables in Airflow and SQL fi
 default_schema = "public"
 exclude = ["scratch/**"]
 out_dir = "konstruct-out"
+repositories = ["../marketing"]   # other repositories built into the same graph
 
 [dbt]
 projects = ["transform"]          # default: every dbt_project.yml found

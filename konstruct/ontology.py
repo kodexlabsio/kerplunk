@@ -663,10 +663,20 @@ class _Deriver:
     # Rules carried from the build
 
     def carry_warnings(self) -> None:
+        # Another repository's warnings carry its name first (``marketing: definitions: ...``).
+        others = {
+            f'{n.attrs["repository"]}: definitions: '
+            for n in self.graph.nodes.values()
+            if n.attrs.get('repository')
+        }
+        prefixes = ['definitions: ', *sorted(others)]
         for warning in self.graph.warnings:
-            if not warning.startswith('definitions: '):
+            prefix = next((p for p in prefixes if warning.startswith(p)), None)
+            if prefix is None:
                 continue
-            text = warning.removeprefix('definitions: ')
+            text = warning[len(prefix) :]
+            if prefix != 'definitions: ':
+                text = f'{prefix.split(": ", 1)[0]}: {text}'
             if ': bound column ' in text:
                 self.rules['bound-columns-exist'].violations.append(text)
             elif 'approved but has no ' in text:
