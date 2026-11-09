@@ -18,6 +18,7 @@ terms:
     unit: currency
     currency: AUD
     related: [Order amount]
+    broader: [Lifetime metric]    # the wider concepts it is a kind of
     exceptions: Refunds are not netted off.
 ```
 
@@ -40,9 +41,20 @@ Customer lifetime value  [approved, Priya Shah (Head of Finance), approved 2026-
 
 - **Agents get the agreed answer.** The `define` MCP tool returns the approved definition, owner, required filters and columns for a term or a column, and `query` puts definitions first, so an agent asked "what is our lifetime value?" starts from the wording the business approved.
 - **Changes show what they touch.** `impact` lists the business terms a change reaches, so changing `stg_payments.amount` names *Customer lifetime value* and *Order amount*. `describe` shows the terms that define a column. graph.html searches terms by name and synonym and highlights their columns.
-- **Definitions cannot drift silently.** The build warns, and fails under `--strict`, when a bound column or a column in a required filter no longer exists (naming the likely rename), when an approved term has no owner or approval date, when an agreed or approved term is bound to nothing, when two terms share a name or synonym, and when a related term is not defined. `REPORT.md` lists every term with its status, owner and columns.
+- **Definitions cannot drift silently.** The build warns, and fails under `--strict`, when a bound column or a column in a required filter no longer exists (naming the likely rename), when an approved term has no owner or approval date, when an agreed or approved term is bound to nothing, when two terms share a name or synonym, when a related or broader term is not defined, and when broader terms form a cycle. `REPORT.md` lists every term with its status, owner and columns.
 - **Pull requests review them.** `konstruct diff` reports terms added, removed and changed field by field, and flags an approved term whose definition, grain, columns or filters changed while it stayed approved with the same date.
 
 - **They feed the ontology.** A term of kind `entity` names a business object, and a term of kind `measure` (or one bound to a computed column) is a measure, with each column's formula and verification in `ontology.yml`. The build warns when a measure's columns compute it differently. [The Ontology](ontology.md)
 
 Konstruct reads every `definitions.yml` (or `.yaml`) in the repository; `[definitions] paths` in `konstruct.toml` pins the files. The example project has five terms in [`examples/jaffle_shop/definitions.yml`](https://github.com/kodexlabsio/konstruct/tree/main/examples/jaffle_shop/definitions.yml).
+
+## Vocabularies
+
+A company that already keeps its vocabulary in SKOS or OWL can point Konstruct at it instead of writing it again:
+
+```toml
+[vocabularies]
+paths = ["vocabulary/business.ttl"]   # Turtle, N-Triples or RDF/XML; needs konstruct[rdf]
+```
+
+Each named `skos:Concept` and `owl:Class` becomes a term: its name is its English `skos:prefLabel` or `rdfs:label` (any English variant, then an untagged label), its other labels are synonyms, its definition is its `skos:definition` or `rdfs:comment`, and its broader terms are the concepts it names with `skos:broader` or `rdfs:subClassOf`, or that name it with `skos:narrower`, in any of the files listed. An OWL class is an entity; an anonymous class, such as an `owl:unionOf`, is not a term. Where `definitions.yml` already has a term of that name or synonym, the vocabulary only fills in what it leaves out (synonyms, broader terms, a definition), so the project's own wording, owner, status and columns win, and a vocabulary label that is already another term's name is not added; the vocabulary's other terms are added as drafts, bound to no column until a `definitions.yml` term of the same name binds them. A term from a vocabulary is shown with its file and IRI. The build warns about a broader concept no file defines, two concepts with the same label, and a file with no named concepts. Nothing a vocabulary names is fetched, and an RDF/XML file that declares XML entities is not read.

@@ -149,6 +149,18 @@ class Relationship:
 
 
 @dataclass
+class Concept:
+    """A business term in the concept hierarchy: what it is a kind of, and what are kinds of it."""
+
+    name: str
+    """The term's name."""
+    broader: list[str] = field(default_factory=list)
+    """The wider concepts it is a kind of."""
+    narrower: list[str] = field(default_factory=list)
+    """The concepts that are kinds of it."""
+
+
+@dataclass
 class Rule:
     """A rule the build holds the ontology to, with what breaks it now."""
 
@@ -172,6 +184,8 @@ class Ontology:
     """How the entities refer to each other."""
     rules: list[Rule] = field(default_factory=list)
     """The rules and their violations."""
+    concepts: list[Concept] = field(default_factory=list)
+    """The concept hierarchy: each term with a broader or narrower term."""
 
     @property
     def violations(self) -> list[str]:
@@ -210,6 +224,11 @@ class Ontology:
                 tested = '  (tested)' if rel.tested else ''
                 cardinality = rel.cardinality or 'cardinality unknown'
                 lines.append(f'  {rel.source} -> {rel.target}  {cardinality}  {rel.via}{tested}')
+        if self.concepts:
+            lines += ['', 'Concepts']
+            for concept in self.concepts:
+                if concept.broader:
+                    lines.append(f'  {concept.name}  a kind of {", ".join(concept.broader)}')
         broken = [rule for rule in self.rules if rule.violations]
         if broken:
             lines += ['', 'Rule violations']
@@ -229,6 +248,7 @@ class Ontology:
                 for m in self.measures
             ],
             'relationships': [_compact(asdict(r)) for r in self.relationships],
+            **({'concepts': [_compact(asdict(c)) for c in self.concepts]} if self.concepts else {}),
             'rules': [
                 {'name': r.name, 'description': r.description, 'violations': r.violations} for r in self.rules
             ],
@@ -387,7 +407,23 @@ class _Deriver:
             measures=measures,
             relationships=relationships,
             rules=list(self.rules.values()),
+            concepts=self.concepts(),
         )
+
+    def concepts(self) -> list[Concept]:
+        """The concept hierarchy, from the ``broader`` terms each term names."""
+        found: dict[str, Concept] = {}
+        for term in self.terms:
+            for edge in self.graph.out_edges(term.id, 'relates_to'):
+                wider = self.graph.nodes.get(edge.target)
+                if edge.attrs.get('role') != 'broader' or wider is None:
+                    continue
+                found.setdefault(term.name, Concept(term.name)).broader.append(wider.name)
+                found.setdefault(wider.name, Concept(wider.name)).narrower.append(term.name)
+        for concept in found.values():
+            concept.broader.sort()
+            concept.narrower.sort()
+        return [found[name] for name in sorted(found)]
 
     # Entities
 

@@ -16,7 +16,7 @@
 | `precedes` | task to task | Airflow ordering, Dagster op and asset ordering, and sensors that start one job after another |
 | `tests` | test to relation or column | What a dbt test checks |
 | `defines` | term to column or relation | The column that holds a business term |
-| `relates_to` | term to term | Related business terms |
+| `relates_to` | term to term | Related business terms; with `role: broader`, the wider concept the term is a kind of |
 
 With **Columns** on, graph.html is a column-level map of the whole project:
 

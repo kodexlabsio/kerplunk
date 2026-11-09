@@ -36,6 +36,9 @@ paths = ["definitions.yml"]       # business terms; default: every definitions.y
 [ontologies]
 packs = ["stripe", "shopify"]     # ontology packs to bind; default: all; [] for none
 
+[vocabularies]
+paths = ["vocabulary/business.ttl"]  # SKOS or OWL, read as terms; needs konstruct[rdf]
+
 [ossie]
 paths = ["semantic/"]             # Apache Ossie models; default: every *.ossie.yaml
 

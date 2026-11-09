@@ -206,6 +206,8 @@ class Config:
     """Read the Fivetran Platform Connector's lineage tables when a warehouse has them."""
     looker_paths: list[Path] | None = None
     definitions_paths: list[Path] | None = None
+    vocabulary_paths: list[Path] = field(default_factory=list)
+    """SKOS or OWL vocabularies to read as business terms."""
     repositories: list[Path] = field(default_factory=list)
     ossie_paths: list[Path] | None = None
     sql_paths: list[str] | None = None
@@ -342,6 +344,7 @@ def load_config(root: Path, out_dir: Path | None = None) -> Config:
         sql_paths=list(sql['paths']) if 'paths' in sql else None,
         usage=_usage_settings(data.get('usage', {})),
         fivetran_lineage=_flag(data.get('fivetran', {}), 'lineage', '[fivetran] lineage', True),
+        vocabulary_paths=[root / p for p in data.get('vocabularies', {}).get('paths', [])],
         definitions_paths=[root / p for p in data.get('definitions', {}).get('paths', [])]
         if 'paths' in data.get('definitions', {})
         else None,

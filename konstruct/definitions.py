@@ -53,6 +53,7 @@ FIELDS = frozenset(
         'unit',
         'currency',
         'related',
+        'broader',
         'exceptions',
     }
 )
@@ -84,9 +85,20 @@ class Term:
     unit: str | None = None
     currency: str | None = None
     related: list[str] = field(default_factory=list)
+    broader: list[str] = field(default_factory=list)
+    """The wider concepts this one is a kind of (SKOS ``broader``): a refund rate is a rate."""
     exceptions: str | None = None
     kind: str | None = None
     """``entity``, ``measure`` or ``term``; unset, the ontology infers it from the bound columns."""
+    iri: str | None = None
+    """For a term from a SKOS or OWL vocabulary, the concept's IRI."""
+
+    @property
+    def where(self) -> str:
+        """Where the term is defined: ``path:line``, or for a vocabulary concept its file and IRI."""
+        if self.line:
+            return f'{self.path}:{self.line}'
+        return f'{self.path} ({self.iri})' if self.iri else self.path
 
     @property
     def slug(self) -> str:
@@ -254,7 +266,7 @@ def _term(entry: dict[str, Any], path: str, problem: Any) -> Term | None:
     elif owner_value is not None:
         problem(line, f'{label}: `owner` must be a name or a mapping with `name` and `role`')
     lists: dict[str, list[str]] = {}
-    for key in ('synonyms', 'columns', 'filters', 'related'):
+    for key in ('synonyms', 'columns', 'filters', 'related', 'broader'):
         value = _strings(entry.get(key))
         if value is None:
             problem(line, f'{label}: `{key}` must be a list of strings')
@@ -282,6 +294,7 @@ def _term(entry: dict[str, Any], path: str, problem: Any) -> Term | None:
         unit=_text(entry.get('unit')),
         currency=currency,
         related=lists['related'],
+        broader=lists['broader'],
         exceptions=_text(entry.get('exceptions')),
         kind=kind,
     )
@@ -304,13 +317,13 @@ def validate(terms: list[Term]) -> list[str]:
             other = seen.get(key)
             if other is not None and other is not term:
                 problems.append(
-                    f'{term.path}:{term.line}: term {term.name!r}: {name!r} is also a name of '
-                    f'{other.name!r} ({other.path}:{other.line})'
+                    f'{term.where}: term {term.name!r}: {name!r} is also a name of '
+                    f'{other.name!r} ({other.where})'
                 )
             else:
                 seen[key] = term
     for term in terms:
-        where = f'{term.path}:{term.line}: term {term.name!r}'
+        where = f'{term.where}: term {term.name!r}'
         if term.status == 'approved':
             if term.owner is None:
                 problems.append(f'{where}: approved but has no owner')
@@ -321,4 +334,34 @@ def validate(terms: list[Term]) -> list[str]:
         for related in term.related:
             if related.lower() not in seen:
                 problems.append(f'{where}: related term {related!r} is not defined')
+        for wider in term.broader:
+            if wider.lower() not in seen:
+                problems.append(f'{where}: broader term {wider!r} is not defined')
+    # A concept cannot be wider than itself: a walk over every broader term, each cycle once.
+    state: dict[str, int] = {}
+    reported: set[frozenset[str]] = set()
+
+    def visit(term: Term, path: list[Term]) -> None:
+        state[term.name.lower()] = 1
+        for wider in term.broader:
+            parent = seen.get(wider.lower())
+            if parent is None:
+                continue
+            key = parent.name.lower()
+            if state.get(key) == 1:
+                cycle = [*path[path.index(parent) :], parent] if parent in path else [term, parent]
+                members = frozenset(t.name.lower() for t in cycle)
+                if members not in reported:
+                    reported.add(members)
+                    problems.append(
+                        f'{parent.where}: term {parent.name!r}: broader terms form a cycle '
+                        f'({" -> ".join(t.name for t in cycle)})'
+                    )
+            elif key not in state:
+                visit(parent, [*path, parent])
+        state[term.name.lower()] = 2
+
+    for term in terms:
+        if term.name.lower() not in state:
+            visit(term, [term])
     return problems

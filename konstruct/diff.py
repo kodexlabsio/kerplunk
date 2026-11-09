@@ -231,6 +231,7 @@ _TERM_FIELDS = (
     'synonyms',
     'related',
     'exceptions',
+    'broader',
 )
 _MEANING = ('definition', 'columns', 'filters', 'grain')
 

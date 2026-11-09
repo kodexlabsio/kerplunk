@@ -1494,6 +1494,7 @@ dependencies = [
 all = [
     { name = "databricks-sql-connector" },
     { name = "google-cloud-bigquery" },
+    { name = "rdflib" },
     { name = "snowflake-connector-python" },
     { name = "trino" },
 ]
@@ -1502,6 +1503,9 @@ bigquery = [
 ]
 databricks = [
     { name = "databricks-sql-connector" },
+]
+rdf = [
+    { name = "rdflib" },
 ]
 snowflake = [
     { name = "snowflake-connector-python" },
@@ -1526,6 +1530,7 @@ dev = [
     { name = "pyiceberg", extra = ["sql-sqlite"] },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "rdflib" },
     { name = "ruff" },
     { name = "types-jsonschema" },
     { name = "types-pyyaml" },
@@ -1547,19 +1552,20 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.1" },
     { name = "google-cloud-bigquery", marker = "extra == 'bigquery'", specifier = ">=3.25" },
     { name = "jinja2", specifier = ">=3.1" },
-    { name = "konstruct", extras = ["snowflake", "bigquery", "databricks", "trino"], marker = "extra == 'all'" },
+    { name = "konstruct", extras = ["snowflake", "bigquery", "databricks", "trino", "rdf"], marker = "extra == 'all'" },
     { name = "lkml", specifier = ">=1.3" },
     { name = "mcp", specifier = ">=2.0,<3" },
     { name = "orjson", specifier = ">=3.10" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "pyiceberg", specifier = ">=0.9" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "rdflib", marker = "extra == 'rdf'", specifier = ">=7.1" },
     { name = "snowflake-connector-python", marker = "extra == 'snowflake'", specifier = ">=3.12" },
     { name = "sqlglot", specifier = ">=30.0,<31" },
     { name = "sqlglot", extras = ["c"], marker = "(platform_machine in 'x86_64 aarch64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32') or sys_platform == 'darwin'", specifier = ">=30.0,<31" },
     { name = "trino", marker = "extra == 'trino'", specifier = ">=0.330" },
 ]
-provides-extras = ["snowflake", "bigquery", "databricks", "trino", "all"]
+provides-extras = ["snowflake", "bigquery", "databricks", "trino", "rdf", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1577,6 +1583,7 @@ dev = [
     { name = "pyiceberg", extras = ["sql-sqlite"], specifier = ">=0.9" },
     { name = "pytest", specifier = ">=9.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "rdflib", specifier = ">=7.1" },
     { name = "ruff", specifier = ">=0.17" },
     { name = "types-jsonschema", specifier = ">=4.26.0.20261006" },
     { name = "types-pyyaml" },
@@ -3725,6 +3732,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/48/69/a573c2e5e1b1a4f19e98a8fb3f6a792a44f5b8a067895a2654890ffd35a4/rapidfuzz-3.14.6-pp311-pypy311_pp73-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:e2fc748d1fde4109e5d0dab27f1e61f53b3136a235dfee5a4fb579da44808b6a", size = 1361237, upload-time = "2026-08-30T21:45:38.582Z" },
     { url = "https://files.pythonhosted.org/packages/ea/0b/375ebdfc4ca149e23793bb6b72461954ec64d0acbb826030787e88b90ff3/rapidfuzz-3.14.6-pp311-pypy311_pp73-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b42536675c930cb76b7998bfc4d8e59cb35d8df47f2103020265743b6b2ccd2a", size = 3136631, upload-time = "2026-08-30T21:45:41.426Z" },
     { url = "https://files.pythonhosted.org/packages/55/56/799accc99532ecaaa2c1d04c7e594d6bb8f1afdddc327389c61196741cb8/rapidfuzz-3.14.6-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:1e6911e3a14971719ddc35af98f181d2e5369ab273a5a3488ab7685d23c31ad5", size = 1722739, upload-time = "2026-08-30T21:45:44.301Z" },
+]
+
+[[package]]
+name = "rdflib"
+version = "7.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyparsing" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/98/f5/18bb77b7af9526add0c727a3b2048959847dc5fb030913e2918bf384fec3/rdflib-7.6.0.tar.gz", hash = "sha256:6c831288d5e4a5a7ece85d0ccde9877d512a3d0f02d7c06455d00d6d0ea379df", size = 4943826, upload-time = "2026-02-13T07:15:55.938Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/10/c2/6604a71269e0c1bd75656d5a001432d16f2cc5b8c057140ec797155c295e/rdflib-7.6.0-py3-none-any.whl", hash = "sha256:30c0a3ebf4c0e09215f066be7246794b6492e054e782d7ac2a34c9f70a15e0dd", size = 615416, upload-time = "2026-02-13T07:15:46.487Z" },
 ]
 
 [[package]]

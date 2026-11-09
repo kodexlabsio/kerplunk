@@ -567,6 +567,14 @@ def _attr_text(value: Any) -> str:
     return str(value)
 
 
+def _where(path: str | None, line: int | None, iri: str | None) -> str | None:
+    if not path:
+        return None
+    if line:
+        return f'{path}:{line}'
+    return f'{path} ({iri})' if iri else path
+
+
 def _term_label(graph: Graph, node: Node) -> str:
     return f'{node.name} ({node.attrs.get("status", "draft")})'
 
@@ -618,9 +626,24 @@ def describe(graph: Graph, ref: str) -> Description:
             graph.label(graph.nodes[e.target]) for e in graph.out_edges(node.id, 'defines')
         )
         result.related = sorted(
-            {graph.nodes[e.target].name for e in graph.out_edges(node.id, 'relates_to')}
-            | {graph.nodes[e.source].name for e in graph.in_edges(node.id, 'relates_to')}
+            {
+                graph.nodes[e.target].name
+                for e in graph.out_edges(node.id, 'relates_to')
+                if not e.attrs.get('role')
+            }
+            | {
+                graph.nodes[e.source].name
+                for e in graph.in_edges(node.id, 'relates_to')
+                if not e.attrs.get('role')
+            }
         )
+        narrower = sorted(
+            graph.nodes[e.source].name
+            for e in graph.in_edges(node.id, 'relates_to')
+            if e.attrs.get('role') == 'broader'
+        )
+        if narrower:
+            result.attrs['narrower'] = narrower
     if node.kind == 'dag':
         result.tasks = [graph.nodes[e.target].name for e in graph.out_edges(node.id, 'runs')]
     if node.kind == 'task':
@@ -661,12 +684,18 @@ class TermDefinition:
     """ISO 4217 currency code."""
     related: list[str] = field(default_factory=list)
     """Names of related terms."""
+    broader: list[str] = field(default_factory=list)
+    """The wider concepts this term is a kind of."""
+    narrower: list[str] = field(default_factory=list)
+    """The terms that are kinds of this one."""
     exceptions: str | None = None
     """Known exceptions to the definition."""
     path: str | None = None
     """The definitions file."""
     line: int | None = None
     """The line the term starts on."""
+    iri: str | None = None
+    """For a term from a SKOS or OWL vocabulary, the concept's IRI."""
     id: str = ''
     """The node id, ``term.<slug>``."""
 
@@ -689,7 +718,9 @@ class TermDefinition:
             ('required filters', '; '.join(self.filters)),
             ('exceptions', self.exceptions),
             ('related', ', '.join(self.related)),
-            ('defined in', f'{self.path}:{self.line}' if self.path else None),
+            ('a kind of', ', '.join(self.broader)),
+            ('kinds', ', '.join(self.narrower)),
+            ('defined in', _where(self.path, self.line, self.iri)),
         ):
             if value:
                 lines.append(f'  {key}: {value}')
@@ -750,9 +781,16 @@ def term_definition(graph: Graph, node: Node) -> TermDefinition:
         unit=attrs.get('unit'),
         currency=attrs.get('currency'),
         related=list(attrs.get('related', [])),
+        broader=list(attrs.get('broader', [])),
+        narrower=sorted(
+            graph.nodes[e.source].name
+            for e in graph.in_edges(node.id, 'relates_to')
+            if e.attrs.get('role') == 'broader'
+        ),
         exceptions=attrs.get('exceptions'),
         path=node.path,
         line=attrs.get('line'),
+        iri=attrs.get('iri'),
     )
 
 

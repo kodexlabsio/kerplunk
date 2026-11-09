@@ -60,7 +60,9 @@
     }
 
     function related(n: GraphNode): GraphNode[] {
+        // A broader concept is a hierarchy, not a related term.
         return [...model.outs(n.id, 'relates_to'), ...model.ins(n.id, 'relates_to')]
+            .filter(e => !e.attrs?.role)
             .map(e => model.node(e.source === n.id ? e.target : e.source))
             .filter((t): t is GraphNode => t !== undefined);
     }

@@ -13,7 +13,7 @@ uvx --from git+https://github.com/kodexlabsio/konstruct konstruct build
 ```
 
 For a warehouse extra, name it in the requirement, for example
-`uv tool install "konstruct[snowflake] @ git+https://github.com/kodexlabsio/konstruct"` (or `[bigquery]`, `[databricks]`, `[trino]`, `[all]`).
+`uv tool install "konstruct[snowflake] @ git+https://github.com/kodexlabsio/konstruct"` (or `[bigquery]`, `[databricks]`, `[trino]`, `[rdf]` for SKOS and OWL vocabularies, `[all]`).
 To pin a release, add its tag: `git+https://github.com/kodexlabsio/konstruct@v0.8.0`. Each [release](https://github.com/kodexlabsio/konstruct/releases) also has the wheel attached.
 
 Then, in a repository with dbt models, SQL, DAGs or a warehouse:

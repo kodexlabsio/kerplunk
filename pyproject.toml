@@ -42,7 +42,8 @@ snowflake = ["snowflake-connector-python>=3.12"]
 bigquery = ["google-cloud-bigquery>=3.25"]
 databricks = ["databricks-sql-connector>=3.4"]
 trino = ["trino>=0.330"]
-all = ["konstruct[snowflake,bigquery,databricks,trino]"]
+rdf = ["rdflib>=7.1"]
+all = ["konstruct[snowflake,bigquery,databricks,trino,rdf]"]
 
 [project.urls]
 Homepage = "https://github.com/kodexlabsio/konstruct"
@@ -70,6 +71,7 @@ dev = [
     "databricks-sql-connector>=4.9.0",
     "jsonschema>=4.26.0",
     "types-jsonschema>=4.26.0.20261006",
+    "rdflib>=7.1",
 ]
 docs = [
     "myst-parser>=5.1.0",

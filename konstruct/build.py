@@ -142,6 +142,7 @@ class Builder:
             'generated_at': datetime.now(UTC).isoformat(timespec='seconds'),
         }
         self.cache = Cache(config.out_dir / 'cache.json', enabled=update)
+        self.vocabulary_files: set[str] = set()
         self.index = RelationIndex(self.graph)
         self.dialect: str | None = config.dialect
         self.default_catalog = config.default_catalog
@@ -1295,6 +1296,41 @@ class Builder:
             self.add_terms(found)
             self.inputs['ontology_pack_terms'] = len(found)
 
+    def vocabulary_terms(self, terms: list[definitions.Term]) -> list[definitions.Term]:
+        """The terms of the configured SKOS and OWL vocabularies that the project does not define,
+        after filling in the project's own terms from them."""
+        from konstruct import vocabulary
+
+        self.vocabulary_files = set()
+        paths = []
+        for path in self.config.vocabulary_paths:
+            rel = self.rel_path(path)
+            self.watch(path)
+            if not path.is_file():
+                self.graph.warn(f'vocabularies: {rel} does not exist')
+                continue
+            paths.append((path, rel))
+        if not paths:
+            return []
+        read = vocabulary.read(paths)
+        problems: list[str] = []
+        added = vocabulary.merge(terms, read.terms, problems)
+        for problem in read.problems + problems:
+            self.graph.warn(f'vocabularies: {problem}')
+        for _, rel in paths:
+            self.vocabulary_files.add(rel)
+            count = read.counts.get(rel, 0)
+            new = sum(1 for t in added if t.path == rel)
+            if count:
+                self.sources.append(
+                    {
+                        'input': 'vocabulary',
+                        'path': rel,
+                        'detail': f'{count} concepts, {new} new term{"s" if new != 1 else ""}',
+                    }
+                )
+        return added
+
     def load_definitions(self) -> None:
         """Business terms from definitions.yml, attached to the columns they name."""
         terms: list[definitions.Term] = []
@@ -1313,6 +1349,7 @@ class Builder:
             self.sources.append(
                 {'input': 'definitions', 'path': rel, 'detail': f'{count} term{"s" if count != 1 else ""}'}
             )
+        terms.extend(self.vocabulary_terms(terms))
         self.add_terms(terms)
         self.inputs['definitions'] = len(terms)
 
@@ -1322,7 +1359,7 @@ class Builder:
             self.graph.warn(f'definitions: {problem}')
         nodes: dict[str, Node] = {}
         for term in terms:
-            where = f'definitions: {term.path}:{term.line}: term {term.name!r}'
+            where = f'definitions: {term.where}: term {term.name!r}'
             node_id = f'term.{term.slug}'
             if node_id in self.graph.nodes:
                 self.graph.warn(f'{where}: has the same id as another term ({node_id}); skipped')
@@ -1334,7 +1371,13 @@ class Builder:
                     name=term.name,
                     description=term.definition or None,
                     path=term.path,
-                    origins=['registry' if term.path.startswith('ontology pack ') else 'definitions'],
+                    origins=[
+                        'registry'
+                        if term.path.startswith('ontology pack ')
+                        else 'vocabulary'
+                        if term.path in self.vocabulary_files
+                        else 'definitions'
+                    ],
                     attrs={
                         k: v
                         for k, v in {
@@ -1354,8 +1397,10 @@ class Builder:
                             'unit': term.unit,
                             'currency': term.currency,
                             'related': term.related,
+                            'broader': term.broader,
                             'exceptions': term.exceptions,
-                            'line': term.line,
+                            'line': term.line or None,
+                            'iri': term.iri,
                         }.items()
                         if v not in (None, [], '')
                     },
@@ -1396,6 +1441,10 @@ class Builder:
                 target = nodes.get(related.lower())
                 if source is not None and target is not None and target is not source:
                     self.graph.add_edge(source.id, target.id, 'relates_to')
+            for wider in term.broader:
+                target = nodes.get(wider.lower())
+                if source is not None and target is not None and target is not source:
+                    self.graph.add_edge(source.id, target.id, 'relates_to', role='broader')
 
     def dagster_ops(
         self,
@@ -1916,7 +1965,15 @@ def merge_repository(
 
 def _term_where(term: Node) -> str:
     """How the build's definitions warnings name ``term`` (see ``Builder.load_definitions``)."""
-    return f'definitions: {term.path}:{term.attrs.get("line")}: term {term.name!r}'
+    return f'definitions: {_term_location(term)}: term {term.name!r}'
+
+
+def _term_location(term: Node) -> str:
+    """Where a term is defined: ``path:line``, or for a vocabulary concept its file and IRI."""
+    line, iri = term.attrs.get('line'), term.attrs.get('iri')
+    if line:
+        return f'{term.path}:{line}'
+    return f'{term.path} ({iri})' if iri else str(term.path)
 
 
 def bind_across_repositories(graph: Graph, wheres: dict[str, str]) -> None:
@@ -1954,7 +2011,7 @@ def bind_across_repositories(graph: Graph, wheres: dict[str, str]) -> None:
         by_name.setdefault(term.name.lower(), []).append(term)
     for same in by_name.values():
         if len(same) > 1:
-            places = ', '.join(sorted(f'{t.path}:{t.attrs.get("line")}' for t in same))
+            places = ', '.join(sorted(_term_location(t) for t in same))
             graph.warn(
                 f'definitions: term {same[0].name!r} is defined in more than one repository ({places})'
             )
