@@ -15,7 +15,7 @@ Action and a single offline HTML page.
 |------|----------|
 | `konstruct/` | The Python package (flat layout; a bare `src/` cannot work, see below) |
 | `konstruct/graph.py`, `sql.py` | Graph model and traversal; sqlglot column lineage, canonical expressions |
-| `konstruct/dbt.py`, `jinja.py`, `airflow.py`, `dagster.py`, `spark.py`, `looker.py`, `powerbi.py`, `warehouse.py`, `definitions.py`, `usage.py` | Inputs |
+| `konstruct/dbt.py`, `jinja.py`, `airflow.py`, `dagster.py`, `spark.py`, `looker.py`, `powerbi.py`, `loaders.py`, `warehouse.py`, `definitions.py`, `usage.py` | Inputs |
 | `konstruct/build.py`, `config.py` | Discovery, the build and its cache |
 | `konstruct/query.py`, `explain.py`, `conflicts.py`, `diff.py`, `gate.py`, `verify.py`, `export.py` | Questions over the graph |
 | `konstruct/cli.py`, `project.py`, `mcp_server.py`, `skill.py` | Interfaces |

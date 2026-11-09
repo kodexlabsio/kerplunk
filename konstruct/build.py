@@ -306,6 +306,7 @@ class Builder:
     def run(self) -> Graph:
         projects = self.load_dbt()
         self.load_warehouses(projects)
+        self.load_loaders()
         self.link_shared_relations()
         self.warn_missing_catalogs()
         self.index = RelationIndex(self.graph)
@@ -365,6 +366,7 @@ class Builder:
     def load_warehouses(self, projects: list[dbt.DbtProject]) -> None:
         count = 0
         self.usage_connectors: list[tuple[Any, Any]] = []
+        self.warehouse_relations: list[tuple[Any, list[RelationMeta]]] = []
         for warehouse in discover_warehouses(self.config, projects):
             try:
                 connector = warehouse.connector(self.config.root)
@@ -396,6 +398,7 @@ class Builder:
                 continue
             count += 1
             self.usage_connectors.append((warehouse, connector))
+            self.warehouse_relations.append((connector, relations))
             self.sources.append(
                 {
                     'input': warehouse.type,
@@ -412,6 +415,128 @@ class Builder:
             for meta in relations:
                 self.merge_relation(meta, connector.label)
         self.inputs['warehouses'] = count
+
+    def load_loaders(self) -> None:
+        """Fivetran and Airbyte: a loader task per schema for the tables each lands (known by the
+        columns it adds), and, from the Fivetran Platform Connector's lineage tables, each
+        connection's source tables and columns with column lineage into the tables it lands."""
+        from konstruct import loaders
+        from konstruct.warehouse import query
+
+        def task(loader: str, schema: str) -> Node:
+            node_id = f'task.{loader}.{schema}'
+            existing = self.graph.nodes.get(node_id)
+            if existing is not None:
+                return existing
+            return self.graph.add_node(
+                Node(
+                    id=node_id,
+                    kind='task',
+                    name=f'{loader} {schema}',
+                    origins=[loader],
+                    attrs={'type': f'{loader} sync', 'loader': loader, 'schema': schema},
+                )
+            )
+
+        landed = 0
+        for relation in sorted(self.graph.relations(), key=lambda n: n.id):
+            if not relation.relation or not relation.attrs.get('in_warehouse'):
+                continue
+            loader = loaders.loader_of(c.name for c in self.graph.columns_of(relation.id))
+            if loader is None:
+                continue
+            relation.attrs['loaded_by'] = loader
+            parts = relation.relation.split('.')
+            namespace = loaders.airbyte_raw_namespace(*parts[-2:]) if len(parts) > 1 else None
+            if loader == loaders.AIRBYTE and namespace:
+                self.graph.add_edge(relation.id, task(loader, '.'.join([*parts[:-2], namespace])).id, 'feeds')
+                continue
+            self.graph.add_edge(task(loader, '.'.join(parts[:-1])).id, relation.id, 'feeds', origin=loader)
+            landed += 1
+        if landed:
+            self.inputs['landed_tables'] = landed
+        if not self.config.fivetran_lineage:
+            return
+        for connector, relations in self.warehouse_relations:
+            for schema in loaders.lineage_schemas(relations):
+                where = f'fivetran: lineage in {".".join(schema.parts)}'
+                prefix = schema.parts[:-1]
+                schemas = {r.parts[-2] for r in relations if len(r.parts) >= 2 and r.parts[:-2] == prefix}
+                try:
+                    found = query(connector, loaders.destination_sql(schema, connector.dialect))
+                    own, candidates = loaders.destination(found or [])
+                    if own is None:
+                        self.graph.warn(
+                            f'{where}: cannot tell which Fivetran destination this warehouse is '
+                            f'({candidates} destinations, and not one alone lands {schema.parts[-1]})'
+                        )
+                        continue
+                    columns_sql, tables_sql = loaders.lineage_sql(schema, connector.dialect, own, schemas)
+                    column_rows = query(connector, columns_sql)
+                    table_rows = query(connector, tables_sql)
+                except Exception as error:  # a missing permission or a changed schema
+                    message = (
+                        str(error).strip().splitlines()[0] if str(error).strip() else type(error).__name__
+                    )
+                    self.graph.warn(f'{where}: {message}')
+                    continue
+                if column_rows is None or table_rows is None:
+                    continue
+                count = self.apply_fivetran_lineage(schema, loaders.lineage(column_rows, table_rows), task)
+                self.sources.append(
+                    {
+                        'input': 'fivetran',
+                        'name': '.'.join(schema.parts),
+                        'detail': f'{count} source table{"s" if count != 1 else ""}',
+                    }
+                )
+
+    def apply_fivetran_lineage(self, schema: Any, rows: list[Any], task: Callable[[str, str], Node]) -> int:
+        """Source tables and columns, outside the warehouse, feeding the tables Fivetran lands
+        from them. They are named after their connection and are not found by relation name, so
+        a landed table keeps its own short names. Returns the number of source tables added."""
+        prefix = list(schema.parts[:-1])
+        sources: set[str] = set()
+        for row in rows:
+            landed = self.graph.node_for_relation(
+                relation_key(*prefix, row.destination_schema, row.destination_table)
+            )
+            if landed is None:
+                continue
+            key = relation_key(row.connection, row.source_schema, row.source_table)
+            source = self.graph.nodes.get(f'fivetran.{key}') or self.graph.add_node(
+                Node(
+                    id=f'fivetran.{key}',
+                    kind='table',
+                    name=f'{row.connection}.{row.source_schema}.{row.source_table}',
+                    origins=['fivetran'],
+                    attrs={
+                        'system': row.connection,
+                        'source_table': f'{row.source_schema}.{row.source_table}',
+                        'outside_warehouse': True,
+                    },
+                )
+            )
+            sources.add(source.id)
+            sync = task('fivetran', relation_key(*prefix, row.destination_schema))
+            sync.attrs.setdefault('connection', row.connection)
+            self.graph.add_edge(source.id, sync.id, 'feeds', origin='fivetran')
+            self.graph.add_edge(sync.id, landed.id, 'feeds', origin='fivetran')
+            if row.source_column and row.destination_column:
+                target = self.graph.column(landed.id, row.destination_column)
+                if target is None:
+                    continue
+                column = self.graph.column(source.id, row.source_column) or self.graph.add_column(
+                    source, row.source_column, data_type=row.source_type, origin='fivetran'
+                )
+                self.graph.add_edge(
+                    target.id, column.id, 'derived_from', transform='direct', loaded=True, origin='fivetran'
+                )
+        if sources:
+            self.inputs['fivetran_source_tables'] = self.inputs.get('fivetran_source_tables', 0) + len(
+                sources
+            )
+        return len(sources)
 
     def merge_relation(self, meta: RelationMeta, origin: str) -> None:
         nodes = self.graph.nodes_for_relation(meta.key)

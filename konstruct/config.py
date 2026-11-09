@@ -200,6 +200,8 @@ class Config:
     spark_paths: list[Path] | None = None
     powerbi_paths: list[Path] | None = None
     spark_dialect: str = 'spark'
+    fivetran_lineage: bool = True
+    """Read the Fivetran Platform Connector's lineage tables when a warehouse has them."""
     looker_paths: list[Path] | None = None
     definitions_paths: list[Path] | None = None
     repositories: list[Path] = field(default_factory=list)
@@ -244,6 +246,13 @@ def _spark_dialect(value: Any) -> str:
     except ValueError:
         raise ConfigError(f'[spark] dialect {value!r} is not a SQL dialect Konstruct knows') from None
     return str(value)
+
+
+def _flag(data: dict[str, Any], key: str, where: str, default: bool) -> bool:
+    value = data.get(key, default)
+    if not isinstance(value, bool):
+        raise ConfigError(f'{where} must be true or false, not {value!r}')
+    return value
 
 
 def _usage_settings(data: dict[str, Any]) -> UsageSettings:
@@ -312,6 +321,7 @@ def load_config(root: Path, out_dir: Path | None = None) -> Config:
         else None,
         sql_paths=list(sql['paths']) if 'paths' in sql else None,
         usage=_usage_settings(data.get('usage', {})),
+        fivetran_lineage=_flag(data.get('fivetran', {}), 'lineage', '[fivetran] lineage', True),
         definitions_paths=[root / p for p in data.get('definitions', {}).get('paths', [])]
         if 'paths' in data.get('definitions', {})
         else None,

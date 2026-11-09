@@ -274,6 +274,11 @@ def render_config(config: Config, status: Status, warehouses: list[WarehouseConf
     lines += ['', '[powerbi]']
     models = sorted({_semantic_model(f) for f in status.powerbi_files})
     lines.append(f'paths = {_toml_list(models)}' if models else '# paths = ["reports/Sales.SemanticModel"]')
+    lines += [
+        '',
+        '[fivetran]',
+        '# lineage = true                 # read the Fivetran Platform Connector lineage tables',
+    ]
     lines += ['', '[definitions]']
     lines.append(
         f'paths = {_toml_list(status.definitions_files)}'

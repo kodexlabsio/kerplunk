@@ -36,6 +36,9 @@ paths = ["definitions.yml"]       # business terms; default: every definitions.y
 [ossie]
 paths = ["semantic/"]             # Apache Ossie models; default: every *.ossie.yaml
 
+[fivetran]
+lineage = false                   # read the Platform Connector's lineage tables; default true
+
 [usage]                           # column usage from query history; off by default
 enabled = true
 days = 90

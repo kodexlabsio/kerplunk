@@ -665,3 +665,39 @@ def _bigquery_fields(fields: Any, prefix: str) -> Iterator[ColumnMeta]:
         yield ColumnMeta(name, dtype, field_def.description or None, attrs)
         if field_def.field_type in ('RECORD', 'STRUCT') and field_def.fields:
             yield from _bigquery_fields(field_def.fields, f'{name}.')
+
+
+def query(connector: Any, sql: str) -> list[tuple[Any, ...]] | None:
+    """The rows of a read-only query against a connector's warehouse, or None for a connector
+    that cannot run SQL (Iceberg)."""
+    if isinstance(connector, DuckDBConnector):
+        import duckdb
+
+        database = duckdb.connect(str(connector.path), read_only=True)
+        try:
+            return [tuple(r) for r in database.execute(sql).fetchall()]
+        finally:
+            database.close()
+    if isinstance(connector, PostgresConnector):
+        import psycopg
+
+        with psycopg.connect(connector.dsn, autocommit=True) as con, con.cursor() as cur:
+            cur.execute('set default_transaction_read_only = on')
+            cur.execute(sql)
+            return [tuple(r) for r in cur.fetchall()]
+    if isinstance(connector, BigQueryConnector):
+        return [tuple(r.values()) for r in connector.client().query(sql).result()]
+    if isinstance(connector, TrinoConnector):
+        connection = connector.connect()
+    elif isinstance(connector, SnowflakeConnector):
+        connection = _driver('snowflake.connector', 'snowflake').connect(**connector.options)
+    elif isinstance(connector, DatabricksConnector):
+        connection = _driver('databricks.sql', 'databricks').connect(**connector.options)
+    else:
+        return None
+    try:
+        cursor = connection.cursor()
+        cursor.execute(sql)
+        return [tuple(r) for r in cursor.fetchall()]
+    finally:
+        connection.close()

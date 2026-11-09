@@ -29,10 +29,13 @@ def _is_produced(graph: Graph, node: Node) -> bool:
     """Whether Konstruct knows how the relation is built (dbt model, SQL or task that writes it)."""
     if node.kind in ('model', 'snapshot'):
         return True
+    # A table a loader (Fivetran, Airbyte) lands is a root: it arrives from outside.
     return any(
         graph.nodes[e.source].kind in RELATION_KINDS | {'task'}
         for e in graph.in_edges(node.id, 'feeds')
-        if e.attrs.get('role') != 'reference' and e.source in graph.nodes
+        if e.attrs.get('role') != 'reference'
+        and e.source in graph.nodes
+        and not graph.nodes[e.source].attrs.get('loader')
     )
 
 

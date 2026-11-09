@@ -160,6 +160,7 @@ Composed formulas are evaluated on the data and must match the final model row f
 | **Orchestration** | Airflow (DAGs, TaskGroups, TaskFlow, assets, Cosmos) and Dagster (assets, op jobs, schedules, sensors), parsed without running them |
 | **Warehouses** | DuckDB, Postgres, Snowflake, BigQuery, Databricks, Trino, and Iceberg through any PyIceberg catalogue |
 | **Dashboards** | dbt exposures, Looker views field by field from LookML, and Power BI semantic models from TMDL |
+| **Ingestion** | The tables Fivetran and Airbyte land, and column lineage from each Fivetran source system |
 | **Meaning** | Business terms in `definitions.yml`, and column usage from Snowflake, BigQuery and Databricks query history |
 
 ## Documentation

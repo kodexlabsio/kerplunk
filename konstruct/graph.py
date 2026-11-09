@@ -324,6 +324,12 @@ class Graph:
         matches: list[Node] = []
         for node in self.relations():
             keys = {node.name.lower(), node.id.lower()}
+            if node.attrs.get('outside_warehouse'):
+                # A source system's table (Fivetran's) is named in full, so the short names of
+                # the warehouse table it lands as keep meaning that table.
+                if needle in keys:
+                    matches.append(node)
+                continue
             if node.relation:
                 keys.add(node.relation)
             if any(k == needle or k.endswith('.' + needle) for k in keys):

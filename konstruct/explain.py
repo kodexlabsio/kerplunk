@@ -123,6 +123,14 @@ class Explanation:
         return '\n'.join(lines)
 
 
+def _composed_from(graph: Graph, node: Node) -> list[Node]:
+    """The columns a column's formula is composed from. A column a loader lands is a source:
+    its link to the source system's column is lineage, not a formula."""
+    return [
+        graph.nodes[e.target] for e in graph.out_edges(node.id, 'derived_from') if not e.attrs.get('loaded')
+    ]
+
+
 class _Namer:
     """Short names for the fully qualified columns in an expression."""
 
@@ -273,7 +281,7 @@ class Explainer:
             return _Composed(None, frozenset(), False)
         graph = self.graph
         expression = node.attrs.get('expression')
-        upstream = [graph.nodes[e.target] for e in graph.out_edges(node.id, 'derived_from')]
+        upstream = _composed_from(graph, node)
         if not isinstance(expression, str):
             leaf = _Composed(None, frozenset() if upstream else frozenset({node.id}), not upstream)
             self.memo[node.id] = leaf
@@ -399,7 +407,7 @@ class Explainer:
             on_stack = {start.id}
             while stack:
                 node, expanded = stack.pop()
-                upstream = [graph.nodes[e.target] for e in graph.out_edges(node.id, 'derived_from')]
+                upstream = _composed_from(graph, node)
                 if not expanded:
                     stack.append((node, True))
                     for other in upstream:
