@@ -6,6 +6,7 @@ CI installs it, and KONSTRUCT_REQUIRE_SERVICES turns the skip into a failure the
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import time
 from collections.abc import Iterator
@@ -18,6 +19,8 @@ from konstruct.core.graph import Graph, Node, column_id
 from konstruct.outputs.html import write_html
 
 pytestmark = pytest.mark.browser
+
+WCAG = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
 
 
 @pytest.fixture(scope='module')
@@ -65,6 +68,20 @@ def open_page(browser: Any) -> Iterator[Any]:
     for page in pages:
         assert page.problems == [], page.problems
         page.context.close()
+
+
+def axe_violations(page: Any) -> list[str]:
+    """axe-core's WCAG 2.2 A and AA violations on the page as it stands."""
+    # axe-playwright-python carries axe-core's script; it is read from the package, not fetched.
+    spec = importlib.util.find_spec('axe_playwright_python')
+    if spec is None or spec.origin is None:
+        pytest.skip('axe-playwright-python is not installed')
+    script = Path(spec.origin).parent / 'axe.min.js'
+    page.add_script_tag(path=str(script))
+    result = page.evaluate('tags => axe.run(document, {runOnly: {type: "tag", values: tags}})', WCAG)
+    return [
+        f'{v["id"]}: {", ".join(" ".join(n["target"]) for n in v["nodes"][:3])}' for v in result['violations']
+    ]
 
 
 def wait_for_ids(page: Any, ids: list[str]) -> None:
@@ -280,6 +297,32 @@ def test_right_to_left_and_locale_parameter(jaffle_built_graph: Path, open_page:
     page.goto(graph.as_uri() + '?lang=pt-PT#/glossary')
     page.wait_for_selector('#page h1:text-is("Glossário")')
     assert page.evaluate('document.documentElement.dir') == 'ltr'
+
+
+@pytest.mark.dbt
+def test_wcag_aa_in_both_themes(jaffle_built_graph: Path, open_page: Any) -> None:
+    graph = jaffle_built_graph / 'konstruct-out' / 'graph.html'
+    for scheme in ('dark', 'light'):
+        for fragment in (
+            '#/',
+            '#/node/model.jaffle_shop.orders',
+            '#/node/model.jaffle_shop.orders%23amount',
+            '#/node/term.customer_lifetime_value',
+            '#/lineage?select=+customers+&focus=model.jaffle_shop.customers',
+            '#/browse',
+            '#/ontology',
+        ):
+            page = open_page(graph, fragment, color_scheme=scheme)
+            assert axe_violations(page) == [], (scheme, fragment)
+    page = open_page(graph)
+    page.keyboard.press('Control+k')
+    page.keyboard.type('order')
+    assert axe_violations(page) == []
+    # At 200% zoom (a 700 by 450 window) the navigation folds away and nothing scrolls sideways.
+    zoomed = open_page(graph, '#/node/model.jaffle_shop.orders', viewport={'width': 700, 'height': 450})
+    assert zoomed.evaluate('document.documentElement.scrollWidth') <= 700
+    assert not zoomed.locator('#nav').is_visible() or zoomed.locator('#nav').bounding_box()['x'] < 0
+    assert axe_violations(zoomed) == []
 
 
 def test_hostile_text_is_shown_as_text(tmp_path: Path, open_page: Any) -> None:
