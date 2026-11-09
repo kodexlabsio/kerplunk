@@ -7,7 +7,9 @@ description: Understand or change how Konstruct is versioned and released (prepa
 
 - main is protected: nothing pushes to it, and a release is a tag plus a GitHub release.
 - Changes accumulate on a branch as separate commits and merge in batches, about once an hour, by
-  rebase, so each commit stays on main and in the changelog. The batch's last commit prepares the
+  rebase, so each commit stays on main and in the changelog. Give the batch's pull request a plain
+  title (not `feat(...): ...`): CI's Release preparation check counts a Conventional title as a
+  commit, as it would be after a squash merge. The batch's last commit prepares the
   release: rebase on main, then run `uv run python .kodex/scripts/prepare_release.py`. It fetches
   main and the tags, reads every releasable commit on the branch since the last tag, and sets the
   next version in `pyproject.toml`, `uv.lock` (konstruct's own line only) and

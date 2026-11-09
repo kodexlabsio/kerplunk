@@ -81,7 +81,8 @@ a change.
   so each commit stays on main. The batch's last commit runs `.kodex/scripts/prepare_release.py`
   (after rebasing on main), which sets the next version and changelog from every releasable commit
   since the last tag; once it is merged and CI passes, `.github/workflows/release.yml` tags and
-  publishes that version.
+  publishes that version. A batch's pull request title is plain words, not a Conventional Commits
+  header: CI counts a header title as a commit, as a squash merge would make it one.
   Releasable changes merged without it are released by the workflow from a commit above main.
   While the version is 0.x a release is a patch; only a breaking change (`feat!:` or a
   `BREAKING CHANGE:` footer) gives the next minor. Do not write a body line that starts with
