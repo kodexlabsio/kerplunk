@@ -10,9 +10,11 @@
 
 <h1 align="center">Konstruct</h1>
 
+<h3 align="center">The ground truth for your data stack, and for the AI agents that work on it.</h3>
+
 <p align="center">
-<strong>Column-level lineage for dbt, SQL, Airflow and Dagster.</strong><br />
-Explained as formulas, checked against the data, and reviewed on every pull request.
+Every column and every formula, derived from your code, with its SQL lineage checked on your data, and every business definition beside the columns that hold it.<br />
+Open source, local first, one command.
 </p>
 
 <p align="center">
@@ -31,7 +33,52 @@ Explained as formulas, checked against the data, and reviewed on every pull requ
 <img src="docs/images/graph-html.png" alt="The lineage of customer_ltv.lifetime_value in the Konstruct viewer: four columns across an Airflow SQL table, two dbt models and a seed, each verified on data, with the formula SUM(raw_payments.amount / 100)" width="100%" />
 </p>
 
-Konstruct reads a data repository and its warehouse and builds a graph of every table, column, model, task, test, dashboard and business term, with column-level lineage parsed from the SQL that connects them. It runs locally in one command, with no server and no account, and answers from the command line, a Python API, an MCP server for coding agents, a GitHub Action and a single offline HTML page.
+Your data stack is now read by agents as much as by people, and both are guessing. Catalogues mostly record lineage as table-level arrows or as what someone entered by hand, and semantic layers record what a metric should be. Few compose a column's formula through every model, and fewer check it against the data, so a coding agent asked to change `revenue` cannot see which dashboards it is about to break, or that finance and marketing compute it two different ways.
+
+Konstruct is the ground truth underneath. It reads your repository and your warehouse and derives the whole graph: every table, column, model, task, test, dashboard and business term, with column-level lineage read from the code itself, every formula composed down to its source columns, and its SQL lineage checkable against the data with `konstruct verify`. It runs locally in one command, with no server and no account, and hands the answers to people, CI and coding agents alike.
+
+## Deep, Not Wide
+
+Most lineage tools go wide: many connectors, with lineage that is drawn but rarely checked against the data. Konstruct goes deep on the one thing that decides whether a number is right: the column, the formula that produces it, and the evidence that the formula is true. Lineage is not guessed from names. It is read from the code itself (SQL, LookML, DAX), composed through every model upstream, and, for SQL, proven by `konstruct verify`, which perturbs the data and watches what moves.
+
+## On the Shoulders of Giants
+
+Konstruct builds on the best open-source work in data: [sqlglot](https://github.com/tobymao/sqlglot) parses and transpiles every major SQL dialect, [dbt](https://www.getdbt.com/) defines how modern transformation is written, [DuckDB](https://duckdb.org/) runs verification on your laptop, [OpenLineage](https://openlineage.io/) is the open standard it writes, and [Apache Ossie](https://ossie.apache.org/) (incubating) the one it reads and writes. What none of them has, and Konstruct adds, is one graph across all of them, from the table Fivetran landed, through dbt, Airflow and Dagster, to the Looker field and the Power BI measure on the dashboard, with its SQL lineage verified on the data.
+
+## Built For
+
+| | |
+|---|---|
+| **Analytics engineering** | Refactor with a safety net: `impact` before a change, a column-by-column review on every pull request, and `gate` failing the pull request check when a removed column is still read downstream |
+| **AI and agent teams** | Ground coding agents in fact, not guesses: an MCP server, a skill for Claude Code and Cursor, and approved definitions with their required filters |
+| **Data governance** | Provenance you can prove: column lineage verified on the data, owners and approval status on business terms, and exports to OpenLineage and Apache Ossie |
+| **Finance and metric owners** | One number, one definition: `conflicts` finds the same measure computed two ways, and `history` shows when a formula changed and whether anyone approved it |
+
+## The Cost of Not Knowing
+
+Poor data quality is expensive, by the industry's own surveys, most of them by vendors who sell a remedy. Each figure is the source's own; the sentence after it says what Konstruct does in that area.
+
+**USD 12.9 million a year.** That is what poor data quality costs the average organisation, at least ([Gartner, 2020](https://www.gartner.com/en/data-analytics/topics/data-quality)). Konstruct shows the source columns a number is computed from, and every column it reaches.
+
+**Two days in every five.** Data professionals spend 40% of their time checking data quality ([Monte Carlo and Wakefield, 2022](https://tdwi.org/articles/2022/08/09/data-engineers-and-bad-data-survey.aspx)). Konstruct answers "what breaks if I change this?" in one command, before the change ships.
+
+**67 incidents a month, 15 hours each.** And 74% of the data professionals surveyed say the business finds issues first, all or most of the time ([Monte Carlo and Wakefield, 2023](https://tdwi.org/articles/2023/05/04/data-downtime-nearly-doubled-survey.aspx)). Konstruct's gate fails the pull request when a removed column is still read downstream.
+
+**6% of annual revenue.** That is what large firms report losing to AI models trained on low-quality data ([Fivetran and Vanson Bourne, 2024](https://www.fivetran.com/blog/new-ai-survey-poor-data-quality-leads-to-406-million-in-losses)). Konstruct checks its SQL lineage against the data itself, by perturbation.
+
+**60% of AI projects without AI-ready data.** Gartner predicts organisations will abandon them through 2026 ([Gartner, 2025](https://www.gartner.com/en/newsroom/press-releases/2025-02-26-lack-of-ai-ready-data-puts-ai-projects-at-risk)). Konstruct hands agents the entities, measures, definitions and required filters of your data over MCP.
+
+**EUR 15 million or 3% of turnover.** That is the maximum fine for breaching the EU AI Act's high-risk obligations, which include data governance; for smaller firms, the lower of the two ([EU AI Act, Article 99](https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-99)). Konstruct shows where each column comes from, who owns the business term bound to it, and, from git history, when its formula changed.
+
+## What Changes With Konstruct
+
+**Reading every model downstream becomes a query.** "What breaks if I change this column?" takes about 9 ms on a generated 2,000-model project once the graph is loaded, as the MCP server and the Python API keep it, and a few seconds from the command line. With the GitHub Action it is asked again on every pull request, before anything ships.
+
+**Claims become evidence.** On the bundled example, every one of its 36 claimed column edges is confirmed against the data, and 300 generated queries on generated data leave nothing unexplained. A lineage graph you can prove is one an auditor, a regulator or an agent can rely on.
+
+**Agents get context instead of guessing.** In data.world's benchmark of 43 insurance questions, GPT-4 answered 16.7% correctly over the raw SQL schema and 54.2% over a knowledge graph of the business ([data.world, 2023](https://arxiv.org/abs/2311.07509)). In dbt Labs' 2026 benchmark, text-to-SQL scored 64.5% on the raw schema and 84.1% to 90.0% on the modelled project, and queries through the dbt Semantic Layer 98.2% to 100% ([dbt Labs, 2026](https://docs.getdbt.com/blog/semantic-layer-vs-text-to-sql-2026)). Konstruct gives agents the same kind of context, derived from the code you already have: the entities, keys, measures, relationships and approved definitions, served over MCP.
+
+**An illustration, not a measurement.** At the UK median advertised data engineer salary of GBP 70,000 ([IT Jobs Watch, six months to November 2026](https://www.itjobswatch.co.uk/jobs/uk/data%20engineer.do), salary only), the 40% of time that Monte Carlo's 2022 survey reports for checking data quality would be GBP 280,000 a year for a ten-person team.
 
 ## Why Konstruct
 
@@ -133,7 +180,7 @@ Lineage tools usually assert their lineage. Konstruct measures it, and every num
 | The bundled `jaffle_shop` example | 36 | 36 | 0 |
 | dbt Labs' jaffle-shop, at a pinned commit | 87 | 87 | 0 |
 | The example on Postgres | 31 | 31 | 0 |
-| 300 generated queries on generated data | | | 0 |
+| Generated queries on generated data (25 on every commit, 300 in a full run) | | | 0 |
 
 | Generated dbt project | Column edges | Cold build | Update, one model edited | Query |
 |----------------------:|-------------:|-----------:|-------------------------:|------:|

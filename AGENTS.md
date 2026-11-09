@@ -99,6 +99,13 @@ a change.
 
 - British English (organisation, behaviour, licence as a noun).
 - A neutral, technical tone; concise and precise. No emojis anywhere, no em dashes or en dashes.
+- The README's opening (the tagline, the first paragraphs and the sections before Why Konstruct)
+  and the GitHub description may sell: a category, the problem, why Konstruct is different.
+  Claims about Konstruct must be checkable against the code, the tests or the evidence table. A
+  third-party figure links its primary source, gives its year, says when it is a vendor survey or
+  a prediction, keeps the source's meaning, and is never presented as a Konstruct result or
+  saving. No business or funding material, as above. The documentation stays neutral and
+  technical.
 - Comments explain why, not what. Docstrings describe intent and appear in the API reference.
 
 ## Formatting
