@@ -24,6 +24,9 @@ dialect = "spark"                 # the SQL dialect of their spark.sql strings (
 [looker]
 paths = ["lookml/"]               # LookML; default: every *.lkml file
 
+[powerbi]
+paths = ["reports/Sales.SemanticModel"]  # TMDL; default: every *.tmdl file
+
 [sql]
 paths = ["sql/**/*.sql"]          # default: .sql files outside dbt folders and not used by DAGs
 

@@ -43,7 +43,7 @@ GRAPH_FORMAT_VERSION = 1
 @dataclass
 class Node:
     id: str
-    """A unique id, such as ``model.<package>.<name>``, ``table.<relation>``, ``<relation id>#<column>``, ``task.<dag>.<task>`` or ``term.<slug>``."""
+    """A unique id, such as ``model.<package>.<name>``, ``table.<relation>``, ``<relation id>#<column>``, ``task.<dag>.<task>``, ``looker.view.<view>``, ``powerbi.table.<model>.<table>`` or ``term.<slug>``."""
     kind: NodeKind
     """What the node is."""
     name: str

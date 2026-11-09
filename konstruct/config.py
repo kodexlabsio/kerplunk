@@ -198,6 +198,7 @@ class Config:
     dag_paths: list[Path] | None = None
     dagster_paths: list[Path] | None = None
     spark_paths: list[Path] | None = None
+    powerbi_paths: list[Path] | None = None
     spark_dialect: str = 'spark'
     looker_paths: list[Path] | None = None
     definitions_paths: list[Path] | None = None
@@ -305,6 +306,9 @@ def load_config(root: Path, out_dir: Path | None = None) -> Config:
         spark_dialect=_spark_dialect(data.get('spark', {}).get('dialect', 'spark')),
         looker_paths=[root / p for p in data.get('looker', {}).get('paths', [])]
         if 'paths' in data.get('looker', {})
+        else None,
+        powerbi_paths=[root / p for p in data.get('powerbi', {}).get('paths', [])]
+        if 'paths' in data.get('powerbi', {})
         else None,
         sql_paths=list(sql['paths']) if 'paths' in sql else None,
         usage=_usage_settings(data.get('usage', {})),
@@ -426,6 +430,19 @@ def discover_looker_files(config: Config) -> list[Path]:
                 files.append(path)
         return files
     return list(iter_files(config, '.lkml'))
+
+
+def discover_powerbi_files(config: Config) -> list[Path]:
+    """Power BI TMDL files (``*.tmdl``): the configured paths, or every one in the repository."""
+    if config.powerbi_paths is not None:
+        files: list[Path] = []
+        for path in config.powerbi_paths:
+            if path.is_dir():
+                files.extend(sorted(p for p in path.rglob('*.tmdl') if not set(p.parts) & SKIP_DIRS))
+            elif path.is_file():
+                files.append(path)
+        return files
+    return list(iter_files(config, '.tmdl'))
 
 
 def discover_definitions_files(config: Config) -> list[Path]:

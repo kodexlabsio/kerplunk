@@ -22,6 +22,7 @@ from konstruct.config import (
     discover_definitions_files,
     discover_looker_files,
     discover_ossie_files,
+    discover_powerbi_files,
     discover_spark_files,
     discover_sql_files,
     discover_warehouses,
@@ -316,6 +317,7 @@ class Builder:
         self.load_spark(schema_key)
         self.load_sql_files(projects, used_sql, schema_key)
         self.load_looker()
+        self.load_powerbi()
         self.load_definitions()
         self.load_ossie()
         self.load_usage()
@@ -1036,6 +1038,84 @@ class Builder:
             )
         if files:
             self.inputs['looker_views'] = len(views)
+
+    def load_powerbi(self) -> None:
+        """Power BI semantic models (TMDL) as exposures: each table reads the warehouse tables its
+        partitions read, and each of its columns and measures the warehouse columns it reads,
+        through the measures and calculated columns of the whole model."""
+        from konstruct import powerbi
+
+        files = discover_powerbi_files(self.config)
+        parsed: list[powerbi.PowerBIFile] = []
+        for path in files:
+            rel = self.rel_path(path)
+            self.watch(path)
+            try:
+                content = path.read_bytes()
+            except OSError as error:
+                self.graph.warn(f'powerbi: cannot read {rel}: {error}')
+                continue
+            key = Cache.key('powerbi', hashlib.sha256(content).hexdigest(), rel)
+
+            def compute(content: bytes = content, rel: str = rel) -> Any:
+                return powerbi.parse(content.decode('utf-8-sig', errors='replace'), rel).to_dict()
+
+            parsed.append(powerbi.PowerBIFile.from_dict(self.cache.get_or_compute(key, compute)))
+
+        def read_sql(sql: str, dialect: str | None) -> list[str] | None:
+            key = Cache.key('powerbi-sql', sql, dialect or '')
+            found: list[str] | None = self.cache.get_or_compute(
+                key, lambda: powerbi.native_reads(sql, dialect)
+            )
+            return found
+
+        tables, problems = powerbi.resolve(parsed, self.dialect, read_sql)
+        for problem in problems:
+            self.graph.warn(f'powerbi: {problem}')
+        by_path: dict[str, list[str]] = {}
+        for table in tables:
+            by_path.setdefault(table.path, []).append(table.name)
+            exposure = self.graph.add_node(
+                Node(
+                    id=f'powerbi.table.{table.model}.{table.name}',
+                    kind='exposure',
+                    name=table.name,
+                    description=table.description,
+                    path=table.path,
+                    origins=['powerbi'],
+                    attrs={
+                        'type': 'power bi table',
+                        'model': table.model,
+                        'fields': sorted([c.name for c in table.columns] + list(table.measures)),
+                    },
+                )
+            )
+            relations = {
+                key: self.relation(key.lower(), 'powerbi') for key in sorted({t for t, _ in table.reads})
+            }
+            for relation in relations.values():
+                self.graph.add_edge(relation.id, exposure.id, 'feeds', origin='powerbi')
+            for (key, name), field_names in sorted(table.reads.items()):
+                if not name:
+                    continue
+                relation = relations[key]
+                column = self.graph.column(relation.id, name)
+                if column is None and self.columns_known(relation):
+                    self.graph.warn(
+                        f'powerbi: {table.path}: table {table.name!r} reads {key}.{name}, '
+                        'which is not a known column'
+                    )
+                    continue
+                column = column or self.column(relation, name, 'powerbi')
+                self.graph.add_edge(
+                    column.id, exposure.id, 'feeds', origin='powerbi', fields=sorted(field_names)
+                )
+        for path in files:
+            rel = self.rel_path(path)
+            if rel in by_path:
+                self.sources.append({'input': 'powerbi', 'path': rel, 'detail': ', '.join(by_path[rel])})
+        if files:
+            self.inputs['powerbi_tables'] = len(tables)
 
     def load_definitions(self) -> None:
         """Business terms from definitions.yml, attached to the columns they name."""

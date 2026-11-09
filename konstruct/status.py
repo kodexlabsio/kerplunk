@@ -17,6 +17,7 @@ from konstruct.config import (
     discover_dag_files,
     discover_definitions_files,
     discover_looker_files,
+    discover_powerbi_files,
     discover_spark_files,
     discover_sql_files,
     discover_warehouses,
@@ -36,6 +37,7 @@ class Status:
     spark_files: list[str] = field(default_factory=list)
     sql_files: list[str] = field(default_factory=list)
     looker_files: list[str] = field(default_factory=list)
+    powerbi_files: list[str] = field(default_factory=list)
     definitions_files: list[str] = field(default_factory=list)
     graph: dict[str, Any] = field(default_factory=dict)
     skills: list[str] = field(default_factory=list)
@@ -52,6 +54,7 @@ class Status:
             'spark_files': self.spark_files,
             'sql_files': self.sql_files,
             'looker_files': self.looker_files,
+            'powerbi_files': self.powerbi_files,
             'definitions_files': self.definitions_files,
             'graph': self.graph,
             'skills': self.skills,
@@ -77,6 +80,8 @@ class Status:
         rows.append(('sql', _files(self.sql_files, 'SQL file')))
         if self.looker_files:
             rows.append(('looker', _files(self.looker_files, 'LookML file')))
+        if self.powerbi_files:
+            rows.append(('power bi', _files(self.powerbi_files, 'TMDL file')))
         rows.append(('definitions', _files(self.definitions_files, 'definitions file')))
         for repository in self.repositories:
             rows.append(('repository', f'{repository["name"]} ({repository["path"]}): {repository["found"]}'))
@@ -186,6 +191,7 @@ def inspect(
     status.sql_files = [_relative(p, root) for p in discover_sql_files(config, projects, _sql_used_by(dags))]
     status.definitions_files = [_relative(p, root) for p in discover_definitions_files(config)]
     status.looker_files = [_relative(p, root) for p in discover_looker_files(config)]
+    status.powerbi_files = [_relative(p, root) for p in discover_powerbi_files(config)]
 
     out = out_dir or find_out_dir(root)
     names: list[str] = []
@@ -265,6 +271,9 @@ def render_config(config: Config, status: Status, warehouses: list[WarehouseConf
         {str(Path(f).parent) if str(Path(f).parent) != '.' else f for f in status.looker_files}
     )
     lines.append(f'paths = {_toml_list(looker_dirs)}' if looker_dirs else '# paths = ["lookml/"]')
+    lines += ['', '[powerbi]']
+    models = sorted({_semantic_model(f) for f in status.powerbi_files})
+    lines.append(f'paths = {_toml_list(models)}' if models else '# paths = ["reports/Sales.SemanticModel"]')
     lines += ['', '[definitions]']
     lines.append(
         f'paths = {_toml_list(status.definitions_files)}'
@@ -292,6 +301,15 @@ def render_config(config: Config, status: Status, warehouses: list[WarehouseConf
             '',
         ]
     return '\n'.join(lines).rstrip() + '\n'
+
+
+def _semantic_model(path: str) -> str:
+    """The ``<name>.SemanticModel`` folder a TMDL file is in, or its own folder."""
+    parts = Path(path).parts
+    for index in range(len(parts) - 1, -1, -1):
+        if parts[index].endswith('.SemanticModel'):
+            return Path(*parts[: index + 1]).as_posix()
+    return Path(path).parent.as_posix()
 
 
 def _toml_list(values: list[str]) -> str:
