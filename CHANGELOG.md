@@ -1,3 +1,10 @@
+## v0.11.10 (2026-11-09)
+
+### Feat
+
+- **warehouse**: Read Trino catalogues and sample them for verify
+- **build**: Read Looker views as exposures of the columns they use
+
 ## v0.11.9 (2026-11-09)
 
 ### Feat
