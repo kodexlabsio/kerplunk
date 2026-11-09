@@ -1,6 +1,6 @@
 # The Graph Viewer
 
-Every build writes `konstruct-out/graph.html`: one offline file that opens in any browser (`konstruct open`). It loads nothing from the network, so it can be attached to a ticket, published as a build artefact or opened on a laptop with no connection.
+Every build writes `konstruct-out/graph.html`: one offline file that opens in any browser (`konstruct open`). It loads nothing from the network, so it can be attached to a ticket, published as a build artefact or opened on a laptop with no connection. The [live demo](https://kodexlabsio.github.io/konstruct/demo/) is the viewer for the jaffle_shop example, built with each version of these pages.
 
 ![The lineage of customer_ltv.lifetime_value: four columns across an Airflow SQL table, two dbt models and a seed, each verified, with the formula SUM(raw_payments.amount / 100)](../images/graph-html.png)
 

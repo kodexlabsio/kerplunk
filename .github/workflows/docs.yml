@@ -1,8 +1,9 @@
 name: Docs
 
 # Builds the Sphinx documentation on every pull request and push, failing on any warning (a
-# broken link, a missing page, an API change the reference no longer matches). Pushes to main
-# publish it to GitHub Pages at https://kodexlabsio.github.io/konstruct/.
+# broken link, a missing page, an API change the reference no longer matches), and the viewer for
+# the jaffle_shop example with the same code, as the live demo at /demo/. Pushes to main publish
+# both to GitHub Pages at https://kodexlabsio.github.io/konstruct/.
 
 on:
   push:
@@ -21,7 +22,7 @@ jobs:
   build:
     name: Build the documentation
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,6 +32,16 @@ jobs:
 
       - name: Build
         run: uv run --group docs sphinx-build -W --keep-going -b html docs docs/_build/html
+
+      - name: Build the example warehouse and dbt project
+        run: uv run python .kodex/scripts/prepare_example.py
+
+      - name: Build the demo viewer from the jaffle_shop example
+        run: |
+          uv run konstruct build examples/jaffle_shop
+          uv run konstruct verify -C examples/jaffle_shop
+          mkdir -p docs/_build/html/demo
+          cp examples/jaffle_shop/konstruct-out/graph.html docs/_build/html/demo/index.html
 
       - name: Upload the site
         if: github.event_name != 'pull_request'
