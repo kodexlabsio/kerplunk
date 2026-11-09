@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from konstruct.core.graph import Graph, Node, column_id, relation_key
@@ -216,3 +217,107 @@ def test_round_trip_through_json(tmp_path: Path) -> None:
     assert loaded.to_dict() == g.to_dict()
     assert loaded.stats()['column'] == 10
     assert loaded.node_for_relation('db.main.orders') is not None
+
+
+# The indexes queries run on are made again whenever what they are made from changes.
+
+
+def test_a_query_sees_a_column_and_its_lineage_added_after_it() -> None:
+    g = small_graph()
+    amount = g.resolve('orders.amount')[0]
+    assert 'model.shop.report#amount' not in ids(g.impact(amount))
+    report = g.add_node(Node('model.shop.report', 'model', 'report', relation='db.main.report'))
+    total = g.add_column(report, 'amount')
+    g.add_edge(total.id, amount.id, 'derived_from')
+    assert 'model.shop.report#amount' in ids(g.impact(amount))
+    assert 'model.shop.orders#amount' in ids(g.trace(total))
+    assert g.resolve('report.amount') == [total]
+
+
+def test_a_query_sees_an_edge_removed_and_added_again() -> None:
+    g = small_graph()
+    amount = g.resolve('orders.amount')[0]
+    lifetime = 'model.shop.customers#lifetime_value'
+    assert lifetime in ids(g.impact(amount))
+    [edge] = [e for e in g.in_edges(amount.id, 'derived_from') if e.source == lifetime]
+    g.remove_edge(edge)
+    assert lifetime not in ids(g.impact(amount))
+    g.add_edge(lifetime, amount.id, 'derived_from')
+    assert lifetime in ids(g.impact(amount))
+    assert [s.node.id for s in g.path(amount, g.nodes[lifetime])] == [amount.id, lifetime]
+
+
+def test_neighbours_follow_an_edge_added_after_a_query() -> None:
+    g = small_graph()
+    assert [n for _, n in g.downstream_edges('model.shop.customers')] == []
+    g.add_node(Node('exposure.shop.churn', 'exposure', 'churn'))
+    g.add_edge('model.shop.customers', 'exposure.shop.churn', 'feeds')
+    assert [n for _, n in g.downstream_edges('model.shop.customers')] == ['exposure.shop.churn']
+
+
+def test_resolve_sees_a_relation_added_after_a_query() -> None:
+    g = small_graph()
+    assert g.resolve('refunds') == []
+    refunds = g.add_node(Node('model.shop.refunds', 'model', 'refunds', relation='db.main.refunds'))
+    assert g.resolve('refunds') == [refunds]
+    assert g.resolve('main.refunds') == [refunds]
+
+
+def test_adding_a_column_keeps_the_relation_names_but_not_the_walks() -> None:
+    g = small_graph()
+    orders = g.resolve('orders')[0]
+    g.impact(orders)
+    names, walks = g._indexes['relation names'][1], g._indexes['traversal'][1]
+    g.add_column(orders, 'status')
+    assert g.resolve('orders') == [orders]
+    assert g._indexes['relation names'][1] is names
+    assert 'model.shop.orders#status' in ids(g.impact(orders))
+    assert g._indexes['traversal'][1] is not walks
+
+
+def test_an_index_is_made_again_only_when_its_basis_changes() -> None:
+    g = small_graph()
+    made: list[str] = []
+
+    def builder(basis: str) -> Callable[[Graph], int]:
+        def build(graph: Graph) -> int:
+            made.append(basis)
+            return len(made)
+
+        return build
+
+    def query_all() -> list[str]:
+        made.clear()
+        g.indexed('a', builder('graph'))
+        g.indexed('b', builder('nodes'), basis='nodes')
+        g.indexed('c', builder('relations'), basis='relations')
+        return made
+
+    assert query_all() == ['graph', 'nodes', 'relations']
+    assert query_all() == []
+    edge = g.add_edge('model.shop.orders', 'model.shop.stg_payments', 'precedes')
+    assert query_all() == ['graph']
+    assert edge is not None
+    g.remove_edge(edge)
+    assert query_all() == ['graph']
+    g.add_column(g.nodes['model.shop.orders'], 'status')
+    assert query_all() == ['graph', 'nodes']
+    g.add_node(Node('model.shop.orders', 'model', 'orders', description='One row per order.'))
+    assert query_all() == ['graph', 'nodes', 'relations']
+    g.changed()
+    assert query_all() == ['graph', 'nodes', 'relations']
+
+
+def test_changed_makes_queries_see_an_edit_in_place() -> None:
+    g = small_graph()
+    stg = g.resolve('stg_payments.amount')[0]
+    assert 'model.shop.customers#lifetime_value' in ids(g.impact(stg))
+    [edge] = g.in_edges(stg.id, 'derived_from')
+    edge.attrs['role'] = 'reference'
+    orders = g.resolve('stg_payments')[0]
+    orders.name = 'payments_staged'
+    g.changed()
+    # A column reached through a reference edge is reported but not walked through.
+    assert ids(g.impact(stg)) >= {'model.shop.orders#amount'}
+    assert 'model.shop.customers#lifetime_value' not in ids(g.impact(stg))
+    assert g.resolve('payments_staged') == [orders]

@@ -15,17 +15,23 @@ Every edge is stored as ``source -> target`` with these meanings:
 ``defines``       business term -> the column (or relation) that holds it
 ``relates_to``    business term -> a related term
 
-`downstream()` and `upstream()` hide those directions so callers think only in data flow.
+`downstream_edges()` and `upstream_edges()` hide those directions so callers think only in data
+flow.
+
+Walks, shortest paths and name resolution run in the native core (``konstruct._core``) over an
+index of the graph, made on first use and again after the graph changes through ``add_node``,
+``add_edge`` or ``remove_edge``. Code that edits a node's or an edge's fields in place calls
+``changed()``.
 """
 
 from __future__ import annotations
 
-from collections import deque
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar, cast
 
+from konstruct import _core
 from konstruct.core import jsonio
 
 NodeKind = Literal[
@@ -38,6 +44,10 @@ RELATION_KINDS: frozenset[str] = frozenset({'source', 'table', 'model', 'seed', 
 # that names the relation resolves to the first kind in this order.
 RELATION_PRIORITY: dict[str, int] = {'source': 0, 'model': 1, 'snapshot': 2, 'seed': 3, 'table': 4}
 GRAPH_FORMAT_VERSION = 1
+
+_Index = TypeVar('_Index')
+IndexBasis = Literal['graph', 'nodes', 'relations']
+"""What an index is made from, so what makes it stale (see ``Graph.indexed``)."""
 
 
 @dataclass
@@ -150,12 +160,21 @@ class Graph:
         self._relations: dict[str, list[str]] = {}
         self.warnings: list[str] = []
         self.meta: dict[str, Any] = {}
+        # For each basis an index can have, a version bumped whenever that part of the graph
+        # changes; each cached index records the version it was made from.
+        self._versions: dict[IndexBasis, int] = {'graph': 0, 'nodes': 0, 'relations': 0}
+        self._indexes: dict[str, tuple[int, Any]] = {}
 
     # Construction
 
     def add_node(self, node: Node) -> Node:
         """Add a node, or merge it into an existing node with the same id."""
         existing = self.nodes.get(node.id)
+        versions = self._versions
+        versions['graph'] += 1
+        versions['nodes'] += 1
+        if node.kind in RELATION_KINDS or (existing is not None and existing.kind in RELATION_KINDS):
+            versions['relations'] += 1
         if existing is None:
             self.nodes[node.id] = node
             self._index_relation(node)
@@ -207,6 +226,7 @@ class Graph:
         """Add an edge, or merge ``attrs`` into an existing one of the same kind between the same nodes. Self-loops are ignored and return None."""
         if source == target:
             return None
+        self._versions['graph'] += 1
         key = (source, target, kind)
         existing = self._edges.get(key)
         if existing is not None:
@@ -221,8 +241,26 @@ class Graph:
 
     def remove_edge(self, edge: Edge) -> None:
         if self._edges.pop(edge.key, None) is not None:
+            self._versions['graph'] += 1
             self._out[edge.source].remove(edge)
             self._in[edge.target].remove(edge)
+
+    def changed(self) -> None:
+        """Note that nodes or edges were edited in place (a name, a relation key, an edge's
+        ``role``), so the indexes queries use are made again."""
+        for basis in self._versions:
+            self._versions[basis] += 1
+
+    def indexed(self, name: str, build: Callable[[Graph], _Index], *, basis: IndexBasis = 'graph') -> _Index:
+        """The index ``name`` that ``build`` makes from the graph, kept until what it is made from
+        changes: anything in the graph (``'graph'``), a node (``'nodes'``, for an index that reads
+        no edges) or a relation (``'relations'``)."""
+        version = self._versions[basis]
+        cached = self._indexes.get(name)
+        if cached is None or cached[0] != version:
+            cached = (version, build(self))
+            self._indexes[name] = cached
+        return cast(_Index, cached[1])
 
     def warn(self, message: str) -> None:
         if message not in self.warnings:
@@ -321,22 +359,8 @@ class Graph:
         return [n for n in self.nodes.values() if n.id.lower() == needle]
 
     def _match_relations(self, needle: str) -> list[Node]:
-        matches: list[Node] = []
-        for node in self.relations():
-            keys = {node.name.lower(), node.id.lower()}
-            if node.attrs.get('outside_warehouse'):
-                # A source system's table (Fivetran's) is named in full, so the short names of
-                # the warehouse table it lands as keep meaning that table.
-                if needle in keys:
-                    matches.append(node)
-                continue
-            if node.relation:
-                keys.add(node.relation)
-            if any(k == needle or k.endswith('.' + needle) for k in keys):
-                matches.append(node)
-        exact = [n for n in matches if n.name.lower() == needle or n.relation == needle]
-        if len(exact) == 1 or (exact and len(matches) > len(exact)):
-            matches = exact
+        names = self.indexed('relation names', _RelationNames, basis='relations')
+        matches = [names.relations[i] for i in names.core.find(needle)]
         # Nodes for one physical relation (a seed and the source over it) are one answer.
         relations = {n.relation for n in matches}
         if len(matches) > 1 and len(relations) == 1 and None not in relations:
@@ -347,51 +371,33 @@ class Graph:
     # Traversal
 
     def downstream_edges(self, node_id: str) -> Iterator[tuple[Edge, str]]:
-        """Edges along which a change to ``node_id`` propagates, with the node they reach."""
-        for edge in self._out.get(node_id, []):
-            if edge.kind == 'feeds':
-                yield edge, edge.target
-        for edge in self._in.get(node_id, []):
-            if edge.kind in ('derived_from', 'tests', 'runs'):
-                yield edge, edge.source
+        """Edges along which a change to ``node_id`` propagates, with the node they reach:
+        ``feeds`` forwards, and ``derived_from``, ``tests`` and ``runs`` backwards."""
+        return self._neighbours(node_id, downstream=True)
 
     def upstream_edges(self, node_id: str) -> Iterator[tuple[Edge, str]]:
-        """Edges along which ``node_id`` depends on something, with the node they reach."""
-        for edge in self._in.get(node_id, []):
-            if edge.kind in ('feeds', 'runs'):
-                yield edge, edge.source
-        for edge in self._out.get(node_id, []):
-            if edge.kind == 'derived_from':
-                yield edge, edge.target
+        """Edges along which ``node_id`` depends on something, with the node they reach:
+        ``feeds`` and ``runs`` backwards, and ``derived_from`` forwards."""
+        return self._neighbours(node_id, downstream=False)
+
+    def _neighbours(self, node_id: str, *, downstream: bool) -> Iterator[tuple[Edge, str]]:
+        traversal = self.indexed('traversal', _Traversal)
+        for ordinal in traversal.core.neighbours(node_id, downstream):
+            edge = traversal.edges[ordinal]
+            yield edge, edge.target if edge.source == node_id else edge.source
 
     def _walk(
         self,
         start: Iterable[str],
-        step: Any,
+        *,
+        downstream: bool,
         max_depth: int | None,
         stop_at_reference: bool,
     ) -> list[Step]:
-        seen: dict[str, Step] = {}
-        queue: deque[tuple[str, int]] = deque()
-        for node_id in start:
-            if node_id in self.nodes and node_id not in seen:
-                seen[node_id] = Step(self.nodes[node_id], 0, None, None)
-                queue.append((node_id, 0))
-        while queue:
-            node_id, depth = queue.popleft()
-            if max_depth is not None and depth >= max_depth:
-                continue
-            current = seen[node_id]
-            if stop_at_reference and current.via is not None and current.via.attrs.get('role') == 'reference':
-                continue
-            for edge, other in step(node_id):
-                if other in seen or other not in self.nodes:
-                    continue
-                seen[other] = Step(self.nodes[other], depth + 1, edge, node_id)
-                # Tests and the tasks that run a node are reported, not walked through.
-                if edge.kind not in ('tests', 'runs'):
-                    queue.append((other, depth + 1))
-        return list(seen.values())
+        """Every node reached from ``start``, breadth first, each once with the first edge that
+        reached it. Tests and the tasks that run a node are reported, not walked through."""
+        traversal = self.indexed('traversal', _Traversal)
+        return traversal.steps(traversal.core.walk(list(start), downstream, max_depth, stop_at_reference))
 
     def expand(self, node: Node) -> list[str]:
         """A relation stands for itself and all its columns; anything else for itself."""
@@ -407,7 +413,7 @@ class Graph:
         not mark every downstream column as affected. For a column, the exposures that use and
         the tasks that read or run each affected relation are reported too.
         """
-        steps = self._walk(self.expand(node), self.downstream_edges, max_depth, True)
+        steps = self._walk(self.expand(node), downstream=True, max_depth=max_depth, stop_at_reference=True)
         if node.kind == 'column':
             steps += self._relation_consumers(steps, upstream=False)
         return steps + self._through_tasks(steps)
@@ -434,7 +440,7 @@ class Graph:
     def trace(self, node: Node, max_depth: int | None = None) -> list[Step]:
         """Everything upstream of ``node``. For a column, the tasks that build each relation on the
         way (including the column's own) are reported too."""
-        steps = self._walk(self.expand(node), self.upstream_edges, max_depth, False)
+        steps = self._walk(self.expand(node), downstream=False, max_depth=max_depth, stop_at_reference=False)
         if node.kind == 'column':
             steps += self._relation_consumers(steps, upstream=True)
         return steps
@@ -477,44 +483,12 @@ class Graph:
         return extra
 
     def path(self, start: Node, end: Node) -> list[Step]:
-        """Shortest path from ``start`` to ``end``, following data flow in either direction."""
-        for step in (self.downstream_edges, self.upstream_edges):
-            found = self._shortest(start.id, end.id, step)
-            if found:
-                return found
-
-        def either(node_id: str) -> Iterator[tuple[Edge, str]]:
-            yield from self.downstream_edges(node_id)
-            yield from self.upstream_edges(node_id)
-            for edge in self._out.get(node_id, []):
-                if edge.kind in ('contains', 'precedes'):
-                    yield edge, edge.target
-            for edge in self._in.get(node_id, []):
-                if edge.kind in ('contains', 'precedes'):
-                    yield edge, edge.source
-
-        return self._shortest(start.id, end.id, either)
-
-    def _shortest(self, start: str, end: str, step: Any) -> list[Step]:
-        if start == end:
-            return [Step(self.nodes[start], 0, None, None)]
-        seen: dict[str, Step] = {start: Step(self.nodes[start], 0, None, None)}
-        queue: deque[str] = deque([start])
-        while queue:
-            node_id = queue.popleft()
-            # Neighbours in a fixed order, so that of several routes of the same length the same one
-            # is found whatever order the build happened to add the edges in.
-            for edge, other in sorted(step(node_id), key=lambda pair: (pair[1], pair[0].kind)):
-                if other in seen or other not in self.nodes:
-                    continue
-                seen[other] = Step(self.nodes[other], seen[node_id].depth + 1, edge, node_id)
-                if other == end:
-                    chain = [seen[end]]
-                    while chain[-1].previous is not None:
-                        chain.append(seen[chain[-1].previous])
-                    return list(reversed(chain))
-                queue.append(other)
-        return []
+        """Shortest path from ``start`` to ``end``, following data flow in either direction: downstream
+        if there is a path that way, else upstream, else either way through ``contains`` and
+        ``precedes`` too. Of several paths of the same length, each step takes the neighbour whose
+        id sorts first, so the same path is found whatever order the build added the edges in."""
+        traversal = self.indexed('traversal', _Traversal)
+        return traversal.steps(traversal.core.path(start.id, end.id))
 
     # Serialisation
 
@@ -558,3 +532,46 @@ class Graph:
         for edge in self._edges.values():
             counts[f'edge:{edge.kind}'] = counts.get(f'edge:{edge.kind}', 0) + 1
         return counts
+
+
+class _Traversal:
+    """The graph's edges in the native index, with the nodes and edges its ordinals number."""
+
+    def __init__(self, graph: Graph) -> None:
+        self.nodes = list(graph.nodes.values())
+        # Insertion order, which is the order of each node's adjacency lists.
+        self.edges = list(graph._edges.values())
+        self.core = _core.GraphIndex(
+            list(graph.nodes),
+            [e.source for e in self.edges],
+            [e.target for e in self.edges],
+            [e.kind for e in self.edges],
+            [e.attrs.get('role') == 'reference' for e in self.edges],
+        )
+
+    def steps(self, visits: list[tuple[int, int, int | None, int | None]]) -> list[Step]:
+        nodes, edges = self.nodes, self.edges
+        return [
+            Step(
+                nodes[node],
+                depth,
+                None if via is None else edges[via],
+                None if previous is None else nodes[previous].id,
+            )
+            for node, depth, via, previous in visits
+        ]
+
+
+class _RelationNames:
+    """The graph's relations by every name they answer to (see ``Graph.resolve``)."""
+
+    def __init__(self, graph: Graph) -> None:
+        self.relations = list(graph.relations())
+        self.core = _core.RelationNames(
+            [n.name.lower() for n in self.relations],
+            [n.id.lower() for n in self.relations],
+            [n.relation for n in self.relations],
+            # A source system's table (Fivetran's) is named in full, so the short names of the
+            # warehouse table it lands as keep meaning that table.
+            [bool(n.attrs.get('outside_warehouse')) for n in self.relations],
+        )
