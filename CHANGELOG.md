@@ -1,3 +1,18 @@
+## v0.11.13 (2026-11-09)
+
+### Feat
+
+- **definitions**: Read SKOS and OWL vocabularies, with a concept hierarchy
+
+### Fix
+
+- **sql**: Report SQL that crashes the parser as unparsed instead of stopping the build
+- **cli**: Report an export with nothing to export as an error, not a traceback
+
+### Perf
+
+- **build**: Analyse dbt models in worker processes, a DAG level at a time
+
 ## v0.11.12 (2026-11-09)
 
 ### Feat
