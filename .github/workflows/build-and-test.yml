@@ -297,7 +297,7 @@ jobs:
         run: uv tool install --force "konstruct[bigquery] @ git+https://github.com/${{ github.repository }}@${{ github.sha }}"
 
   action:
-    name: GitHub Action on a breaking and a safe change
+    name: GitHub Action and its gate on a breaking and a safe change
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -323,18 +323,22 @@ jobs:
           working-directory: ${{ env.SHOP }}
           base: HEAD
           comment: "false"
+          gate: "true"
 
-      - name: The breaking change fails the check
+      - name: The breaking change fails the check and the gate
         env:
           OUTCOME: ${{ steps.breaking.outcome }}
           BREAKING: ${{ steps.breaking.outputs.breaking }}
+          GATE: ${{ steps.breaking.outputs.gate }}
           SUMMARY: ${{ steps.breaking.outputs.summary }}
           REPORT: ${{ steps.breaking.outputs.report }}
         run: |
           test "$OUTCOME" = failure
           test "$BREAKING" = 1
+          test "$GATE" = failed
           test "$SUMMARY" = "1 breaking change, 1 column removed, 1 column added."
           grep -q 'ltv.total. is removed but still read by .report' "$REPORT"
+          grep -q 'Gate failed: 1 finding' "$REPORT"
 
       - name: Update the reader in the same change
         run: sed -i 's/total/revenue/g' "$SHOP/sql/report.sql"
@@ -346,11 +350,15 @@ jobs:
           working-directory: ${{ env.SHOP }}
           base: HEAD
           comment: "false"
+          gate: "true"
 
       - name: The safe change passes
         env:
           BREAKING: ${{ steps.safe.outputs.breaking }}
-        run: test "$BREAKING" = 0
+          GATE: ${{ steps.safe.outputs.gate }}
+        run: |
+          test "$BREAKING" = 0
+          test "$GATE" = passed
 
   databricks-live:
     name: Databricks connector against a workspace

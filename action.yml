@@ -24,6 +24,14 @@ inputs:
     description: Fail the check when the change removes a column that something downstream still reads.
     required: false
     default: "true"
+  gate:
+    description: >-
+      Run `konstruct gate` and fail the check when it fails: a removed column something still reads
+      (whatever `fail-on-breaking` says), an approved term whose meaning changes, or a changed
+      column that computes a business idea differently from an existing one. Its findings are added
+      to the review.
+    required: false
+    default: "false"
   build-args:
     description: >-
       Arguments for `konstruct build`. The default reads no warehouse and never runs dbt, so no
@@ -48,6 +56,9 @@ outputs:
   breaking:
     description: Number of breaking changes.
     value: ${{ steps.diff.outputs.breaking }}
+  gate:
+    description: "`passed` or `failed` when the gate runs, empty otherwise."
+    value: ${{ steps.gate.outputs.gate }}
   summary:
     description: One-line summary of the change.
     value: ${{ steps.diff.outputs.summary }}
@@ -139,6 +150,47 @@ runs:
           jq -r '.breaking[] | "::error title=Breaking change::\(.relation).\(.column) is removed but \(.breaks | join(", ")) still reads it"' "$json"
         fi
 
+    - name: Run the gate
+      id: gate
+      if: inputs.gate == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        INPUT_BASE: ${{ inputs.base }}
+        BASE_REF: ${{ github.base_ref }}
+        REPORT: ${{ steps.diff.outputs.report }}
+      run: |
+        base="$INPUT_BASE"
+        if [ -z "$base" ] && [ -n "$BASE_REF" ]; then
+          base="origin/${BASE_REF}"
+        fi
+        json="${RUNNER_TEMP}/konstruct-gate.json"
+        rm -f "$json"
+        # The graph was built in the step before, with `build-args`; the gate uses it as it is.
+        set +e
+        konstruct gate ${base:+--base "$base"} --no-update --format markdown --json-file "$json" -q > "${RUNNER_TEMP}/konstruct-gate.md"
+        set -e
+        if [ ! -f "$json" ]; then
+          echo "::error::konstruct gate failed to run"
+          cat "${RUNNER_TEMP}/konstruct-gate.md"
+          exit 1
+        fi
+        { echo; cat "${RUNNER_TEMP}/konstruct-gate.md"; } >> "$REPORT"
+        { echo; cat "${RUNNER_TEMP}/konstruct-gate.md"; } >> "$GITHUB_STEP_SUMMARY"
+        if [ "$(jq -r '.passed' "$json")" = "true" ]; then
+          echo "gate=passed" >> "$GITHUB_OUTPUT"
+        else
+          echo "gate=failed" >> "$GITHUB_OUTPUT"
+          # Annotation paths are relative to the repository, the findings' to the working directory.
+          prefix="$(git rev-parse --show-prefix 2>/dev/null || true)"
+          jq -r --arg prefix "$prefix" '
+            def data: gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
+            def property: data | gsub(":"; "%3A") | gsub(","; "%2C");
+            .findings[]
+            | "::error title=\("Gate " + .rule | property)\(if .path then ",file=" + ($prefix + .path | property) else "" end)::\(.message + ". " + .fix | data)"
+          ' "$json"
+        fi
+
     - name: Comment on the pull request
       if: inputs.comment == 'true' && github.event_name == 'pull_request'
       shell: bash
@@ -157,6 +209,13 @@ runs:
         else
           gh api --method POST "repos/${REPO}/issues/${PR}/comments" -f body="$body" > /dev/null
         fi
+
+    - name: Fail on the gate
+      if: inputs.gate == 'true' && steps.gate.outputs.gate == 'failed'
+      shell: bash
+      run: |
+        echo "::error::The gate failed; see the job summary or the pull request comment."
+        exit 1
 
     - name: Fail on breaking changes
       if: inputs.fail-on-breaking == 'true' && steps.diff.outputs.breaking != '0'

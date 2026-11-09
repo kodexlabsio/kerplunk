@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from konstruct.conflicts import Conflicts
     from konstruct.diff import Diff
     from konstruct.explain import Explanation
+    from konstruct.gate import Gate
     from konstruct.ontology import Ontology
     from konstruct.verify import Engine, Verification
 
@@ -607,6 +608,42 @@ class Project:
         from konstruct.diff import diff
 
         return diff(self.graph, self.root, base=base, head=head)
+
+    def gate(
+        self,
+        base: str | None = None,
+        *,
+        update: bool = True,
+        run_dbt: bool | None = None,
+        warehouses: bool = True,
+    ) -> Gate:
+        """The check a change must pass before it is proposed.
+
+        Brings the graph up to date with the working tree, compares with ``base`` as
+        :meth:`diff` does, and reports what stops the change: a removed column something still
+        reads, an approved term whose meaning changes (in definitions.yml or through a column it
+        names), and a column the change alters that computes a business idea differently from
+        another (as :meth:`conflicts` finds). Each finding says what to do about it.
+
+        Args:
+            base: The commit to compare with. By default, the merge base with ``main``.
+            update: Bring the graph up to date first. ``False`` uses it as it is, as when it was
+                just built.
+            run_dbt: For that build, as for :meth:`build`.
+            warehouses: For that build, as for :meth:`build`.
+
+        Example::
+
+            result = project.gate()
+            if not result.passed:
+                for finding in result.findings:
+                    print(finding.rule, finding.message, finding.fix)
+        """
+        from konstruct.gate import gate
+
+        if update:
+            self.build(update=True, run_dbt=run_dbt, warehouses=warehouses)
+        return gate(self.graph, self.diff(base=base), self.conflicts())
 
     def query(self, question: str, depth: int = 1) -> query.QueryResult:
         """Answer a question in words with the nodes it is about and their connections.

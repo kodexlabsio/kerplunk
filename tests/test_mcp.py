@@ -36,6 +36,7 @@ async def _exercise(client: Client) -> None:
         'path',
         'query',
         'diff',
+        'gate',
     }
     assert all(t.description and t.input_schema for t in tools.tools)
     impact = structured(await client.call_tool('impact', {'ref': 'stg_payments.amount'}))

@@ -64,6 +64,10 @@ lineage parsed from the SQL. Query it instead of reading every model by hand.
    - `konstruct diff`: after editing models, SQL or DAGs, what the change does column by column
      compared with main, including removed columns that downstream models still read (breaking).
      Run it before you finish a change and fix anything it reports as breaking.
+   - `konstruct gate`: the check to pass before you open a pull request. It fails on a removed
+     column something still reads, an approved definition whose meaning changed, or a changed
+     column that computes a business idea differently from an existing one, and says how to fix
+     each. Fix what it reports and run it again until it passes; the pull request check runs it too.
    - `konstruct verify`: test the lineage against the data (DuckDB, Postgres, or a sample of
      Snowflake, BigQuery or Databricks); edges it confirms are marked `confirmed` in impact and trace.
    - `konstruct query "<question>"`: free-text questions; returns matching nodes and their

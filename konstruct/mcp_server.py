@@ -137,6 +137,20 @@ def build_server(root: Path) -> MCPServer:
             raise ToolError(str(error)) from error
 
     @server.tool()
+    def gate(base: str | None = None) -> dict[str, Any]:
+        """The check a change must pass before you open a pull request: brings the graph up to date
+        with the working tree and reports removed columns something still reads, approved
+        definitions whose meaning changed, and changed columns that compute a business idea
+        differently from an existing one, each with what to do about it. Run it before proposing
+        a change, fix what it reports, and run it again until `passed` is true."""
+        from konstruct.diff import DiffError
+
+        try:
+            return run(project.gate, base)
+        except DiffError as error:
+            raise ToolError(str(error)) from error
+
+    @server.tool()
     def query(question: str) -> dict[str, Any]:
         """A free-text question: the best-matching nodes and their connections, plus impact or
         lineage when the question asks for it. Prefer the specific tools when you know the name."""

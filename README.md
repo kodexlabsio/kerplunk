@@ -146,8 +146,8 @@ Composed formulas are evaluated on the data and must match the final model row f
 | Interface | What it is for |
 |-----------|----------------|
 | **Command line** | `impact`, `trace`, `explain`, `define`, `conflicts`, `diff`, `verify`, `export` and more: [every command](https://kodexlabsio.github.io/konstruct/reference/cli.html) |
-| **Coding agents** | A `/konstruct` skill for Claude Code and Cursor, and an MCP server with [eleven tools](https://kodexlabsio.github.io/konstruct/reference/mcp.html) |
-| **Pull requests** | A GitHub Action that comments, annotates and fails the check on breaking changes |
+| **Coding agents** | A `/konstruct` skill for Claude Code and Cursor, and an MCP server with [twelve tools](https://kodexlabsio.github.io/konstruct/reference/mcp.html) |
+| **Pull requests** | A GitHub Action that comments, annotates and fails the check on breaking changes, and runs `konstruct gate`, the check an agent passes before opening a pull request |
 | **Python** | `konstruct.Project`: [typed results](https://kodexlabsio.github.io/konstruct/reference/python-api.html) for every question |
 | **A browser** | `graph.html`, one offline file with column lineage, formulas and business terms: [the viewer](https://kodexlabsio.github.io/konstruct/guide/viewer.html) |
 | **Other tools** | OpenLineage events, Mermaid, Graphviz and CSV: [exporting](https://kodexlabsio.github.io/konstruct/guide/exporting.html) |

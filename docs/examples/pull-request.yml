@@ -46,3 +46,7 @@ jobs:
 
       - name: Fail on breaking changes
         run: konstruct diff --base "origin/${{ github.base_ref }}" --fail-on-breaking -q > /dev/null
+
+      # Optional: the stricter check an agent passes before opening a pull request.
+      - name: Gate
+        run: konstruct gate --base "origin/${{ github.base_ref }}" --no-update -q

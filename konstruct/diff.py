@@ -100,9 +100,14 @@ def file_at(repository: Path, ref: str | None, path: str) -> str | None:
     """A file's text at ``ref``, or in the working tree when ``ref`` is None; None if absent."""
     if ref is None:
         target = repository / path
-        return target.read_text(encoding='utf-8') if target.is_file() else None
+        # A binary file (a database beside the project, say) is not text to compare.
+        return target.read_text(encoding='utf-8', errors='replace') if target.is_file() else None
     result = subprocess.run(
-        ['git', '-C', str(repository), 'show', f'{ref}:{path}'], capture_output=True, text=True, check=False
+        ['git', '-C', str(repository), 'show', f'{ref}:{path}'],
+        capture_output=True,
+        text=True,
+        errors='replace',
+        check=False,
     )
     return result.stdout if result.returncode == 0 else None
 
@@ -924,6 +929,7 @@ def _compare_sql_file(
             label=label,
             kind=node.kind if node else 'table',
             status='added' if old is None else 'removed' if new is None else 'modified',
+            node_id=node.id if node else None,
         )
         _compare_statements(context, change, node, old, new, before if old else None, after if new else None)
         changes.append(change)

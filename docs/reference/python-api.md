@@ -121,6 +121,7 @@ print(result.totals())  # {'claimed': 36, 'confirmed': 36, ...}
 
 ```{eval-rst}
 .. automethod:: konstruct.Project.diff
+.. automethod:: konstruct.Project.gate
 .. automethod:: konstruct.Project.verify
 .. automethod:: konstruct.Project.export
 ```
@@ -238,6 +239,16 @@ print(result.totals())  # {'claimed': 36, 'confirmed': 36, ...}
    :members:
 
 .. autoclass:: konstruct.diff.Selection
+   :members:
+```
+
+### The Gate
+
+```{eval-rst}
+.. autoclass:: konstruct.gate.Gate
+   :members:
+
+.. autoclass:: konstruct.gate.Finding
    :members:
 ```
 

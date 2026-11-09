@@ -311,6 +311,32 @@ def cmd_verify(args: argparse.Namespace, console: Console) -> int:
     return 1 if args.strict and result.totals()['unexplained'] else 0
 
 
+def cmd_gate(args: argparse.Namespace, console: Console) -> int:
+    from konstruct.diff import DiffError
+
+    project = _project(args)
+    options: dict[str, Any] = {'run_dbt': False if args.no_dbt else None, 'warehouses': not args.no_warehouse}
+    update = not args.no_update
+    if not project.has_graph():
+        # One build, with the gate's options, rather than a default build and then an update.
+        project.build(**options)
+        update = False
+    try:
+        result = project.gate(base=args.base, update=update, **options)
+    except DiffError as error:
+        console.error(str(error))
+        return 1
+    if args.json_file:
+        Path(args.json_file).write_text(json.dumps(result.to_dict(), indent=2) + '\n', encoding='utf-8')
+    if args.format == 'json':
+        console.print(json.dumps(result.to_dict(), indent=2))
+    elif args.format == 'markdown':
+        console.print(result.markdown().rstrip())
+    else:
+        console.print(str(result))
+    return 0 if result.passed else 1
+
+
 def cmd_diff(args: argparse.Namespace, console: Console) -> int:
     from konstruct.diff import DiffError
 
@@ -429,6 +455,7 @@ examples:
   konstruct search lifetime value
   konstruct list models
   konstruct diff --base origin/main        what this branch changes and breaks, column by column
+  konstruct gate                           the check to pass before opening a pull request
   konstruct verify                         check the lineage against the data
   konstruct install                        add /konstruct to Claude Code and Cursor
 
@@ -598,6 +625,20 @@ def parser() -> argparse.ArgumentParser:
     diff.add_argument('--refresh', action='store_true', help='update the graph first if its inputs changed')
     diff.add_argument('--no-build', action='store_true', help='fail rather than build a missing graph')
     diff.set_defaults(func=cmd_diff, json=False)
+
+    gate_ = add('gate', 'the check a change must pass before it is proposed (exits 1 when it fails)')
+    gate_.add_argument(
+        '--base', metavar='REF', help='commit or date to compare with (default: the merge base with main)'
+    )
+    gate_.add_argument('--format', choices=['text', 'markdown', 'json'], default='text')
+    gate_.add_argument('--json-file', metavar='FILE', help='also write the result as JSON to FILE (for CI)')
+    gate_.add_argument('--graph', metavar='FILE', help='use this graph.json instead of finding konstruct-out')
+    gate_.add_argument('--no-update', action='store_true', help='use the graph as it is (just built, say)')
+    gate_.add_argument('--no-dbt', action='store_true', help='never run dbt when updating the graph')
+    gate_.add_argument(
+        '--no-warehouse', action='store_true', help='connect to no warehouse when updating the graph'
+    )
+    gate_.set_defaults(func=cmd_gate, json=False, refresh=False, no_build=False)
 
     verify = add(
         'verify',

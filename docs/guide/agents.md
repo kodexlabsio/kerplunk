@@ -9,4 +9,8 @@
 | `--mcp` | With `--target`, also register `konstruct mcp` in `.mcp.json` (Claude Code) and `.cursor/mcp.json` (Cursor), keeping any other servers |
 | `--force` | Replace a skill that was edited by hand; otherwise a reinstall only replaces konstruct's own earlier versions |
 
-The MCP server exposes `impact`, `trace`, `search`, `describe`, `conflicts`, `define`, `ontology`, `explain`, `path`, `query` and `diff`, returns the same structured results as `--json`, and rereads `graph.json` when a build changes it.
+The MCP server exposes `impact`, `trace`, `search`, `describe`, `conflicts`, `define`, `ontology`, `explain`, `path`, `query`, `diff` and `gate`, returns the same structured results as `--json`, and rereads `graph.json` when a build changes it.
+
+## Before Opening a Pull Request
+
+The skill and the `gate` MCP tool tell the agent to run `konstruct gate` before it proposes a change, fix what it reports and run it again until it passes. The gate fails on a removed column something still reads, an approved definition whose meaning changed, and a changed column that computes a business idea differently from an existing one, and each finding says how to fix it. With `gate: true`, the [GitHub Action](github-action.md#the-gate) runs the same check on the pull request.
