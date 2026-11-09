@@ -82,12 +82,15 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
+        INPUT_BASE: ${{ inputs.base }}
         BASE_REF: ${{ github.base_ref }}
       run: |
         if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
           git fetch --quiet --no-tags --unshallow origin || true
         fi
-        if [ -n "$BASE_REF" ]; then
+        # The pull request's base branch is only needed when the comparison defaults to it; an
+        # explicit `base` may name a commit in a repository with no `origin` remote at all.
+        if [ -z "$INPUT_BASE" ] && [ -n "$BASE_REF" ]; then
           git fetch --quiet --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
         fi
 
