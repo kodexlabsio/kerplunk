@@ -13,11 +13,12 @@ name: Create Release
 # While the version is 0.x a release is a patch unless a change is marked breaking, which gives
 # the next minor. Any version outside 0.x is refused: moving to 1.0 is the owner's decision, made
 # by changing this workflow. Each release moves the v0 tag that action users pin and publishes the
-# changelog section, the wheel and the sdist.
+# changelog section and the sdist; the wheels job then builds a wheel for each platform from the
+# tag and attaches them.
 #
 # Each release also carries a CycloneDX SBOM of the locked dependencies, and a signed SLSA build
 # provenance attestation (a Sigstore bundle, also recorded with GitHub's artifact attestations)
-# for the wheel, the sdist and the SBOM; `gh attestation verify <file> -R kodexlabsio/konstruct`
+# for the sdist, the SBOM and the wheels; `gh attestation verify <file> -R kodexlabsio/konstruct`
 # checks one.
 #
 # Publishing to PyPI is a separate job that stays off until the PUBLISH_TO_PYPI repository
@@ -50,6 +51,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write # push the release and v0 tags, and create the GitHub release
       id-token: write # sign the build provenance with the workflow's identity
@@ -77,6 +79,13 @@ jobs:
             echo "stale=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # maturin reads the Rust core's metadata with cargo, for the sdist too.
+      - name: Set up Rust
+        if: steps.current.outputs.stale != 'true'
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+
       - name: Set up uv
         if: steps.current.outputs.stale != 'true'
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -90,9 +99,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash .kodex/scripts/plan_release.sh
 
-      - name: Build the sdist and wheel
+      # The wheels are built for each platform by the wheels job, from the pushed tag.
+      - name: Build the sdist
         if: steps.plan.outputs.released == 'true'
-        run: uv build
+        run: uv build --sdist
 
       # Outside dist/, which holds only what PyPI takes.
       - name: Write the SBOM
@@ -142,26 +152,111 @@ jobs:
           git tag -f "$major" "$TAG"
           git push -f origin "refs/tags/${major}"
 
-      - name: Upload the distributions
+      - name: Upload the sdist
         if: steps.plan.outputs.released == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: dist
+          name: sdist
+          path: dist/*.tar.gz
+
+  wheels:
+    name: Wheel (${{ matrix.target }})
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      # One platform failing does not cancel the others, so a rerun builds only what failed.
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, manylinux: '2_28' }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu, manylinux: '2_28' }
+          - { os: ubuntu-latest, target: powerpc64le-unknown-linux-gnu, manylinux: '2_28' }
+          - { os: ubuntu-latest, target: s390x-unknown-linux-gnu, manylinux: '2_28' }
+          - { os: ubuntu-latest, target: riscv64gc-unknown-linux-gnu, manylinux: '2_31' }
+          - { os: ubuntu-latest, target: loongarch64-unknown-linux-gnu, manylinux: '2_36' }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: macos-latest, target: x86_64-apple-darwin }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { os: windows-latest, target: aarch64-pc-windows-msvc }
+    steps:
+      - name: Checkout the release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          persist-credentials: false
+
+      - name: Build the wheel
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: build
+          args: --release --locked --out dist
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux || 'auto' }}
+
+      - name: Upload the wheel
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wheel-${{ matrix.target }}
+          path: dist/*.whl
+
+  attach:
+    name: Attach the wheels
+    needs: [release, wheels]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # upload the wheels to the GitHub release
+      id-token: write # sign the wheels' build provenance with the workflow's identity
+      attestations: write # record the provenance with GitHub's artifact attestations
+    steps:
+      - name: Download the wheels
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: wheel-*
+          merge-multiple: true
           path: dist
+
+      - name: Attest the wheels' build provenance
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.whl
+
+      - name: Attach them to the release
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          jq -c . "$BUNDLE" > "$RUNNER_TEMP/konstruct-${TAG#v}-wheels.intoto.jsonl"
+          gh release upload "$TAG" dist/*.whl "$RUNNER_TEMP/konstruct-${TAG#v}-wheels.intoto.jsonl" \
+              --clobber --repo "$REPOSITORY"
 
   publish:
     name: Publish to PyPI
-    needs: release
+    needs: [release, attach]
     if: needs.release.outputs.released == 'true' && vars.PUBLISH_TO_PYPI == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write # trusted publishing: PyPI exchanges the OIDC token for an upload token
     steps:
-      - name: Download the distributions
+      - name: Download the sdist
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: dist
+          name: sdist
+          path: dist
+
+      - name: Download the wheels
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: wheel-*
+          merge-multiple: true
           path: dist
 
       - name: Publish with trusted publishing

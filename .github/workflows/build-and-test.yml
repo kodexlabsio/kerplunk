@@ -20,6 +20,10 @@ env:
   CI: true
   UV_FROZEN: '1'
 
+# Installing Konstruct compiles its Rust core (Cargo.toml and src/) with maturin, the build
+# backend, so every job that installs it sets up the stable toolchain first; the rust job also
+# checks the crate on the oldest Rust it supports.
+
 jobs:
   lint:
     name: Lint and type check
@@ -30,6 +34,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -48,6 +57,140 @@ jobs:
       - name: Mypy
         run: uv run mypy
 
+  rust:
+    name: Rust core (format, lint and tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Tests
+        run: cargo test --locked
+
+      # rust-version in Cargo.toml, which installing from source needs at least.
+      - name: Check the oldest supported Rust
+        run: |
+          rustup toolchain install 1.88 --profile minimal
+          cargo +1.88 check --locked --all-targets --all-features
+
+      # The assembly takes 64-bit pointers, so a 32-bit ABI on a supported architecture is
+      # refused at compile time rather than built.
+      - name: Refuse x32
+        run: |
+          rustup target add x86_64-unknown-linux-gnux32
+          if cargo check --locked --target x86_64-unknown-linux-gnux32 2> x32.log; then exit 1; fi
+          grep -q 'with 64-bit pointers' x32.log
+
+  rust-architectures:
+    name: Rust core on ${{ matrix.target }} (qemu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Debian's cross compilers link the tests and qemu-user runs them: each architecture's
+    # assembly runs for real, not just assembles.
+    container:
+      image: public.ecr.aws/docker/library/rust:1.97@sha256:b1b3c9c0d921d7fa0a6d1f9ec7e4eab87f8c8ec97644c3d791450f131dec813f
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-unknown-linux-gnu, qemu: aarch64, gnu: aarch64-linux-gnu, debian: arm64 }
+          - { target: riscv64gc-unknown-linux-gnu, qemu: riscv64, gnu: riscv64-linux-gnu, debian: riscv64 }
+          - { target: powerpc64le-unknown-linux-gnu, qemu: ppc64le, gnu: powerpc64le-linux-gnu, debian: ppc64el }
+          - { target: s390x-unknown-linux-gnu, qemu: s390x, gnu: s390x-linux-gnu, debian: s390x }
+          - { target: loongarch64-unknown-linux-gnu, qemu: loongarch64, gnu: loongarch64-linux-gnu, debian: loong64 }
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: ${{ matrix.target }}
+      QEMU: ${{ matrix.qemu }}
+      GNU: ${{ matrix.gnu }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the cross compiler and qemu
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends qemu-user "gcc-${GNU}" "libc6-dev-${{ matrix.debian }}-cross"
+
+      - name: Test under qemu
+        run: |
+          rustup target add "$TARGET"
+          upper=$(echo "$TARGET" | tr 'a-z-' 'A-Z_')
+          export "CARGO_TARGET_${upper}_LINKER=${GNU}-gcc"
+          export "CARGO_TARGET_${upper}_RUNNER=qemu-${QEMU} -L /usr/${GNU}"
+          cargo test --locked --target "$TARGET"
+
+  wheels:
+    name: Wheel (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, manylinux: '2_28', native: true }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu, manylinux: '2_28', native: false }
+          - { os: ubuntu-latest, target: powerpc64le-unknown-linux-gnu, manylinux: '2_28', native: false }
+          - { os: ubuntu-latest, target: s390x-unknown-linux-gnu, manylinux: '2_28', native: false }
+          - { os: ubuntu-latest, target: riscv64gc-unknown-linux-gnu, manylinux: '2_31', native: false }
+          - { os: ubuntu-latest, target: loongarch64-unknown-linux-gnu, manylinux: '2_36', native: false }
+          - { os: macos-latest, target: aarch64-apple-darwin, native: true }
+          - { os: macos-latest, target: x86_64-apple-darwin, native: false }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, native: true }
+          - { os: windows-latest, target: aarch64-pc-windows-msvc, native: false }
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # One abi3 wheel per platform serves every supported Python. Linux wheels are built in a
+      # manylinux container (cross-compiling for the other architectures), so they install on any
+      # distribution with glibc 2.28 or newer (2.31 for riscv64 and 2.36 for loongarch64).
+      - name: Build the wheel
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: build
+          args: --release --locked --out dist
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux || 'auto' }}
+
+      - name: Set up uv
+        if: matrix.native
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Install and run the wheel
+        if: matrix.native
+        shell: bash
+        run: |
+          uv tool install dist/*.whl
+          konstruct --version
+
+      - name: Upload the wheel
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wheel-${{ matrix.target }}
+          path: dist/*.whl
+
   commits:
     name: Commit messages
     if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
@@ -59,6 +202,11 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -137,6 +285,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
@@ -187,6 +340,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
@@ -210,6 +368,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
@@ -230,6 +393,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -279,6 +447,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
@@ -307,6 +480,11 @@ jobs:
     env:
       SOURCE: git+https://github.com/${{ github.repository }}@${{ github.sha }}
     steps:
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
@@ -404,6 +582,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Rust
+        if: env.KONSTRUCT_TEST_DATABRICKS_TOKEN != ''
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+
       - name: Set up uv
         if: env.KONSTRUCT_TEST_DATABRICKS_TOKEN != ''
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -433,6 +617,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -503,6 +692,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
@@ -522,6 +716,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3

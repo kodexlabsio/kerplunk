@@ -49,6 +49,37 @@ updates:
     labels:
       - dependencies
 
+  # The Rust core's crates. A PyO3 major changes the binding API, so it arrives in its own pull
+  # request; the rest are grouped.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '00:00'
+      timezone: 'Europe/London'
+    cooldown:
+      default-days: 7
+    assignees:
+      - dcrdev
+    commit-message:
+      prefix: fix
+      prefix-development: chore
+      include: scope
+    groups:
+      rust-dev-dependencies:
+        dependency-type: development
+        patterns:
+          - '*'
+      rust-dependencies:
+        dependency-type: production
+        patterns:
+          - '*'
+        exclude-patterns:
+          - 'pyo3'
+    labels:
+      - dependencies
+
   # The viewer's build tools. A bump can change the built page, so its pull request needs
   # `pnpm --dir viewer build` committed before the viewer job passes.
   - package-ecosystem: npm
