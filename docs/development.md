@@ -20,7 +20,7 @@
    uv sync
    uv run pre-commit install
    ```
-   The hooks run Ruff and mypy before each commit, check the commit message, and run the tests before each push.
+   The hooks run Ruff and mypy before each commit (and the viewer checks when `viewer/` changed), check the commit message, and run the tests before each push.
 
 ## Tests
 
