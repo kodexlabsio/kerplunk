@@ -468,7 +468,13 @@ def test_canonical_expansion_leaves_the_statement_as_it_was() -> None:
         assert tree.sql() == before
 
 
-CRASHES = [('duckdb', '->'), ('duckdb', 'select ->'), ('duckdb', 'select a -> from t'), ('postgres', '#>')]
+CRASHES = [
+    ('duckdb', '->'),
+    ('duckdb', 'select ->'),
+    ('duckdb', 'select a -> from t'),
+    ('postgres', '#>'),
+    ('bigquery', 'select {:}'),
+]
 
 
 @pytest.mark.parametrize(('dialect', 'sql'), CRASHES)

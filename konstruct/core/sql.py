@@ -24,9 +24,16 @@ from sqlglot.schema import MappingSchema
 
 from konstruct.core.graph import relation_key
 
-# What parsing SQL can raise: sqlglot's parse functions can fail with TypeError, ValueError or
-# RecursionError rather than a SqlglotError, for example on `->` in DuckDB or `#>` in Postgres.
-PARSE_ERRORS: tuple[type[Exception], ...] = (SqlglotError, TypeError, ValueError, RecursionError)
+# What parsing SQL can raise: sqlglot's parse functions can fail with TypeError, ValueError,
+# AttributeError or RecursionError rather than a SqlglotError, for example on `->` in DuckDB, `#>`
+# in Postgres or `{:}` in BigQuery.
+PARSE_ERRORS: tuple[type[Exception], ...] = (
+    SqlglotError,
+    TypeError,
+    ValueError,
+    AttributeError,
+    RecursionError,
+)
 
 Transform = Literal['direct', 'transformed']
 
