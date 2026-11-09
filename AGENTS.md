@@ -62,9 +62,9 @@ a change.
 - **The name** is Konstruct in prose, page headings and UI, and `konstruct` where it is typed: the
   command, package, file names (`konstruct.toml`, `konstruct-out/`), URLs, environment variables
   (`KONSTRUCT_*`), the `--version` output and the `konstruct:` prefix on progress messages.
-- **No business material in the repository.** Do not write market, fundraising, valuation, pricing
-  or investor material into this repository, its pull requests or its commit messages; the
-  commit-message check rejects the common words.
+- **No business material in the repository.** Do not write business, market, fundraising or pricing
+  material into this repository, its pull requests or its commit messages. The commit-message
+  check rejects the common words.
 - **Do not publish** to PyPI, or post anywhere outside this repository, without Dom's go-ahead.
 - **Do not name any Kodex Labs client** in code, docs, tests, examples or commit messages, and
   keep Kodex Labs delivery material (engagement plans, pricing, evaluation harnesses, client

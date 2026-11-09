@@ -2,7 +2,8 @@
 
 commitizen (`cz check`) enforces the Conventional Commits structure. This script adds the rules
 the Kodex Labs commitlint configuration layers on top: a fixed scope list, sentence-case
-subjects, line limits, no AI attribution and no business language. It runs as a pre-commit `commit-msg` hook and in CI.
+subjects, line limits, no AI attribution and no business language. It runs as a pre-commit
+`commit-msg` hook and in CI.
 
 Usage:
     python .kodex/scripts/check_commit_message.py <commit-message-file>
@@ -61,7 +62,8 @@ AI_TOOL = re.compile(
 # The repository describes what Konstruct does and how to use it; business, market and
 # fundraising material belongs elsewhere (AGENTS.md, Rules).
 BUSINESS_WORDS = re.compile(
-    r'\b(venture|investors?|valuations?|fundrais(e|es|ed|ing)|pitch deck|pricing)\b', re.IGNORECASE
+    r'\b(ventures?|investors?|valuations?|fundrais(e|es|ed|er|ers|ing)|pitch decks?|pricing)\b',
+    re.IGNORECASE,
 )
 BUSINESS_ACRONYMS = re.compile(r'\b(VCs?|ARR|TAM)\b')
 TRAILER = re.compile(r'^([A-Za-z][\w-]*):\s*(.+)$')

@@ -63,6 +63,11 @@ def test_accepts(message: str) -> None:
         ('feat(mcp): Add x\n\nThis grows ARR.', 'business'),
         ('chore: Prepare the seed fundraise', 'business'),
         ('docs: Note the VC feedback', 'business'),
+        ('feat(cli): Add x\n\nFor the next ventures.', 'business'),
+        ('docs: Record the valuation', 'business'),
+        ('docs: Update the pitch decks', 'business'),
+        ('feat(dbt): Add x\n\nIt widens the TAM.', 'business'),
+        ('chore: Plan the fundraiser', 'business'),
     ],
 )
 def test_rejects(message: str, fragment: str) -> None:
@@ -77,6 +82,8 @@ def test_rejects(message: str, fragment: str) -> None:
         'fix(dbt): Read the tam_score column',
         'feat(cli): Price nothing, compute everything',
         'fix(warehouse): Handle an empty VARCHAR column',
+        'fix(sql): Read the arr and tam columns',
+        'feat(sql): Handle the pitch column of a sensor table',
     ],
 )
 def test_business_words_need_whole_words(message: str) -> None:
