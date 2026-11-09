@@ -70,7 +70,7 @@ Konstruct reads a data repository and its warehouse and builds a graph of every 
 
 ### Business definitions beside the lineage
 
-`definitions.yml` records what each term means, who owns it and which columns hold it. Agents get the approved definition, and the build warns when a bound column disappears. Konstruct derives an ontology of entities, measures and relationships from them, and reads and writes Apache Ossie semantic models.
+`definitions.yml` records what each term means, who owns it and which columns hold it. Agents get the approved definition, and the build warns when a bound column disappears. Konstruct derives an ontology of entities, measures and relationships from them, and reads and writes Apache Ossie semantic models: a model it reads is written back as authored, with each metric's lineage and trust added.
 
 <sub><a href="https://kodexlabsio.github.io/konstruct/guide/definitions.html">Business definitions</a></sub>
 

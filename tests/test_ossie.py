@@ -11,7 +11,9 @@ from typing import Any
 import duckdb
 import jsonschema
 import pytest
+import sqlglot
 import yaml
+from sqlglot import exp
 
 from konstruct import Project
 from konstruct.interfaces.cli import main
@@ -22,10 +24,43 @@ SCHEMA = json.loads((FIXTURES / 'ossie-schema.json').read_text())
 
 
 def valid(text: str) -> Any:
+    """The document, after checking it against the schema and its references by name."""
     document = yaml.safe_load(text)
     jsonschema.Draft202012Validator(SCHEMA).validate(document)
     assert isinstance(document, dict)
+    references(document)
     return document
+
+
+def _names(expression: Any) -> list[exp.Column]:
+    text = expression.get('sql') if isinstance(expression, dict) else None
+    if text is None:
+        text = expression['dialects'][0]['expression']
+    return list(sqlglot.parse_one(str(text)).find_all(exp.Column))
+
+
+def references(document: dict[str, Any]) -> None:
+    """Every name a metric, key or relationship uses is a field the document declares, as the
+    specification's name resolution requires; fields and a dataset's metrics share one namespace."""
+    fields = {d['name']: {f['name'] for f in d.get('fields') or []} for d in document['datasets']}
+    for dataset in document['datasets']:
+        own = fields[dataset['name']]
+        metric_names = [m['name'] for m in dataset.get('metrics') or []]
+        assert not own & set(metric_names), (dataset['name'], own & set(metric_names))
+        assert set(dataset.get('primary_key') or []) <= own, dataset['name']
+        for metric in dataset.get('metrics') or []:
+            for column in _names(metric['expression']):
+                assert column.table.lower() == 'source' or (not column.table and column.name in own), (
+                    metric['name'],
+                    column.sql(),
+                )
+    for metric in document.get('metrics') or []:
+        for column in _names(metric['expression']):
+            assert column.name in fields.get(column.table, set()), (metric['name'], column.sql())
+    for rel in document.get('relationships') or []:
+        assert (
+            set(rel['from_columns']) <= fields[rel['from']] and set(rel['to_columns']) <= fields[rel['to']]
+        ), rel
 
 
 def test_reads_the_draft_and_the_released_shape() -> None:
@@ -371,16 +406,69 @@ def test_a_metric_read_from_ossie_is_written_back(tmp_path: Path) -> None:
     assert graph.nodes['term.cents'].attrs['formula_dialect'] == 'postgres'
     document = valid(project.export('ossie'))
     metrics = {m['name']: m['expression'] for m in document['metrics']}
-    # Read as portable SQL, so it is written back only as portable SQL: translating it to
-    # Postgres would add a cast that changes its meaning.
-    assert metrics['revenue'] == {'sql': 'SUM(orders.amount_cents) / 100.0'}
-    # Read in Postgres and scoped to its dataset, so it stays both.
-    [orders] = [d for d in document['datasets'] if d['source'] == 'main.orders']
-    assert orders['metrics'][0]['name'] == 'cents'
+    # Its dataset is written back under its own name with its own fields, so the metric is too:
+    # still portable SQL only, as translating it to Postgres would add a cast that changes it.
+    assert metrics['Revenue'] == {'sql': 'SUM(o.cents) / 100.0'}
+    # Read in Postgres and scoped to its dataset, so it stays both, as authored.
+    [orders] = document['datasets']
+    assert orders['name'] == 'o' and orders['primary_key'] == ['order_id']
+    assert [f['name'] for f in orders['fields']] == ['order_id', 'cents']
+    assert orders['metrics'][0]['name'] == 'Cents'
     assert orders['metrics'][0]['expression'] == {
-        'sql': 'SUM(amount_cents)',
-        'dialects': [{'dialect': 'POSTGRES', 'expression': 'SUM(amount_cents)'}],
+        'dialects': [{'dialect': 'POSTGRES', 'expression': 'SUM(source.amount_cents)'}]
     }
+    assert orders['metrics'][0]['custom_extensions'][0]['vendor_name'] == 'KONSTRUCT'
+
+
+def test_a_renamed_dataset_rewrites_its_metrics(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    # Two models read the same relation: the first read (other.ossie.yaml) is written back as
+    # authored, and the other model's metric is rewritten over that dataset.
+    (root / 'shop.ossie.yaml').write_text(
+        textwrap.dedent(
+            """\
+            version: "0.2.0.dev0"
+            name: shop
+            datasets:
+              - name: o
+                source: main.orders
+                fields:
+                  - {name: cents, expression: {sql: amount_cents}}
+            metrics:
+              - {name: Revenue, expression: {sql: SUM(o.cents) / 100.0}}
+            """
+        )
+    )
+    other = root / 'other.ossie.yaml'
+    other.write_text(
+        textwrap.dedent(
+            """\
+            version: "0.2.0.dev0"
+            name: other
+            datasets:
+              - name: elsewhere
+                source: main.orders
+                fields:
+                  - {name: total, expression: {sql: amount_cents / 100.0}}
+            metrics:
+              - {name: Total, expression: {sql: SUM(elsewhere.total)}}
+            """
+        )
+    )
+    project = Project(root)
+    project.build(dialect='duckdb', warehouses=False, run_dbt=False)
+    document = valid(project.export('ossie'))
+    metrics = {m['name']: m['expression'] for m in document['metrics']}
+    [dataset] = document['datasets']
+    assert dataset['name'] == 'elsewhere'
+    # The column it reads has no field of its own in that dataset, so one is written beside them.
+    assert [f['name'] for f in dataset['fields']] == ['total', 'amount_cents']
+    assert metrics == {
+        'Total': {'sql': 'SUM(elsewhere.total)'},
+        'revenue': {'sql': 'SUM(elsewhere.amount_cents) / 100.0'},
+    }
+    # Two models, so the document is not either one of them.
+    assert document['name'] != 'other'
 
 
 def test_the_upstream_scott_model_round_trips(tmp_path: Path) -> None:
@@ -399,7 +487,8 @@ def test_the_upstream_scott_model_round_trips(tmp_path: Path) -> None:
     assert not [w for w in graph.warnings if w.startswith('ossie: ') and 'metric' in w]
     document = valid(project.export('ossie'))
     scoped = {d['source']: [m['name'] for m in d.get('metrics', [])] for d in document['datasets']}
-    assert scoped['warehouse.scott.emp'] == [
+    assert document['name'] == 'scott_model'
+    assert scoped['scott.emp'] == [
         'avg_comm',
         'avg_sal',
         'comm_count',
@@ -407,11 +496,17 @@ def test_the_upstream_scott_model_round_trips(tmp_path: Path) -> None:
         'sum_comm',
         'sum_sal',
     ]
-    assert scoped['warehouse.scott.dept'] == ['dept_count'] and scoped['warehouse.scott.salgrade'] == [
-        'grade_count'
-    ]
-    emp = next(d for d in document['datasets'] if d['source'] == 'warehouse.scott.emp')
-    assert {m['name']: m['expression']['sql'] for m in emp['metrics']}['emp_count'] == 'COUNT(*)'
+    assert scoped['scott.dept'] == ['dept_count'] and scoped['scott.salgrade'] == ['grade_count']
+    # Written back as authored: the model's own datasets, fields and expressions.
+    authored = yaml.safe_load((FIXTURES / 'scott_model.ossie.fixture.yaml').read_text())
+    assert [d['name'] for d in document['datasets']] == sorted(d['name'] for d in authored['datasets'])
+    for dataset in authored['datasets']:
+        [written] = [d for d in document['datasets'] if d['name'] == dataset['name']]
+        assert written['fields'] == dataset['fields']
+        expressions = {m['name']: m['expression'] for m in written.get('metrics', [])}
+        assert expressions == {m['name']: m['expression'] for m in dataset.get('metrics', [])}
+    # Its relationships too, the self-relationship of an employee to their manager included.
+    assert document['relationships'] == authored['relationships']
 
 
 def test_metrics_over_computed_fields(tmp_path: Path) -> None:
@@ -444,12 +539,16 @@ def test_metrics_over_computed_fields(tmp_path: Path) -> None:
     )
     project = Project(tmp_path)
     project.build(dialect='duckdb', warehouses=False, run_dbt=False)
-    metrics = {m['name']: m['expression']['sql'] for m in valid(project.export('ossie'))['metrics']}
+    document = valid(project.export('ossie'))
+    metrics = {m['name']: m['expression']['sql'] for m in document['metrics']}
+    # Each computed field is written back with its own expression, so the metrics over it are too.
     assert metrics == {
-        'completed_takings': "SUM(CASE WHEN orders.status = 'completed' THEN (orders.amount_cents / 100.0) ELSE 0 END)",
-        'net_revenue': 'SUM((orders.amount_cents / 100.0)) - SUM(refunds.cents) / 100.0',
-        'takings': 'SUM((orders.amount_cents / 100.0))',
+        'completed_takings': "SUM(CASE WHEN orders.status = 'completed' THEN orders.total ELSE 0 END)",
+        'net_revenue': 'SUM(orders.total) - SUM(refunds.cents) / 100.0',
+        'Takings': 'SUM(orders.total)',
     }
+    [orders] = [d for d in document['datasets'] if d['name'] == 'orders']
+    assert orders['fields'][1] == {'name': 'total', 'expression': {'sql': 'amount_cents / 100.0'}}
     # The columns a metric reads are its inputs: they do not each hold it, so they do not conflict.
     assert project.conflicts().conflicts == []
 
@@ -499,6 +598,172 @@ def test_a_field_that_repeats_a_column(tmp_path: Path, caplog: pytest.LogCapture
     with caplog.at_level('WARNING', logger='konstruct.semantics.ossie'):
         document = valid(project.export('ossie'))
     assert {m['name']: m['expression']['sql'] for m in document['metrics']} == {
-        'largest_refund': 'MAX((CASE WHEN refunds.cents > 0 THEN refunds.cents ELSE 0 END))'
+        'largest_refund': 'MAX(refunds.pos)'
     }
     assert "measure 'Broken total' is left out: its expression does not resolve" in caplog.text
+
+
+def test_a_dataset_another_model_claims_is_not_written_against(tmp_path: Path) -> None:
+    (tmp_path / 'models.sql').write_text(
+        'create table main.orders as select id, amount_cents, discount from raw.orders;\n'
+    )
+    # a.ossie.yaml is read first, so its orders dataset is the one written back.
+    (tmp_path / 'a.ossie.yaml').write_text(
+        textwrap.dedent(
+            """\
+            version: "0.2.0.dev0"
+            name: a
+            datasets:
+              - name: orders
+                source: main.orders
+                fields:
+                  - {name: revenue, expression: {sql: amount_cents}}
+            metrics:
+              - {name: gross, expression: {sql: SUM(orders.revenue)}}
+            """
+        )
+    )
+    (tmp_path / 'b.ossie.yaml').write_text(
+        textwrap.dedent(
+            """\
+            version: "0.2.0.dev0"
+            name: b
+            datasets:
+              - name: orders
+                source: main.orders
+                fields:
+                  - {name: revenue, expression: {sql: amount_cents - discount}}
+                  - {name: net, expression: {sql: amount_cents - discount}}
+                metrics:
+                  - name: scoped_net
+                    expression: {dialects: [{dialect: POSTGRES, expression: "SUM(net)"}]}
+            metrics:
+              - {name: net_revenue, expression: {sql: SUM(orders.revenue)}}
+            """
+        )
+    )
+    project = Project(tmp_path)
+    project.build(dialect='postgres', warehouses=False, run_dbt=False)
+    document = valid(project.export('ossie'))
+    [orders] = document['datasets']
+    metrics = {m['name']: m['expression'] for m in document['metrics']}
+    assert metrics['gross'] == {'sql': 'SUM(orders.revenue)'}
+    # b's revenue is another expression, so its metric is written over source columns, not as authored.
+    # a's revenue field is amount_cents itself, so the rewrite names it; discount gets a field of its own.
+    assert metrics['net_revenue']['sql'] == 'SUM((orders.revenue - orders.discount))'
+    assert [f['name'] for f in orders['fields']] == ['revenue', 'discount']
+    scoped = {m['name']: m['expression'] for m in orders.get('metrics', [])}
+    assert scoped['scoped_net'] == {
+        'sql': 'SUM((revenue - discount))',
+        'dialects': [{'dialect': 'POSTGRES', 'expression': 'SUM((revenue - discount))'}],
+    }
+
+
+def test_a_metric_defined_twice_keeps_the_first(tmp_path: Path) -> None:
+    (tmp_path / 'models.sql').write_text(
+        'create table main.orders as select id, cents, discount from raw.orders;\n'
+    )
+    (tmp_path / 'shop.ossie.yaml').write_text(
+        textwrap.dedent(
+            """\
+            version: "0.2.0.dev0"
+            name: shop
+            datasets:
+              - name: orders
+                source: main.orders
+                fields:
+                  - {name: cents, expression: {sql: cents}}
+                  - {name: discount, expression: {sql: discount}}
+            metrics:
+              - {name: revenue, expression: {sql: SUM(orders.cents)}}
+              - {name: revenue, expression: {sql: SUM(orders.discount)}}
+            """
+        )
+    )
+    project = Project(tmp_path)
+    graph = project.build(dialect='duckdb', warehouses=False, run_dbt=False).graph
+    assert any("metric 'revenue' is defined twice; the first is kept" in w for w in graph.warnings)
+    term = graph.nodes['term.revenue']
+    assert [graph.label(graph.nodes[e.target]) for e in graph.out_edges(term.id, 'defines')] == [
+        'orders.cents'
+    ]
+    [metric] = valid(project.export('ossie'))['metrics']
+    assert metric['expression'] == {'sql': 'SUM(orders.cents)'}
+    assert '"orders.cents"' in metric['custom_extensions'][0]['data']
+    assert 'discount' not in metric['custom_extensions'][0]['data']
+
+
+def test_an_authored_dataset_is_written_back_unchanged(tmp_path: Path) -> None:
+    (tmp_path / 'models.sql').write_text(
+        'create table main.orders as select id, amount_cents, name from raw.orders;\n'
+    )
+    authored = textwrap.dedent(
+        """\
+        version: "0.2.0.dev0"
+        name: shop
+        description: Shop.
+        datasets:
+          - name: orders
+            source: main.orders
+            primary_key: [order_id]
+            fields:
+              - {name: order_id, expression: {sql: id}}
+            metrics:
+              - {name: amount_cents, expression: {sql: SUM(source.amount_cents)}, ai_context: Count it in cents.}
+        """
+    )
+    (tmp_path / 'shop.ossie.yaml').write_text(authored)
+    project = Project(tmp_path)
+    project.build(dialect='duckdb', warehouses=False, run_dbt=False)
+    document = valid(project.export('ossie'))
+    expected = yaml.safe_load(authored)
+    [orders] = document['datasets']
+    # source.amount_cents adds no field, and a field would share the metric's name.
+    assert orders['fields'] == expected['datasets'][0]['fields']
+    [metric] = orders['metrics']
+    assert metric['ai_context'] == 'Count it in cents.'
+    assert metric['expression'] == {'sql': 'SUM(source.amount_cents)'}
+
+
+def test_authored_relationships_are_written_once_and_only_when_they_resolve(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    (tmp_path / 'models.sql').write_text(
+        'create table main.customers as select id from raw.customers;\n'
+        'create table main.orders as select id, customer_id from raw.orders;\n'
+    )
+    (tmp_path / 'definitions.yml').write_text(
+        'version: 1\nterms:\n  - {name: Customer, kind: entity, definition: x., columns: [main.customers.id]}\n'
+    )
+    (tmp_path / 'shop.ossie.yaml').write_text(
+        textwrap.dedent(
+            """\
+            version: "0.2.0.dev0"
+            name: shop
+            datasets:
+              - name: customers
+                source: main.customers
+                primary_key: [id]
+                fields:
+                  - {name: id, expression: {sql: id}}
+              - name: orders
+                source: main.orders
+                primary_key: [id]
+                fields:
+                  - {name: id, expression: {sql: id}}
+                  - {name: cust, expression: {sql: customer_id}}
+                  - {name: customer_ref, expression: {sql: customer_id}}
+            relationships:
+              - {name: orders_customers, from: orders, to: customers, from_columns: [customer_ref], to_columns: [id]}
+              - {name: dangling, from: orders, to: customers, from_columns: [nope], to_columns: [id]}
+            """
+        )
+    )
+    project = Project(tmp_path)
+    project.build(dialect='duckdb', warehouses=False, run_dbt=False)
+    with caplog.at_level('WARNING', logger='konstruct.semantics.ossie'):
+        document = valid(project.export('ossie'))
+    # The authored relationship once, on its own field, and not again as a derived one on cust.
+    assert [r['name'] for r in document['relationships']] == ['orders_customers']
+    assert document['relationships'][0]['from_columns'] == ['customer_ref']
+    assert "relationship 'dangling' is left out" in caplog.text

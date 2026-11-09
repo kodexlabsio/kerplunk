@@ -4,6 +4,10 @@ compliance/query/scott/scott_model.ossie.yaml, version 0.2.0.dev0, commit
 21d14d7a4044e71a19ea46d024c974a57323174a), licensed under the Apache License, Version 2.0, a copy
 of which is in LICENSE in this directory; the second is renamed so that a build of this repository
 does not read it as a model. They are used only to test Konstruct's Ossie support.
+
+portability/ holds compliance/portability/manifest.yaml and the M0 to M3 fixtures under it from
+the same commit, unchanged but for the same renaming (each .ossie.yaml is .ossie.fixture.yaml).
+Konstruct's conformance test reads each through a build and grades the model it writes back.
 The upstream NOTICE reads:
 
     Apache Ossie (incubating)

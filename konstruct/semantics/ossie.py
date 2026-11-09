@@ -12,7 +12,9 @@ dataset, field or metric that names something the data stack does not have is a 
 Both the released 0.1.1 shape (models in a ``semantic_model`` list) and the 0.2.0 draft (one model
 at the root) are read.
 
-Writing: ``konstruct export ossie`` writes the ontology as one 0.2.0.dev0 model: a dataset for each
+Writing: ``konstruct export ossie`` writes the ontology as one 0.2.0.dev0 model. A dataset read from
+an Ossie model is written back as authored, and so is each of its model's metrics whose datasets all
+keep their names, with Konstruct's extension added; the rest is derived: a dataset for each other
 relation that holds an entity or a measure's sources, the relationships between them whose key is
 known to be unique, and each aggregate measure as a metric whose expression is its formula composed
 down to those sources (or, for a metric read from an Ossie model, its own expression). The portable
@@ -22,6 +24,7 @@ carries its status, owner, verification, usage and columns in a ``KONSTRUCT`` cu
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import re
@@ -122,6 +125,8 @@ class Dataset:
     fields: dict[str, tuple[str, str | None]] = field(default_factory=dict)
     """Field name to its SQL expression over the source's columns, and the dialect to read it in."""
     primary_key: list[str] = field(default_factory=list)
+    raw: dict[str, Any] = field(default_factory=dict)
+    """The dataset as authored, without its metrics, so the export can write it back."""
 
 
 @dataclass
@@ -134,12 +139,15 @@ class Metric:
     synonyms: list[str] = field(default_factory=list)
     dialect: str | None = None
     """The sqlglot dialect its expression is read in; None for ANSI SQL."""
+    raw: dict[str, Any] = field(default_factory=dict)
+    """The metric as authored."""
 
 
 @dataclass
 class Model:
     name: str
     path: str
+    description: str | None = None
     datasets: dict[str, Dataset] = field(default_factory=dict)
     relationships: list[dict[str, Any]] = field(default_factory=list)
     metrics: list[Metric] = field(default_factory=list)
@@ -194,13 +202,18 @@ def parse(text: str, path: str) -> OssieFile:
         if not isinstance(raw, dict) or not raw.get('name') or not isinstance(raw.get('datasets'), list):
             result.errors.append(f'{path}: a semantic model needs a `name` and a `datasets` list')
             continue
-        model = Model(name=str(raw['name']), path=path)
+        description = raw.get('description')
+        model = Model(name=str(raw['name']), path=path, description=str(description) if description else None)
         where = f'{path}: model {model.name!r}'
         for item in raw['datasets']:
             if not isinstance(item, dict) or not item.get('name') or not item.get('source'):
                 result.errors.append(f'{where}: a dataset needs a `name` and a `source`')
                 continue
-            dataset = Dataset(name=str(item['name']), source=str(item['source']).strip())
+            dataset = Dataset(
+                name=str(item['name']),
+                source=str(item['source']).strip(),
+                raw=_plain({k: v for k, v in item.items() if k != 'metrics'}),
+            )
             for raw_field in item.get('fields') or []:
                 if not isinstance(raw_field, dict) or not raw_field.get('name'):
                     result.errors.append(f'{where}: a field of dataset {dataset.name!r} has no `name`')
@@ -217,7 +230,7 @@ def parse(text: str, path: str) -> OssieFile:
             for raw_metric in item.get('metrics') or []:
                 if isinstance(raw_metric, dict) and raw_metric.get('name'):
                     model.metrics.append(_metric(raw_metric, dataset.name))
-        model.relationships = [r for r in raw.get('relationships') or [] if isinstance(r, dict)]
+        model.relationships = [_plain(r) for r in raw.get('relationships') or [] if isinstance(r, dict)]
         for raw_metric in raw.get('metrics') or []:
             if isinstance(raw_metric, dict) and raw_metric.get('name'):
                 model.metrics.append(_metric(raw_metric, None))
@@ -235,7 +248,14 @@ def _metric(raw: dict[str, Any], dataset: str | None) -> Metric:
         description=str(description) if description else None,
         synonyms=_synonyms(raw.get('ai_context')),
         dialect=dialect,
+        raw=_plain(raw),
     )
+
+
+def _plain(value: Any) -> Any:
+    """``value`` as JSON data, so it can be kept in the graph: YAML dates become strings."""
+    result: Any = json.loads(json.dumps(value, default=str))
+    return result
 
 
 def parse_file(path: Path, relative: str | None = None) -> OssieFile:
@@ -266,6 +286,9 @@ class Binding:
     problems: list[str] = field(default_factory=list)
     failed: set[str] = field(default_factory=set)
     """Metrics whose expression did not resolve, which are left out."""
+    reads: dict[str, dict[str, str]] = field(default_factory=dict)
+    """Metric name to the datasets its expression names and their relation ids, so the export
+    knows when the metric can be written back as authored."""
 
 
 def _tree(sql: str, dialect: str | None) -> exp.Expression | None:
@@ -330,7 +353,12 @@ def bind(graph: Graph, model: Model) -> Binding:
             key_columns = result.fields.get((dataset.name, dataset.primary_key[0]), [])
             if len(key_columns) == 1:
                 result.keys.append(key_columns[0])
+    seen_metrics: set[str] = set()
     for metric in model.metrics:
+        if metric.name in seen_metrics:
+            result.problems.append(f'{where}: metric {metric.name!r} is defined twice; the first is kept')
+            continue
+        seen_metrics.add(metric.name)
         if metric.sql is None:
             result.problems.append(f'{where}: metric {metric.name!r} has no expression Konstruct can read')
             result.failed.add(metric.name)
@@ -357,6 +385,14 @@ def bind(graph: Graph, model: Model) -> Binding:
                 continue
             else:
                 key = (metric.dataset, column.name)
+            if key is None and any(name == column.name for _, name in result.fields):
+                # The spec requires dataset.field even when only one dataset has the field.
+                result.problems.append(
+                    f'{where}: metric {metric.name!r} reads {column.sql()!r} without its dataset; a '
+                    'model-scoped metric names each field as dataset.field'
+                )
+                result.failed.add(metric.name)
+                continue
             if key is None or key not in result.fields:
                 result.problems.append(
                     f'{where}: metric {metric.name!r} reads {column.sql()!r}, which is not a field of the model'
@@ -369,6 +405,9 @@ def bind(graph: Graph, model: Model) -> Binding:
                     (column, field_tree if isinstance(field_tree, exp.Column) else exp.Paren(this=field_tree))
                 )
             read.extend(n for n in result.fields[key] if n not in read)
+            result.reads.setdefault(metric.name, {})[key[0]] = result.relations[key[0]].id
+        if metric.dataset is not None and metric.dataset in result.relations:
+            result.reads.setdefault(metric.name, {})[metric.dataset] = result.relations[metric.dataset].id
         result.metrics[metric.name] = read
         if len(replacements) == len(list(tree.find_all(exp.Column))):
             for reference, swapped in replacements:
@@ -455,19 +494,52 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
     relations: dict[str, Node] = {}  # dataset name -> relation
     names: dict[str, str] = {}  # relation id -> dataset name
     field_names: dict[str, dict[str, str]] = {}  # relation id -> column id -> field name
+    used_fields: dict[str, set[str]] = {}  # relation id -> its field names
+    extra: dict[str, list[Node]] = {}  # relation id -> columns written beside an authored dataset's fields
+    # A relation read from an Ossie dataset is written back as that dataset, under its own name.
+    authored: dict[str, dict[str, Any]] = {}  # relation id -> how it was read
+    reserved: dict[str, str] = {}  # authored dataset name -> relation id
+    candidates = [
+        (node, held)
+        for node in graph.nodes.values()
+        if node.kind in RELATION_KINDS
+        and isinstance(held := node.attrs.get('ossie_authored'), dict)
+        and isinstance(held.get('dataset'), dict)
+    ]
+    # The first file read keeps a dataset name that two models give to different relations.
+    for node, held in sorted(candidates, key=lambda c: (str(c[1].get('path')), str(c[1].get('model')))):
+        dataset_name = _name(str(held['dataset'].get('name', '')))
+        if dataset_name not in reserved:
+            reserved[dataset_name] = node.id
+            authored[node.id] = held
 
     def dataset_for(relation: Node) -> str:
         if relation.id not in names:
-            # The short label where it is free, else the full relation key, so two relations that
-            # share a name (raw.orders, main.orders) stay two datasets.
-            label, full = _name(graph.label(relation)), _name(relation.relation or relation.id)
-            dataset = label if label not in relations else _unique(full, set(relations))
+            held = authored.get(relation.id)
+            used: set[str] = set()
+            mapping: dict[str, str] = {}
+            if held is not None:
+                dataset = _name(str(held['dataset']['name']))
+                # Fields and the dataset's own metrics share one namespace.
+                used.update(str(m) for m in held.get('metrics') or [])
+                for raw in _authored_fields(held):
+                    used.add(str(raw['name']))
+                    sql, read_in = _expression(raw.get('expression'))
+                    tree = _tree(sql, read_in) if sql else None
+                    column = graph.column(relation.id, tree.name) if isinstance(tree, exp.Column) else None
+                    if column is not None:
+                        mapping.setdefault(column.id, str(raw['name']))
+            else:
+                # The short label where it is free, else the full relation key, so two relations
+                # that share a name (raw.orders, main.orders) stay two datasets.
+                label, full = _name(graph.label(relation)), _name(relation.relation or relation.id)
+                taken = set(relations) | {n for n, owner in reserved.items() if owner != relation.id}
+                dataset = label if label not in taken else _unique(full, taken)
+                mapping = {c.id: _unique(_name(c.name), used) for c in graph.columns_of(relation.id)}
             names[relation.id] = dataset
             relations[dataset] = relation
-            used: set[str] = set()
-            field_names[relation.id] = {
-                c.id: _unique(_name(c.name), used) for c in graph.columns_of(relation.id)
-            }
+            field_names[relation.id] = mapping
+            used_fields[relation.id] = used
         return names[relation.id]
 
     def reference(column: Node) -> exp.Column | None:
@@ -476,22 +548,40 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
             return None
         dataset = dataset_for(owner)
         field_name = field_names[owner.id].get(column.id)
+        if field_name is None and owner.id in authored and column.kind == 'column':
+            # A column the authored dataset has no field for is written as a field beside them.
+            field_name = _unique(_name(column.name), used_fields[owner.id])
+            field_names[owner.id][column.id] = field_name
+            extra.setdefault(owner.id, []).append(column)
         return exp.column(field_name, table=dataset, quoted=False) if field_name else None
+
+    for relation_id in authored:
+        dataset_for(graph.nodes[relation_id])
 
     keys: dict[str, str] = {}  # dataset -> key field
     for entity in ontology.entities:
         for key_id in entity.key_ids:
             column = graph.nodes.get(key_id)
             owner = graph.parent_of(column) if column is not None else None
-            if column is not None and owner is not None:
-                dataset = dataset_for(owner)
-                keys.setdefault(dataset, field_names[owner.id][column.id])
+            if column is None or owner is None:
+                continue
+            if owner.id in authored:
+                # An authored dataset keeps its own primary key, or takes one only from its fields.
+                if not authored[owner.id]['dataset'].get('primary_key'):
+                    held_name = field_names[owner.id].get(column.id)
+                    if held_name is not None:
+                        keys.setdefault(names[owner.id], held_name)
+                continue
+            key = reference(column)
+            if key is not None:
+                keys.setdefault(str(key.table), key.name)
 
     dialect = graph.meta.get('dialect')
     native = _OSSIE_DIALECTS.get(dialect) if isinstance(dialect, str) else None
     metrics = []
     scoped: dict[str, list[dict[str, Any]]] = {}  # dataset -> its own metrics
     used_metrics: set[str] = set()
+    origins: set[str | None] = set()  # the Ossie model of each metric written, None for others
     for measure in ontology.measures:
         term = graph.nodes.get(f'term.{_slug(measure.name)}')
         imported = term is not None and isinstance(term.attrs.get('ossie_expression'), str)
@@ -514,37 +604,75 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
         if reason is not None:
             log.warning('ossie export: measure %r is left out: %s', measure.name, reason)
             continue
-        tree = _measure_tree(graph, explainer, measure, reference)
+        authored_metric = term.attrs.get('ossie_metric') if imported and term is not None else None
+        reads = term.attrs.get('ossie_reads') if term is not None else None
+        # Written as authored only when every dataset it names is written back, under its own
+        # name, from the metric's own model: another model's dataset of that name has other fields.
+        verbatim = (
+            term is not None
+            and isinstance(authored_metric, dict)
+            and isinstance(reads, dict)
+            and bool(reads)
+            and all(
+                names.get(rid) == ds
+                and rid in authored
+                and authored[rid].get('model') == term.attrs.get('model')
+                and authored[rid].get('path') == term.path
+                for ds, rid in reads.items()
+            )
+        )
+        tree = trial if verbatim else _measure_tree(graph, explainer, measure, reference)
         if tree is None:
             continue
         home = dataset_for(owner) if owner is not None else None
-        refs = list(tree.find_all(exp.Column))
-        if home is not None and all(r.table == home for r in refs):
-            for ref in refs:
-                ref.set('table', None)
+        metric: dict[str, Any]
+        context: dict[str, Any]
+        kept_text: str | None = None
+        if verbatim and isinstance(authored_metric, dict) and term is not None:
+            # Every dataset it names is written back under its own name, with its own fields, so
+            # the metric is written as authored: its expression, dialects, data type and the rest.
+            metric = copy.deepcopy(authored_metric)
+            authored_name = str(authored_metric['name'])
+            if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', authored_name):
+                authored_name = _name(authored_name.lower())
+            metric['name'] = _unique(authored_name, used_metrics)
+            held_context = metric.get('ai_context')
+            context = dict(held_context) if isinstance(held_context, dict) else {}
+            kept_text = held_context if isinstance(held_context, str) else None
+            synonyms = [*_synonyms(context), *(term.attrs.get('synonyms', []) if term else []), measure.name]
         else:
-            home = None
-        # The portable expression in ANSI SQL, and the warehouse's own dialect beside it when the
-        # expression was read in that dialect (a metric read from Ossie in portable SQL keeps
-        # only its portable form, as translating it could change its meaning).
-        read_in = term.attrs.get('formula_dialect') if imported and term is not None else dialect
-        expression: dict[str, Any] = {'sql': tree.sql()}
-        if native and read_in == dialect:
-            expression['dialects'] = [{'dialect': native, 'expression': tree.sql(dialect=dialect)}]
-        metric: dict[str, Any] = {
-            'name': _unique(_name(measure.name.lower()), used_metrics),
-            'expression': expression,
-        }
-        if measure.definition:
-            metric['description'] = measure.definition
-        synonyms = [measure.name, *(term.attrs.get('synonyms', []) if term else [])]
-        context: dict[str, Any] = {'synonyms': list(dict.fromkeys(synonyms))}
+            refs = list(tree.find_all(exp.Column))
+            if home is not None and all(r.table == home for r in refs):
+                for ref in refs:
+                    ref.set('table', None)
+            else:
+                home = None
+            # The portable expression in ANSI SQL, and the warehouse's own dialect beside it when
+            # the expression was read in that dialect (a metric read from Ossie in portable SQL
+            # keeps only its portable form, as translating it could change its meaning).
+            read_in = term.attrs.get('formula_dialect') if imported and term is not None else dialect
+            expression: dict[str, Any] = {'sql': tree.sql()}
+            if native and read_in == dialect:
+                expression['dialects'] = [{'dialect': native, 'expression': tree.sql(dialect=dialect)}]
+            metric = {'name': _unique(_name(measure.name.lower()), used_metrics), 'expression': expression}
+            if measure.definition:
+                metric['description'] = measure.definition
+            context = {}
+            synonyms = [measure.name, *(term.attrs.get('synonyms', []) if term else [])]
+        kept = [s for s in dict.fromkeys(synonyms) if s != metric['name']]
+        if kept:
+            context['synonyms'] = kept
+        else:
+            context.pop('synonyms', None)
         instructions = [f'Grain: {measure.grain}.'] if measure.grain else []
         if measure.filters:
             instructions.append('Required filters: ' + '; '.join(measure.filters) + '.')
-        if instructions:
+        if instructions and 'instructions' not in context:
             context['instructions'] = ' '.join(instructions)
-        metric['ai_context'] = context
+        if kept_text is not None:
+            metric['ai_context'] = kept_text  # an authored instruction string stays as written
+        elif context:
+            metric['ai_context'] = context
         extension = {
             'status': measure.status,
             'owner': measure.owner,
@@ -567,16 +695,73 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
                 for c in measure.columns
             ],
         }
-        metric['custom_extensions'] = [
-            {'vendor_name': VENDOR, 'data': json.dumps({k: v for k, v in extension.items() if v is not None})}
+        others = [
+            e
+            for e in metric.get('custom_extensions') or []
+            if not (isinstance(e, dict) and e.get('vendor_name') == VENDOR)
         ]
+        metric['custom_extensions'] = [
+            *others,
+            {
+                'vendor_name': VENDOR,
+                'data': json.dumps({k: v for k, v in extension.items() if v is not None}),
+            },
+        ]
+        model = term.attrs.get('model') if term is not None and _from_ossie(term) else None
+        origins.add(model if isinstance(model, str) else None)
         if home is not None:
             scoped.setdefault(home, []).append(metric)
         else:
             metrics.append(metric)
 
+    # A relationship read from an Ossie model keeps its name.
+    authored_names = {
+        (r['from'], r['to']): r['name']
+        for r in graph.meta.get('ossie_relationships') or []
+        if isinstance(r, dict) and r.get('name')
+    }
     relationships = []
     used_relationships: set[str] = set()
+    written: set[tuple[str, str, tuple[str, ...], tuple[str, ...]]] = set()
+    written_names: set[tuple[str, str]] = set()  # (path, name) of each written as authored
+    for held_rel in graph.meta.get('ossie_authored_relationships') or []:
+        raw = held_rel.get('raw') if isinstance(held_rel, dict) else None
+        if not isinstance(raw, dict):
+            continue
+        source, target = str(raw.get('from')), str(raw.get('to'))
+        ends = [reserved.get(source), reserved.get(target)]
+        # Written as authored when both datasets are written back from the relationship's model
+        # and every column it names is one of their fields.
+        if all(
+            rid is not None
+            and authored[rid].get('model') == held_rel.get('model')
+            and authored[rid].get('path') == held_rel.get('path')
+            for rid in ends
+        ):
+            declared = [{str(f['name']) for f in _authored_fields(authored[str(rid)])} for rid in ends]
+            if not (
+                {str(c) for c in raw.get('from_columns') or []} <= declared[0]
+                and {str(c) for c in raw.get('to_columns') or []} <= declared[1]
+            ):
+                log.warning(
+                    'ossie export: relationship %r is left out: it names a field its datasets do not have',
+                    raw.get('name'),
+                )
+                continue
+            authored_rel = copy.deepcopy(raw)
+            authored_rel['name'] = _unique(
+                _name(str(raw.get('name') or f'{source}_to_{target}')), used_relationships
+            )
+            relationships.append(authored_rel)
+            written_names.add((str(held_rel.get('path')), str(raw.get('name'))))
+            written.add(
+                (
+                    source,
+                    target,
+                    tuple(map(str, raw.get('from_columns') or [])),
+                    tuple(map(str, raw.get('to_columns') or [])),
+                )
+            )
     for rel in ontology.relationships:
         # Ossie's to_columns are a key of the target; without that known, there is no relationship to state.
         if rel.columns is None or rel.cardinality is None:
@@ -586,9 +771,22 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
         right = reference(one) if one is not None else None
         if left is None or right is None:
             continue
+        if (str(left.table), str(right.table), (left.name,), (right.name,)) in written:
+            continue
+        # The same join, read from a relationship already written as authored, on other fields.
+        if any(
+            (item.get('from'), item.get('to')) == (rel.columns[0], rel.columns[1])
+            and (str(item.get('path')), str(item.get('name'))) in written_names
+            for item in graph.meta.get('ossie_relationships') or []
+            if isinstance(item, dict)
+        ):
+            continue
+        relationship_name = authored_names.get(
+            (rel.columns[0], rel.columns[1]), f'{rel.source}_to_{rel.target}'
+        )
         relationships.append(
             {
-                'name': _unique(_name(f'{rel.source}_to_{rel.target}'), used_relationships),
+                'name': _unique(_name(relationship_name), used_relationships),
                 'from': left.table,
                 'to': right.table,
                 'from_columns': [left.name],
@@ -598,8 +796,9 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
 
     datasets = []
     for dataset, relation in sorted(relations.items()):
-        fields = []
-        for column in graph.columns_of(relation.id):
+        held = authored.get(relation.id)
+        fields: list[dict[str, Any]] = copy.deepcopy(_authored_fields(held)) if held is not None else []
+        for column in extra.get(relation.id, []) if held is not None else graph.columns_of(relation.id):
             entry: dict[str, Any] = {
                 'name': field_names[relation.id][column.id],
                 'expression': {'sql': _quoted(column.name)},
@@ -614,10 +813,15 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
                     {'vendor_name': VENDOR, 'data': json.dumps({'data_type': column.data_type})}
                 ]
             fields.append(entry)
-        item: dict[str, Any] = {'name': dataset, 'source': relation.relation or graph.label(relation)}
-        if dataset in keys:
+        item: dict[str, Any]
+        if held is not None:
+            item = copy.deepcopy(held['dataset'])
+            item['name'] = dataset
+        else:
+            item = {'name': dataset, 'source': relation.relation or graph.label(relation)}
+        if dataset in keys and not item.get('primary_key'):
             item['primary_key'] = [keys[dataset]]
-        if relation.description:
+        if relation.description and not item.get('description'):
             item['description'] = relation.description
         if fields:
             item['fields'] = fields
@@ -629,10 +833,17 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
         from konstruct.outputs.export import ExportError
 
         raise ExportError('nothing to export: the ontology has no entities or measures')
+    # The datasets of exactly one Ossie model are written back as that model.
+    models = {authored[r.id]['model'] for r in relations.values() if r.id in authored} | origins
+    single = next(iter(models)) if len(models) == 1 and len(authored) == len(relations) else None
+    description = 'Entities, relationships and measures derived by Konstruct from the data stack.'
+    if single is not None:
+        first = next(iter(authored.values()))
+        description = first.get('model_description') or description
     document: dict[str, Any] = {
         'version': EXPORT_VERSION,
-        'name': _name(name or 'konstruct'),
-        'description': 'Entities, relationships and measures derived by Konstruct from the data stack.',
+        'name': _name(single or name or 'konstruct'),
+        'description': description,
         'datasets': datasets,
     }
     if relationships:
@@ -640,6 +851,11 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
     if metrics:
         document['metrics'] = metrics
     return yaml.safe_dump(document, sort_keys=False, allow_unicode=True, width=100)
+
+
+def _authored_fields(held: dict[str, Any]) -> list[dict[str, Any]]:
+    """The named fields of an authored dataset."""
+    return [f for f in held['dataset'].get('fields') or [] if isinstance(f, dict) and f.get('name')]
 
 
 def _measure_tree(graph: Graph, explainer: Any, measure: Any, reference: Any) -> exp.Expression | None:

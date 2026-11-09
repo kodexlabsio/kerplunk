@@ -1098,6 +1098,7 @@ class Builder:
         from konstruct.semantics import ossie
 
         relationships: list[dict[str, str]] = []
+        authored_relationships: list[dict[str, Any]] = []
         for path in discover_ossie_files(self.config):
             self.watch(path)
             rel = self.rel_path(path)
@@ -1115,9 +1116,27 @@ class Builder:
                     self.graph.warn(f'ossie: {problem}')
                 for key in binding.keys:
                     key.attrs.setdefault('ossie_key', rel)
+                for dataset_name, relation in binding.relations.items():
+                    # The first model to name a relation is the one the export writes back.
+                    relation.attrs.setdefault(
+                        'ossie_authored',
+                        {
+                            'model': model.name,
+                            'model_description': model.description,
+                            'path': rel,
+                            'dataset': model.datasets[dataset_name].raw,
+                            'metrics': [m.name for m in model.metrics if m.dataset == dataset_name],
+                        },
+                    )
+                for raw_relationship in model.relationships:
+                    authored_relationships.append({'model': model.name, 'path': rel, 'raw': raw_relationship})
                 for many, one, name in binding.relationships:
                     relationships.append({'from': many.id, 'to': one.id, 'name': name, 'path': rel})
+                seen_metrics: set[str] = set()
                 for metric in model.metrics:
+                    if metric.name in seen_metrics:
+                        continue  # defined twice in the model: bind reported it and kept the first
+                    seen_metrics.add(metric.name)
                     columns = binding.metrics.get(metric.name)
                     if columns is None or metric.name in binding.failed:
                         continue
@@ -1135,6 +1154,8 @@ class Builder:
                         attrs['ossie_expression'], attrs['ossie_columns'] = binding.portable[metric.name]
                     if metric.name in binding.datasets:
                         attrs['ossie_dataset'] = binding.datasets[metric.name]
+                    attrs['ossie_metric'] = metric.raw
+                    attrs['ossie_reads'] = binding.reads.get(metric.name, {})
                     if metric.synonyms:
                         attrs['synonyms'] = metric.synonyms
                     term = self.graph.add_node(
@@ -1158,6 +1179,8 @@ class Builder:
             self.inputs['ossie_metrics'] = self.inputs.get('ossie_metrics', 0) + count
         if relationships:
             self.graph.meta['ossie_relationships'] = relationships
+        if authored_relationships:
+            self.graph.meta['ossie_authored_relationships'] = authored_relationships
 
     def load_looker(self) -> None:
         """LookML views as exposures: each reads the table its ``sql_table_name`` names (or its
