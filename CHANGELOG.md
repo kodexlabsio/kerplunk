@@ -1,3 +1,19 @@
+## v0.11.12 (2026-11-09)
+
+### Feat
+
+- **definitions**: Bind shared ontology packs for common source schemas
+- **cli**: Answer when a column's formula changed and who approved it
+- **graph**: Say which business entities a change touches
+
+### Fix
+
+- **lineage**: Keep the brackets that operator-style functions need in formulas
+
+### Perf
+
+- **sql**: Print canonical column formulas without copying their trees
+
 ## v0.11.11 (2026-11-09)
 
 ### Feat
