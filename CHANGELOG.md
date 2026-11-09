@@ -1,3 +1,10 @@
+## v0.11.11 (2026-11-09)
+
+### Feat
+
+- **warehouse**: Show the tables Fivetran and Airbyte land, and Fivetran's source lineage
+- **build**: Read Power BI semantic models as exposures of the columns they use
+
 ## v0.11.10 (2026-11-09)
 
 ### Feat
