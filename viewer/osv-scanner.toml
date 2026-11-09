@@ -1,0 +1,10 @@
+# Read by osv-scanner and by OpenSSF Scorecard's Vulnerabilities check.
+
+[[IgnoredVulns]]
+id = "GHSA-gcqx-w48m-w2h4"
+# Revisit then, or as soon as deepmerge has a fixed release.
+ignoreUntil = 2027-05-01T00:00:00Z
+reason = """\
+deepmerge is a build-time dependency of @sveltejs/vite-plugin-svelte, which merges the viewer's \
+own Svelte configuration with it; nothing from a graph or a user reaches it, and the built page \
+does not include it. No fixed version of deepmerge exists."""
