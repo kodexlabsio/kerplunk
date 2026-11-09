@@ -294,6 +294,21 @@ def test_comparing_with_a_date(repo: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert Project(repo).diff(base='1999-01-01', head='HEAD').base_commit is None
 
 
+@pytest.mark.parametrize('side', ['base', 'head'])
+def test_a_ref_that_git_would_read_as_an_option_is_refused(repo: Path, side: str) -> None:
+    # The MCP server's diff and gate tools take refs from an agent; `--output` would have git
+    # write a file wherever the ref said.
+    written = repo.parent / 'written'
+    ref = f'--output={written}'
+    with pytest.raises(DiffError, match='is not a commit, branch, tag or date'):
+        Project(repo).diff(**{side: ref})
+    with pytest.raises(DiffError, match='is not a commit, branch, tag or date'):
+        Project(repo).gate(base=ref)
+    assert main(['-q', 'diff', '-C', str(repo), f'--{side}={ref}']) == 1
+    assert not written.exists()
+    assert not list(repo.parent.glob('written*'))
+
+
 def test_outside_git(tmp_path: Path) -> None:
     (tmp_path / 'x.sql').write_text('create table b as select a from t')
     project = Project(tmp_path)

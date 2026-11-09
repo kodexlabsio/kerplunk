@@ -50,11 +50,24 @@ def _git(root: Path, *args: str, check: bool = True) -> str:
 _DATE = re.compile(r'^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$')
 
 
+def check_ref(ref: str) -> str:
+    """``ref``, refused when git would read it as an option rather than a revision.
+
+    A base or head comes from the command line, the Python API and the MCP server's ``diff`` and
+    ``gate`` tools, where an agent chooses it. Passed on to git, ``--output=<file>`` would make
+    ``git diff`` and ``git show`` write that file. No branch, tag or revision starts with a dash,
+    so refusing one loses nothing."""
+    if not ref or ref.startswith('-') or '\0' in ref:
+        raise DiffError(f'{ref!r} is not a commit, branch, tag or date')
+    return ref
+
+
 def resolve_ref(root: Path, ref: str) -> str:
     """``ref`` as git takes it, or for a date (``2026-10-01``, ``2026-10-01 14:30``) the last
     commit on the current branch's history made before it, so a change can be reviewed since a
     point in time. A date alone means midnight at its start, in the machine's local time zone; a
     branch or tag named like a date is taken as that ref."""
+    check_ref(ref)
     if not _DATE.match(ref) or _git(
         root, 'rev-parse', '--verify', '--quiet', f'{ref}^{{commit}}', check=False
     ):
@@ -84,7 +97,7 @@ def default_base(root: Path) -> str:
 def changed_files(root: Path, base: str, head: str | None) -> dict[str, str]:
     """Paths (relative to the repository) mapped to A, M, D or R, between base and head or the
     working tree including untracked files."""
-    args = ['diff', '--name-status', '--no-renames', base] + ([head] if head else [])
+    args = ['diff', '--name-status', '--no-renames', check_ref(base)] + ([check_ref(head)] if head else [])
     changes: dict[str, str] = {}
     for line in _git(root, *args).splitlines():
         status, _, path = line.partition('\t')
@@ -103,7 +116,7 @@ def file_at(repository: Path, ref: str | None, path: str) -> str | None:
         # A binary file (a database beside the project, say) is not text to compare.
         return target.read_text(encoding='utf-8', errors='replace') if target.is_file() else None
     result = subprocess.run(
-        ['git', '-C', str(repository), 'show', f'{ref}:{path}'],
+        ['git', '-C', str(repository), 'show', f'{check_ref(ref)}:{path}'],
         capture_output=True,
         text=True,
         errors='replace',
