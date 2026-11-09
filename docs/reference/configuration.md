@@ -21,6 +21,9 @@ dags = ["orchestration/dags"]     # default: Python files that look like DAGs
 paths = ["jobs/"]                 # PySpark jobs; default: Python files that use spark.sql
 dialect = "spark"                 # the SQL dialect of their spark.sql strings (or "databricks")
 
+[looker]
+paths = ["lookml/"]               # LookML; default: every *.lkml file
+
 [sql]
 paths = ["sql/**/*.sql"]          # default: .sql files outside dbt folders and not used by DAGs
 

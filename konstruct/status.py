@@ -16,6 +16,7 @@ from konstruct.config import (
     WarehouseConfig,
     discover_dag_files,
     discover_definitions_files,
+    discover_looker_files,
     discover_spark_files,
     discover_sql_files,
     discover_warehouses,
@@ -34,6 +35,7 @@ class Status:
     dag_files: list[str] = field(default_factory=list)
     spark_files: list[str] = field(default_factory=list)
     sql_files: list[str] = field(default_factory=list)
+    looker_files: list[str] = field(default_factory=list)
     definitions_files: list[str] = field(default_factory=list)
     graph: dict[str, Any] = field(default_factory=dict)
     skills: list[str] = field(default_factory=list)
@@ -49,6 +51,7 @@ class Status:
             'dag_files': self.dag_files,
             'spark_files': self.spark_files,
             'sql_files': self.sql_files,
+            'looker_files': self.looker_files,
             'definitions_files': self.definitions_files,
             'graph': self.graph,
             'skills': self.skills,
@@ -72,6 +75,8 @@ class Status:
         if self.spark_files:
             rows.append(('spark', _files(self.spark_files, 'PySpark job')))
         rows.append(('sql', _files(self.sql_files, 'SQL file')))
+        if self.looker_files:
+            rows.append(('looker', _files(self.looker_files, 'LookML file')))
         rows.append(('definitions', _files(self.definitions_files, 'definitions file')))
         for repository in self.repositories:
             rows.append(('repository', f'{repository["name"]} ({repository["path"]}): {repository["found"]}'))
@@ -180,6 +185,7 @@ def inspect(
     status.spark_files = [_relative(p, root) for p in discover_spark_files(config)]
     status.sql_files = [_relative(p, root) for p in discover_sql_files(config, projects, _sql_used_by(dags))]
     status.definitions_files = [_relative(p, root) for p in discover_definitions_files(config)]
+    status.looker_files = [_relative(p, root) for p in discover_looker_files(config)]
 
     out = out_dir or find_out_dir(root)
     names: list[str] = []
@@ -254,6 +260,11 @@ def render_config(config: Config, status: Status, warehouses: list[WarehouseConf
     lines.append(
         f'paths = {_toml_list(status.sql_files)}' if status.sql_files else '# paths = ["sql/**/*.sql"]'
     )
+    lines += ['', '[looker]']
+    looker_dirs = sorted(
+        {str(Path(f).parent) if str(Path(f).parent) != '.' else f for f in status.looker_files}
+    )
+    lines.append(f'paths = {_toml_list(looker_dirs)}' if looker_dirs else '# paths = ["lookml/"]')
     lines += ['', '[definitions]']
     lines.append(
         f'paths = {_toml_list(status.definitions_files)}'

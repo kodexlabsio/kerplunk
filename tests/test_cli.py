@@ -180,6 +180,7 @@ def test_status_and_init(
     code, out, _ = run(capsys, 'init', '-C', str(jaffle), '--stdout')
     assert out.startswith('# Konstruct configuration')
     assert '[spark]\n# paths = ["jobs/"]\n# dialect = "spark"' in out
+    assert '[looker]\n# paths = ["lookml/"]' in out
     code, out, _ = run(capsys, 'status', '-C', str(jaffle))
     assert '  config       konstruct.toml' in out
     run(capsys, 'install', '--target', str(jaffle))

@@ -20,6 +20,7 @@ from konstruct.config import (
     discover_dag_files,
     discover_dagster_files,
     discover_definitions_files,
+    discover_looker_files,
     discover_ossie_files,
     discover_spark_files,
     discover_sql_files,
@@ -183,6 +184,17 @@ class Builder:
         self.index.add(node)
         return node
 
+    def columns_known(self, relation: Node) -> bool:
+        """Whether a relation's columns are listed by something that defines it (the warehouse,
+        dbt, or SQL that writes it), so a dashboard naming another column names a missing one. A
+        table that is only read elsewhere grows the columns that are named."""
+        existing = self.graph.columns_of(relation.id)
+        return (
+            not relation.attrs.get('inferred')
+            or (bool(relation.path) and bool(existing))
+            or any(not c.attrs.get('inferred') for c in existing)
+        )
+
     def column(self, parent: Node, name: str, origin: str) -> Node:
         existing = self.graph.column(parent.id, name)
         if existing is not None:
@@ -303,6 +315,7 @@ class Builder:
         self.load_dagster(schema_key)
         self.load_spark(schema_key)
         self.load_sql_files(projects, used_sql, schema_key)
+        self.load_looker()
         self.load_definitions()
         self.load_ossie()
         self.load_usage()
@@ -939,6 +952,90 @@ class Builder:
             self.inputs['ossie_metrics'] = self.inputs.get('ossie_metrics', 0) + count
         if relationships:
             self.graph.meta['ossie_relationships'] = relationships
+
+    def load_looker(self) -> None:
+        """LookML views as exposures: each reads the table its ``sql_table_name`` names (or its
+        own name), or the tables its derived SQL reads, and each of its fields the columns its
+        SQL names. Views are resolved across files, with refinements and ``extends`` applied."""
+        from konstruct import looker
+
+        files = discover_looker_files(self.config)
+        parsed: list[looker.LookerFile] = []
+        for path in files:
+            rel = self.rel_path(path)
+            self.watch(path)
+            try:
+                content = path.read_bytes()
+            except OSError as error:
+                self.graph.warn(f'looker: cannot read {rel}: {error}')
+                continue
+            key = Cache.key('looker', hashlib.sha256(content).hexdigest(), rel)
+
+            def compute(content: bytes = content, rel: str = rel) -> Any:
+                return looker.parse(content.decode('utf-8', errors='replace'), rel).to_dict()
+
+            item = looker.LookerFile.from_dict(self.cache.get_or_compute(key, compute))
+            parsed.append(item)
+            for problem in item.problems:
+                self.graph.warn(f'looker: {problem}')
+        views, problems = looker.resolve(parsed, self.dialect)
+        for problem in problems:
+            self.graph.warn(f'looker: {problem}')
+        counts: dict[str, int] = {}
+        for view in views:
+            counts[view.path] = counts.get(view.path, 0) + 1
+            exposure = self.graph.add_node(
+                Node(
+                    id=f'looker.view.{view.name}',
+                    kind='exposure',
+                    name=view.name,
+                    description=view.description,
+                    path=view.path,
+                    origins=['looker'],
+                    attrs={
+                        k: v
+                        for k, v in {
+                            'type': 'looker view',
+                            'label': view.label,
+                            'fields': sorted(f.name for f in view.fields),
+                        }.items()
+                        if v
+                    },
+                )
+            )
+            for key in [view.table] if view.table else view.derived_reads:
+                relation = self.relation(key.lower(), 'looker')
+                self.graph.add_edge(relation.id, exposure.id, 'feeds', origin='looker')
+                if not view.table:
+                    continue
+                by_column: dict[str, list[str]] = {}
+                for looked in view.fields:
+                    for name in looked.columns:
+                        by_column.setdefault(name, []).append(looked.name)
+                # A table the build only infers has no known columns: what the view reads is all
+                # that is known about them.
+                known = self.columns_known(relation)
+                for name, field_names in sorted(by_column.items()):
+                    column = self.graph.column(relation.id, name)
+                    if column is None and known:
+                        missing = ', '.join(sorted(field_names))
+                        self.graph.warn(
+                            f'looker: {view.path}: view {view.name!r} reads {key}.{name} ({missing}), '
+                            'which is not a known column'
+                        )
+                        continue
+                    column = column or self.column(relation, name, 'looker')
+                    self.graph.add_edge(
+                        column.id, exposure.id, 'feeds', origin='looker', fields=sorted(field_names)
+                    )
+        for path in files:
+            rel = self.rel_path(path)
+            count = counts.get(rel, 0)
+            self.sources.append(
+                {'input': 'looker', 'path': rel, 'detail': f'{count} view{"s" if count != 1 else ""}'}
+            )
+        if files:
+            self.inputs['looker_views'] = len(views)
 
     def load_definitions(self) -> None:
         """Business terms from definitions.yml, attached to the columns they name."""

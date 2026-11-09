@@ -433,6 +433,14 @@ class Graph:
             steps += self._relation_consumers(steps, upstream=True)
         return steps
 
+    def _fed_by_columns_of(self, consumer: str, relation: str) -> bool:
+        """Whether ``consumer`` (a Looker view, say) records which of ``relation``'s columns it
+        reads, so a column reaches it only through its own edge."""
+        return any(
+            e.source in self.nodes and self.nodes[e.source].parent == relation
+            for e in self.in_edges(consumer, 'feeds')
+        )
+
     def _relation_consumers(self, steps: list[Step], *, upstream: bool) -> list[Step]:
         seen = {s.node.id for s in steps}
         extra: list[Step] = []
@@ -452,7 +460,9 @@ class Graph:
                 candidates += [
                     (e, e.target)
                     for e in self.out_edges(parent, 'feeds')
-                    if e.target in self.nodes and self.nodes[e.target].kind in ('exposure', 'task')
+                    if e.target in self.nodes
+                    and self.nodes[e.target].kind in ('exposure', 'task')
+                    and not self._fed_by_columns_of(e.target, parent)
                 ]
             for edge, other in candidates:
                 if other not in seen:

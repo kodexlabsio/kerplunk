@@ -181,6 +181,7 @@ class Config:
     dagster_paths: list[Path] | None = None
     spark_paths: list[Path] | None = None
     spark_dialect: str = 'spark'
+    looker_paths: list[Path] | None = None
     definitions_paths: list[Path] | None = None
     repositories: list[Path] = field(default_factory=list)
     ossie_paths: list[Path] | None = None
@@ -284,6 +285,9 @@ def load_config(root: Path, out_dir: Path | None = None) -> Config:
         if 'paths' in data.get('spark', {})
         else None,
         spark_dialect=_spark_dialect(data.get('spark', {}).get('dialect', 'spark')),
+        looker_paths=[root / p for p in data.get('looker', {}).get('paths', [])]
+        if 'paths' in data.get('looker', {})
+        else None,
         sql_paths=list(sql['paths']) if 'paths' in sql else None,
         usage=_usage_settings(data.get('usage', {})),
         definitions_paths=[root / p for p in data.get('definitions', {}).get('paths', [])]
@@ -391,6 +395,19 @@ def discover_spark_files(config: Config) -> list[Path]:
         if looks_like_spark_file(text):
             found.append(path)
     return found
+
+
+def discover_looker_files(config: Config) -> list[Path]:
+    """LookML files (``*.lkml``): the configured paths, or every one in the repository."""
+    if config.looker_paths is not None:
+        files: list[Path] = []
+        for path in config.looker_paths:
+            if path.is_dir():
+                files.extend(sorted(p for p in path.rglob('*.lkml') if not set(p.parts) & SKIP_DIRS))
+            elif path.is_file():
+                files.append(path)
+        return files
+    return list(iter_files(config, '.lkml'))
 
 
 def discover_definitions_files(config: Config) -> list[Path]:

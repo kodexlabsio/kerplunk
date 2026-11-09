@@ -12,6 +12,7 @@
 - The ontology names entities from their key columns and relations by convention (`customer_id`, `stg_customers.id`, `stg_stripe__payments.id`); a term of kind `entity` names one that convention gets wrong. A relationship from an entity to itself, such as a customer's referrer, is not recorded, and a relationship's evidence lists every test and join between columns of the same names.
 - With several repositories, `SELECT *` over a relation another repository builds is not expanded, since each repository's SQL is analysed on its own; name the columns, or let the warehouse supply them, to get their lineage.
 - PySpark jobs are read for the SQL they pass to `spark.sql` on an object named like a session (`spark`, `session`); `sqlContext.sql(...)` and `SparkSession.builder.getOrCreate().sql(...)` are not read, nor are DataFrame writes (`saveAsTable`, `insertInto`, `write`). SQL held in a class attribute or an annotated constant counts as built at run time. `MERGE INTO` gives the table it writes but not its column lineage.
+- Looker explores and joins, references to another view's fields, Liquid and `@{constants}` in SQL, native derived tables (`explore_source`) and persistent derived tables that read other views are not followed, and a derived table's fields are tied to the view, not to its columns.
 - `diff` reads dbt YAML for tests, descriptions, sources and exposures, but not for other configuration (materialisation, contracts, meta).
 
 ## Not Yet (v1)

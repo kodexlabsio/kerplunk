@@ -159,6 +159,7 @@ Composed formulas are evaluated on the data and must match the final model row f
 | **Transformation** | dbt (manifest, catalog, or rendered without dbt), standalone SQL files, the SQL in PySpark jobs, warehouse views |
 | **Orchestration** | Airflow (DAGs, TaskGroups, TaskFlow, assets, Cosmos) and Dagster (assets, op jobs, schedules, sensors), parsed without running them |
 | **Warehouses** | DuckDB, Postgres, Snowflake, BigQuery, Databricks, and Iceberg through any PyIceberg catalogue |
+| **Dashboards** | dbt exposures, and Looker views field by field from LookML |
 | **Meaning** | Business terms in `definitions.yml`, and column usage from Snowflake, BigQuery and Databricks query history |
 
 ## Documentation
