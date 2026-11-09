@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
+from typing import Any
 
 import pytest
 
@@ -427,3 +429,40 @@ def test_source_order_does_not_depend_on_the_hash_seed() -> None:
         )
         outputs.add(done.stdout)
     assert len(outputs) == 1, outputs
+
+
+def test_canonical_expansion_leaves_the_statement_as_it_was() -> None:
+    """Canonical forms swap columns into the analysed statement and back; the statement must be
+    unchanged afterwards, including when an expansion fails part-way."""
+    import sqlglot
+    from sqlglot.lineage import lineage
+    from sqlglot.optimizer.qualify import qualify
+
+    from konstruct import sql as module
+
+    for text in (
+        'with c as (select x + 1 as a, y + 2 as b from t) select a * b as m from c',
+        'select case when x > 0 then x else y end + coalesce(x, 1) as m from t',
+        'select * from (select x * 2 as m from t) as s',
+    ):
+        tree = qualify(sqlglot.parse_one(text), validate_qualify_columns=False)
+        build: Any = lineage
+        node = build('m', tree, schema=None, copy=False, trim_selects=False)
+        before = tree.sql()
+        canonical = module._Canonical(None, None, None)
+        assert canonical.node(node)
+        assert tree.sql() == before
+        failing = module._Canonical(None, None, None)
+        real = failing.node
+        calls: list[int] = []
+
+        def flaky(child: Any, real: Any = real, calls: list[int] = calls) -> str:
+            calls.append(1)
+            if len(calls) == 2:
+                raise RecursionError('deep')
+            return str(real(child))
+
+        failing.node = flaky  # type: ignore[assignment]
+        with contextlib.suppress(RecursionError):
+            failing._expand(node)
+        assert tree.sql() == before

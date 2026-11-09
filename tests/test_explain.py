@@ -174,3 +174,28 @@ def test_viewer_formulas_are_cached_and_recomputed_downstream_of_a_change(tmp_pa
     after = _viewer_formulas(project)
     assert 'events.price_cents / 1000.0' in str(after[amount]['c'])
     assert after['table.w.mart.priced#qty'] == _viewer_formulas(project)['table.w.mart.priced#qty']
+
+
+def test_a_composed_formula_does_not_depend_on_what_was_explained_first(tmp_path: Path) -> None:
+    from konstruct.explain import Explainer
+
+    con = duckdb.connect(str(tmp_path / 'w.duckdb'))
+    for statement in (
+        'create schema raw',
+        'create schema mart',
+        'create table raw.t (id int, a int)',
+        'create view mart.v1_g as select id, coalesce((a / 100), 0) + 1 as g from raw.t',
+        'create view mart.v2_c as select id, g as c from mart.v1_g',
+    ):
+        con.execute(statement)
+    con.close()
+    project = Project(tmp_path)
+    project.build()
+    graph = project.graph
+    upstream, downstream = graph.nodes['table.w.mart.v1_g#g'], graph.nodes['table.w.mart.v2_c#c']
+    alone = Explainer(graph).explain(downstream).composed
+    explainer = Explainer(graph)
+    explainer.summary(upstream)
+    explainer.explain(upstream)
+    assert explainer.summary(downstream) == Explainer(graph).summary(downstream)
+    assert explainer.explain(downstream).composed == alone

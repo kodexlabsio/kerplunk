@@ -545,8 +545,22 @@ class _Canonical:
                 return exp.Var(this=f'{relation}.{item.name.lower()}')
             return item
 
-        # transform() copies the tree, so the copy it returns can be printed without another one.
-        return expression.transform(replace).sql(dialect=self.dialect, copy=False)
+        # The lineage node's expression belongs to the analysed statement, so rather than copying
+        # it (the commonest cost of a build), each column is swapped for its replacement, the SQL
+        # is printed, and the columns are put back.
+        if isinstance(expression, exp.Column):
+            return replace(expression).sql(dialect=self.dialect)
+        swapped: list[tuple[exp.Expr, exp.Expr]] = []
+        try:
+            for found in list(expression.find_all(exp.Column)):
+                new = replace(found)
+                if new is not found:
+                    found.replace(new)
+                    swapped.append((new, found))
+            return expression.sql(dialect=self.dialect, copy=False)
+        finally:
+            for new, old in reversed(swapped):
+                new.replace(old)
 
     def conditions(self, root: Scope, schema: MappingSchema) -> list[str]:
         found: set[str] = set()

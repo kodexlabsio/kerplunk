@@ -188,7 +188,8 @@ class _Namer:
                     return self.column(name, relation)
             return node
 
-        return _unparen(tree.transform(rename)).sql(dialect=self.sqlglot, copy=False)
+        # The tree is the one text() just parsed, so it is renamed in place.
+        return _unparen(tree.transform(rename, copy=False)).sql(dialect=self.sqlglot, copy=False)
 
     def text(self, sql: str) -> str:
         """``sql`` with short relation names, worked out once per distinct text."""
