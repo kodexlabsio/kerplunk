@@ -219,10 +219,11 @@ def test_define_on_the_command_line(project: Project, capsys: pytest.CaptureFixt
     assert main(['define', 'lifetime', 'value', '-C', str(project.path)]) == 0
     assert capsys.readouterr().out.startswith('Customer lifetime value  [approved')
     assert main(['define', 'stg_orders.status', '-C', str(project.path)]) == 3
+    assert capsys.readouterr().out.startswith('No business term defines stg_orders.status')
+    assert main(['define', 'zebra', '-C', str(project.path)]) == 1
+    assert "konstruct: error: no term or column matches 'zebra'" in capsys.readouterr().err
     assert main(['define', 'LTV', '-C', str(project.path), '--json']) == 0
-    assert (
-        json.loads(capsys.readouterr().out.split('\n', 1)[1])['terms'][0]['grain'] == 'one row per customer'
-    )
+    assert json.loads(capsys.readouterr().out)['terms'][0]['grain'] == 'one row per customer'
 
 
 @pytest.mark.dbt

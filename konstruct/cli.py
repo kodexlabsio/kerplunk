@@ -1,7 +1,7 @@
 """The Konstruct command line.
 
 Exit status: 0 on success, 1 on an error (or, with ``build --strict``, on warnings), 2 on a usage
-error, 3 when ``path`` finds no connection.
+error, 3 when ``path`` finds no connection or ``define`` finds a column that no term defines.
 """
 
 from __future__ import annotations
