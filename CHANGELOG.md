@@ -1,3 +1,9 @@
+## v0.11.7 (2026-11-09)
+
+### Feat
+
+- **definitions**: Read and write Apache Ossie semantic models
+
 ## v0.11.6 (2026-11-09)
 
 ### Feat
