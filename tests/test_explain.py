@@ -199,3 +199,53 @@ def test_a_composed_formula_does_not_depend_on_what_was_explained_first(tmp_path
     explainer.explain(upstream)
     assert explainer.summary(downstream) == Explainer(graph).summary(downstream)
     assert explainer.explain(downstream).composed == alone
+
+
+def test_tidying_brackets_keeps_meaning_and_is_the_same_alone_or_inside() -> None:
+    import sqlglot
+    from sqlglot import exp
+
+    from konstruct.explain import _unparen
+
+    xor = exp.and_(exp.Paren(this=exp.Xor(this=exp.column('a'), expression=exp.column('b'))), exp.column('c'))
+    assert _unparen(xor).sql('mysql') == '(a XOR b) AND c'
+    assert _unparen(sqlglot.parse_one('(a || b) || c')).sql() == '(a || b) || c'
+    assert _unparen(sqlglot.parse_one('((a + b)) * c')).sql() == '(a + b) * c'
+    alone = _unparen(sqlglot.parse_one('coalesce((a / 100), 0) + 1')).sql()
+    inside = _unparen(sqlglot.parse_one('(coalesce((a / 100), 0) + 1)')).sql()
+    assert alone == inside == 'COALESCE(a / 100, 0) + 1'
+
+
+def test_brackets_that_still_matter_are_kept() -> None:
+    import sqlglot
+
+    from konstruct.explain import _unparen
+
+    assert _unparen(sqlglot.parse_one('(addr).city', read='duckdb')).sql('duckdb') == '(addr).city'
+    assert (
+        _unparen(sqlglot.parse_one('((a > 0) OR (b > 0))', read='duckdb')).sql('duckdb') == 'a > 0 OR b > 0'
+    )
+    # Built directly: sqlglot's own parser recurses too deeply for such a formula on Python 3.11.
+    from sqlglot import exp
+
+    deep: exp.Expr = exp.column('a')
+    for i in range(1500):
+        deep = exp.Paren(this=exp.Add(this=deep, expression=exp.column(f'c{i}')))
+    tidied = _unparen(deep)
+    assert isinstance(tidied, exp.Add) and tidied.expression.name == 'c1499'
+
+
+def test_an_or_composed_into_an_and_keeps_its_brackets(tmp_path: Path) -> None:
+    con = duckdb.connect(str(tmp_path / 'w.duckdb'))
+    for statement in (
+        'create schema raw',
+        'create schema mart',
+        'create table raw.t (id int, a int, b int, c int)',
+        'create view mart.v1 as select id, a > 0 or b > 0 as flag, c from raw.t',
+        'create view mart.v2 as select id, flag and c > 0 as both_ from mart.v1',
+    ):
+        con.execute(statement)
+    con.close()
+    project = Project(tmp_path)
+    project.build()
+    assert project.explain('v2.both_').composed == '(t.a > 0 OR t.b > 0) AND t.c > 0'

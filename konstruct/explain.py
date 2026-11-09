@@ -214,24 +214,44 @@ def short_sql(graph: Graph, sql: str, *, condition: bool = False) -> str:
     return namer.condition(sql) if condition else namer.text(sql)
 
 
+def _call(node: exp.Expr | None) -> bool:
+    """Whether ``node`` prints as a function call, ``f(...)``: some functions print as operators
+    (``a XOR b``), and parentheses around or inside those still matter."""
+    return isinstance(node, exp.Func) and not isinstance(node, (exp.Binary, exp.Unary, exp.Connector))
+
+
 def _unparen(tree: exp.Expr) -> exp.Expr:
     """Drop parentheses that substitution added where they change nothing: around a whole
-    function argument, a CASE branch, another parenthesis or the whole formula."""
+    function argument, a CASE branch, another parenthesis or the whole formula.
 
-    def drop(node: exp.Expr) -> exp.Expr:
-        if isinstance(node, exp.Paren):
+    Children are tidied before their parents, so tidying a formula alone gives the same result
+    as tidying it inside a larger one."""
+
+    def droppable(node: exp.Paren) -> bool:
+        inner, parent = node.this, node.parent
+        if isinstance(parent, exp.Dot) and parent.this is node:
+            return False  # (a).b is field b of a; a.b is column b of a
+        return (
+            parent is None
+            or isinstance(inner, (exp.Column, exp.Literal, exp.Paren))
+            or _call(inner)
+            or isinstance(parent, (exp.Paren, exp.If, exp.Case, exp.Alias))
+            or _call(parent)
+            or (isinstance(parent, exp.Connector) and isinstance(inner, exp.Predicate))
+        )
+
+    # Reversed pre-order puts every node after its descendants, without recursion: a formula
+    # can be thousands of levels deep (a wide sum, a long OR chain).
+    root = tree
+    for node in reversed(list(tree.dfs())):
+        if isinstance(node, exp.Paren) and droppable(node):
             inner: exp.Expr = node.this
-            parent = node.parent
-            if (
-                parent is None
-                or isinstance(inner, (exp.Column, exp.Literal, exp.Func, exp.Paren))
-                or isinstance(parent, (exp.Func, exp.Paren, exp.If, exp.Case, exp.Alias))
-            ):
-                return inner
-        return node
-
-    result: exp.Expr = tree.transform(drop, copy=False)
-    return result
+            if node.parent is not None:
+                node.replace(inner)
+            else:
+                inner.pop()
+                root = inner
+    return root
 
 
 @dataclass
@@ -332,7 +352,7 @@ class Explainer:
                 complete = False
                 return short
             size += inner.size
-            if isinstance(inner.tree, (exp.Column, exp.Literal, exp.Func, exp.Paren)):
+            if isinstance(inner.tree, (exp.Column, exp.Literal, exp.Paren)) or _call(inner.tree):
                 return inner.tree.copy()
             return exp.Paren(this=inner.tree.copy())
 
