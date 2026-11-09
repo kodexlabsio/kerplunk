@@ -34,7 +34,7 @@ Open source, local first, one command.
 </p>
 
 <p align="center">
-<img src="docs/images/graph-html.png" alt="The lineage of customer_ltv.lifetime_value in the Konstruct viewer: four columns across an Airflow SQL table, two dbt models and a seed, each verified on data, with the formula SUM(raw_payments.amount / 100)" width="100%" />
+<img src="docs/images/graph-html.png" alt="The page for customer_ltv.lifetime_value in the Konstruct viewer: its formula, with the column's lineage drawn across a seed, two dbt models and an Airflow SQL table beneath it" width="100%" />
 </p>
 
 Your data stack is now read by agents as much as by people, and both are guessing. Catalogues mostly record lineage as table-level arrows or as what someone entered by hand, and semantic layers record what a metric should be. Few compose a column's formula through every model, and fewer check it against the data, so a coding agent asked to change `revenue` cannot see which dashboards it is about to break, or that finance and marketing compute it two different ways.
@@ -257,7 +257,7 @@ Try the [live demo](https://kodexlabsio.github.io/konstruct/demo/): the viewer f
 - A Claude Code plugin (`/plugin marketplace add kodexlabsio/konstruct`, then `/plugin install konstruct@konstruct`) with the skills, the `/konstruct:impact`, `/konstruct:review`, `/konstruct:gate`, `/konstruct:explain` and `/konstruct:define` commands, a data-reviewer subagent and the MCP server.
 - `konstruct hook`: a PostToolUse hook that runs the gate after an agent edits SQL or dbt YAML and gives it the findings, building from files alone without dbt or a warehouse.
 - Python: `konstruct.Project`, with [typed results](https://kodexlabsio.github.io/konstruct/reference/python-api.html) for every question.
-- A browser: `graph.html`, [one offline file](https://kodexlabsio.github.io/konstruct/guide/viewer.html) with the lineage, formulas, business terms, verification results and usage, with `REPORT.md` and `ontology.yml` beside it for reading in a repository.
+- A browser: `graph.html`, [one offline documentation site](https://kodexlabsio.github.io/konstruct/guide/viewer.html) with a page for every model, column, task and business term (its SQL, tests and formulas), a lineage graph that takes dbt selectors down to columns, search, and an overview of coverage and conflicts, in 14 languages and checked against WCAG 2.2 AA with axe-core; `REPORT.md` and `ontology.yml` sit beside it for reading in a repository.
 - Other tools: `konstruct export` writes OpenLineage events, Mermaid, Graphviz DOT, CSV and Apache Ossie ([exporting](https://kodexlabsio.github.io/konstruct/guide/exporting.html)).
 - Plugins: installed Python packages add inputs, export formats, gate checks, ontology packs and MCP tools through entry points, each run only when a project enables it in `konstruct.toml`; `konstruct plugins` lists them ([writing a plugin](https://kodexlabsio.github.io/konstruct/guide/plugins.html)).
 
