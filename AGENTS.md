@@ -48,6 +48,11 @@ a change.
 
 ## Rules
 
+- **One implementation per component, never a fallback.** Code written in Rust or assembly has no
+  Python, Rust or other twin: when a component moves to Rust its Python version is deleted, and an
+  assembly routine has no Rust version. Konstruct supports every modern architecture (x86_64,
+  aarch64, riscv64, ppc64le, s390x and loongarch64), each with its own assembly, and fails to
+  build anywhere else rather than falling back.
 - **Never import or execute user code.** DAG and Dagster files are parsed with `ast`; dbt Jinja is
   rendered in a sandbox. Only `konstruct verify` runs a model's SQL, and never commits anything to
   the warehouse.
