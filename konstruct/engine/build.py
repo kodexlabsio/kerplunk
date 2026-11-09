@@ -2347,11 +2347,28 @@ def merge_repository(
         parent, sep, column = node_id.partition('#')
         return renamed[parent] + sep + column if parent in renamed else node_id
 
+    # A relation one of the two builds (it has the file) and the other only reads keeps one node,
+    # with the builder's definition: its file, conditions and column expressions, so formulas
+    # compose across. ``defined`` are those the other repository builds, ``read`` those it reads.
+    shared_relations = [
+        node
+        for node in other.nodes.values()
+        if node.kind in RELATION_KINDS and node.id not in renamed and node.id in graph.nodes
+    ]
+    defined = {n.id for n in shared_relations if n.path and not graph.nodes[n.id].path}
+    read = {n.id for n in shared_relations if not n.path and graph.nodes[n.id].path}
     for node in other.nodes.values():
         node.id = new_id(node.id)
         if node.parent:
             node.parent = new_id(node.parent)
         if node.id in graph.nodes:
+            existing = graph.nodes[node.id]
+            if node.id in defined or node.parent in defined:
+                if node.path:
+                    node.path = moved(node.path)
+                _define(existing, node, existing, name)
+            elif node.id in read or node.parent in read:
+                _define(existing, existing, node, existing.attrs.get('repository'))
             continue
         if node.kind == 'term' and terms is not None:
             terms[node.id] = f'{name}: {_term_where(node)}'
@@ -2372,6 +2389,24 @@ def merge_repository(
     )
     graph.meta.setdefault('repositories', []).append(os.path.relpath(path, config.root))
     return builder
+
+
+def _define(existing: Node, builder: Node, reader: Node, repository: Any) -> None:
+    """Make ``existing`` (the builder's node or the reader's) the one node for what the builder
+    builds and the reader reads: the builder's file, attributes and mark, with what only the
+    reader knows besides. It is inferred only when both infer it, so the graph is the same
+    whichever repository is merged first."""
+    attrs = {**reader.attrs, **builder.attrs}
+    if not (builder.attrs.get('inferred') and reader.attrs.get('inferred')):
+        attrs.pop('inferred', None)
+    attrs.pop('repository', None)
+    if isinstance(repository, str) and repository:
+        attrs['repository'] = repository
+    existing.path = builder.path
+    existing.description = builder.description or reader.description
+    existing.data_type = builder.data_type or reader.data_type
+    existing.origins = list(dict.fromkeys([*builder.origins, *reader.origins]))
+    existing.attrs = attrs
 
 
 def _term_where(term: Node) -> str:

@@ -277,3 +277,63 @@ def test_a_term_two_repositories_define(tmp_path: Path) -> None:
     rules = {r.name: r.violations for r in Project(a).ontology().rules}
     [missing] = rules['bound-columns-exist']
     assert missing.startswith("b: definitions.yml:3: term 'Revenue': bound column 'main.y.nothing'")
+
+
+def test_a_relation_this_repository_reads_takes_its_definition_from_the_one_that_builds_it(
+    tmp_path: Path,
+) -> None:
+    """Built from the reader, the relation the other repository builds is one node with the
+    builder's file, conditions and expressions, so formulas compose across the two."""
+    reader, builder = tmp_path / 'reader', tmp_path / 'builder'
+    reader.mkdir()
+    builder.mkdir()
+    (builder / 'ltv.sql').write_text(
+        'create table main.ltv as select customer_id, sum(amount) as total from raw.orders '
+        "where status <> 'void' group by customer_id"
+    )
+    (reader / 'report.sql').write_text(
+        'create table main.report as select total * 2 as doubled from main.ltv'
+    )
+    (reader / 'konstruct.toml').write_text('dialect = "duckdb"\nrepositories = ["../builder"]\n')
+    project = Project(reader)
+    graph = project.build(warehouses=False, run_dbt=False).graph
+    ltv = graph.nodes['table.main.ltv']
+    assert (ltv.path, ltv.attrs['repository']) == ('../builder/ltv.sql', 'builder')
+    assert ltv.attrs['conditions'] == [
+        'GROUP BY: customer_id',
+        "WHERE: status <> 'void'",
+    ]
+    assert graph.nodes['table.main.ltv#total'].attrs['expression'] == 'SUM(raw.orders.amount)'
+    assert 'repository' not in graph.nodes['table.main.report'].attrs
+    assert project.explain('report.doubled').composed == 'SUM(orders.amount) * 2'
+
+
+def test_the_builder_marks_a_relation_whichever_repository_is_merged_first(tmp_path: Path) -> None:
+    """Merged before the builder or after it, the reader leaves the same graph: the relation and
+    the columns the builder builds are the builder's nodes, with its file, mark and attributes,
+    and a column only the reader names is the reader's."""
+    a, b, c = tmp_path / 'a', tmp_path / 'b', tmp_path / 'c'
+    for root in (a, b, c):
+        root.mkdir()
+    (b / 'ltv.sql').write_text(
+        'create table main.ltv as select customer_id, sum(amount) as total from raw.orders group by 1'
+    )
+    (c / 'report.sql').write_text(
+        'create table main.report as select total * 2 as doubled, gone from main.ltv'
+    )
+    built = []
+    for order in ('["../c", "../b"]', '["../b", "../c"]'):
+        (a / 'konstruct.toml').write_text(f'dialect = "duckdb"\nrepositories = {order}\n')
+        graph = Project(a).build(warehouses=False, run_dbt=False).graph
+        ltv = graph.nodes['table.main.ltv']
+        assert (ltv.path, ltv.attrs['repository']) == ('../b/ltv.sql', 'b')
+        assert graph.nodes['table.main.ltv#gone'].attrs['repository'] == 'c'
+        assert graph.nodes['table.main.report'].attrs['repository'] == 'c'
+        built.append(
+            {
+                n.id: (n.path, n.description, n.data_type, sorted(n.origins), n.attrs)
+                for n in graph.nodes.values()
+                if n.id.startswith('table.main.')
+            }
+        )
+    assert built[0] == built[1]
