@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedStr;
 use pyo3::types::{PyList, PyString};
 
-use crate::graph::{self, EdgeKind, Flow, Visit};
+use crate::graph::{self, EdgeKind, Flow, NodeKind, Visit};
 use crate::names::{self, Relation};
 use crate::search::{self, Document, Standing};
 
@@ -45,24 +45,39 @@ struct GraphIndex {
     inner: graph::GraphIndex,
 }
 
+impl GraphIndex {
+    fn ordinals(&self, ids: &[PyBackedStr]) -> Vec<u32> {
+        ids.iter().filter_map(|id| self.inner.node(id)).collect()
+    }
+}
+
 #[pymethods]
 impl GraphIndex {
     #[new]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         nodes: &Bound<'_, PyList>,
+        node_kinds: &Bound<'_, PyList>,
+        parents: &Bound<'_, PyList>,
         sources: &Bound<'_, PyList>,
         targets: &Bound<'_, PyList>,
         kinds: &Bound<'_, PyList>,
         references: Vec<bool>,
+        through: Vec<(u32, PyBackedStr)>,
     ) -> PyResult<Self> {
+        same_length(
+            "GraphIndex",
+            nodes.len(),
+            &[node_kinds.len(), parents.len()],
+        )?;
         same_length(
             "GraphIndex",
             sources.len(),
             &[targets.len(), kinds.len(), references.len()],
         )?;
         let mut builder = graph::GraphIndex::builder();
-        for node in strings(nodes) {
-            builder.node(node?.to_str()?);
+        for (node, kind) in strings(nodes).zip(strings(node_kinds)) {
+            builder.node(node?.to_str()?, NodeKind::parse(kind?.to_str()?));
         }
         let edges = strings(sources)
             .zip(strings(targets))
@@ -77,27 +92,49 @@ impl GraphIndex {
                 reference,
             );
         }
+        for (ordinal, parent) in parents.iter().enumerate() {
+            if !parent.is_none() {
+                builder.parent(ordinal as u32, parent.cast_into::<PyString>()?.to_str()?);
+            }
+        }
+        for (edge, task) in &through {
+            builder.through(*edge, task);
+        }
         Ok(Self {
             inner: builder.build(),
         })
     }
 
-    /// Everything reachable from the nodes `starts`, downstream or upstream, in the order reached.
-    #[pyo3(signature = (starts, downstream, max_depth, stop_at_reference))]
-    fn walk(
+    /// Everything downstream of the nodes `starts`, in the order reached; with `column`, the
+    /// consumers of the relations reached too.
+    #[pyo3(signature = (starts, max_depth, column))]
+    fn impact(
         &self,
         starts: Vec<PyBackedStr>,
-        downstream: bool,
         max_depth: Option<i64>,
-        stop_at_reference: bool,
+        column: bool,
     ) -> Vec<VisitTuple> {
-        let starts: Vec<u32> = starts.iter().filter_map(|id| self.inner.node(id)).collect();
-        let flow = if downstream {
-            Flow::Downstream
-        } else {
-            Flow::Upstream
-        };
-        tuples(self.inner.walk(&starts, flow, max_depth, stop_at_reference))
+        tuples(
+            self.inner
+                .impact(&self.ordinals(&starts), max_depth, column),
+        )
+    }
+
+    /// Everything upstream of the nodes `starts`, in the order reached; with `column`, the tasks
+    /// that build the relations on the way too.
+    #[pyo3(signature = (starts, max_depth, column))]
+    fn trace(
+        &self,
+        starts: Vec<PyBackedStr>,
+        max_depth: Option<i64>,
+        column: bool,
+    ) -> Vec<VisitTuple> {
+        tuples(self.inner.trace(&self.ordinals(&starts), max_depth, column))
+    }
+
+    /// The id of the node or edge endpoint with this ordinal.
+    fn id(&self, ordinal: u32) -> &str {
+        self.inner.id(ordinal)
     }
 
     /// The shortest path between two nodes, start first; empty when there is none.

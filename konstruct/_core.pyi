@@ -11,17 +11,26 @@ class GraphIndex:
     def __init__(
         self,
         nodes: list[str],
+        node_kinds: list[str],
+        parents: list[str | None],
         sources: list[str],
         targets: list[str],
         kinds: list[str],
         references: list[bool],
+        through: list[tuple[int, str]],
     ) -> None: ...
-    def walk(
-        self, starts: list[str], downstream: bool, max_depth: int | None, stop_at_reference: bool
+    def impact(
+        self, starts: list[str], max_depth: int | None, column: bool
     ) -> list[tuple[int, int, int | None, int | None]]:
         """Each node reached as (node, depth, edge that reached it, node it was reached from)."""
+    def trace(
+        self, starts: list[str], max_depth: int | None, column: bool
+    ) -> list[tuple[int, int, int | None, int | None]]:
+        """Each node reached upstream, as ``impact`` reports them."""
+    def id(self, ordinal: int) -> str:
+        """The id of a node or edge endpoint."""
     def path(self, start: str, end: str) -> list[tuple[int, int, int | None, int | None]]:
-        """The shortest path's nodes, as ``walk`` reports them, start first."""
+        """The shortest path's nodes, as ``impact`` reports them, start first; empty when there is none."""
     def neighbours(self, node: str, downstream: bool) -> list[int]:
         """The edges a walk follows from ``node``."""
 

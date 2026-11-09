@@ -26,7 +26,7 @@ index of the graph, made on first use and again after the graph changes through 
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, TypeVar, cast
@@ -386,19 +386,6 @@ class Graph:
             edge = traversal.edges[ordinal]
             yield edge, edge.target if edge.source == node_id else edge.source
 
-    def _walk(
-        self,
-        start: Iterable[str],
-        *,
-        downstream: bool,
-        max_depth: int | None,
-        stop_at_reference: bool,
-    ) -> list[Step]:
-        """Every node reached from ``start``, breadth first, each once with the first edge that
-        reached it. Tests and the tasks that run a node are reported, not walked through."""
-        traversal = self.indexed('traversal', _Traversal)
-        return traversal.steps(traversal.core.walk(list(start), downstream, max_depth, stop_at_reference))
-
     def expand(self, node: Node) -> list[str]:
         """A relation stands for itself and all its columns; anything else for itself."""
         if node.kind in RELATION_KINDS:
@@ -411,76 +398,22 @@ class Graph:
         A column reached through a join, filter or group-by (``role = "reference"``) is reported,
         but the walk does not continue from the whole relation it reached, so one join key does
         not mark every downstream column as affected. For a column, the exposures that use and
-        the tasks that read or run each affected relation are reported too.
+        the tasks that read or run each affected relation are reported too, and so are the tasks
+        whose SQL an edge on the way came from (an Airflow SQL task, a Dagster asset). Tests and
+        the tasks that run a node are reported, not walked through.
         """
-        steps = self._walk(self.expand(node), downstream=True, max_depth=max_depth, stop_at_reference=True)
-        if node.kind == 'column':
-            steps += self._relation_consumers(steps, upstream=False)
-        return steps + self._through_tasks(steps)
-
-    def _through_tasks(self, steps: list[Step]) -> list[Step]:
-        """Tasks whose SQL an edge in the walk came from (an Airflow SQL task, a Dagster asset):
-        they read the changed data, so they are affected too."""
-        seen = {s.node.id for s in steps}
-        extra: list[Step] = []
-        for step in steps:
-            if step.via is None:
-                continue
-            for through in [step.via.attrs.get('via'), *step.via.attrs.get('also_via', [])]:
-                if (
-                    isinstance(through, str)
-                    and through in self.nodes
-                    and through not in seen
-                    and self.nodes[through].kind == 'task'
-                ):
-                    seen.add(through)
-                    extra.append(Step(self.nodes[through], step.depth, step.via, step.previous))
-        return extra
+        traversal = self.indexed('traversal', _Traversal)
+        return traversal.steps(
+            traversal.core.impact(self.expand(node), _native_depth(max_depth), node.kind == 'column')
+        )
 
     def trace(self, node: Node, max_depth: int | None = None) -> list[Step]:
         """Everything upstream of ``node``. For a column, the tasks that build each relation on the
         way (including the column's own) are reported too."""
-        steps = self._walk(self.expand(node), downstream=False, max_depth=max_depth, stop_at_reference=False)
-        if node.kind == 'column':
-            steps += self._relation_consumers(steps, upstream=True)
-        return steps
-
-    def _fed_by_columns_of(self, consumer: str, relation: str) -> bool:
-        """Whether ``consumer`` (a Looker view, say) records which of ``relation``'s columns it
-        reads, so a column reaches it only through its own edge."""
-        return any(
-            e.source in self.nodes and self.nodes[e.source].parent == relation
-            for e in self.in_edges(consumer, 'feeds')
+        traversal = self.indexed('traversal', _Traversal)
+        return traversal.steps(
+            traversal.core.trace(self.expand(node), _native_depth(max_depth), node.kind == 'column')
         )
-
-    def _relation_consumers(self, steps: list[Step], *, upstream: bool) -> list[Step]:
-        seen = {s.node.id for s in steps}
-        extra: list[Step] = []
-        for step in steps:
-            column = step.node
-            if column.kind != 'column' or not column.parent or (step.depth == 0 and not upstream):
-                continue
-            parent = column.parent
-            candidates: list[tuple[Edge, str]] = [(e, e.source) for e in self.in_edges(parent, 'runs')]
-            if upstream:
-                candidates += [
-                    (e, e.source)
-                    for e in self.in_edges(parent, 'feeds')
-                    if e.source in self.nodes and self.nodes[e.source].kind == 'task'
-                ]
-            else:
-                candidates += [
-                    (e, e.target)
-                    for e in self.out_edges(parent, 'feeds')
-                    if e.target in self.nodes
-                    and self.nodes[e.target].kind in ('exposure', 'task')
-                    and not self._fed_by_columns_of(e.target, parent)
-                ]
-            for edge, other in candidates:
-                if other not in seen:
-                    seen.add(other)
-                    extra.append(Step(self.nodes[other], step.depth + 1, edge, parent))
-        return extra
 
     def path(self, start: Node, end: Node) -> list[Step]:
         """Shortest path from ``start`` to ``end``, following data flow in either direction: downstream
@@ -534,6 +467,12 @@ class Graph:
         return counts
 
 
+def _native_depth(max_depth: int | None) -> int | None:
+    """``max_depth`` in the signed 64-bit range the native core takes: any limit beyond it is as
+    good as none, and a negative one stops at the start, as 0 does."""
+    return None if max_depth is None else min(max(max_depth, 0), 2**63 - 1)
+
+
 class _Traversal:
     """The graph's edges in the native index, with the nodes and edges its ordinals number."""
 
@@ -541,22 +480,39 @@ class _Traversal:
         self.nodes = list(graph.nodes.values())
         # Insertion order, which is the order of each node's adjacency lists.
         self.edges = list(graph._edges.values())
+        references: list[bool] = []
+        # The tasks whose SQL each edge came from, as (edge, task) in edge order.
+        through: list[tuple[int, str]] = []
+        for ordinal, edge in enumerate(self.edges):
+            attrs = edge.attrs
+            references.append(attrs.get('role') == 'reference')
+            if 'via' in attrs or 'also_via' in attrs:
+                for task in [attrs.get('via'), *attrs.get('also_via', [])]:
+                    if isinstance(task, str):
+                        through.append((ordinal, task))
         self.core = _core.GraphIndex(
             list(graph.nodes),
+            [n.kind for n in self.nodes],
+            [n.parent or None for n in self.nodes],
             [e.source for e in self.edges],
             [e.target for e in self.edges],
             [e.kind for e in self.edges],
-            [e.attrs.get('role') == 'reference' for e in self.edges],
+            references,
+            through,
         )
 
     def steps(self, visits: list[tuple[int, int, int | None, int | None]]) -> list[Step]:
-        nodes, edges = self.nodes, self.edges
+        nodes, edges, count = self.nodes, self.edges, len(self.nodes)
         return [
             Step(
                 nodes[node],
                 depth,
                 None if via is None else edges[via],
-                None if previous is None else nodes[previous].id,
+                None
+                if previous is None
+                else nodes[previous].id
+                if previous < count
+                else self.core.id(previous),
             )
             for node, depth, via, previous in visits
         ]

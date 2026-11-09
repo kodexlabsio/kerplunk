@@ -3,7 +3,7 @@
 
 use std::collections::VecDeque;
 
-use _core::graph::{EdgeKind, Flow, GraphIndex, Visit};
+use _core::graph::{EdgeKind, Flow, GraphIndex, NodeKind, Visit};
 use _core::names::{Relation, RelationNames};
 use _core::search::{Document, SearchIndex, Standing};
 use proptest::prelude::*;
@@ -51,7 +51,10 @@ fn build(graph: &Generated) -> (GraphIndex, Vec<String>, Vec<String>) {
     let sources: Vec<String> = graph.edges.iter().map(|e| id(graph, e.0)).collect();
     let targets: Vec<String> = graph.edges.iter().map(|e| id(graph, e.1)).collect();
     let mut builder = GraphIndex::builder();
-    graph.nodes.iter().for_each(|id| builder.node(id));
+    graph
+        .nodes
+        .iter()
+        .for_each(|id| builder.node(id, NodeKind::Other));
     for (i, e) in graph.edges.iter().enumerate() {
         builder.edge(&sources[i], &targets[i], EdgeKind::parse(KINDS[e.2]), e.3);
     }
@@ -306,5 +309,170 @@ proptest! {
             let label = &labels[*ordinal as usize];
             prop_assert!(query.split(' ').filter(|w| !w.is_empty()).any(|w| label.contains(w)));
         }
+    }
+}
+
+/// A generated graph with node kinds, column parents and the tasks edges came from.
+#[derive(Clone, Debug)]
+struct Annotated {
+    graph: Generated,
+    kinds: Vec<NodeKind>,
+    parents: Vec<Option<usize>>,
+    through: Vec<(usize, usize)>,
+}
+
+fn annotated() -> impl Strategy<Value = Annotated> {
+    graphs().prop_flat_map(|graph| {
+        let count = graph.nodes.len();
+        let edges = graph.edges.len().max(1);
+        let kind = prop::sample::select(vec![
+            NodeKind::Column,
+            NodeKind::Column,
+            NodeKind::Task,
+            NodeKind::Exposure,
+            NodeKind::Other,
+        ]);
+        (
+            Just(graph),
+            prop::collection::vec(kind, count),
+            prop::collection::vec(prop::option::of(0..count), count),
+            prop::collection::vec((0..edges, 0..count), 0..6),
+        )
+            .prop_map(|(graph, kinds, parents, mut through)| {
+                through.retain(|&(e, _)| e < graph.edges.len());
+                through.sort_by_key(|&(e, _)| e);
+                Annotated {
+                    graph,
+                    kinds,
+                    parents,
+                    through,
+                }
+            })
+    })
+}
+
+fn build_annotated(a: &Annotated) -> GraphIndex {
+    let g = &a.graph;
+    let mut builder = GraphIndex::builder();
+    for (i, id) in g.nodes.iter().enumerate() {
+        builder.node(id, a.kinds[i]);
+    }
+    for e in &g.edges {
+        builder.edge(&id(g, e.0), &id(g, e.1), EdgeKind::parse(KINDS[e.2]), e.3);
+    }
+    for (i, parent) in a.parents.iter().enumerate() {
+        if let Some(p) = parent {
+            builder.parent(i as u32, &g.nodes[*p]);
+        }
+    }
+    for &(e, task) in &a.through {
+        builder.through(e as u32, &g.nodes[task]);
+    }
+    builder.build()
+}
+
+/// impact and trace as konstruct/core/graph.py documents them, by scanning every edge.
+fn brute_lineage(a: &Annotated, start: usize, downstream: bool, column: bool) -> Vec<Step> {
+    let g = &a.graph;
+    let flow = if downstream {
+        Flow::Downstream
+    } else {
+        Flow::Upstream
+    };
+    let mut steps = brute_walk(g, &[start], flow, None, downstream);
+    let kind_of = |name: &str| g.nodes.iter().position(|n| n == name).map(|i| a.kinds[i]);
+    let parent_of = |name: &str| {
+        g.nodes
+            .iter()
+            .position(|n| n == name)
+            .and_then(|i| a.parents[i])
+            .map(|p| g.nodes[p].clone())
+    };
+    let edges: Vec<(String, String, &str)> = g
+        .edges
+        .iter()
+        .map(|e| (id(g, e.0), id(g, e.1), KINDS[e.2]))
+        .collect();
+    if column {
+        let walked = steps.clone();
+        for step in &walked {
+            if kind_of(&step.0) != Some(NodeKind::Column) || (step.1 == 0 && downstream) {
+                continue;
+            }
+            let Some(parent) = parent_of(&step.0) else {
+                continue;
+            };
+            let mut candidates: Vec<(usize, String)> = (0..edges.len())
+                .filter(|&e| edges[e].1 == parent && edges[e].2 == "runs")
+                .map(|e| (e, edges[e].0.clone()))
+                .collect();
+            if downstream {
+                candidates.extend(
+                    (0..edges.len())
+                        .filter(|&e| {
+                            let (source, target, kind) = &edges[e];
+                            *source == parent
+                                && *kind == "feeds"
+                                && matches!(
+                                    kind_of(target),
+                                    Some(NodeKind::Task | NodeKind::Exposure)
+                                )
+                                && !edges.iter().any(|(s, t, k)| {
+                                    t == target
+                                        && *k == "feeds"
+                                        && parent_of(s).as_deref() == Some(parent.as_str())
+                                })
+                        })
+                        .map(|e| (e, edges[e].1.clone())),
+                );
+            } else {
+                candidates.extend(
+                    (0..edges.len())
+                        .filter(|&e| {
+                            edges[e].1 == parent
+                                && edges[e].2 == "feeds"
+                                && kind_of(&edges[e].0) == Some(NodeKind::Task)
+                        })
+                        .map(|e| (e, edges[e].0.clone())),
+                );
+            }
+            for (edge, other) in candidates {
+                if g.nodes.contains(&other) && !steps.iter().any(|s| s.0 == other) {
+                    steps.push((other, step.1 + 1, Some(edge), Some(parent.clone())));
+                }
+            }
+        }
+    }
+    if downstream {
+        let reached = steps.clone();
+        for step in &reached {
+            let Some(via) = step.2 else { continue };
+            for &(e, task) in &a.through {
+                let name = &g.nodes[task];
+                if e == via
+                    && a.kinds[task] == NodeKind::Task
+                    && !steps.iter().any(|s| s.0 == *name)
+                {
+                    steps.push((name.clone(), step.1, step.2, step.3.clone()));
+                }
+            }
+        }
+    }
+    steps
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(400))]
+
+    #[test]
+    fn impact_and_trace_match_a_brute_force_reading(a in annotated(), start in 0usize..24, column in any::<bool>()) {
+        let Some(name) = a.graph.nodes.get(start) else { return Ok(()); };
+        let index = build_annotated(&a);
+        let ordinal = [index.node(name).unwrap()];
+        let named = |visits: &[Visit]| -> Vec<Step> {
+            visits.iter().map(|v| (index.id(v.node).to_string(), v.depth, v.via.map(|e| e as usize), v.previous.map(|p| index.id(p).to_string()))).collect()
+        };
+        prop_assert_eq!(named(&index.impact(&ordinal, None, column)), brute_lineage(&a, start, true, column));
+        prop_assert_eq!(named(&index.trace(&ordinal, None, column)), brute_lineage(&a, start, false, column));
     }
 }

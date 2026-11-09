@@ -334,3 +334,13 @@ def test_changed_makes_queries_see_an_edit_in_place() -> None:
     assert ids(g.impact(stg)) >= {'model.shop.orders#amount'}
     assert 'model.shop.customers#lifetime_value' not in ids(g.impact(stg))
     assert g.resolve('payments_staged') == [orders]
+
+
+def test_max_depth_beyond_the_native_range_means_no_limit() -> None:
+    g = small_graph()
+    amount = g.resolve('raw.payments.amount')[0]
+    lifetime = g.resolve('customers.lifetime_value')[0]
+    assert g.impact(amount, max_depth=2**70) == g.impact(amount)
+    assert g.trace(lifetime, max_depth=2**64) == g.trace(lifetime)
+    assert g.impact(amount, max_depth=-(2**70)) == g.impact(amount, max_depth=0)
+    assert ids(g.impact(amount, max_depth=0)) == {amount.id}
