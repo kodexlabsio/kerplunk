@@ -1,3 +1,9 @@
+## v0.11.8 (2026-11-09)
+
+### Feat
+
+- **cli**: Verify lineage on a sample of Snowflake, BigQuery or Databricks
+
 ## v0.11.7 (2026-11-09)
 
 ### Feat
