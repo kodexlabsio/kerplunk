@@ -45,6 +45,7 @@ SCOPES = {
     'lineage',
     'query',
     'report',
+    'viewer',
     # Interfaces
     'cli',
     'mcp',
