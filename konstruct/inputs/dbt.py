@@ -247,6 +247,17 @@ def _relation_for(node: dict[str, Any], dialect: str | None) -> str | None:
     return relation_key(node.get('database'), node.get('schema'), name)
 
 
+def _incremental(config: dict[str, Any]) -> dict[str, Any]:
+    """An incremental model's key and strategy, which decide what a run keeps of earlier rows."""
+    if config.get('materialized') != 'incremental':
+        return {}
+    found: dict[str, Any] = {k: config[k] for k in ('unique_key', 'incremental_strategy') if config.get(k)}
+    key = found.get('unique_key')
+    if isinstance(key, list):
+        found['unique_key'] = [str(k) for k in key]
+    return found
+
+
 def _description(value: Any) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
@@ -395,6 +406,7 @@ def load(
                     'tags': item.get('tags', []),
                     'dbt_name': item['name'],
                     'checksum': (item.get('checksum') or {}).get('checksum'),
+                    **_incremental(config),
                 },
             )
         )

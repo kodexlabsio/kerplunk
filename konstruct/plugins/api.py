@@ -69,15 +69,16 @@ def shown(version: ApiVersion) -> str:
 _KONSTRUCT_ATTRS = frozenset(
     {
         'also_via', 'approved', 'broader', 'checksum', 'column', 'columns', 'command', 'conditions',
-        'connection', 'currency', 'dag', 'dbt_name', 'documented_only', 'entities', 'exceptions',
-        'expression', 'filters', 'formula', 'formula_dialect', 'fqn', 'grain', 'identifier_fields',
-        'in_warehouse', 'inferred', 'iri', 'kind', 'line', 'loaded', 'loaded_by', 'loader',
-        'materialized', 'model', 'nested', 'operator', 'orchestrator', 'ossie_authored',
-        'ossie_columns', 'ossie_dataset', 'ossie_expression', 'ossie_key', 'ossie_metric',
-        'ossie_reads', 'outside_warehouse', 'owner', 'package', 'parts', 'primary_key',
-        'primary_key_enforced', 'registry', 'related', 'repository', 'role', 'same_relation',
-        'schedule', 'sensors', 'source_name', 'sql_path', 'status', 'synonyms', 'table_type', 'tags',
-        'test', 'transform', 'unit', 'usage', 'verified', 'via', 'view_sql', 'where',
+        'connection', 'currency', 'dag', 'dbt_name', 'definition', 'documented_only', 'entities',
+        'exceptions', 'expression', 'filters', 'formula', 'formula_dialect', 'fqn', 'grain',
+        'identifier_fields', 'in_warehouse', 'incremental_strategy', 'inferred', 'iri', 'kind', 'line',
+        'loaded', 'loaded_by', 'loader', 'materialized', 'model', 'nested', 'nullable', 'operator',
+        'orchestrator', 'ossie_authored', 'ossie_columns', 'ossie_dataset', 'ossie_expression',
+        'ossie_key', 'ossie_metric', 'ossie_reads', 'outside_warehouse', 'owner', 'package', 'parts',
+        'primary_key', 'primary_key_enforced', 'read_before', 'registry', 'related', 'repository',
+        'role', 'same_relation', 'schedule', 'sensors', 'source_name', 'sql_path', 'star_reads',
+        'status', 'synonyms', 'table_type', 'tags', 'test', 'transform', 'unique_key', 'unit', 'usage',
+        'verified', 'via', 'view_sql', 'where',
     }
 )  # fmt: skip
 
