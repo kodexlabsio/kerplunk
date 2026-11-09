@@ -102,6 +102,9 @@ a change.
 
 Check each when updating packages, and remove it once it is no longer needed.
 
+- **sqlglot `<31`**: a major release changes AST shapes and lineage; raise the bound deliberately, with
+  the golden files and `.kodex/scripts/benchmark.py` before and after.
+- **mcp `<3`**: the protocol SDK's majors change the server API; raise it with `tests/test_mcp.py`.
 - **TypeScript 6** in `viewer/`: svelte-check supports `<7`.
 - **fakesnow** is not a dev dependency: it pins an old sqlglot. The Snowflake test runs in its own
   CI job with `uv run --with fakesnow --with "snowflake-connector-python<5"`.

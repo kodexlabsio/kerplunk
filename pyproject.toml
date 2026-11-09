@@ -1,6 +1,6 @@
 [project]
 name = "konstruct"
-version = "0.11.2"
+version = "0.11.3"
 description = "Turn a data stack (dbt, SQL, Airflow, warehouse and Iceberg metadata) into a queryable graph with column-level lineage for coding agents."
 readme = "README.md"
 license = "MIT"
@@ -17,16 +17,17 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Database",
     "Typing :: Typed",
 ]
 dependencies = [
-    "sqlglot>=30.0",
+    "sqlglot>=30.0,<31",
     "pyyaml>=6.0",
     "duckdb>=1.1",
     "psycopg[binary]>=3.2",
     "pyiceberg>=0.9",
-    "mcp>=2.0",
+    "mcp>=2.0,<3",
     "jinja2>=3.1",
 ]
 

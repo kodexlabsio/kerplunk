@@ -1,3 +1,9 @@
+## v0.11.3 (2026-11-09)
+
+### Fix
+
+- **deps**: Pin actions and images, bound sqlglot and mcp, test on Python 3.14
+
 ## v0.11.2 (2026-11-09)
 
 ### Fix

@@ -265,7 +265,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if not args.no_fetch and args.base.startswith('origin/'):
-        git('fetch', '--quiet', '--tags', 'origin', args.base.removeprefix('origin/'))
+        # --force: the v0 tag moves with every release, and the remote's tags are the ones that count.
+        git('fetch', '--quiet', '--tags', '--force', 'origin', args.base.removeprefix('origin/'))
     if args.check:
         return check(args.title, args.body, args.base)
     planned = plan(args.title, args.body, args.base)
