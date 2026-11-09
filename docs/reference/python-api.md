@@ -94,6 +94,10 @@ print(term.definition, term.owner, [column.label for column in term.columns])
 for conflict in project.conflicts().conflicts:
     print(conflict.idea, conflict.a.label, conflict.b.label, [d.detail for d in conflict.differences])
 
+history = project.history('customers.customer_lifetime_value')
+print([(change.commit.author, change.before, change.after) for change in history.formulas])
+print(history.last_approval.commit.author if history.last_approval else None)
+
 ontology = project.ontology()
 print([(entity.name, entity.key) for entity in ontology.entities])
 print(ontology.measure('customer lifetime value').columns[0].formula)
@@ -101,6 +105,7 @@ print(ontology.measure('customer lifetime value').columns[0].formula)
 
 ```{eval-rst}
 .. automethod:: konstruct.Project.explain
+.. automethod:: konstruct.Project.history
 .. automethod:: konstruct.Project.define
 .. automethod:: konstruct.Project.conflicts
 .. automethod:: konstruct.Project.ontology
@@ -166,6 +171,22 @@ print(result.totals())  # {'claimed': 36, 'confirmed': 36, ...}
    :members:
 
 .. autoclass:: konstruct.explain.Step
+   :members:
+```
+
+### History
+
+```{eval-rst}
+.. autoclass:: konstruct.history.History
+   :members:
+
+.. autoclass:: konstruct.history.FormulaChange
+   :members:
+
+.. autoclass:: konstruct.history.TermChange
+   :members:
+
+.. autoclass:: konstruct.history.Commit
    :members:
 ```
 

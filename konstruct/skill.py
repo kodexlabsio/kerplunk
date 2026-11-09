@@ -58,6 +58,8 @@ lineage parsed from the SQL. Query it instead of reading every model by hand.
      the filters, joins and sources that differ. Check it before adding a new measure.
    - `konstruct explain <table.column>`: how a column is calculated, as SQL composed down to its
      source columns, with the joins and filters on the way.
+   - `konstruct history <table.column>`: when the column's formula changed in git, by whom, and
+     who changed or approved the business terms bound to it.
    - `konstruct path <a> <b>`: how two tables or columns are connected.
    - `konstruct search <words>`: find nodes when you do not know the exact name.
    - `konstruct list models` (or tables, sources, tasks, ...): what exists.

@@ -120,6 +120,13 @@ def build_server(root: Path) -> MCPServer:
         return run(project.explain, ref)
 
     @server.tool()
+    def history(ref: str, limit: int = 50) -> dict[str, Any]:
+        """When a column's formula changed in git history, with each commit's author and date,
+        and every change to the status, approval, owner or definition of the business terms bound
+        to it. Use to answer "when did this number's calculation change, and who approved it?\"."""
+        return run(lambda r: project.history(r, limit=limit), ref)
+
+    @server.tool()
     def path(start: str, end: str) -> dict[str, Any]:
         """The shortest connection between two nodes, following data flow where possible."""
         return run(project.path_between, start, end)

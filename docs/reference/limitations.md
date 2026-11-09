@@ -16,6 +16,7 @@
 - A dbt-trino profile is read for the `none`, `ldap` and `jwt` methods; for other methods, set the Trino connection in `konstruct.toml`.
 - Power BI is read from TMDL only, not from `.pbix` files or a published dataset. A table whose partition is a native query, or that merges several tables, reads those tables as a whole, not column by column. M steps that rename or add columns, relationships, calculation groups and row-level security are not followed, and a partition whose M builds its table name from parameters has no warehouse table.
 - Airbyte keeps no lineage in the warehouse, so Airbyte tables get a sync task but no source system and no column lineage from the raw table to the final one. Fivetran lineage needs the Platform Connector to land in the same warehouse as the tables it describes.
+- `history` renders old versions of a dbt model with today's macros and the current manifest, so a change made only in a macro is not listed, and a ref to a since-renamed model is noted as a formula it could not work out. The SQL inside a DAG task (not a SQL file it runs) has no history.
 - `diff` reads dbt YAML for tests, descriptions, sources and exposures, but not for other configuration (materialisation, contracts, meta).
 
 ## Not Yet (v1)

@@ -13,6 +13,7 @@
 | `konstruct define <term>` | What a business term means: its definition, owner, status, grain, required filters and the columns that hold it. Takes a term, a synonym or a column (to list the terms that define it). Exit status 3 when no term matches |
 | `konstruct ontology` | The entities, measures and relationships derived from the data stack, with any broken rules (see [The Ontology](../guide/ontology.md)). `--format yaml`, `--strict` (exit 1 when a rule is broken) |
 | `konstruct explain <table.column>` | How a column is calculated: its expression as SQL with CTEs and aliases inlined, the same formula composed down to source columns, and step by step each column on the way with the joins, filters and grouping that shape its rows (see [Explaining a Column](../guide/explain.md)) |
+| `konstruct history <table.column>` | When the column's formula changed in git history, with each commit's author, date and subject, and every change to the status, approval date, owner or definition of the business terms bound to it; says whether a term was approved after the latest formula change (see [Reviewing Changes](../guide/reviewing-changes.md)). `--limit N` commits per file (default 50), `--json` |
 | `konstruct describe <name>` | Columns, types, descriptions, tests and neighbours of one node; for a task, what it runs and its neighbours in the DAG |
 | `konstruct list [kind ...]` | Every node of the given kinds (`models`, `tables`, `sources`, `tasks`, ...; default all relations) |
 | `konstruct open` | Open `graph.html` in a browser |

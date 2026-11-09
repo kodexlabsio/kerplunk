@@ -33,6 +33,7 @@ async def _exercise(client: Client) -> None:
         'define',
         'ontology',
         'explain',
+        'history',
         'path',
         'query',
         'diff',

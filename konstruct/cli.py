@@ -266,6 +266,12 @@ def cmd_ontology(args: argparse.Namespace, console: Console) -> int:
     return 1 if args.strict and result.violations else 0
 
 
+def cmd_history(args: argparse.Namespace, console: Console) -> int:
+    project = _ready(_project(args), args, console)
+    _emit(console, project.history(args.ref, limit=args.limit), args.json)
+    return 0
+
+
 def cmd_explain(args: argparse.Namespace, console: Console) -> int:
     project = _ready(_project(args), args, console)
     _emit(console, project.explain(args.ref), args.json)
@@ -569,6 +575,14 @@ def parser() -> argparse.ArgumentParser:
     explaining.add_argument('ref', metavar='COLUMN', help='e.g. orders.amount')
     _query_options(explaining)
     explaining.set_defaults(func=cmd_explain)
+
+    historical = add('history', "when a column's formula changed, and who approved the terms bound to it")
+    historical.add_argument('ref', metavar='COLUMN', help='e.g. customers.lifetime_value')
+    historical.add_argument(
+        '--limit', type=int, default=50, metavar='N', help='the most commits to read per file (default 50)'
+    )
+    _query_options(historical)
+    historical.set_defaults(func=cmd_history)
 
     listing = add('list', 'list nodes by kind (default: tables, models, sources, seeds and snapshots)')
     listing.add_argument(

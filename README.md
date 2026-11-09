@@ -112,6 +112,7 @@ Then, in a repository with dbt models, SQL, DAGs or a warehouse:
 konstruct build                         # writes konstruct-out/: graph.json, REPORT.md, graph.html, ontology.yml
 konstruct impact stg_payments.amount    # everything downstream of a column
 konstruct explain orders.amount         # how a column is calculated, down to its sources
+konstruct history orders.amount         # when its formula changed, and who approved it
 konstruct open                          # the interactive graph in a browser
 konstruct ontology                      # entities, measures and how they relate
 konstruct install                       # the /konstruct skill for Claude Code and Cursor
@@ -145,8 +146,8 @@ Composed formulas are evaluated on the data and must match the final model row f
 
 | Interface | What it is for |
 |-----------|----------------|
-| **Command line** | `impact`, `trace`, `explain`, `define`, `conflicts`, `diff`, `verify`, `export` and more: [every command](https://kodexlabsio.github.io/konstruct/reference/cli.html) |
-| **Coding agents** | A `/konstruct` skill for Claude Code and Cursor, and an MCP server with [twelve tools](https://kodexlabsio.github.io/konstruct/reference/mcp.html) |
+| **Command line** | `impact`, `trace`, `explain`, `history`, `define`, `conflicts`, `diff`, `verify`, `export` and more: [every command](https://kodexlabsio.github.io/konstruct/reference/cli.html) |
+| **Coding agents** | A `/konstruct` skill for Claude Code and Cursor, and an MCP server with [thirteen tools](https://kodexlabsio.github.io/konstruct/reference/mcp.html) |
 | **Pull requests** | A GitHub Action that comments, annotates and fails the check on breaking changes, and runs `konstruct gate`, the check an agent passes before opening a pull request |
 | **Python** | `konstruct.Project`: [typed results](https://kodexlabsio.github.io/konstruct/reference/python-api.html) for every question |
 | **A browser** | `graph.html`, one offline file with column lineage, formulas and business terms: [the viewer](https://kodexlabsio.github.io/konstruct/guide/viewer.html) |

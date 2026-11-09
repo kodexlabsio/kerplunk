@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from konstruct.diff import Diff
     from konstruct.explain import Explanation
     from konstruct.gate import Gate
+    from konstruct.history import History
     from konstruct.ontology import Ontology
     from konstruct.verify import Engine, Verification
 
@@ -385,6 +386,42 @@ class Project:
             term.status, term.owner, [c.label for c in term.columns]
         """
         return query.define(self.graph, ref)
+
+    def history(self, ref: str, *, limit: int = 50) -> History:
+        """When a column's formula changed, and who changed the business terms bound to it.
+
+        Reads the git history of the file that defines the column and of each ``definitions.yml``
+        that binds a term to it. The formula is worked out at each commit, so a commit that only
+        reformats the SQL is not a change; uncommitted edits are the last entry.
+
+        Args:
+            ref: A column, such as ``customers.lifetime_value``.
+            limit: The most commits to read for each file.
+
+        Returns:
+            The formula changes and term changes, oldest first, each with its commit's author and
+            date, and whether a bound term was approved after the latest formula change.
+
+        Raises:
+            konstruct.QueryError: ``ref`` is not a column, or matches nothing or several things,
+                or ``limit`` is below 1.
+
+        Example::
+
+            history = project.history('customers.lifetime_value')
+            [(c.commit.author, c.before, c.after) for c in history.formulas]
+            history.last_approval.commit.author if history.last_approval else None
+        """
+        from konstruct.history import history
+
+        if limit < 1:
+            raise query.QueryError('the limit must be at least 1 commit')
+        node = query.resolve_one(self.graph, ref)
+        if node.kind != 'column':
+            raise query.QueryError(
+                f'{ref!r} is a {node.kind}; history takes a column such as {self.graph.label(node)}.<column>'
+            )
+        return history(self.graph, self.root, node, limit=limit)
 
     def explain(self, ref: str) -> Explanation:
         """How a column is calculated.
