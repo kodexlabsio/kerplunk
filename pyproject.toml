@@ -83,11 +83,27 @@ docs = [
 ]
 
 [build-system]
-requires = ["hatchling>=1.27"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.16,<2"]
+build-backend = "maturin"
 
-[tool.hatch.build.targets.wheel]
-packages = ["konstruct"]
+# One package of Python and Rust: the crate at the root (Cargo.toml, src/) builds the extension
+# module konstruct._core, which the wheel carries beside the Python modules and their data files.
+[tool.maturin]
+module-name = "konstruct._core"
+python-source = "."
+python-packages = ["konstruct"]
+features = ["python"]
+locked = true
+
+# uv reinstalls the project when these change, so an editable install rebuilds the extension
+# after a change to the Rust sources.
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "Cargo.lock" },
+    { file = "src/**/*" },
+]
 
 [tool.ruff]
 line-length = 110
