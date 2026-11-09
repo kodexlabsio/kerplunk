@@ -23,8 +23,12 @@ _EXPLAIN_PLACEHOLDER = '__KONSTRUCT_EXPLAIN__'
 
 # Inside <script type="application/json"> the HTML parser only looks for "</script"; escaping
 # "<", ">" and "&" rules that out entirely, and U+2028/U+2029 are escaped for older JS parsers.
-_JSON_ESCAPES = str.maketrans(
-    {'<': '\\u003c', '>': '\\u003e', '&': '\\u0026', '\u2028': '\\u2028', '\u2029': '\\u2029'}
+_JSON_ESCAPES = (
+    ('<', '\\u003c'),
+    ('>', '\\u003e'),
+    ('&', '\\u0026'),
+    ('\u2028', '\\u2028'),
+    ('\u2029', '\\u2029'),
 )
 
 VIEWER_FORMULA_LIMIT = 800
@@ -40,7 +44,13 @@ def template() -> str:
 
 
 def _embed_json(data: Any) -> str:
-    return jsonio.dumps(data).translate(_JSON_ESCAPES)
+    # A pass of str.replace per character runs in C; str.translate with a mapping calls back
+    # into Python for every character, over 1 s for a 2,000-model graph. No replacement holds a
+    # character another one replaces, so the order does not matter.
+    text = jsonio.dumps(data)
+    for character, escape in _JSON_ESCAPES:
+        text = text.replace(character, escape)
+    return text
 
 
 def explanations(graph: Graph, cache: Any = None) -> dict[str, Any]:
