@@ -192,7 +192,17 @@ class _Parser:
     # Entry point
 
     def parse(self) -> list[DagInfo]:
-        tree = ast.parse(self.source, filename=str(self.path))
+        try:
+            return self._parse()
+        except RecursionError:
+            # Python's parser, or the walk over its tree, gives up on expressions nested thousands
+            # deep (a sum of thousands of terms); such a file is reported as one that cannot be read.
+            raise SyntaxError(
+                'expressions are nested too deeply to read', (str(self.path), 1, 1, None)
+            ) from None
+
+    def _parse(self) -> list[DagInfo]:
+        tree = _syntax_tree(self.source, self.path)
         for statement in ast.walk(tree):
             if isinstance(statement, (ast.Import, ast.ImportFrom)):
                 for alias in statement.names:
@@ -683,6 +693,15 @@ def parse_source(path: Path, source: str) -> list[DagInfo]:
 
 
 def parse_file(path: Path) -> list[DagInfo]:
-    """Parse one DAG file. Raises SyntaxError if the file is not valid Python."""
+    """Parse one DAG file. Raises SyntaxError if the file is not valid Python, or is nested too
+    deeply to read."""
     source = path.read_text(encoding='utf-8')
     return _Parser(path, source).parse()
+
+
+def _syntax_tree(source: str, path: Path) -> ast.Module:
+    try:
+        return ast.parse(source, filename=str(path))
+    except ValueError as error:
+        # Python 3.11 rejects a NUL byte with a ValueError; 3.12 and later with a SyntaxError.
+        raise SyntaxError(str(error), (str(path), 1, 1, None)) from None

@@ -640,7 +640,7 @@ def _dbt_profile_target(project: DbtProject) -> dict[str, Any] | None:
             continue
         try:
             profiles = yaml.safe_load(path.read_text(encoding='utf-8')) or {}
-        except (OSError, yaml.YAMLError):
+        except (OSError, yaml.YAMLError, RecursionError):  # the repository's own, maybe nested too deeply
             continue
         profile = profiles.get(project.profile) if isinstance(profiles, dict) else None
         if not isinstance(profile, dict):

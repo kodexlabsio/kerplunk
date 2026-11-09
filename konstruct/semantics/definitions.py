@@ -189,6 +189,9 @@ def parse(text: str, path: str) -> DefinitionsFile:
 
     try:
         data = yaml.load(text, Loader=_LineLoader)  # a SafeLoader subclass
+    except RecursionError:
+        problem(1, 'not valid YAML: nested too deeply to read')
+        return result
     except yaml.YAMLError as error:
         mark = getattr(error, 'problem_mark', None)
         line = mark.line + 1 if mark is not None else 1

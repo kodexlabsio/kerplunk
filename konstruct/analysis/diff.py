@@ -349,7 +349,7 @@ def _yaml_facts(text: str | None) -> dict[str, Any]:
     facts: dict[str, Any] = {'tests': set(), 'descriptions': {}, 'sources': set(), 'exposures': {}}
     try:
         data = yaml.safe_load(text or '') or {}
-    except yaml.YAMLError:
+    except (yaml.YAMLError, RecursionError):
         return facts
     if not isinstance(data, dict):
         return facts

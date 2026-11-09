@@ -102,9 +102,24 @@ def _text(node: ast.expr, constants: dict[str, str]) -> str | None:
 
 def parse(text: str, path: str) -> SparkFile:
     """The SQL statements a PySpark job passes to ``spark.sql``."""
+    try:
+        return _parse(text, path)
+    except RecursionError:
+        # Python's parser, or the walk over its tree, gives up on expressions nested thousands
+        # deep (a sum of thousands of terms); such a file is reported as one that cannot be read.
+        return SparkFile(
+            path=path, problems=[f'{path}:1: not valid Python: expressions are nested too deeply']
+        )
+
+
+def _parse(text: str, path: str) -> SparkFile:
     result = SparkFile(path=path)
     try:
         tree = ast.parse(text, filename=path)
+    except ValueError as error:
+        # Python 3.11 rejects a NUL byte with a ValueError; 3.12 and later with a SyntaxError.
+        result.problems.append(f'{path}:1: not valid Python: {error}')
+        return result
     except SyntaxError as error:
         result.problems.append(f'{path}:{error.lineno or 0}: not valid Python: {error.msg}')
         return result

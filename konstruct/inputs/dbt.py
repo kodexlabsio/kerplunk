@@ -99,7 +99,7 @@ def find_projects(root: Path) -> list[DbtProject]:
 def read_project(root: Path) -> DbtProject | None:
     try:
         config = yaml.safe_load((root / 'dbt_project.yml').read_text(encoding='utf-8')) or {}
-    except (OSError, yaml.YAMLError) as error:
+    except (OSError, yaml.YAMLError, RecursionError) as error:
         log.warning('cannot read %s: %s', root / 'dbt_project.yml', error)
         return None
     if not isinstance(config, dict):
@@ -211,7 +211,7 @@ def dbt_error(output: str, limit: int = 400) -> str:
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(path.read_text(encoding='utf-8'))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):  # a committed artefact may be nested too deeply
         return None
     return data if isinstance(data, dict) else None
 

@@ -265,6 +265,55 @@ def test_broken_dag_file_is_a_warning(tmp_path: Path) -> None:
     assert any('syntax error' in w for w in result.graph.warnings)
 
 
+# A repository under review can hold any file; none of these may stop the build.
+UNREADABLE_PYTHON = {
+    # Folding the concatenation recurses once per term.
+    'concatenation': 'sql = "select 1"' + ' + " "' * 3000 + '\n',
+    # Python's own parser gives up.
+    'sum': 'total = ' + ' + '.join(['1'] * 100_000) + '\n',
+    # A ValueError on Python 3.11, a SyntaxError later.
+    'nul': 'x = 1\x00\n',
+}
+
+
+@pytest.mark.parametrize('body', UNREADABLE_PYTHON.values(), ids=UNREADABLE_PYTHON.keys())
+def test_python_that_cannot_be_read_is_a_warning(tmp_path: Path, body: str) -> None:
+    (tmp_path / 'dag.py').write_text('from airflow import DAG\n' + body)
+    (tmp_path / 'assets.py').write_text('from dagster import asset\n' + body)
+    (tmp_path / 'job.py').write_text('from pyspark.sql import SparkSession\nspark.sql("select 1")\n' + body)
+    (tmp_path / 'konstruct.toml').write_text(
+        '[dagster]\npaths = ["assets.py"]\n[spark]\npaths = ["job.py"]\n'
+    )
+    warnings = build(load_config(tmp_path)).graph.warnings
+    assert any(w.startswith('airflow: dag.py: syntax error') for w in warnings)
+    assert any(w.startswith('dagster: assets.py: syntax error') for w in warnings)
+    assert any(w.startswith('spark: job.py:') and 'not valid Python' in w for w in warnings)
+
+
+def test_yaml_nested_too_deeply_is_reported(tmp_path: Path) -> None:
+    nested = '[' * 5000 + ']' * 5000
+    (tmp_path / 'definitions.yml').write_text(f'terms: {nested}\n')
+    (tmp_path / 'model.ossie.yaml').write_text(f'semantic_model: {nested}\n')
+    (tmp_path / 'x.sql').write_text('create table b as select a from t')
+    warnings = build(load_config(tmp_path)).graph.warnings
+    assert any('definitions.yml:1: not valid YAML: nested too deeply' in w for w in warnings)
+    assert any('model.ossie.yaml: not valid YAML: nested too deeply' in w for w in warnings)
+
+
+def test_dbt_artefacts_and_profiles_nested_too_deeply_do_not_stop_the_build(tmp_path: Path) -> None:
+    (tmp_path / 'dbt_project.yml').write_text("name: shop\nprofile: shop\nversion: '1.0'\n")
+    (tmp_path / 'models').mkdir()
+    (tmp_path / 'models' / 'a.sql').write_text('select 1 as x')
+    (tmp_path / 'target').mkdir()
+    (tmp_path / 'target' / 'manifest.json').write_text('[' * 100000 + ']' * 100000)
+    (tmp_path / 'profiles.yml').write_text('shop: ' + '[' * 5000 + ']' * 5000 + '\n')
+    config = load_config(tmp_path)
+    config.run_dbt = False
+    # The manifest is reported as unreadable and the profile is skipped; the build finishes.
+    result = build(config)
+    assert (tmp_path / 'konstruct-out' / 'graph.json').is_file() and result.graph is not None
+
+
 def test_dbt_project_without_artefacts_or_dbt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     shutil.copytree(
         Path(__file__).resolve().parents[1] / 'examples' / 'jaffle_shop',

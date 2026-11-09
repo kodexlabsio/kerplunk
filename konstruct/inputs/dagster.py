@@ -282,7 +282,17 @@ class _Parser:
         return None
 
     def parse(self) -> DagsterFile:
-        tree = ast.parse(self.source, filename=str(self.path))
+        try:
+            return self._parse()
+        except RecursionError:
+            # Python's parser, or the walk over its tree, gives up on expressions nested thousands
+            # deep (a sum of thousands of terms); such a file is reported as one that cannot be read.
+            raise SyntaxError(
+                'expressions are nested too deeply to read', (str(self.path), 1, 1, None)
+            ) from None
+
+    def _parse(self) -> DagsterFile:
+        tree = _syntax_tree(self.source, self.path)
         for statement in tree.body:
             if (
                 isinstance(statement, ast.Assign)
@@ -778,9 +788,18 @@ def _key(value: Any, prefix: Any = None) -> str:
 
 
 def parse_file(path: Path) -> DagsterFile:
-    """Parse one Dagster file. Raises SyntaxError if it is not valid Python."""
+    """Parse one Dagster file. Raises SyntaxError if it is not valid Python, or is nested too deeply
+    to read."""
     return _Parser(path, path.read_text(encoding='utf-8')).parse()
 
 
 def parse_source(path: Path, source: str) -> DagsterFile:
     return _Parser(path, source).parse()
+
+
+def _syntax_tree(source: str, path: Path) -> ast.Module:
+    try:
+        return ast.parse(source, filename=str(path))
+    except ValueError as error:
+        # Python 3.11 rejects a NUL byte with a ValueError; 3.12 and later with a SyntaxError.
+        raise SyntaxError(str(error), (str(path), 1, 1, None)) from None

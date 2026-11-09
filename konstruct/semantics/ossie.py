@@ -191,6 +191,9 @@ def parse(text: str, path: str) -> OssieFile:
     result = OssieFile(path=path)
     try:
         data = yaml.safe_load(text)
+    except RecursionError:
+        result.errors.append(f'{path}: not valid YAML: nested too deeply to read')
+        return result
     except yaml.YAMLError as error:
         result.errors.append(f'{path}: not valid YAML: {error}')
         return result
