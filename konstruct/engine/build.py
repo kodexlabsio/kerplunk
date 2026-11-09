@@ -44,6 +44,8 @@ from konstruct.inputs.warehouse import MissingDriver, RelationMeta
 from konstruct.semantics import definitions
 
 log = logging.getLogger(__name__)
+progress = logging.getLogger('konstruct.progress')
+"""Counts within a stage (``12 of 40 models``), for the CLI's spinner; quieter than ``log``."""
 
 CACHE_VERSION = 1
 
@@ -317,19 +319,24 @@ class Builder:
     # Steps
 
     def run(self) -> Graph:
+        log.info('reading dbt projects')
         projects = self.load_dbt()
+        log.info('reading warehouses')
         self.load_warehouses(projects)
         self.load_loaders()
         self.link_shared_relations()
         self.warn_missing_catalogs()
         self.index = RelationIndex(self.graph)
+        log.info('analysing dbt models')
         self.dbt_lineage()
         schema_key = Cache.key(self.schema_columns())
         self.warehouse_view_lineage(schema_key)
+        log.info('reading DAGs, jobs and SQL files')
         used_sql = self.load_airflow(schema_key)
         self.load_dagster(schema_key)
         self.load_spark(schema_key)
         self.load_sql_files(projects, used_sql, schema_key)
+        log.info('reading BI models, definitions and usage')
         self.load_looker()
         self.load_powerbi()
         self.load_definitions()
@@ -686,6 +693,7 @@ class Builder:
                         self.apply(statement, target=node, origin='dbt', label=f'dbt model {node.name}')
                     applied.add(model.node_id)
                     count += 1
+                    progress.debug('%d of %d models', index + 1, len(ordered))
         finally:
             # Also when the build fails, so no worker outlives it.
             self.workers.close()
@@ -2265,6 +2273,7 @@ def build(config: Config, *, update: bool = False) -> BuildResult:
         bind_across_repositories(graph, wheres)
     # Packs bind once, to the merged graph, so repositories that share a warehouse share its terms.
     builder.bind_ontology_packs()
+    log.info('deriving the ontology')
     graph.meta['dialect'] = builder.dialect or dialect_for(None)
     config.out_dir.mkdir(parents=True, exist_ok=True)
     graph_path = config.out_dir / 'graph.json'
@@ -2286,6 +2295,7 @@ def build(config: Config, *, update: bool = False) -> BuildResult:
             for violation in rule.violations:
                 graph.warn(f'ontology: {violation}')
     graph.meta['build_seconds'] = round(time.perf_counter() - started, 2)
+    log.info('writing graph.json, REPORT.md, graph.html and ontology.yml')
     graph.write(graph_path)
     outputs = [
         graph_path,
