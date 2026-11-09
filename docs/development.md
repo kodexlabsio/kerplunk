@@ -42,6 +42,7 @@ uv run pytest --cov                             # everything, with branch covera
 | Browser | `test_browser` | graph.html in Chromium: selection, column rows and edges, formulas, deep links, isolate, direction, filters, themes, search, hostile text, a 400-relation graph |
 | Usage | `test_usage` | The SQL sent to Snowflake, BigQuery and Databricks, query text parsing for BigQuery, usage on columns, in the report and describe, the daily cache, off by default, and missing permissions as a warning, against stub drivers in each vendor's row shapes |
 | Conflicts | `test_conflicts` | Two revenue definitions that differ by one filter (the pair, the filter and its file), different sources, ranking, grouping by business terms, copies left out, no false conflicts on the example |
+| Ontology | `test_ontology` | Entity names and keys from unique tests, primary keys, identifier fields and grains; terms that name entities; measures and their formulas; relationships, cardinality and `tested`; every rule; the same output whatever the graph's order; the build file, the CLI and the example project |
 | Definitions | `test_definitions` | The definitions.yml format and its errors, terms in the build, `define`, describe, search, query and impact, the glossary, warnings for missing columns and filters (including a renamed bound column in the example), and `diff` on definitions |
 | Formulas | `test_explain` | `explain` on dbt and Airflow SQL, and composed formulas evaluated on the data against the final model, row for row; the viewer's formula cache |
 | Export | `test_export` | OpenLineage events validated against the OpenLineage JSON schemas; Mermaid, DOT and CSV |
@@ -90,6 +91,7 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/), che
 | `konstruct/graph.py` | Graph model, name resolution, impact, trace and path |
 | `konstruct/sql.py` | sqlglot column lineage, canonical expressions and conditions |
 | `konstruct/dbt.py`, `jinja.py`, `airflow.py`, `dagster.py`, `warehouse.py`, `definitions.py` | Inputs, the sandboxed dbt renderer and business definitions |
+| `konstruct/ontology.py` | The ontology derived from the graph: entities, measures, relationships and rules |
 | `konstruct/config.py`, `build.py`, `usage.py` | Configuration, discovery, the build and its cache, and usage from query history |
 | `konstruct/query.py`, `explain.py`, `conflicts.py`, `diff.py`, `verify.py` | Questions over the graph: impact and the rest, formulas, conflicting definitions, change review, lineage against data |
 | `konstruct/report.py`, `html.py`, `export.py` | REPORT.md, writing graph.html, and the export formats |

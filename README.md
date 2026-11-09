@@ -109,10 +109,11 @@ uv tool install git+https://github.com/kodexlabsio/konstruct
 Then, in a repository with dbt models, SQL, DAGs or a warehouse:
 
 ```bash
-konstruct build                         # writes konstruct-out/: graph.json, REPORT.md, graph.html
+konstruct build                         # writes konstruct-out/: graph.json, REPORT.md, graph.html, ontology.yml
 konstruct impact stg_payments.amount    # everything downstream of a column
 konstruct explain orders.amount         # how a column is calculated, down to its sources
 konstruct open                          # the interactive graph in a browser
+konstruct ontology                      # entities, measures and how they relate
 konstruct install                       # the /konstruct skill for Claude Code and Cursor
 ```
 
@@ -145,7 +146,7 @@ Composed formulas are evaluated on the data and must match the final model row f
 | Interface | What it is for |
 |-----------|----------------|
 | **Command line** | `impact`, `trace`, `explain`, `define`, `conflicts`, `diff`, `verify`, `export` and more: [every command](https://kodexlabsio.github.io/konstruct/reference/cli.html) |
-| **Coding agents** | A `/konstruct` skill for Claude Code and Cursor, and an MCP server with [ten tools](https://kodexlabsio.github.io/konstruct/reference/mcp.html) |
+| **Coding agents** | A `/konstruct` skill for Claude Code and Cursor, and an MCP server with [eleven tools](https://kodexlabsio.github.io/konstruct/reference/mcp.html) |
 | **Pull requests** | A GitHub Action that comments, annotates and fails the check on breaking changes |
 | **Python** | `konstruct.Project`: [typed results](https://kodexlabsio.github.io/konstruct/reference/python-api.html) for every question |
 | **A browser** | `graph.html`, one offline file with column lineage, formulas and business terms: [the viewer](https://kodexlabsio.github.io/konstruct/guide/viewer.html) |
@@ -164,7 +165,7 @@ Composed formulas are evaluated on the data and must match the final model row f
 
 The full documentation is at **[kodexlabsio.github.io/konstruct](https://kodexlabsio.github.io/konstruct/)**:
 
-- **Guide:** [inputs and how lineage works](https://kodexlabsio.github.io/konstruct/guide/inputs.html), [the viewer](https://kodexlabsio.github.io/konstruct/guide/viewer.html), [explain](https://kodexlabsio.github.io/konstruct/guide/explain.html), [verify](https://kodexlabsio.github.io/konstruct/guide/verify.html), [reviewing changes](https://kodexlabsio.github.io/konstruct/guide/reviewing-changes.html), [business definitions](https://kodexlabsio.github.io/konstruct/guide/definitions.html), [conflicts](https://kodexlabsio.github.io/konstruct/guide/conflicts.html), [usage](https://kodexlabsio.github.io/konstruct/guide/usage.html), [coding agents](https://kodexlabsio.github.io/konstruct/guide/agents.html)
+- **Guide:** [inputs and how lineage works](https://kodexlabsio.github.io/konstruct/guide/inputs.html), [the viewer](https://kodexlabsio.github.io/konstruct/guide/viewer.html), [explain](https://kodexlabsio.github.io/konstruct/guide/explain.html), [verify](https://kodexlabsio.github.io/konstruct/guide/verify.html), [reviewing changes](https://kodexlabsio.github.io/konstruct/guide/reviewing-changes.html), [business definitions](https://kodexlabsio.github.io/konstruct/guide/definitions.html), [the ontology](https://kodexlabsio.github.io/konstruct/guide/ontology.html), [conflicts](https://kodexlabsio.github.io/konstruct/guide/conflicts.html), [usage](https://kodexlabsio.github.io/konstruct/guide/usage.html), [coding agents](https://kodexlabsio.github.io/konstruct/guide/agents.html)
 - **Reference:** [commands](https://kodexlabsio.github.io/konstruct/reference/cli.html), [Python API](https://kodexlabsio.github.io/konstruct/reference/python-api.html), [MCP server](https://kodexlabsio.github.io/konstruct/reference/mcp.html), [configuration](https://kodexlabsio.github.io/konstruct/reference/configuration.html), [outputs](https://kodexlabsio.github.io/konstruct/reference/outputs.html), [limitations](https://kodexlabsio.github.io/konstruct/reference/limitations.html)
 - **Project:** [development](https://kodexlabsio.github.io/konstruct/development.html), [contributing](CONTRIBUTING.md), [security](SECURITY.md), [changelog](CHANGELOG.md)
 

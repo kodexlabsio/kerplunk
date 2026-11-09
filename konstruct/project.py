@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from konstruct.conflicts import Conflicts
     from konstruct.diff import Diff
     from konstruct.explain import Explanation
+    from konstruct.ontology import Ontology
     from konstruct.verify import Verification
 
 OUT_DIR = 'konstruct-out'
@@ -341,6 +342,30 @@ class Project:
             )
         return result
 
+    def ontology(self) -> Ontology:
+        """The ontology of the data stack, derived from the graph.
+
+        Entities come from identifier-like columns with uniqueness tests, single-column primary
+        keys and identifier fields, terms of kind ``entity`` and the grains of measures;
+        measures are business terms with a formula, each bound column with its formula composed
+        down to source and how many edges on the way are verified; relationships come from dbt
+        ``relationships`` tests and from joins that match a column to an entity's key. The rules
+        list what breaks the ontology now. ``konstruct build`` writes the same to ``ontology.yml``.
+
+        Returns:
+            The entities, measures, relationships and rules.
+
+        Example::
+
+            ontology = project.ontology()
+            [(e.name, e.key, e.relations) for e in ontology.entities]
+            ontology.measure('customer lifetime value').columns[0].formula
+            ontology.violations  # [] when every rule holds
+        """
+        from konstruct.ontology import derive
+
+        return derive(self.graph)
+
     def define(self, ref: str) -> query.Definitions:
         """The business definition of a term, or the terms that define a column.
 
@@ -469,7 +494,7 @@ class Project:
             max_rows: The most rows sampled from any input.
             models: Only these models or tables.
             write: Write ``VERIFY.md`` and ``verify.json``, and mark verified edges in
-                ``graph.json`` and ``graph.html``.
+                ``graph.json``, ``graph.html`` and ``ontology.yml``.
 
         Returns:
             One result per model, with ``totals()`` across them.
@@ -483,6 +508,7 @@ class Project:
             result.totals()  # {'claimed': 36, 'confirmed': 36, 'unexplained': 0, ...}
         """
         from konstruct.html import write_html
+        from konstruct.ontology import derive as derive_ontology
         from konstruct.verify import annotate, verify
 
         graph = self.graph
@@ -499,6 +525,8 @@ class Project:
             self._stamp = self._file_stamp()
             if (self.out_dir / 'graph.html').is_file():
                 write_html(graph, self.out_dir / 'graph.html')
+            if (self.out_dir / 'ontology.yml').is_file():
+                derive_ontology(graph).write(self.out_dir / 'ontology.yml')
             (self.out_dir / 'VERIFY.md').write_text(result.markdown(), encoding='utf-8')
             (self.out_dir / 'verify.json').write_text(
                 json.dumps(result.to_dict(), indent=1) + '\n', encoding='utf-8'

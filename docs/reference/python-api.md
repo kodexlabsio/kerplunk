@@ -81,7 +81,7 @@ project.query('what breaks if stg_payments.amount changes').impact
 .. automethod:: konstruct.Project.query
 ```
 
-## Formulas, Definitions and Conflicts
+## Formulas, Definitions, Conflicts and the Ontology
 
 ```python
 explanation = project.explain('orders.credit_card_amount')
@@ -93,12 +93,17 @@ print(term.definition, term.owner, [column.label for column in term.columns])
 
 for conflict in project.conflicts().conflicts:
     print(conflict.idea, conflict.a.label, conflict.b.label, [d.detail for d in conflict.differences])
+
+ontology = project.ontology()
+print([(entity.name, entity.key) for entity in ontology.entities])
+print(ontology.measure('customer lifetime value').columns[0].formula)
 ```
 
 ```{eval-rst}
 .. automethod:: konstruct.Project.explain
 .. automethod:: konstruct.Project.define
 .. automethod:: konstruct.Project.conflicts
+.. automethod:: konstruct.Project.ontology
 ```
 
 ## Reviewing Changes and Checking Lineage
@@ -170,6 +175,28 @@ print(result.totals())  # {'claimed': 36, 'confirmed': 36, ...}
    :members:
 
 .. autoclass:: konstruct.TermDefinition
+   :members:
+```
+
+### Ontology
+
+```{eval-rst}
+.. autoclass:: konstruct.ontology.Ontology
+   :members:
+
+.. autoclass:: konstruct.ontology.Entity
+   :members:
+
+.. autoclass:: konstruct.ontology.Measure
+   :members:
+
+.. autoclass:: konstruct.ontology.MeasureColumn
+   :members:
+
+.. autoclass:: konstruct.ontology.Relationship
+   :members:
+
+.. autoclass:: konstruct.ontology.Rule
    :members:
 ```
 

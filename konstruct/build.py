@@ -1,4 +1,4 @@
-"""Build the graph from every input, then write graph.json, REPORT.md and graph.html."""
+"""Build the graph from every input, then write graph.json, REPORT.md, graph.html and ontology.yml."""
 
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ class BuildResult:
     graph: Graph
     """The graph that was built."""
     outputs: list[Path]
-    """The files written (graph.json, REPORT.md and graph.html)."""
+    """The files written (graph.json, REPORT.md, graph.html and ontology.yml)."""
     seconds: float
     """Time taken."""
     cache_hits: int
@@ -916,6 +916,7 @@ class Builder:
                     attrs={
                         k: v
                         for k, v in {
+                            'kind': term.kind,
                             'synonyms': term.synonyms,
                             'status': term.status,
                             'owner': {'name': term.owner.name, 'role': term.owner.role}
@@ -1337,8 +1338,9 @@ def _topological(models: list[dbt.ModelSql]) -> list[dbt.ModelSql]:
 
 
 def build(config: Config, *, update: bool = False) -> BuildResult:
-    """Build the graph for ``config`` and write ``graph.json``, ``REPORT.md`` and ``graph.html``; :meth:`konstruct.Project.build` is the usual way in."""
+    """Build the graph for ``config`` and write ``graph.json``, ``REPORT.md``, ``graph.html`` and ``ontology.yml``; :meth:`konstruct.Project.build` is the usual way in."""
     from konstruct.html import write_html
+    from konstruct.ontology import derive as derive_ontology
     from konstruct.report import write_report
 
     started = time.perf_counter()
@@ -1347,12 +1349,20 @@ def build(config: Config, *, update: bool = False) -> BuildResult:
     graph.meta['dialect'] = builder.dialect or dialect_for(None)
     config.out_dir.mkdir(parents=True, exist_ok=True)
     graph_path = config.out_dir / 'graph.json'
+    # The ontology's own rules are build warnings, so they reach graph.json and REPORT.md and
+    # `--strict` fails on them; the rules it carries over from definitions.yml already are.
+    ontology = derive_ontology(graph)
+    for rule in ontology.rules:
+        if rule.name not in ('bound-columns-exist', 'approved-terms-are-owned'):
+            for violation in rule.violations:
+                graph.warn(f'ontology: {violation}')
     graph.meta['build_seconds'] = round(time.perf_counter() - started, 2)
     graph.write(graph_path)
     outputs = [
         graph_path,
         write_report(graph, config.out_dir / 'REPORT.md'),
         write_html(graph, config.out_dir / 'graph.html', cache=builder.cache.quiet()),
+        ontology.write(config.out_dir / 'ontology.yml'),
     ]
     builder.cache.save()
     return BuildResult(

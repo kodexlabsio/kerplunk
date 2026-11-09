@@ -9,6 +9,7 @@
 - `query` ranks by words, not meaning. It finds `customer_lifetime_value` from "lifetime value" but not from "how much a customer is worth"; the agent is expected to follow up with `search` or `describe`.
 - Map keys are read at run time, so `attrs['colour']` on a map traces to the `attrs` column, not to a key. Positional `UNNEST ... AS t(a, b)` over rows, without field names, traces to the list column.
 - `verify` runs against a local DuckDB file or a Postgres database (in a transaction that is rolled back); other warehouses are not supported yet. It perturbs columns one at a time, so influences that need two inputs to change together are not observed.
+- The ontology names entities from their key columns and relations by convention (`customer_id`, `stg_customers.id`, `stg_stripe__payments.id`); a term of kind `entity` names one that convention gets wrong. A relationship from an entity to itself, such as a customer's referrer, is not recorded, and a relationship's evidence lists every test and join between columns of the same names.
 - `diff` reads dbt YAML for tests, descriptions, sources and exposures, but not for other configuration (materialisation, contracts, meta).
 
 ## Not Yet (v1)

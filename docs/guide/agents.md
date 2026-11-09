@@ -9,4 +9,4 @@
 | `--mcp` | With `--target`, also register `konstruct mcp` in `.mcp.json` (Claude Code) and `.cursor/mcp.json` (Cursor), keeping any other servers |
 | `--force` | Replace a skill that was edited by hand; otherwise a reinstall only replaces konstruct's own earlier versions |
 
-The MCP server exposes `impact`, `trace`, `search`, `describe`, `conflicts`, `define`, `explain`, `path`, `query` and `diff`, returns the same structured results as `--json`, and rereads `graph.json` when a build changes it.
+The MCP server exposes `impact`, `trace`, `search`, `describe`, `conflicts`, `define`, `ontology`, `explain`, `path`, `query` and `diff`, returns the same structured results as `--json`, and rereads `graph.json` when a build changes it.

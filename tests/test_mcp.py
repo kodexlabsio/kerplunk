@@ -31,6 +31,7 @@ async def _exercise(client: Client) -> None:
         'describe',
         'conflicts',
         'define',
+        'ontology',
         'explain',
         'path',
         'query',
@@ -55,6 +56,14 @@ async def _exercise(client: Client) -> None:
     assert term['definition'].startswith('Total value of every payment a customer has made')
     assert term['owner'] == {'name': 'Priya Shah', 'role': 'Head of Finance'}
     assert 'customers.customer_lifetime_value' in [c['label'] for c in term['columns']]
+    ontology = structured(await client.call_tool('ontology', {}))
+    assert [e['name'] for e in ontology['entities']] == ['customer', 'order', 'payment']
+    customer = structured(await client.call_tool('ontology', {'name': 'Customer'}))
+    assert [e['name'] for e in customer['entities']] == ['customer']
+    assert {(r['source'], r['target']) for r in customer['relationships']} == {('order', 'customer')}
+    measure = structured(await client.call_tool('ontology', {'name': 'order amount'}))
+    assert measure['measures'][0]['columns'][0]['formula'] == 'SUM(raw_payments.amount / 100)'
+    assert (await client.call_tool('ontology', {'name': 'nothing'})).is_error
     explained = structured(await client.call_tool('explain', {'ref': 'customer_ltv.lifetime_value'}))
     assert explained['composed'] == 'SUM(raw_payments.amount / 100)'
     path = structured(await client.call_tool('path', {'start': 'raw_orders', 'end': 'orders'}))

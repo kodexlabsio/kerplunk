@@ -336,6 +336,12 @@ def test_definitions_changes_in_diff() -> None:
     )
 
 
+def test_a_changed_kind_is_a_definitions_change() -> None:
+    before = 'version: 1\nterms:\n  - {name: Customer, definition: A buyer.}\n'
+    after = 'version: 1\nterms:\n  - {name: Customer, definition: A buyer., kind: entity}\n'
+    assert compare_definitions('definitions.yml', before, after).changed == ['Customer: kind none -> entity']
+
+
 def test_diff_reports_definitions_files(tmp_path: Path) -> None:
     root = tmp_path / 'repo'
     root.mkdir()

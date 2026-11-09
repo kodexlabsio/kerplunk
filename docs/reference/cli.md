@@ -2,7 +2,7 @@
 
 | Command | Purpose |
 |---------|---------|
-| `konstruct build [path] [-u]` | Build `konstruct-out/`. `-u/--update` reuses cached analyses of anything unchanged (keyed by file hashes, compiled SQL, manifest checksums and the upstream columns each model sees). `--no-dbt`, `--no-warehouse`, `--dialect`, `--out`, `--json` (a machine-readable summary), `--strict` (exit 1 on warnings) |
+| `konstruct build [path] [-u]` | Build `konstruct-out/` (`graph.json`, `REPORT.md`, `graph.html` and `ontology.yml`). `-u/--update` reuses cached analyses of anything unchanged (keyed by file hashes, compiled SQL, manifest checksums and the upstream columns each model sees). `--no-dbt`, `--no-warehouse`, `--dialect`, `--out`, `--json` (a machine-readable summary), `--strict` (exit 1 on warnings) |
 | `konstruct status` | What Konstruct finds (configuration, dbt projects and whether their artefacts are current, warehouses, DAG and SQL files), whether the graph is out of date and which inputs changed, and whether the skill is installed |
 | `konstruct init` | Write a commented `konstruct.toml` from what discovery found (`--stdout` to print it) |
 | `konstruct impact <table.column>` | Everything downstream: derived columns, relations, models that join, filter or group on it, tests, exposures and the DAG tasks that run them |
@@ -11,6 +11,7 @@
 | `konstruct search <words>` | Find nodes by name or description, optionally `--kind model` |
 | `konstruct conflicts` | Columns that compute the same business idea in different ways, with the sources, filters, joins and aggregations that differ and the file each is in, ranked by downstream reach. Writes `CONFLICTS.md` and `conflicts.json`. `--format markdown`, `--fail-on-conflict`, `-n N` (see [Finding Conflicting Definitions](../guide/conflicts.md)) |
 | `konstruct define <term>` | What a business term means: its definition, owner, status, grain, required filters and the columns that hold it. Takes a term, a synonym or a column (to list the terms that define it). Exit status 3 when no term matches |
+| `konstruct ontology` | The entities, measures and relationships derived from the data stack, with any broken rules (see [The Ontology](../guide/ontology.md)). `--format yaml`, `--strict` (exit 1 when a rule is broken) |
 | `konstruct explain <table.column>` | How a column is calculated: its expression as SQL with CTEs and aliases inlined, the same formula composed down to source columns, and step by step each column on the way with the joins, filters and grouping that shape its rows (see [Explaining a Column](../guide/explain.md)) |
 | `konstruct describe <name>` | Columns, types, descriptions, tests and neighbours of one node; for a task, what it runs and its neighbours in the DAG |
 | `konstruct list [kind ...]` | Every node of the given kinds (`models`, `tables`, `sources`, `tasks`, ...; default all relations) |

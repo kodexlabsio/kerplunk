@@ -31,7 +31,13 @@ def edges(graph: Graph, kind: str) -> set[tuple[str, str]]:
 @pytest.mark.dbt
 def test_example_builds_every_output(jaffle_built_graph: Path, jaffle_graph: Graph) -> None:
     out = jaffle_built_graph / 'konstruct-out'
-    assert {p.name for p in out.iterdir()} == {'graph.json', 'REPORT.md', 'graph.html', 'cache.json'}
+    assert {p.name for p in out.iterdir()} == {
+        'graph.json',
+        'REPORT.md',
+        'graph.html',
+        'ontology.yml',
+        'cache.json',
+    }
     assert jaffle_graph.warnings == []
     assert jaffle_graph.meta['dialect'] == 'duckdb'
     assert jaffle_graph.meta['inputs'] == {

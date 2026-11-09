@@ -259,6 +259,16 @@ def cmd_define(args: argparse.Namespace, console: Console) -> int:
     return 0 if result.terms else 3
 
 
+def cmd_ontology(args: argparse.Namespace, console: Console) -> int:
+    project = _ready(_project(args), args, console)
+    result = project.ontology()
+    if args.format == 'yaml':
+        console.print(result.to_yaml().rstrip())
+    else:
+        _emit(console, result, args.json)
+    return 1 if args.strict and result.violations else 0
+
+
 def cmd_explain(args: argparse.Namespace, console: Console) -> int:
     project = _ready(_project(args), args, console)
     _emit(console, project.explain(args.ref), args.json)
@@ -448,7 +458,7 @@ def parser() -> argparse.ArgumentParser:
         description = help_text[:1].upper() + help_text[1:] + '.'
         return commands.add_parser(name, help=help_text, description=description, parents=[common])
 
-    build = add('build', 'build konstruct-out/graph.json, REPORT.md and graph.html')
+    build = add('build', 'build konstruct-out/graph.json, REPORT.md, graph.html and ontology.yml')
     build.add_argument('path', nargs='?', help='project directory (default: -C or the current directory)')
     build.add_argument(
         '-u', '--update', action='store_true', help='reuse cached analyses of unchanged inputs'
@@ -522,6 +532,14 @@ def parser() -> argparse.ArgumentParser:
     )
     _query_options(defining)
     defining.set_defaults(func=cmd_define)
+
+    ontological = add('ontology', 'the entities, measures and relationships derived from the data stack')
+    ontological.add_argument('--format', choices=['text', 'yaml'], default='text')
+    ontological.add_argument(
+        '--strict', action='store_true', help='exit with status 1 if any ontology rule is broken'
+    )
+    _query_options(ontological)
+    ontological.set_defaults(func=cmd_ontology)
 
     explaining = add('explain', "a column's formula, composed down to its source columns")
     explaining.add_argument('ref', metavar='COLUMN', help='e.g. orders.amount')

@@ -38,7 +38,9 @@ def test_build_prints_what_it_found(
     assert '  airflow    dags/jaffle_shop_daily.py  1 DAG, 6 tasks' in lines
     assert '  lineage    32 of 32 columns of models and built tables (100%)' in lines
     assert '  warnings   none' in lines
-    assert any(line.startswith('  wrote      graph.json, REPORT.md, graph.html to ') for line in lines)
+    assert any(
+        line.startswith('  wrote      graph.json, REPORT.md, graph.html, ontology.yml to ') for line in lines
+    )
 
     code, out, _ = run(capsys, 'build', str(jaffle), '--update')
     assert code == 0

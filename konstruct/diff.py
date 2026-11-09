@@ -213,6 +213,7 @@ class DefinitionsChange:
 
 
 _TERM_FIELDS = (
+    'kind',
     'definition',
     'status',
     'owner',

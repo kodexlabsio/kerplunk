@@ -51,6 +51,9 @@ lineage parsed from the SQL. Query it instead of reading every model by hand.
    - `konstruct define <term>`: the approved business definition of a term (or the terms that
      define a column): wording, owner, status, grain, required filters and bound columns. Use it
      before answering a business question, and follow the required filters.
+   - `konstruct ontology`: the business objects (entities and their keys), the measures with
+     their formulas composed to source, and how the entities relate. Read it before writing a
+     query that joins or aggregates, so joins follow the relationships and grains are right.
    - `konstruct conflicts`: columns that compute the same business idea in different ways, with
      the filters, joins and sources that differ. Check it before adding a new measure.
    - `konstruct explain <table.column>`: how a column is calculated, as SQL composed down to its

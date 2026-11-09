@@ -21,7 +21,7 @@ Then, in a repository with dbt models, SQL, DAGs or a warehouse:
 ```bash
 cd your-data-repo
 konstruct status                 # what konstruct finds here, before building anything
-konstruct build                  # writes konstruct-out/graph.json, REPORT.md and graph.html
+konstruct build                  # writes konstruct-out/: graph.json, REPORT.md, graph.html, ontology.yml
 konstruct impact orders.amount   # everything downstream of a column
 konstruct open                   # the interactive graph in a browser
 konstruct install                # adds the /konstruct skill to Claude Code and Cursor
@@ -51,5 +51,5 @@ konstruct  /src/jaffle_shop
   graph      1 dag, 1 exposure, 5 models, 3 seeds, 1 table, 6 tasks, 20 tests; 44 columns
   lineage    32 of 32 columns of models and built tables (100%)
   warnings   none
-  wrote      graph.json, REPORT.md, graph.html to konstruct-out in 0.7s
+  wrote      graph.json, REPORT.md, graph.html, ontology.yml to konstruct-out in 0.7s
 ```

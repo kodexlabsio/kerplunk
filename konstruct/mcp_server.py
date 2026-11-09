@@ -14,6 +14,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from konstruct import __version__
+from konstruct.ontology import name_matches
 from konstruct.project import Project
 from konstruct.query import QueryError
 
@@ -22,7 +23,8 @@ Konstruct answers questions about this repository's data stack: dbt models, sour
 exposures; warehouse and Iceberg tables; Airflow DAGs and tasks; and column-level lineage.
 Refer to tables as `name` or `schema.name` and to columns as `table.column`.
 Use `impact` before changing a model, table or column, `trace` to find where a value comes from,
-`define` for what a business term means and which columns hold it, `explain` for how a column is calculated, `describe` for one node's columns and tests, `search` when unsure of a name, and `path` to see how
+`define` for what a business term means and which columns hold it, `ontology` for the business
+objects, measures and how they relate, `explain` for how a column is calculated, `describe` for one node's columns and tests, `search` when unsure of a name, and `path` to see how
 two nodes connect. If a tool says there is no graph, ask the user to run `konstruct build`."""
 
 
@@ -80,6 +82,32 @@ def build_server(root: Path) -> MCPServer:
         columns that hold it. Approved terms come first. Use before answering a business question,
         so the answer follows the approved definition and its required filters."""
         return run(project.define, ref)
+
+    @server.tool()
+    def ontology(name: str | None = None) -> dict[str, Any]:
+        """The business objects (entities, such as customer or order, with their keys and the
+        relations holding one row each), the measures (business terms with a formula, each bound
+        column's formula composed to source and how many lineage edges are verified), how the
+        entities relate (an order belongs to a customer, via which columns) and any broken rules.
+        With `name` (an entity, the term naming it, or a measure; case, spaces and underscores are
+        not told apart), only that entity or measure and the relationships touching it. Use to learn
+        the shape of the business before writing a query that joins or aggregates."""
+        result = run(project.ontology)
+        if name is None:
+            return result
+        entities = [e for e in result['entities'] if name_matches(name, e['name'], e.get('term'))]
+        measures = [m for m in result['measures'] if name_matches(name, m['name'])]
+        if not entities and not measures:
+            raise ToolError(f'no entity or measure called {name!r}')
+        touching = {e['name'] for e in entities} | {m.get('entity') for m in measures}
+        return {
+            **result,
+            'entities': entities,
+            'measures': measures,
+            'relationships': [
+                r for r in result['relationships'] if r['source'] in touching or r['target'] in touching
+            ],
+        }
 
     @server.tool()
     def explain(ref: str) -> dict[str, Any]:

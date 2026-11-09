@@ -69,6 +69,7 @@ PUBLIC_RESULTS = {
     'graph.py': ['Node', 'Edge', 'Step'],
     'explain.py': ['Step', 'Explanation'],
     'conflicts.py': ['Difference', 'Side', 'Conflict', 'Conflicts'],
+    'ontology.py': ['Entity', 'MeasureColumn', 'Measure', 'Relationship', 'Rule', 'Ontology'],
 }
 
 

@@ -5,6 +5,7 @@ A definitions file records what the business means by a term and which columns h
     version: 1
     terms:
       - name: Customer lifetime value
+        kind: measure               # entity, measure or term; inferred when left out
         synonyms: [lifetime value, LTV, CLV]
         definition: Total value of all payments a customer has made, in Australian dollars.
         owner: {name: Priya Shah, role: Head of Finance}
@@ -35,10 +36,12 @@ from typing import Any
 import yaml
 
 STATUSES = ('draft', 'agreed', 'approved', 'retired')
+KINDS = ('entity', 'measure', 'term')
 FILE_NAMES = ('definitions.yml', 'definitions.yaml')
 FIELDS = frozenset(
     {
         'name',
+        'kind',
         'synonyms',
         'definition',
         'owner',
@@ -82,6 +85,8 @@ class Term:
     currency: str | None = None
     related: list[str] = field(default_factory=list)
     exceptions: str | None = None
+    kind: str | None = None
+    """``entity``, ``measure`` or ``term``; unset, the ontology infers it from the bound columns."""
 
     @property
     def slug(self) -> str:
@@ -255,6 +260,10 @@ def _term(entry: dict[str, Any], path: str, problem: Any) -> Term | None:
             problem(line, f'{label}: `{key}` must be a list of strings')
             value = []
         lists[key] = value
+    kind = _text(entry.get('kind'))
+    if kind is not None and kind not in KINDS:
+        problem(line, f'{label}: kind {kind!r} is not one of {", ".join(KINDS)}')
+        kind = None
     currency = _text(entry.get('currency'))
     if currency and not _CURRENCY.match(currency):
         problem(line, f'{label}: currency {currency!r} should be an ISO 4217 code such as GBP')
@@ -274,6 +283,7 @@ def _term(entry: dict[str, Any], path: str, problem: Any) -> Term | None:
         currency=currency,
         related=lists['related'],
         exceptions=_text(entry.get('exceptions')),
+        kind=kind,
     )
 
 

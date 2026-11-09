@@ -470,3 +470,33 @@ def find_conflicts(graph: Graph, limit: int | None = None) -> Conflicts:
     if limit is not None:
         result.conflicts = result.conflicts[:limit]
     return result
+
+
+def measure_conflicts(graph: Graph, term: str, columns: list[Node]) -> list[Conflict]:
+    """Pairs of the columns bound to one business term that compute it differently.
+
+    The same comparison as :func:`find_conflicts`, restricted to one term's columns: a column
+    derived from another of them carries its definition and is not compared. The ontology uses it
+    for the rule that a measure has one formula."""
+    finder = _Finder(graph)
+    ids = {c.id for c in columns}
+    roots = sorted((c for c in columns if not (finder.upstream(c.id) & ids)), key=lambda n: n.id)
+    found: list[Conflict] = []
+    sides: dict[str, Side] = {}
+    for first, second in combinations(roots, 2):
+        if first.parent == second.parent:
+            continue
+        a = sides.setdefault(first.id, finder.side(first))
+        b = sides.setdefault(second.id, finder.side(second))
+        differences = finder.compare(a, b)
+        if differences:
+            found.append(
+                Conflict(
+                    idea=term,
+                    reason=f'are bound to the business term {term!r}',
+                    a=a,
+                    b=b,
+                    differences=differences,
+                )
+            )
+    return found
