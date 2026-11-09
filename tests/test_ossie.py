@@ -220,12 +220,32 @@ def test_the_export_is_a_valid_ossie_model(tmp_path: Path, capsys: pytest.Captur
         Project(root).export('ossie', select='main.orders')
 
 
-def test_nothing_to_export(tmp_path: Path) -> None:
+def test_nothing_to_export(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     (tmp_path / 'x.sql').write_text('create table t2 as select a from t1')
     project = Project(tmp_path)
     project.build(dialect='duckdb', warehouses=False, run_dbt=False)
     with pytest.raises(ValueError, match='nothing to export'):
         project.export('ossie')
+    assert main(['export', 'ossie', '-C', str(tmp_path)]) == 1
+    out, err = capsys.readouterr()
+    assert out == '' and 'konstruct: error: nothing to export' in err
+    assert main(['export', 'ossie', '-s', 't2', '-C', str(tmp_path)]) == 1
+    out, err = capsys.readouterr()
+    assert out == '' and 'does not take a selection' in err
+
+
+def test_a_bug_in_an_export_is_not_reported_as_a_user_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / 'x.sql').write_text('create table t2 as select a from t1')
+    Project(tmp_path).build(dialect='duckdb', warehouses=False, run_dbt=False)
+
+    def broken(*_: Any, **__: Any) -> str:
+        raise ValueError('a bug')
+
+    monkeypatch.setattr('konstruct.export.mermaid', broken)
+    with pytest.raises(ValueError, match='a bug'):
+        main(['export', 'mermaid', '-C', str(tmp_path), '--no-build'])
 
 
 @pytest.mark.dbt

@@ -478,7 +478,9 @@ class Project:
             The export as text.
 
         Raises:
-            ValueError: ``fmt`` is not one of the formats.
+            konstruct.export.ExportError: ``fmt`` is not one of the formats, ``select`` is given
+                with ``ossie``, or the ontology has no entities or measures to export as Ossie.
+                It is a ``ValueError``.
             konstruct.QueryError: ``select`` matches nothing or several things.
 
         Example::

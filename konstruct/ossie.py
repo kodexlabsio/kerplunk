@@ -625,7 +625,9 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
         datasets.append(item)
 
     if not datasets:
-        raise ValueError('nothing to export: the ontology has no entities or measures')
+        from konstruct.export import ExportError
+
+        raise ExportError('nothing to export: the ontology has no entities or measures')
     document: dict[str, Any] = {
         'version': EXPORT_VERSION,
         'name': _name(name or 'konstruct'),

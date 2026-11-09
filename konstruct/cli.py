@@ -701,6 +701,7 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     from konstruct.config import ConfigError
+    from konstruct.export import ExportError
     from konstruct.query import QueryError
     from konstruct.skill import InstallError
 
@@ -720,7 +721,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     try:
         code: int = args.func(args, console)
-    except (QueryError, ConfigError, InstallError) as error:
+    except (QueryError, ConfigError, InstallError, ExportError) as error:
         console.error(str(error))
         return 1
     except KeyboardInterrupt:

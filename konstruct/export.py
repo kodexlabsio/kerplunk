@@ -36,6 +36,12 @@ from konstruct.graph import RELATION_KINDS, Graph, Node
 Format = Literal['openlineage', 'mermaid', 'dot', 'csv', 'ossie']
 FORMATS: tuple[str, ...] = ('openlineage', 'mermaid', 'dot', 'csv', 'ossie')
 
+
+class ExportError(ValueError):
+    """An export that cannot be written as asked: an unknown format, a selection with the Ossie
+    export, or an ontology with nothing to export."""
+
+
 PRODUCER = f'https://github.com/kodexlabsio/konstruct/tree/v{__version__}'
 SPEC = 'https://openlineage.io/spec/2-0-2/OpenLineage.json'
 SCHEMA_FACET = 'https://openlineage.io/spec/facets/1-1-1/SchemaDatasetFacet.json#/$defs/SchemaDatasetFacet'
@@ -66,7 +72,7 @@ def export(
         from konstruct.ossie import export as ossie_export
 
         if select is not None:
-            raise ValueError('the ossie export is the whole ontology; it does not take a selection')
+            raise ExportError('the ossie export is the whole ontology; it does not take a selection')
         root = graph.meta.get('root')
         return ossie_export(graph, derive(graph), name=Path(str(root)).name if root else None)
     keep = _selection(graph, select) if select is not None else None
@@ -80,7 +86,7 @@ def export(
         return dot(graph, keep, columns=columns)
     if fmt == 'csv':
         return column_csv(graph, keep)
-    raise ValueError(f'unknown export format {fmt!r}; choose from {", ".join(FORMATS)}')
+    raise ExportError(f'unknown export format {fmt!r}; choose from {", ".join(FORMATS)}')
 
 
 def _selection(graph: Graph, node: Node) -> set[str]:
