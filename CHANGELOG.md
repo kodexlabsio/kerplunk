@@ -1,3 +1,12 @@
+## v0.11.6 (2026-11-09)
+
+### Feat
+
+- **cli**: List the inputs of other repositories in konstruct status
+- **build**: Build several repositories into one graph
+- **definitions**: Derive an ontology of entities, measures and relationships
+- **warehouse**: Read primary keys from DuckDB, Postgres and dbt constraints
+
 ## v0.11.5 (2026-11-09)
 
 ### Feat

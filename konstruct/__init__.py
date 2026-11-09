@@ -9,7 +9,7 @@ The main entry point is `Project`::
     print(project.impact("orders.amount"))
 """
 
-__version__ = '0.11.5'
+__version__ = '0.11.6'
 
 from konstruct.explain import Explanation
 from konstruct.graph import Edge, Graph, Node
