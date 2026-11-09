@@ -188,6 +188,24 @@ def test_path_falls_back_to_undirected_and_reports_no_path() -> None:
     assert g.path(g.resolve('island')[0], g.resolve('orders')[0]) == []
 
 
+def test_path_between_equal_routes_does_not_depend_on_edge_order() -> None:
+    def diamond(order: list[str]) -> Graph:
+        g = Graph()
+        for name in ['source', 'left', 'right', 'sink']:
+            g.add_node(Node(f'model.shop.{name}', 'model', name))
+        for middle in order:
+            g.add_edge('model.shop.source', f'model.shop.{middle}', 'feeds')
+            g.add_edge(f'model.shop.{middle}', 'model.shop.sink', 'feeds')
+        return g
+
+    routes = set()
+    for order in (['left', 'right'], ['right', 'left']):
+        g = diamond(order)
+        path = g.path(g.resolve('source')[0], g.resolve('sink')[0])
+        routes.add(tuple(s.node.id for s in path))
+    assert routes == {('model.shop.source', 'model.shop.left', 'model.shop.sink')}
+
+
 def test_round_trip_through_json(tmp_path: Path) -> None:
     g = small_graph()
     g.warn('something odd')

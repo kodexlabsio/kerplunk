@@ -485,7 +485,9 @@ class Graph:
         queue: deque[str] = deque([start])
         while queue:
             node_id = queue.popleft()
-            for edge, other in step(node_id):
+            # Neighbours in a fixed order, so that of several routes of the same length the same one
+            # is found whatever order the build happened to add the edges in.
+            for edge, other in sorted(step(node_id), key=lambda pair: (pair[1], pair[0].kind)):
                 if other in seen or other not in self.nodes:
                     continue
                 seen[other] = Step(self.nodes[other], seen[node_id].depth + 1, edge, node_id)
