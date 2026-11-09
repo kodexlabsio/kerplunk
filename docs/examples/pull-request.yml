@@ -23,6 +23,9 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.3.3
 
+      # Installing konstruct from source compiles its Rust core.
+      - uses: dtolnay/rust-toolchain@stable
+
       - name: Install konstruct and dbt
         run: |
           uv tool install git+https://github.com/kodexlabsio/konstruct

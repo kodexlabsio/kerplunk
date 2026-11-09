@@ -153,6 +153,11 @@ Konstruct is not on PyPI yet; install it from GitHub with [uv](https://docs.astr
 uv tool install git+https://github.com/kodexlabsio/konstruct
 ```
 
+This builds Konstruct's Rust core, so it needs a [Rust toolchain](https://rustup.rs/) (1.88 or
+newer); each [release](https://github.com/kodexlabsio/konstruct/releases) also has wheels for
+Linux, macOS and Windows that do not. Konstruct runs on x86_64, aarch64, riscv64, ppc64le, s390x
+and loongarch64.
+
 Then, in a repository with dbt models, SQL, DAGs or a warehouse:
 
 ```bash
@@ -184,8 +189,8 @@ Lineage tools usually assert their lineage. Konstruct measures it, and every num
 
 | Generated dbt project | Column edges | Cold build | Update, one model edited | Query |
 |----------------------:|-------------:|-----------:|-------------------------:|------:|
-| 500 models | 12,940 | 5.4 s | 1.1 s | 3 ms |
-| 2,000 models | 51,940 | 20.7 s | 5.9 s | 9 ms |
+| 500 models | 12,940 | 5.4 s | 1.1 s | 0.4 ms |
+| 2,000 models | 51,940 | 20.7 s | 5.9 s | 1.3 ms |
 
 Composed formulas are evaluated on the data and must match the final model row for row; the static Airflow and Dagster parsers are compared with Airflow's and Dagster's own graphs; and OpenLineage exports are validated against the specification. [Performance](https://kodexlabsio.github.io/konstruct/performance.html) and [verification](https://kodexlabsio.github.io/konstruct/guide/verify.html) give the details.
 

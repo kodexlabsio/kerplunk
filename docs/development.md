@@ -3,6 +3,7 @@
 ## Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 for the project)
+- A stable [Rust toolchain](https://rustup.rs/), 1.88 or newer, for the Rust core; uv fetches maturin itself
 - Docker, for the Postgres and Iceberg integration tests
 - Node.js 24 (see `.nvmrc`) and [pnpm](https://pnpm.io/), only to work on the graph viewer
 - [vhs](https://github.com/charmbracelet/vhs), only to re-record the demo GIFs
@@ -21,6 +22,7 @@
    uv run pre-commit install
    ```
    The hooks run Ruff and mypy before each commit (and the viewer checks when `viewer/` changed), check the commit message, and run the tests before each push.
+   `uv sync` also compiles the Rust core, in release mode, into `konstruct/_core.abi3.so` (`_core.pyd` on Windows) in the source tree. uv rebuilds it whenever a file under `src/` changes, the next time `uv sync` or `uv run` runs.
 
 ## Tests
 
@@ -64,10 +66,43 @@ uv run pytest --cov                             # everything, with branch covera
 | Trino | `test_trino` | The connector against a stub of the client (comments from `system.metadata`, `row` fields, views, servers without column comments, password and JWT authentication, `konstruct.toml` and dbt profiles, samples keeping Trino's types) and, in the Trino job, against a Trino server's memory catalogue (`KONSTRUCT_TEST_TRINO_HOST`) |
 | Agent benchmark | `test_agent_benchmark` | The harness on a miniature Spider 2.0-DBT tree with a scripted agent: both arms, the same prompt, the graph and skill only in the Konstruct arm, the database the profile writes, scoring, timeouts that stop what the agent started, refusing an output directory with instructions above it, and resuming |
 | Survey | `test_survey` | The public-project survey on local git repositories: a dbt project built through a generated DuckDB profile with file and network access off, one that is not dbt and one that does not clone, a project that cannot write outside its database or read the surveyor's environment, pinning by commit, the timeout, `env_var` profile names, the aggregate summary naming no project, and resuming |
+| Rust core | `src/`, `tests/properties.rs` (`cargo test`) | Walks, neighbours, paths and relation names against brute-force scans on generated graphs; search ranking, limits and kinds; FNV-1a 64 against its published vectors and precomputed hashes on every supported architecture |
 | Parity | `test_airflow_parity` | The static Airflow parser against Airflow's own DagBag (needs Airflow; see the file for the command) |
 | Fuzzing | `fuzz/` | Atheris (coverage-guided) harnesses for the readers of untrusted input: `fuzz_sql.py` (the SQL analysis, in each dialect), `fuzz_python.py` (the Airflow, Dagster and PySpark readers) and `fuzz_yaml.py` (definitions and Ossie files). Each reader must report what it cannot read and never raise. The Fuzz workflow runs each for two minutes on pull requests that change the package and twenty weekly; locally, `uv run --with atheris==3.1.0 python fuzz/fuzz_sql.py -max_total_time=60` (Linux; atheris has wheels for Linux only). A crash is fixed with a test for the input, as in `test_sql` and `test_build` |
 
 The dev dependencies include dbt-core and dbt-duckdb, so the dbt and end-to-end tests build a copy of the example project for real. In CI, `KONSTRUCT_REQUIRE_SERVICES=1` turns a missing service or browser into a failure rather than a skip, and `HYPOTHESIS_PROFILE=ci` runs more generated examples.
+
+## The Rust Core
+
+Konstruct is one package of Python and Rust, built by [maturin](https://www.maturin.rs/) with [PyO3](https://pyo3.rs/). The Python package keeps the whole API; the crate at the repository root (`Cargo.toml`, `src/`) holds the parts that are measurably faster compiled, and Python calls them through the extension module `konstruct._core`, which `konstruct/_core.pyi` describes to mypy. Each part exists once: what moved to Rust was removed from Python.
+
+| File | Contents |
+|------|----------|
+| `src/graph.rs` | The graph's edges in compressed sparse row form: impact and trace walks, the neighbours `describe` lists, and shortest paths (`konstruct.core.graph`) |
+| `src/names.rs` | Relations by every name they answer to, for name resolution (`Graph.resolve`) |
+| `src/search.rs` | Ranked word search (`search`, `query` and the hints for names that match nothing) |
+| `src/fnv/` | FNV-1a 64, the hasher of the indexes' maps, hand-written in assembly for each supported architecture: x86_64, aarch64, riscv64, powerpc64le, s390x and loongarch64 |
+| `src/python.rs` | The PyO3 bindings, built with the `python` feature |
+| `tests/properties.rs` | Property tests against brute-force walks, paths and name scans on generated graphs |
+
+The graph builds each index the first time a query needs it and keeps it until the graph changes through `add_node`, `add_edge` or `remove_edge`; code that edits a node or an edge in place calls `Graph.changed()`. Text is folded to lower case in Python before it reaches Rust, so matching folds case exactly as `str.lower` does.
+
+```bash
+cargo fmt
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test                   # unit and property tests, without Python
+```
+
+The other architectures' tests run under qemu-user in CI, each in a Debian container with that architecture's cross compiler. To run one locally, for example riscv64, install `qemu-user`, `gcc-riscv64-linux-gnu` and `libc6-dev-riscv64-cross`, then:
+
+```bash
+rustup target add riscv64gc-unknown-linux-gnu
+CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER=riscv64-linux-gnu-gcc \
+CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_RUNNER="qemu-riscv64 -L /usr/riscv64-linux-gnu" \
+cargo test --target riscv64gc-unknown-linux-gnu
+```
+
+To add a function, write it in the crate with its tests, export it in `src/python.rs`, describe it in `konstruct/_core.pyi`, delete the Python it replaces, and measure with `.kodex/scripts/benchmark.py` before and after. `uv build` makes the sdist and a wheel for the machine it runs on.
 
 ## The Graph Viewer
 
@@ -128,6 +163,7 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/), che
 | `konstruct/analysis/` | Questions over the graph: `query.py` (impact and the rest), `explain.py` (formulas), `conflicts.py`, `diff.py` (change review), `gate.py`, `verify.py` (lineage against data), `history.py` |
 | `konstruct/outputs/` | `report.py` (REPORT.md), `html.py` (graph.html), `export.py` (the export formats), and `viewer.html`, the built graph viewer (generated by `pnpm build`; do not edit) |
 | `konstruct/interfaces/` | `project.py` (the Python API), `cli.py`, `console.py`, `status.py`, `mcp_server.py`, `skill.py` |
+| `Cargo.toml`, `src/` | The Rust core: graph walks and paths, name resolution, search and the FNV-1a hasher, built into `konstruct._core` |
 | `viewer/` | The graph viewer's source: Svelte 5 and TypeScript, built with Vite |
 | `action.yml` | The GitHub Action |
 | `examples/jaffle_shop` | dbt Labs' jaffle_shop_duckdb (Apache-2.0, see its NOTICE) with an Airflow DAG |
@@ -136,7 +172,7 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/), che
 
 ## CI/CD
 
-Build and Test runs on every push to `main` and on pull requests: Ruff and mypy, a commit message check on pull requests, the test suite on Python 3.11, 3.12, 3.13 and 3.14 against Postgres and Iceberg REST catalog service containers, an end-to-end build of the jaffle_shop example that fails if it takes a minute or more, an install of the built wheel with `uv tool install`, an install from GitHub exactly as this README describes, the real-world jaffle-shop test, the Airflow parity test, and the Trino connector against a Trino server. The test job also runs the browser tests in Chromium and fails below 90% branch coverage. main is protected, and nothing pushes to it: a release is a tag and a GitHub release. Changes accumulate on a branch and merge in batches, about once an hour, by rebase, so each commit stays on `main`. The batch's last commit prepares the release with `uv run python .kodex/scripts/prepare_release.py`, which reads every releasable commit on the branch since the last tag and sets the next version in `pyproject.toml`, `uv.lock` and `konstruct/__init__.py`, with its section at the top of `CHANGELOG.md`. While the version is 0.x a release is a patch, or the next minor for a breaking change; the script and the workflow both refuse 1.0. The Release preparation job checks on every pull request that a prepared release still matches `main`. Create Release runs after Build and Test passes on a push to `main`: it tags a tested commit whose version has no tag; otherwise, when `main` has releasable commits since the last tag (a Dependabot fix, say), it writes the next version on a commit above `main` and tags that. It pushes only tags, after the build succeeds, finishes a release left half done, moves the `v0` tag (or re-points it when it lags), and publishes a GitHub release with the changelog section, wheel and sdist, a CycloneDX SBOM (`uv export --format cyclonedx1.5`) and the Sigstore bundle of a build provenance attestation for all three (`actions/attest-build-provenance`, also recorded with GitHub artifact attestations). Run by hand from the Actions tab, it only finishes or tags a prepared version. Publishing to PyPI is a separate job that stays off until the `PUBLISH_TO_PYPI` repository variable is `true` and a `pypi` environment with trusted publishing exists.
+Build and Test runs on every push to `main` and on pull requests: Ruff and mypy, `cargo fmt`, Clippy and the Rust tests, the Rust tests again on aarch64, riscv64, ppc64le, s390x and loongarch64 under qemu, a wheel for each platform built with maturin (Linux on all six architectures, macOS and Windows on x86_64 and arm64), a commit message check on pull requests, the test suite on Python 3.11, 3.12, 3.13 and 3.14 against Postgres and Iceberg REST catalog service containers, an end-to-end build of the jaffle_shop example that fails if it takes a minute or more, an install of the built wheel with `uv tool install`, an install from GitHub exactly as this README describes, the real-world jaffle-shop test, the Airflow parity test, and the Trino connector against a Trino server. The test job also runs the browser tests in Chromium and fails below 90% branch coverage. main is protected, and nothing pushes to it: a release is a tag and a GitHub release. Changes accumulate on a branch and merge in batches, about once an hour, by rebase, so each commit stays on `main`. The batch's last commit prepares the release with `uv run python .kodex/scripts/prepare_release.py`, which reads every releasable commit on the branch since the last tag and sets the next version in `pyproject.toml`, `uv.lock` and `konstruct/__init__.py`, with its section at the top of `CHANGELOG.md`. While the version is 0.x a release is a patch, or the next minor for a breaking change; the script and the workflow both refuse 1.0. The Release preparation job checks on every pull request that a prepared release still matches `main`. Create Release runs after Build and Test passes on a push to `main`: it tags a tested commit whose version has no tag; otherwise, when `main` has releasable commits since the last tag (a Dependabot fix, say), it writes the next version on a commit above `main` and tags that. It pushes only tags, after the build succeeds, finishes a release left half done, moves the `v0` tag (or re-points it when it lags), and publishes a GitHub release with the changelog section and sdist, a CycloneDX SBOM (`uv export --format cyclonedx1.5`) and the Sigstore bundle of a build provenance attestation for both (`actions/attest-build-provenance`, also recorded with GitHub artifact attestations), then builds the wheels from the tag and attaches them with an attestation of their own. Run by hand from the Actions tab, it only finishes or tags a prepared version. Publishing to PyPI is a separate job that stays off until the `PUBLISH_TO_PYPI` repository variable is `true` and a `pypi` environment with trusted publishing exists.
 
 Every action in the workflows and in `action.yml` is pinned to a full commit SHA, with its version in a comment, and the service containers to image digests, so a run is reproducible and a moved tag cannot change what CI executes. Dependabot moves the action SHAs; the image digests, which carry the tag they track, are updated by hand. OpenSSF Scorecard runs weekly and on every push to `main`, and publishes its results to the repository's Security tab.
 

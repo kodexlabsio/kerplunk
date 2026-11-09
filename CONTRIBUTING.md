@@ -22,7 +22,7 @@ An ontology pack describes the entities, keys and measures of a schema that many
 
 ## Making a Change
 
-The [Development section of the README](https://kodexlabsio.github.io/konstruct/development.html) covers setting up, the test suite and the commands. In short:
+The [Development section of the README](https://kodexlabsio.github.io/konstruct/development.html) covers setting up, the test suite and the commands. You need [uv](https://docs.astral.sh/uv/) and a stable [Rust toolchain](https://rustup.rs/) (1.88 or newer): `uv sync` builds Konstruct's Rust core with maturin. In short:
 
 ```bash
 uv sync
@@ -34,7 +34,7 @@ uv run pytest --cov
 A pull request is ready when:
 
 1. **It has tests.** A lineage fix comes with a test that fails without it, preferably as a small SQL case in `tests/test_sql.py`. A change to what Konstruct claims about lineage should also hold under `konstruct verify` (`tests/test_verify.py`). Coverage must stay at or above 90%.
-2. **The checks pass.** `uv run ruff check`, `uv run ruff format --check` and `uv run mypy` (strict) are clean, and the pre-push hook has run the tests.
+2. **The checks pass.** `uv run ruff check`, `uv run ruff format --check` and `uv run mypy` (strict) are clean, and the pre-push hook has run the tests. For a change to the Rust core (`src/`), `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` and `cargo test` pass there too.
 3. **Output changes are reviewed.** If the CLI's text or `REPORT.md` changes, regenerate the golden files with `KONSTRUCT_UPDATE_GOLDEN=1 uv run pytest tests/test_golden.py` and check the diff is what you meant.
 4. **Performance is no worse.** For changes to the build, SQL analysis or formulas, run `uv run .kodex/scripts/benchmark.py 500` before and after.
 5. **The viewer is rebuilt.** Changes under `viewer/` pass `pnpm check` and `pnpm test`, and the rebuilt `konstruct/outputs/viewer.html` is committed with them (the pre-commit hook does the rebuild).
@@ -46,7 +46,8 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/) with
 
 ## Code Style
 
-- Typed Python 3.11+, checked by mypy in strict mode; the viewer in strict TypeScript and Svelte 5, formatted by Prettier.
+- Typed Python 3.11+, checked by mypy in strict mode; the Rust core formatted by rustfmt and clean under Clippy; the viewer in strict TypeScript and Svelte 5, formatted by Prettier.
+- Code lives in one language: what moves to Rust is removed from Python, with no second implementation to fall back on.
 - Prefer small, plain functions to frameworks. Konstruct has few dependencies, and new ones need a good reason.
 - Never import or execute user code (DAGs, Dagster definitions, Python models). Parse it.
 - Comments explain why, not what.

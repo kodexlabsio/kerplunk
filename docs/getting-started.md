@@ -6,6 +6,12 @@ Konstruct is not on PyPI yet, so install it from GitHub with [uv](https://docs.a
 uv tool install git+https://github.com/kodexlabsio/konstruct
 ```
 
+Konstruct is Python with a compiled core in Rust, so installing from GitHub builds that core and
+needs a [Rust toolchain](https://rustup.rs/) (1.88 or newer) on the machine: `curl --proto
+'=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` installs one. GitHub's hosted runners have one
+already. To install without Rust, use a release's wheel (below). Konstruct runs on x86_64,
+aarch64 (arm64), riscv64, ppc64le, s390x and loongarch64 processors, on Python 3.11 or newer.
+
 Or run it without installing anything, each time:
 
 ```bash
@@ -14,7 +20,7 @@ uvx --from git+https://github.com/kodexlabsio/konstruct konstruct build
 
 For a warehouse extra, name it in the requirement, for example
 `uv tool install "konstruct[snowflake] @ git+https://github.com/kodexlabsio/konstruct"` (or `[bigquery]`, `[databricks]`, `[trino]`, `[rdf]` for SKOS and OWL vocabularies, `[all]`).
-To pin a release, add its tag: `git+https://github.com/kodexlabsio/konstruct@v0.8.0`. Each [release](https://github.com/kodexlabsio/konstruct/releases) also has the wheel and sdist attached, with a CycloneDX SBOM of the locked dependencies and a signed build provenance attestation; `gh attestation verify <file> -R kodexlabsio/konstruct` checks a downloaded file.
+To pin a release, add its tag: `git+https://github.com/kodexlabsio/konstruct@v0.8.0`. Each [release](https://github.com/kodexlabsio/konstruct/releases) also has wheels attached, which need no Rust toolchain: for Linux on x86_64, aarch64, ppc64le, s390x, riscv64 and loongarch64 (glibc 2.28 or newer, 2.31 for riscv64 and 2.36 for loongarch64), for macOS on Apple silicon and Intel, and for Windows on x64 and arm64. Install one with `uv tool install <wheel URL or file>`. Each file attached, the sdist and the CycloneDX SBOM of the locked dependencies too, has a signed build provenance attestation; `gh attestation verify <file> -R kodexlabsio/konstruct` checks a downloaded file.
 
 Then, in a repository with dbt models, SQL, DAGs or a warehouse:
 
