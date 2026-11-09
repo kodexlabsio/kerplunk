@@ -15,9 +15,18 @@ name: Create Release
 # by changing this workflow. Each release moves the v0 tag that action users pin and publishes the
 # changelog section, the wheel and the sdist.
 #
+# Each release also carries a CycloneDX SBOM of the locked dependencies, and a signed SLSA build
+# provenance attestation (a Sigstore bundle, also recorded with GitHub's artifact attestations)
+# for the wheel, the sdist and the SBOM; `gh attestation verify <file> -R kodexlabsio/konstruct`
+# checks one.
+#
 # Publishing to PyPI is a separate job that stays off until the PUBLISH_TO_PYPI repository
 # variable is 'true' and a 'pypi' environment with trusted publishing exists.
-on:
+#
+# workflow_run is safe here: the job runs only for a push to main (never for a pull request, whose
+# head branch could also be called main), checks out main rather than anything from the triggering
+# run, and releases only the commit that was tested.
+on: # zizmor: ignore[dangerous-triggers]
   workflow_run:
     workflows: [Build and Test]
     types: [completed]
@@ -25,7 +34,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release
@@ -41,11 +50,17 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the release and v0 tags, and create the GitHub release
+      id-token: write # sign the build provenance with the workflow's identity
+      attestations: write # record the provenance with GitHub's artifact attestations
     outputs:
       released: ${{ steps.plan.outputs.released }}
       tag: ${{ steps.plan.outputs.tag }}
     steps:
-      - name: Checkout repository
+      # The tags are pushed with the checkout's credentials. The only artifact uploaded is dist/,
+      # never the clone.
+      - name: Checkout repository # zizmor: ignore[artipacked]
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
@@ -54,8 +69,10 @@ jobs:
       - name: Release only the commit that was tested
         id: current
         if: github.event_name == 'workflow_run'
+        env:
+          TESTED: ${{ github.event.workflow_run.head_sha }}
         run: |
-          if [ "$(git rev-parse HEAD)" != "${{ github.event.workflow_run.head_sha }}" ]; then
+          if [ "$(git rev-parse HEAD)" != "$TESTED" ]; then
             echo "main has moved on since this commit was tested; its own run will release it"
             echo "stale=true" >> "$GITHUB_OUTPUT"
           fi
@@ -77,6 +94,33 @@ jobs:
         if: steps.plan.outputs.released == 'true'
         run: uv build
 
+      # Outside dist/, which holds only what PyPI takes.
+      - name: Write the SBOM
+        if: steps.plan.outputs.released == 'true'
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/assets"
+          uv export --preview-features sbom-export --format cyclonedx1.5 --no-dev --all-extras \
+            -o "$RUNNER_TEMP/assets/konstruct-${TAG#v}.cdx.json" > /dev/null
+
+      - name: Attest the build provenance
+        id: attest
+        if: steps.plan.outputs.released == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*
+            ${{ runner.temp }}/assets/*.cdx.json
+
+      # The Sigstore bundle as a release asset too, for verifiers that take a bundle file.
+      - name: Add the provenance to the release assets
+        if: steps.plan.outputs.released == 'true'
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: jq -c . "$BUNDLE" > "$RUNNER_TEMP/assets/konstruct-${TAG#v}.intoto.jsonl"
+
       # Tags are pushed only once the build has succeeded; only tags are pushed, never main.
       - name: Tag and publish the release
         if: steps.plan.outputs.released == 'true'
@@ -88,7 +132,7 @@ jobs:
             git tag "$TAG"
           fi
           git push origin "refs/tags/${TAG}"
-          gh release create "$TAG" dist/* \
+          gh release create "$TAG" dist/* "$RUNNER_TEMP"/assets/* \
               --title "$TAG" \
               --notes-file "$RUNNER_TEMP/RELEASE_NOTES.md" \
               --verify-tag \
@@ -112,7 +156,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      id-token: write
+      id-token: write # trusted publishing: PyPI exchanges the OIDC token for an upload token
     steps:
       - name: Download the distributions
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

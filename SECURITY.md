@@ -10,6 +10,16 @@ You should receive a reply within five working days. Fixes are released as a pat
 
 Konstruct is at 0.x: only the latest release receives fixes.
 
+## Verifying a Release
+
+Each GitHub release has a signed build provenance attestation for its wheel, sdist and CycloneDX SBOM, made by the release workflow. To check a downloaded file:
+
+```bash
+gh attestation verify konstruct-<version>-py3-none-any.whl -R kodexlabsio/konstruct
+```
+
+The attestation's Sigstore bundle is attached to the release as `konstruct-<version>.intoto.jsonl`, for `gh attestation verify --bundle` and other Sigstore verifiers.
+
 ## Trust Model
 
 Konstruct reads a repository and, if configured, a warehouse. It is built to be safe to run on a repository you have not reviewed, such as a pull request branch in CI.
