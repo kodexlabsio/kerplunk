@@ -16,7 +16,21 @@ export function textWidth(text: string, font: string): number {
     return measure(font)?.measureText(text).width ?? text.length * 8;
 }
 
+const fitted = new Map<string, string>();
+
 export function fitText(text: string, font: string, width: number): string {
+    // Measuring is the slow part of drawing thousands of cards, and the same names recur.
+    const key = `${font}\u0000${width}\u0000${text}`;
+    let found = fitted.get(key);
+    if (found === undefined) {
+        found = fit(text, font, width);
+        if (fitted.size > 50_000) fitted.clear();
+        fitted.set(key, found);
+    }
+    return found;
+}
+
+function fit(text: string, font: string, width: number): string {
     if (textWidth(text, font) <= width) return text;
     let lo = 0;
     let hi = text.length;

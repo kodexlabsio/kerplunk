@@ -180,9 +180,10 @@ an edge, so that what it claims about lineage, usage and the warehouse comes onl
 {data}`~konstruct.plugins.api.RESERVED_EDGE_ATTRS` those an edge may not set (such as `origin`,
 `kind`, `verified`, `transform`, `via` and `role`). A node may set the names in
 {data}`~konstruct.plugins.api.PLUGIN_NODE_ATTRS`, each a string with the meaning Konstruct gives it:
-`test` on a test node (such as `unique` or `not_null`), `owner`, and `schedule`, `operator` and
-`orchestrator`, which the graph viewer shows. Other names, such as `type`, `label` or `fields`, are
-the plugin's own. An `Sql` dialect must be one sqlglot knows.
+`test` and `severity` on a test node (such as `unique` or `not_null`, and `warn` or `error`),
+`owner`, and those the graph viewer shows: `schedule`, `operator`, `orchestrator` and
+`bash_command` on a DAG or task, and `type`, `maturity`, `label` and `url` on an exposure. Other
+names, such as `team` or `fields`, are the plugin's own. An `Sql` dialect must be one sqlglot knows.
 
 ```python
 from konstruct.plugins import API_VERSION, Fragment, PluginEdge, PluginNode, Source, Sql

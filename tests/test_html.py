@@ -94,7 +94,9 @@ def test_page_references_no_external_resources(tmp_path: Path) -> None:
     plain strings, such as namespace URIs and links in Svelte's error messages; the browser test
     checks that the page makes no requests at all.)"""
     page = write_html(sample_graph(), tmp_path / 'graph.html').read_text(encoding='utf-8')
-    assert re.findall(r"""\b(?:src|href)\s*=\s*["']([^"']*)["']""", page) == ['#search']
+    # Links within the page are hash routes (#/glossary); nothing points elsewhere.
+    links = re.findall(r"""\b(?:src|href)\s*=\s*["']([^"']*)["']""", page)
+    assert links and all(link.startswith('#/') for link in links), links
     assert '@import' not in page
     urls = re.findall(r'url\(([^)]*)\)', page)
     assert len([u for u in urls if u.startswith('data:font/woff2;base64,')]) == 4

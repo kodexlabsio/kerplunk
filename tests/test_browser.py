@@ -42,8 +42,10 @@ def browser() -> Iterator[Any]:
 def open_page(browser: Any) -> Iterator[Any]:
     pages = []
 
-    def opener(path: Path, fragment: str = '') -> Any:
-        page = browser.new_page(viewport={'width': 1400, 'height': 900})
+    def opener(path: Path, fragment: str = '', **options: Any) -> Any:
+        options.setdefault('viewport', {'width': 1400, 'height': 900})
+        context = browser.new_context(**options)
+        page = context.new_page()
         page.problems = []
         page.on('pageerror', lambda error: page.problems.append(str(error)))
         page.on('console', lambda m: page.problems.append(m.text) if m.type in ('error', 'warning') else None)
@@ -55,162 +57,203 @@ def open_page(browser: Any) -> Iterator[Any]:
             ),
         )
         page.goto(path.as_uri() + fragment)
-        page.wait_for_selector('#nodes [data-id]')
+        page.wait_for_selector('#page h1, #lineage')
         pages.append(page)
         return page
 
     yield opener
     for page in pages:
         assert page.problems == [], page.problems
-        page.close()
+        page.context.close()
+
+
+def graph_ids(page: Any) -> list[str]:
+    ids: list[str] = page.eval_on_selector_all(
+        '#nodes [data-id]', "els => els.map(e => e.getAttribute('data-id'))"
+    )
+    return ids
 
 
 @pytest.mark.dbt
-def test_example_graph(jaffle_built_graph: Path, open_page: Any) -> None:
+def test_overview_and_model_page(jaffle_built_graph: Path, open_page: Any) -> None:
     page = open_page(jaffle_built_graph / 'konstruct-out' / 'graph.html')
-    ids = page.eval_on_selector_all('#nodes [data-id]', "els => els.map(e => e.getAttribute('data-id'))")
-    assert 'model.jaffle_shop.orders' in ids
-    assert 'task.jaffle_shop_daily.dbt_run_marts' in ids
-    assert 'exposure.jaffle_shop.customer_dashboard' in ids
-    assert not any(i.startswith(('test.', 'dag.')) or '#' in i for i in ids)
-    assert page.inner_text('#project') == 'jaffle_shop'
-    assert '44\ncolumns' in page.inner_text('#stats')
-    assert page.title() == 'jaffle_shop \u00b7 Konstruct'
+    assert page.inner_text('#page h1') == 'jaffle_shop'
+    assert page.title() == 'jaffle_shop · Konstruct'
+    stats = page.inner_text('#stats')
+    assert '44\ncolumns' in stats and '5\nmodels' in stats
+    assert 'Column lineage' in page.inner_text('#page')
 
-    page.click("[data-id='model.jaffle_shop.orders'] .name")
-    panel = page.locator('#panel')
-    assert panel.is_visible()
-    text = panel.inner_text()
+    # The project tree opens the model's page, with its lineage docked beneath it.
+    page.click('#tree [data-key="pkg:jaffle_shop/models"]')
+    page.click('#tree [data-key="model.jaffle_shop.orders"]')
+    page.wait_for_selector('#page h1:text-is("orders")')
+    assert page.evaluate('location.hash') == '#/node/model.jaffle_shop.orders'
+    text = page.inner_text('#page')
     assert 'jaffle_shop.main.orders' in text and 'models/orders.sql' in text
-    names = page.eval_on_selector_all(
-        '#panel table.columns td:first-child button', 'els => els.map(e => e.textContent)'
-    )
+    names = page.eval_on_selector_all('#col-table tbody th a', 'els => els.map(e => e.textContent)')
     assert names[:3] == ['order_id', 'customer_id', 'order_date']
     assert 'not_null_orders_amount' in text
     assert 'GROUP BY: stg_payments.order_id' in text
     assert 'konstruct impact orders' in text
+    # The SQL as written and as dbt compiled it.
+    assert "ref('stg_payments')" in page.inner_text('#sec-code pre')
+    page.click('#sec-code [role="tab"]:text("Compiled")')
+    compiled = page.inner_text('#sec-code pre')
+    assert 'jaffle_shop' in compiled and 'ref(' not in compiled
+    assert page.input_value('#select') == '+orders+'
+    ids = graph_ids(page)
+    assert {
+        'model.jaffle_shop.orders',
+        'model.jaffle_shop.stg_payments',
+        'task.jaffle_shop_daily.dbt_run_marts',
+    } <= set(ids)
+    assert 'model.jaffle_shop.stg_customers' not in ids
+    assert not any(i.startswith(('test.', 'dag.')) or '#' in i for i in ids)
 
-    page.locator('#panel table.columns').get_by_role('button', name='amount', exact=True).click()
-    lineage = panel.inner_text()
-    assert 'orders.amount' in lineage
-    assert '= SUM(stg_payments.amount)' in lineage
-    assert '= SUM(raw_payments.amount / 100)' in lineage
-    assert 'stg_payments.amount' in lineage and 'raw_payments.amount' in lineage
-    assert 'Nothing downstream reads this column.' in lineage
-    assert 'konstruct explain orders.amount' in lineage
-    # The column's rows and lineage are drawn on the canvas.
+    page.click('#col-table a.col-link:text-is("amount")')
+    page.wait_for_selector('#page h1:text-is("amount")')
+    column = page.inner_text('#page')
+    assert '= SUM(stg_payments.amount)' in column
+    assert '= SUM(raw_payments.amount / 100)' in column
+    assert 'stg_payments.amount' in page.inner_text('#comes-from')
+    assert 'raw_payments.amount' in page.inner_text('#comes-from')
+    assert 'Nothing downstream reads this column.' in column
+    assert 'konstruct explain orders.amount' in column
+    assert page.evaluate('location.hash') == '#/node/model.jaffle_shop.orders%23amount'
+    # The column's path is drawn on the docked graph.
     assert page.locator(".row.selected[data-col='model.jaffle_shop.orders#amount']").count() == 1
     assert page.locator(".row.on-path[data-col='seed.jaffle_shop.raw_payments#amount']").count() == 1
     assert page.locator('.edge.column.hl').count() == 2
-    assert page.evaluate('location.hash') == '#model.jaffle_shop.orders%23amount'
-    box = page.locator("[data-id='seed.jaffle_shop.raw_payments']").bounding_box()
-    canvas = page.locator('#graph').bounding_box()
-    assert box is not None and canvas is not None
-    assert canvas['x'] <= box['x'] and box['x'] + box['width'] <= canvas['x'] + canvas['width']
-
-    page.keyboard.press('Escape')
-    assert not panel.is_visible()
-    assert page.locator('.row').count() == 0
+    # Back returns to the model.
+    page.go_back()
+    page.wait_for_selector('#page h1:text-is("orders")')
 
 
 @pytest.mark.dbt
-def test_deep_links_direction_and_isolate(jaffle_built_graph: Path, open_page: Any) -> None:
+def test_links_selectors_and_full_screen(jaffle_built_graph: Path, open_page: Any) -> None:
     graph = jaffle_built_graph / 'konstruct-out' / 'graph.html'
-    # A link opened fresh, as from a pull request comment or a bookmark.
+    # Links that earlier versions wrote still open their node.
     fresh = open_page(graph, '#term.order_amount')
-    fresh.wait_for_selector('#panel:not([hidden])')
-    assert 'Order amount' in fresh.inner_text('#panel h2')
-    assert fresh.evaluate('location.hash') == '#term.order_amount'
-    page = open_page(graph)
-    page.goto(graph.as_uri() + '#model.jaffle_shop.stg_payments%23amount')
-    page.wait_for_selector('#panel:not([hidden])')
-    assert 'stg_payments.amount' in page.inner_text('#panel h2')
-    assert 'raw_payments.amount / 100' in page.inner_text('#panel')
-    page.click("[data-direction='upstream']")
-    assert 'Feeds' not in (page.locator('#panel').text_content() or '')
-    assert page.locator(".row.on-path[data-col='model.jaffle_shop.orders#amount']").count() == 0
-    page.click("[data-direction='both']")
-    assert page.locator(".row.on-path[data-col='model.jaffle_shop.orders#amount']").count() == 1
-    # A selected column's path is isolated by default; the button shows everything again.
-    assert page.locator('#isolate').get_attribute('aria-pressed') == 'true'
-    isolated = page.locator('#nodes [data-id]').count()
-    assert page.locator("[data-id='model.jaffle_shop.stg_customers']").count() == 0
-    page.click('#isolate')
-    assert page.locator('#nodes [data-id]').count() > isolated
-    assert page.locator("[data-id='model.jaffle_shop.stg_customers']").count() == 1
-    page.keyboard.press('Escape')
-    assert page.locator('#isolate').get_attribute('aria-pressed') == 'false'
+    assert fresh.inner_text('#page h1') == 'Order amount'
+    old = open_page(graph, '#model.jaffle_shop.stg_payments%23amount')
+    assert old.inner_text('#page h1') == 'amount'
+    assert 'raw_payments.amount / 100' in old.inner_text('#page')
+
+    page = open_page(graph, '#/lineage?select=stg_orders+')
+    page.wait_for_selector('#nodes [data-id]')
+    assert sorted(graph_ids(page)) == [
+        'exposure.jaffle_shop.customer_dashboard',
+        'model.jaffle_shop.customers',
+        'model.jaffle_shop.orders',
+        'model.jaffle_shop.stg_orders',
+        'table.jaffle_shop.reporting.customer_ltv',
+        'task.jaffle_shop_daily.build_customer_ltv',
+    ]
+    page.fill('#select', 'path:models/staging')
+    page.fill('#exclude', 'stg_customers')
+    page.press('#select', 'Enter')
+    page.wait_for_function("location.hash.includes('exclude=stg_customers')")
+    assert sorted(graph_ids(page)) == ['model.jaffle_shop.stg_orders', 'model.jaffle_shop.stg_payments']
+    page.fill('#select', '+orders.amount nowhere')
+    page.fill('#exclude', '')
+    page.press('#select', 'Enter')
+    page.wait_for_selector(".row[data-col='seed.jaffle_shop.raw_payments#amount']")
+    assert 'Nothing matches nowhere' in page.inner_text('#selector-status')
+    page.go_back()
+    page.wait_for_function("location.hash.includes('exclude=stg_customers')")
+    assert sorted(graph_ids(page)) == ['model.jaffle_shop.stg_orders', 'model.jaffle_shop.stg_payments']
+
+    # A node page goes full screen with its selection, and comes back.
+    node = open_page(graph, '#/node/model.jaffle_shop.customers')
+    node.click('#fullscreen')
+    node.wait_for_function("location.hash.startsWith('#/lineage?select=+customers+')")
+    assert node.locator('#page').count() == 0
+    node.click("[data-direction='upstream']")
+    assert node.input_value('#select') == '+customers'
+    node.keyboard.press('Shift+L')
+    node.wait_for_selector('#page h1:text-is("customers")')
 
 
 @pytest.mark.dbt
-def test_columns_theme_and_filters(jaffle_built_graph: Path, open_page: Any) -> None:
+def test_keyboard_graph_and_text_alternative(jaffle_built_graph: Path, open_page: Any) -> None:
+    page = open_page(jaffle_built_graph / 'konstruct-out' / 'graph.html', '#/lineage?select=+orders')
+    page.wait_for_selector('#nodes [data-id]')
+    page.focus('#graph-box')
+    page.keyboard.press('Home')
+    first = page.inner_text('#graph-announce')
+    assert 'upstream' in first and 'downstream' in first
+    # Right follows the lineage downstream; the list beside the graph names the neighbours.
+    for _ in range(4):
+        page.keyboard.press('ArrowRight')
+    assert page.locator('.node.cursor').count() == 1
+    assert page.get_attribute('.node.cursor', 'data-id') == 'model.jaffle_shop.orders'
+    inspector = page.text_content('#inspector') or ''
+    assert 'Upstream in view' in inspector and 'stg_payments' in inspector
+    page.keyboard.press('ArrowLeft')
+    assert page.get_attribute('.node.cursor', 'data-id') != 'model.jaffle_shop.orders'
+    page.keyboard.press('Enter')
+    page.wait_for_selector('#page h1')
+    assert page.evaluate('location.hash').startswith('#/node/')
+
+
+@pytest.mark.dbt
+def test_search_palette(jaffle_built_graph: Path, open_page: Any) -> None:
     page = open_page(jaffle_built_graph / 'konstruct-out' / 'graph.html')
+    page.keyboard.press('Control+k')
+    assert page.evaluate('document.activeElement.id') == 'palette-input'
+    page.keyboard.type('lifetime')
+    labels = page.eval_on_selector_all('#results .label', 'els => els.map(e => e.textContent)')
+    # The business term comes first, then the columns.
+    assert labels[:3] == [
+        'Customer lifetime value',
+        'customer_ltv.lifetime_value',
+        'customers.customer_lifetime_value',
+    ]
+    assert page.inner_text('#match-count') == f'{len(labels)} matches'
+    page.fill('#palette-input', 'ltv')
+    assert page.inner_text('#results li:first-child .label') == 'Customer lifetime value'
+    # Fuzzy: the letters in order.
+    page.fill('#palette-input', 'stgpay')
+    assert page.inner_text('#results li:first-child .label') == 'stg_payments'
+    page.fill('#palette-input', 'amount kind:column')
+    kinds = page.eval_on_selector_all('#results .kind', 'els => els.map(e => e.textContent)')
+    assert kinds and set(kinds) == {'Column'}
+    page.press('#palette-input', 'ArrowDown')
+    page.press('#palette-input', 'Enter')
+    assert page.locator('#palette').count() == 0
+    hash_ = page.evaluate('location.hash')
+    assert hash_.startswith('#/node/') and hash_.endswith('%23amount')
+    page.keyboard.press('/')
+    page.keyboard.type('zzzz')
+    assert page.inner_text('#match-count') == 'No matches'
+    page.keyboard.press('Escape')
+    assert page.locator('#palette').count() == 0
+
+
+@pytest.mark.dbt
+def test_columns_theme_and_export(jaffle_built_graph: Path, open_page: Any) -> None:
+    page = open_page(jaffle_built_graph / 'konstruct-out' / 'graph.html', '#/lineage', accept_downloads=True)
+    page.wait_for_selector('#nodes [data-id]')
     page.click('#columns')
     assert page.locator('.row[data-col]').count() == 44
     assert page.locator('.edge.column').count() == 36
     page.click('#columns')
     page.click("[data-toggle='model.jaffle_shop.customers']")
     assert page.locator('.row[data-col]').count() == 8
+    with page.expect_download() as download:
+        page.click('#export')
+        page.click('#export-svg')
+    svg = Path(download.value.path()).read_text(encoding='utf-8')
+    assert svg.startswith('<svg') and 'customers' in svg and '@font-face' in svg
+    with page.expect_download() as download:
+        page.click('#export')
+        page.click('#export-png')
+    assert download.value.suggested_filename.endswith('-lineage.png')
+    assert Path(download.value.path()).read_bytes()[:4] == b'\x89PNG'
+
     theme = page.evaluate('document.documentElement.dataset.theme')
     page.click('#theme')
     assert page.evaluate('document.documentElement.dataset.theme') != theme
-    tasks = page.locator("[data-id^='task.']").count()
-    assert tasks == 6
-    page.click(".chip[data-kind='task']")
-    assert page.locator("[data-id^='task.']").count() == 0
-    page.keyboard.press('/')
-    assert page.evaluate('document.activeElement.id') == 'search'
-
-
-@pytest.mark.dbt
-def test_business_terms(jaffle_built_graph: Path, open_page: Any) -> None:
-    graph = jaffle_built_graph / 'konstruct-out' / 'graph.html'
-    page = open_page(graph)
-    assert '5\nbusiness terms' in page.inner_text('#stats')
-    page.fill('#search', 'ltv')
-    assert (
-        page.eval_on_selector_all('#results .label', 'els => els.map(e => e.textContent)')[0]
-        == 'Customer lifetime value'
-    )
-    page.press('#search', 'Enter')
-    panel = page.inner_text('#panel')
-    assert 'Customer lifetime value' in page.inner_text('#panel h2')
-    assert 'Priya Shah, Head of Finance' in panel and 'one row per customer' in panel
-    assert '= SUM(raw_payments.amount / 100)' in panel
-    assert (
-        page.locator(".row.on-path[data-col='model.jaffle_shop.customers#customer_lifetime_value']").count()
-        == 1
-    )
-    assert page.evaluate('location.hash') == '#term.customer_lifetime_value'
-    page.locator('#panel').get_by_role('button', name='Order amount', exact=True).click()
-    assert 'Order amount' in page.inner_text('#panel h2')
-    # A column shows the terms that define it.
-    page.goto(graph.as_uri() + '#model.jaffle_shop.orders%23amount')
-    page.wait_for_selector('#panel:not([hidden])')
-    assert 'Defined by' in (page.locator('#panel').text_content() or '')
-    page.locator('#panel').get_by_role('button', name='Order amount', exact=True).click()
-    assert page.evaluate('location.hash') == '#term.order_amount'
-
-
-@pytest.mark.dbt
-def test_search(jaffle_built_graph: Path, open_page: Any) -> None:
-    page = open_page(jaffle_built_graph / 'konstruct-out' / 'graph.html')
-    page.fill('#search', 'lifetime')
-    results = page.eval_on_selector_all('#results .label', 'els => els.map(e => e.textContent)')
-    # The business term comes first, then the columns.
-    assert results[:3] == [
-        'Customer lifetime value',
-        'customer_ltv.lifetime_value',
-        'customers.customer_lifetime_value',
-    ]
-    assert page.inner_text('#match-count') == f'{len(results)} matches'
-    page.press('#search', 'ArrowDown')
-    page.press('#search', 'ArrowUp')
-    page.press('#search', 'Enter')
-    assert page.locator('#panel').is_visible()
-    assert 'lifetime' in page.inner_text('#panel h2').lower()
-    page.fill('#search', 'zzzz')
-    assert page.inner_text('#match-count') == 'No matches'
 
 
 def test_hostile_text_is_shown_as_text(tmp_path: Path, open_page: Any) -> None:
@@ -219,18 +262,20 @@ def test_hostile_text_is_shown_as_text(tmp_path: Path, open_page: Any) -> None:
     node = graph.add_node(Node('model.p.evil', 'model', 'evil<b>', description=hostile, relation='db.s.evil'))
     graph.add_column(node, 'c', description=hostile)
     graph.warn(hostile)
-    page = open_page(write_html(graph, tmp_path / 'graph.html'))
-    page.click("[data-id='model.p.evil'] .name")
-    assert hostile in page.inner_text('#panel')
-    page.click('#warnings summary')
+    path = write_html(graph, tmp_path / 'graph.html')
+    page = open_page(path, '#/node/model.p.evil')
+    assert hostile in page.inner_text('#page')
+    assert page.inner_text('#page h1') == 'evil<b>'
+    page.goto(path.as_uri() + '#/warnings')
+    page.wait_for_selector('#warnings')
     assert hostile in page.inner_text('#warnings')
     assert page.evaluate('window.pwned') is None
-    assert page.locator('#panel img').count() == 0
+    assert page.locator('#page img').count() == 0
 
 
 def test_a_large_graph_stays_responsive(tmp_path: Path, open_page: Any) -> None:
     graph = Graph()
-    for i in range(400):
+    for i in range(1200):
         node = graph.add_node(Node(f'model.p.m{i}', 'model', f'm{i}', relation=f'db.s.m{i}'))
         for j in range(8):
             graph.add_column(node, f'c{j}')
@@ -240,26 +285,37 @@ def test_a_large_graph_stays_responsive(tmp_path: Path, open_page: Any) -> None:
                 graph.add_edge(
                     column_id(node.id, 'c0'), column_id(f'model.p.m{parent}', 'c0'), 'derived_from'
                 )
+    path = write_html(graph, tmp_path / 'graph.html')
     started = time.perf_counter()
-    page = open_page(write_html(graph, tmp_path / 'graph.html'))
+    page = open_page(path, '#/lineage')
+    page.wait_for_selector('#nodes [data-id]')
     assert time.perf_counter() - started < 10
-    assert page.locator('#nodes [data-id]').count() == 400
+    # Every node is laid out, but only those near the window are drawn.
+    assert '1,200 nodes of 1,200' in page.inner_text('#selector-status')
+    assert 0 < page.locator('#nodes [data-id]').count() <= 1200
     clicked = time.perf_counter()
-    page.click('#fit')
-    page.locator("[data-id='model.p.m399']").click(force=True)
-    # A large graph isolates the lineage of a selection automatically.
-    assert page.locator('#isolate').get_attribute('aria-pressed') == 'true'
-    assert page.locator('#nodes [data-id]').count() < 400
-    page.locator('#panel table.columns').get_by_role('button', name='c0', exact=True).click()
-    assert 'Comes from' in (page.locator('#panel').text_content() or '')
+    page.goto(path.as_uri() + '#/node/model.p.m1199')
+    page.wait_for_selector('#page h1:text-is("m1199")')
+    assert page.input_value('#select') == '+m1199+'
+    assert page.locator('#nodes [data-id]').count() < 30
+    page.click('#col-table a.col-link:text-is("c0")')
+    page.wait_for_selector('#comes-from')
     assert time.perf_counter() - clicked < 5
+    # The browse table is virtualised: a few rows are in the page, not 1,200.
+    page.goto(path.as_uri() + '#/browse')
+    page.wait_for_selector('.browse-table')
+    assert page.locator('.browse-table tbody tr:not(.spacer)').count() < 120
+    assert page.get_attribute('.browse-table', 'aria-rowcount') == '1201'
 
 
 def test_an_empty_graph(tmp_path: Path, browser: Any) -> None:
     page = browser.new_page()
     errors: list[str] = []
     page.on('pageerror', lambda error: errors.append(str(error)))
-    page.goto(write_html(Graph(), tmp_path / 'graph.html').as_uri())
+    path = write_html(Graph(), tmp_path / 'graph.html')
+    page.goto(path.as_uri())
+    page.wait_for_selector('#page h1')
+    page.goto(path.as_uri() + '#/lineage')
     assert page.locator('#empty').inner_text().strip()
     assert errors == []
     page.close()

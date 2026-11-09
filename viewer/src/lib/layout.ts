@@ -10,7 +10,10 @@ export const ROW = 28;
 export const PAD = 6;
 export const COL_GAP = 104;
 export const ROW_GAP = 22;
+export const WRAP_GAP = 36;
 const SWEEPS = 8;
+/** Fewer sweeps in big graphs: each costs a sort of every layer, and the order settles early. */
+const BIG = 1500;
 
 function push<K, V>(map: Map<K, V[]>, key: K, value: V): void {
     const list = map.get(key);
@@ -117,7 +120,8 @@ export function computeOrder(model: GraphModel, visible: Set<string>): string[][
     const pos = new Map<string, number>();
     const place = (row: string[]): void => row.forEach((id, i) => pos.set(id, i - (row.length - 1) / 2));
     layers.forEach(place);
-    for (let sweep = 0; sweep < SWEEPS; sweep++) {
+    const sweeps = ids.length > BIG ? 4 : SWEEPS;
+    for (let sweep = 0; sweep < sweeps; sweep++) {
         const down = sweep % 2 === 0;
         const order = down ? layers : layers.slice().reverse();
         const neighbours = down ? before : after;
@@ -136,20 +140,50 @@ export function computeOrder(model: GraphModel, visible: Set<string>): string[][
     return layers.filter(row => row.length);
 }
 
-/** Cards stacked in each layer, centred on zero, given each card's height. */
-export function place(order: string[][], heightOf: (id: string) => number): Map<string, Point> {
+/**
+ * Cards stacked in each layer, centred on zero, given each card's height. A layer taller than
+ * ``maxHeight`` wraps into several columns, so a graph with hundreds of models in one layer stays
+ * wide rather than becoming one very tall column.
+ */
+export function place(
+    order: string[][],
+    heightOf: (id: string) => number,
+    maxHeight = Infinity,
+): Map<string, Point> {
     const coords = new Map<string, Point>();
-    order.forEach((row, layer) => {
+    let x = 0;
+    for (const row of order) {
         const heights = row.map(heightOf);
-        const total = heights.reduce((a, b) => a + b, 0) + ROW_GAP * (row.length - 1);
-        let y = -total / 2;
+        const columns: [string, number][][] = [[]];
+        let used = 0;
         row.forEach((id, i) => {
             const h = heights[i]!;
-            coords.set(id, { x: layer * (W + COL_GAP), y, h });
-            y += h + ROW_GAP;
+            if (used > 0 && used + h > maxHeight) {
+                columns.push([]);
+                used = 0;
+            }
+            columns[columns.length - 1]!.push([id, h]);
+            used += h + ROW_GAP;
         });
-    });
+        for (const column of columns) {
+            const total = column.reduce((a, [, h]) => a + h, 0) + ROW_GAP * (column.length - 1);
+            let y = -total / 2;
+            for (const [id, h] of column) {
+                coords.set(id, { x, y, h });
+                y += h + ROW_GAP;
+            }
+            x += W + (columns.length > 1 ? WRAP_GAP : 0);
+        }
+        x += COL_GAP - (columns.length > 1 ? WRAP_GAP : 0);
+    }
     return coords;
+}
+
+/** A height that keeps the whole graph about as wide as it is tall, for ``place``. */
+export function wrapHeight(order: string[][], heightOf: (id: string) => number): number {
+    let area = 0;
+    for (const row of order) for (const id of row) area += (heightOf(id) + ROW_GAP) * (W + COL_GAP);
+    return Math.max(900, Math.sqrt(area * 0.62));
 }
 
 export interface Bounds {

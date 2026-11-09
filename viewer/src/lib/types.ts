@@ -62,9 +62,110 @@ export interface Formula {
     p?: number;
 }
 
+/** The SQL behind a node: s (as written), c (compiled by dbt), t (cut short). */
+export interface Code {
+    s?: string;
+    c?: string;
+    t?: number;
+}
+
+export interface OntologyEntity {
+    name: string;
+    key: string;
+    keys?: string[];
+    relations?: string[];
+    evidence?: string[];
+    term?: string;
+    description?: string;
+    key_ids?: string[];
+}
+
+export interface MeasureColumn {
+    column: string;
+    id?: string;
+    formula?: string;
+    sources?: string[];
+    complete?: boolean;
+    verified?: number;
+    edges?: number;
+    usage?: number;
+}
+
+export interface OntologyMeasure {
+    name: string;
+    definition?: string;
+    status?: string;
+    owner?: string;
+    approved?: string;
+    entity?: string;
+    grain?: string;
+    unit?: string;
+    currency?: string;
+    filters?: string[];
+    path?: string;
+    expression?: string;
+    columns?: MeasureColumn[];
+}
+
+export interface OntologyRelationship {
+    source: string;
+    target: string;
+    via: string;
+    cardinality?: string;
+    tested?: boolean;
+    evidence?: string[];
+    columns?: [string, string];
+}
+
+export interface OntologyData {
+    entities?: OntologyEntity[];
+    measures?: OntologyMeasure[];
+    relationships?: OntologyRelationship[];
+    concepts?: { name: string; broader?: string[]; narrower?: string[] }[];
+    rules?: { name: string; description?: string; violations?: string[] }[];
+}
+
+export interface ConflictSide {
+    column: string;
+    label: string;
+    relation_kind?: string;
+    path?: string | null;
+    expression?: string | null;
+    composed?: string | null;
+    sources?: string[];
+    filters?: { relation: string; condition: string; path?: string | null }[];
+    joins?: { relation: string; condition: string; path?: string | null }[];
+    reach?: Record<string, number>;
+    terms?: string[];
+    carried_into?: string[];
+    weight?: number;
+}
+
+export interface Conflict {
+    idea: string;
+    reason: string;
+    score: number;
+    a: ConflictSide;
+    b: ConflictSide;
+    differences: { kind: string; detail: string; side?: string; path?: string }[];
+}
+
+export interface ConflictsData {
+    summary?: string;
+    candidates?: number;
+    groups?: number;
+    conflicts?: Conflict[];
+}
+
+/** The second placeholder: what the page shows beside the graph. */
 export interface Explanations {
     columns?: Record<string, Formula>;
     conditions?: Record<string, string[]>;
+    sql?: Record<string, Code>;
+    ontology?: OntologyData;
+    conflicts?: ConflictsData;
+    /** A locale the build chose (KONSTRUCT_LOCALE). */
+    locale?: string;
 }
 
 export interface Owner {
@@ -78,8 +179,6 @@ export interface Usage {
     days: number;
     score?: number;
 }
-
-export type Direction = 'upstream' | 'both' | 'downstream';
 
 export interface Point {
     x: number;

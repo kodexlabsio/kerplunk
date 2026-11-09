@@ -68,25 +68,32 @@ def shown(version: ApiVersion) -> str:
 # a name assigned it, or from ``dict(...)``, ``{**...}``, ``getattr`` or ``... or {}`` of it.
 _KONSTRUCT_ATTRS = frozenset(
     {
-        'also_via', 'approved', 'broader', 'checksum', 'column', 'columns', 'command', 'conditions',
-        'connection', 'currency', 'dag', 'dbt_name', 'definition', 'documented_only', 'entities',
-        'exceptions', 'expression', 'filters', 'formula', 'formula_dialect', 'fqn', 'grain',
-        'identifier_fields', 'in_warehouse', 'incremental_strategy', 'inferred', 'iri', 'kind', 'line',
-        'loaded', 'loaded_by', 'loader', 'materialized', 'model', 'nested', 'nullable', 'operator',
-        'orchestrator', 'ossie_authored', 'ossie_columns', 'ossie_dataset', 'ossie_expression',
-        'ossie_key', 'ossie_metric', 'ossie_reads', 'outside_warehouse', 'owner', 'package', 'parts',
-        'primary_key', 'primary_key_enforced', 'read_before', 'registry', 'related', 'repository',
-        'role', 'same_relation', 'schedule', 'sensors', 'source_name', 'sql_path', 'star_reads',
-        'status', 'synonyms', 'table_type', 'tags', 'test', 'transform', 'unique_key', 'unit', 'usage',
-        'verified', 'via', 'view_sql', 'where',
+        'also_via', 'approved', 'bash_command', 'broader', 'checksum', 'column', 'columns', 'command',
+        'conditions', 'connection', 'currency', 'dag', 'dbt_name', 'definition', 'documented_only',
+        'entities', 'exceptions', 'expression', 'filters', 'formula', 'formula_dialect', 'fqn', 'grain',
+        'identifier_fields', 'in_warehouse', 'incremental_strategy', 'inferred', 'iri', 'kind', 'label',
+        'line', 'lineage', 'loaded', 'loaded_by', 'loader', 'materialized', 'maturity', 'model',
+        'nested', 'nullable', 'operator', 'orchestrator', 'ossie_authored', 'ossie_columns',
+        'ossie_dataset', 'ossie_expression', 'ossie_key', 'ossie_metric', 'ossie_reads',
+        'outside_warehouse', 'owner', 'package', 'partitioned_by', 'parts', 'primary_key',
+        'primary_key_enforced', 'read_before', 'registry', 'related', 'repository', 'role',
+        'same_relation', 'schedule', 'sensors', 'severity', 'source_name', 'sql_path', 'star_reads',
+        'status', 'synonyms', 'table_type', 'tags', 'test', 'transform', 'type', 'unique_key', 'unit',
+        'url', 'usage', 'verified', 'via', 'view_sql', 'where',
     }
 )  # fmt: skip
 
-PLUGIN_NODE_ATTRS = frozenset({'owner', 'test', 'schedule', 'operator', 'orchestrator'})
+PLUGIN_NODE_ATTRS = frozenset(
+    {
+        'owner', 'test', 'severity', 'schedule', 'operator', 'orchestrator', 'bash_command', 'type',
+        'maturity', 'label', 'url',
+    }
+)  # fmt: skip
 """The attribute names Konstruct reads that a plugin's node may set, each a string with the meaning
-Konstruct gives it, which are ``test`` on a test node, naming the test (such as ``unique`` or
-``not_null``), ``owner``, who owns a DAG or task, and ``schedule``, ``operator`` and
-``orchestrator``, which the graph viewer shows."""
+Konstruct gives it, which are ``test`` and ``severity`` on a test node, naming the test (such as
+``unique`` or ``not_null``) and how much a failure counts, ``owner``, who owns a DAG or task, and
+those the graph viewer shows: ``schedule``, ``operator``, ``orchestrator`` and ``bash_command`` for
+a DAG or task, and ``type``, ``maturity``, ``label`` and ``url`` for an exposure."""
 
 RESERVED_NODE_ATTRS = _KONSTRUCT_ATTRS - PLUGIN_NODE_ATTRS
 """The attribute names a plugin's node may not set, which are every name Konstruct reads from

@@ -1580,8 +1580,9 @@ def _first_string(node: ast.AST) -> str | None:
 
 def _viewer_attribute_reads(source: str) -> set[str]:
     """Every attribute name viewer source reads: ``attr(x, 'name')`` (with a type argument or
-    not), ``attrs.name``, ``attrs?.name``, ``attrs['name']`` and ``attrs?.['name']``, and
-    ``attr(x, key)`` inside ``{#each [...] as key}``."""
+    not), ``attrs.name``, ``attrs?.name``, ``attrs['name']`` and ``attrs?.['name']``,
+    ``attr(x, key)`` inside ``{#each [...] as key}``, and the first names of a list of pairs
+    filtered by ``attr(x, k)``, as in ``KEYS.filter(([k]) => attr(x, k) ...)``."""
     import re
 
     read = set(re.findall(r"\battr(?:<[^>()]*>)?\(\s*[\w.?]+\s*,\s*'(\w+)'\s*\)", source))
@@ -1592,6 +1593,9 @@ def _viewer_attribute_reads(source: str) -> set[str]:
     ):
         if re.search(rf'\battr(?:<[^>()]*>)?\(\s*[\w.?]+\s*,\s*{variable}\s*\)', body):
             read |= set(re.findall(r"'(\w+)'", names))
+    for name, pairs in re.findall(r'const (\w+)(?::[^=]*)? = \[(.*?)\];', source, re.S):
+        if re.search(rf'\b{name}\s*\.filter\(\s*\(\[(\w+)\]\)\s*=>\s*attr\(\s*[\w.?]+\s*,\s*\1\s*\)', source):
+            read |= set(re.findall(r"\[\s*'(\w+)'\s*,", pairs))
     return read
 
 
@@ -1647,6 +1651,12 @@ def test_the_attribute_scan_sees_each_way_code_reads_an_attribute() -> None:
         const d = node.attrs.dotted;
         const e = node.attrs['indexed'];
         {#each ['each_a', 'each_b'] as key (key)}{#if attr(relation, key)}{/if}{/each}
+        const keys: [string, string][] = [
+            ['paired_a', t('a')],
+            ['paired_b', t('b')],
+        ];
+        const shown = keys.filter(([k]) => attr(n, k) !== undefined);
+        const labels = [['not_read', t('c')]];
         """
     )
     assert _viewer_attribute_reads(viewer) == {
@@ -1657,6 +1667,8 @@ def test_the_attribute_scan_sees_each_way_code_reads_an_attribute() -> None:
         'indexed',
         'each_a',
         'each_b',
+        'paired_a',
+        'paired_b',
     }
 
 

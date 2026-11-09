@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { computeFocus } from '../src/lib/focus';
-import { bounds, computeLayers, computeOrder, curve, place, W } from '../src/lib/layout';
-import { GraphModel } from '../src/lib/model';
-import { buildIndex, search } from '../src/lib/search';
+import { computeFocus, NO_FOCUS } from '../src/lib/focus';
+import { bounds, computeLayers, computeOrder, curve, place, W, wrapHeight } from '../src/lib/layout';
+import { byName, GraphModel } from '../src/lib/model';
+import type { GraphNode } from '../src/lib/types';
 import { graph } from './fixture';
 
 const model = new GraphModel(graph);
@@ -34,8 +34,20 @@ describe('the graph model', () => {
 
     it('walks column lineage both ways with depth, transform and verification', () => {
         expect(model.columnLineage('model.orders#revenue', true)).toEqual([
-            { id: 'model.stg_orders#amount', depth: 1, transform: 'transformed', verified: 'confirmed' },
-            { id: 'source.raw.orders#amount', depth: 2, transform: 'direct', verified: undefined },
+            {
+                id: 'model.stg_orders#amount',
+                depth: 1,
+                via: 'model.orders#revenue',
+                transform: 'aggregate',
+                verified: 'confirmed',
+            },
+            {
+                id: 'source.raw.orders#amount',
+                depth: 2,
+                via: 'model.stg_orders#amount',
+                transform: 'direct',
+                verified: undefined,
+            },
         ]);
         expect(model.columnLineage('source.raw.orders#amount', false).map(i => i.id)).toEqual([
             'model.stg_orders#amount',
@@ -78,6 +90,15 @@ describe('layout', () => {
         expect(bounds(new Map())).toBeNull();
     });
 
+    it('wraps a layer taller than the limit into columns', () => {
+        const coords = place([['a', 'b', 'c'], ['d']], () => 100, 230);
+        expect(coords.get('a')!.x).toBe(0);
+        expect(coords.get('b')!.x).toBe(0);
+        expect(coords.get('c')!.x).toBeGreaterThan(W);
+        expect(coords.get('d')!.x).toBeGreaterThan(coords.get('c')!.x + W);
+        expect(wrapHeight([['a']], () => 46)).toBeGreaterThanOrEqual(900);
+    });
+
     it('draws backward edges beneath', () => {
         expect(curve({ x: 0, y: 0 }, { x: 200, y: 0 })).toBe('M0,0 C100,0 100,0 200,0');
         expect(curve({ x: 200, y: 0 }, { x: 0, y: 0 })).toContain('C260,40');
@@ -85,85 +106,80 @@ describe('layout', () => {
 });
 
 describe('focus', () => {
-    it("lights a relation's lineage in the chosen direction", () => {
-        const both = computeFocus(model, {
-            selected: 'model.stg_orders',
-            column: null,
-            term: null,
-            direction: 'both',
-        });
+    it("lights a relation's whole lineage", () => {
         // The task runs orders, which is downstream of stg_orders, so the task is not in its lineage.
-        expect([...(both.relations ?? [])].sort()).toEqual([
+        expect([...(computeFocus(model, 'model.stg_orders').relations ?? [])].sort()).toEqual([
             'model.orders',
             'model.stg_orders',
             'source.raw.orders',
         ]);
-        const ofOrders = computeFocus(model, {
-            selected: 'model.orders',
-            column: null,
-            term: null,
-            direction: 'upstream',
-        });
-        expect(ofOrders.relations?.has('task.nightly.run')).toBe(true);
-        const up = computeFocus(model, {
-            selected: 'model.stg_orders',
-            column: null,
-            term: null,
-            direction: 'upstream',
-        });
-        expect([...(up.relations ?? [])].sort()).toEqual(['model.stg_orders', 'source.raw.orders']);
+        expect(computeFocus(model, 'model.orders').relations?.has('task.nightly.run')).toBe(true);
+        expect(computeFocus(model, null)).toEqual(NO_FOCUS);
     });
 
     it("lights a column's path and the filters on it", () => {
-        const focus = computeFocus(model, {
-            selected: 'model.orders',
-            column: 'model.orders#revenue',
-            term: null,
-            direction: 'both',
-        });
+        const focus = computeFocus(model, 'model.orders#revenue');
         expect([...(focus.columns ?? [])].sort()).toEqual([
             'model.orders#revenue',
             'model.stg_orders#amount',
             'source.raw.orders#amount',
         ]);
         expect(focus.references).toEqual([]);
-        const fromSource = computeFocus(model, {
-            selected: 'source.raw.orders',
-            column: 'source.raw.orders#status',
-            term: null,
-            direction: 'both',
-        });
-        expect(fromSource.references).toEqual([['source.raw.orders#status', 'model.stg_orders']]);
+        expect(computeFocus(model, 'source.raw.orders#status').references).toEqual([
+            ['source.raw.orders#status', 'model.stg_orders'],
+        ]);
     });
 
     it("lights a term's columns", () => {
-        const focus = computeFocus(model, {
-            selected: null,
-            column: null,
-            term: 'term.revenue',
-            direction: 'both',
-        });
+        const focus = computeFocus(model, 'term.revenue');
         expect([...(focus.columns ?? [])]).toEqual(['model.orders#revenue']);
         expect([...(focus.relations ?? [])]).toEqual(['model.orders']);
     });
 });
 
-describe('search', () => {
-    const index = buildIndex(model);
-
-    it("ranks an exact synonym first and highlights the term's relation", () => {
-        const result = search(model, index, 'sales');
-        expect(result.ids[0]).toBe('term.revenue');
-        expect([...result.relations]).toEqual(['model.orders']);
-    });
-
-    it('matches word starts in labels and needs every word', () => {
-        // Equal scores and lengths fall back to alphabetical order.
-        expect(search(model, index, 'orders amount').ids).toEqual([
-            'source.raw.orders#amount',
-            'model.stg_orders#amount',
+describe('groupings', () => {
+    it('reads packages from attributes or ids, and tests by target', () => {
+        expect(model.packageOf(model.node('model.orders')!)).toBe('shop');
+        expect(model.packageOf(model.node('model.orders#revenue')!)).toBe('shop');
+        expect(model.tagsOf(model.node('model.orders')!)).toEqual(['finance', 'nightly']);
+        expect(model.testsOf('model.orders').map(([t, target]) => [t.id, target])).toEqual([
+            ['test.shop.not_null_orders_revenue', 'model.orders#revenue'],
         ]);
-        expect(search(model, index, 'orders zzz').total).toBe(0);
-        expect(search(model, index, '  ').ids).toEqual([]);
+        expect(model.schemaOf(model.node('model.orders')!)).toEqual({
+            database: 'db',
+            schema: 'main',
+            name: 'orders',
+        });
+        expect([...model.ancestors('model.orders')].sort()).toEqual([
+            'model.stg_orders',
+            'source.raw.orders',
+            'task.nightly.run',
+        ]);
+        expect(model.referencedBy('source.raw.orders#status')).toEqual(['model.stg_orders']);
+    });
+});
+
+describe('ordering', () => {
+    // The browser's default locale must not change how a graph is laid out.
+    function underLocale<T>(locale: string, run: () => T): T {
+        const original = String.prototype.localeCompare;
+        String.prototype.localeCompare = function (this: string, that: string) {
+            return original.call(this, that, locale);
+        };
+        try {
+            return run();
+        } finally {
+            String.prototype.localeCompare = original;
+        }
+    }
+
+    it('sorts names the same way in every locale', () => {
+        const nodes = ['z', 'ä', 'a', 'B', 'a'].map(
+            (name, i) => ({ id: `model.p.${name}${i}`, kind: 'model', name }) as GraphNode,
+        );
+        const order = (locale: string): string[] =>
+            underLocale(locale, () => [...nodes].sort(byName).map(n => n.id));
+        expect(order('sv')).toEqual(order('en'));
+        expect(order('en')).toEqual(['model.p.B3', 'model.p.a2', 'model.p.a4', 'model.p.z0', 'model.p.ä1']);
     });
 });
