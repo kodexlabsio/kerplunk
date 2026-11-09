@@ -179,6 +179,8 @@ class Config:
     dbt_projects: list[Path] | None = None
     dag_paths: list[Path] | None = None
     dagster_paths: list[Path] | None = None
+    spark_paths: list[Path] | None = None
+    spark_dialect: str = 'spark'
     definitions_paths: list[Path] | None = None
     repositories: list[Path] = field(default_factory=list)
     ossie_paths: list[Path] | None = None
@@ -212,6 +214,16 @@ class Config:
         except ValueError:
             return False
         return any(fnmatch(relative, pattern) for pattern in self.exclude)
+
+
+def _spark_dialect(value: Any) -> str:
+    from sqlglot.dialects.dialect import Dialect
+
+    try:
+        Dialect.get_or_raise(str(value))
+    except ValueError:
+        raise ConfigError(f'[spark] dialect {value!r} is not a SQL dialect Konstruct knows') from None
+    return str(value)
 
 
 def _usage_settings(data: dict[str, Any]) -> UsageSettings:
@@ -268,6 +280,10 @@ def load_config(root: Path, out_dir: Path | None = None) -> Config:
         dagster_paths=[root / p for p in data.get('dagster', {}).get('paths', [])]
         if 'paths' in data.get('dagster', {})
         else None,
+        spark_paths=[root / p for p in data.get('spark', {}).get('paths', [])]
+        if 'paths' in data.get('spark', {})
+        else None,
+        spark_dialect=_spark_dialect(data.get('spark', {}).get('dialect', 'spark')),
         sql_paths=list(sql['paths']) if 'paths' in sql else None,
         usage=_usage_settings(data.get('usage', {})),
         definitions_paths=[root / p for p in data.get('definitions', {}).get('paths', [])]
@@ -350,6 +366,29 @@ def discover_dagster_files(config: Config) -> list[Path]:
         except OSError:
             continue
         if looks_like_dagster_file(text):
+            found.append(path)
+    return found
+
+
+def discover_spark_files(config: Config) -> list[Path]:
+    """PySpark jobs: the configured paths, or every Python file that uses Spark SQL."""
+    from konstruct.spark import looks_like_spark_file
+
+    if config.spark_paths is not None:
+        files: list[Path] = []
+        for path in config.spark_paths:
+            if path.is_dir():
+                files.extend(sorted(p for p in path.rglob('*.py') if not set(p.parts) & SKIP_DIRS))
+            elif path.is_file():
+                files.append(path)
+        return files
+    found = []
+    for path in iter_files(config, '.py'):
+        try:
+            text = path.read_text(encoding='utf-8', errors='replace')
+        except OSError:
+            continue
+        if looks_like_spark_file(text):
             found.append(path)
     return found
 

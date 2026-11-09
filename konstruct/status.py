@@ -16,6 +16,7 @@ from konstruct.config import (
     WarehouseConfig,
     discover_dag_files,
     discover_definitions_files,
+    discover_spark_files,
     discover_sql_files,
     discover_warehouses,
     load_config,
@@ -31,6 +32,7 @@ class Status:
     dbt_on_path: bool = False
     warehouses: list[dict[str, str]] = field(default_factory=list)
     dag_files: list[str] = field(default_factory=list)
+    spark_files: list[str] = field(default_factory=list)
     sql_files: list[str] = field(default_factory=list)
     definitions_files: list[str] = field(default_factory=list)
     graph: dict[str, Any] = field(default_factory=dict)
@@ -45,6 +47,7 @@ class Status:
             'dbt_on_path': self.dbt_on_path,
             'warehouses': self.warehouses,
             'dag_files': self.dag_files,
+            'spark_files': self.spark_files,
             'sql_files': self.sql_files,
             'definitions_files': self.definitions_files,
             'graph': self.graph,
@@ -66,6 +69,8 @@ class Status:
             source = f' ({warehouse["source"]})' if warehouse.get('source') else ''
             rows.append(('warehouse', f'{warehouse["name"]}{source}'))
         rows.append(('airflow', _files(self.dag_files, 'DAG file')))
+        if self.spark_files:
+            rows.append(('spark', _files(self.spark_files, 'PySpark job')))
         rows.append(('sql', _files(self.sql_files, 'SQL file')))
         rows.append(('definitions', _files(self.definitions_files, 'definitions file')))
         for repository in self.repositories:
@@ -98,7 +103,7 @@ def _files(files: list[str], noun: str) -> str:
     return f'{len(files)} {noun}{"s" if len(files) != 1 else ""}: {shown}'
 
 
-_INPUT_KEYS = ('dbt_projects', 'warehouses', 'dag_files', 'sql_files', 'definitions_files')
+_INPUT_KEYS = ('dbt_projects', 'warehouses', 'dag_files', 'spark_files', 'sql_files', 'definitions_files')
 
 
 def _count(number: int, noun: str) -> str:
@@ -172,6 +177,7 @@ def inspect(
     ]
     dags = discover_dag_files(config)
     status.dag_files = [_relative(p, root) for p in dags]
+    status.spark_files = [_relative(p, root) for p in discover_spark_files(config)]
     status.sql_files = [_relative(p, root) for p in discover_sql_files(config, projects, _sql_used_by(dags))]
     status.definitions_files = [_relative(p, root) for p in discover_definitions_files(config)]
 
@@ -241,6 +247,9 @@ def render_config(config: Config, status: Status, warehouses: list[WarehouseConf
     lines += ['[airflow]']
     dag_dirs = sorted({str(Path(f).parent) if str(Path(f).parent) != '.' else f for f in status.dag_files})
     lines.append(f'dags = {_toml_list(dag_dirs)}' if dag_dirs else '# dags = []')
+    lines += ['', '[spark]']
+    lines.append(f'paths = {_toml_list(status.spark_files)}' if status.spark_files else '# paths = ["jobs/"]')
+    lines.append('# dialect = "spark"')
     lines += ['', '[sql]']
     lines.append(
         f'paths = {_toml_list(status.sql_files)}' if status.sql_files else '# paths = ["sql/**/*.sql"]'

@@ -21,6 +21,7 @@ from konstruct.config import (
     discover_dagster_files,
     discover_definitions_files,
     discover_ossie_files,
+    discover_spark_files,
     discover_sql_files,
     discover_warehouses,
     load_config,
@@ -261,18 +262,23 @@ class Builder:
             record(self.graph.add_edge(used.id, target.id, 'feeds', role='reference', **attrs))
 
     def analyse_cached(
-        self, sql: str, *, kind: str, schema_key: str, target: str | None = None
+        self,
+        sql: str,
+        *,
+        kind: str,
+        schema_key: str,
+        target: str | None = None,
+        dialect: str | None = None,
     ) -> list[StatementLineage]:
-        key = Cache.key(
-            kind, sql, self.dialect, self.default_catalog, self.default_schema, schema_key, target
-        )
+        dialect = dialect or self.dialect
+        key = Cache.key(kind, sql, dialect, self.default_catalog, self.default_schema, schema_key, target)
 
         def compute() -> list[dict[str, Any]]:
             return [
                 s.to_dict()
                 for s in analyse(
                     sql,
-                    dialect=self.dialect,
+                    dialect=dialect,
                     schema=self.schema_columns(),
                     default_catalog=self.default_catalog,
                     default_db=self.default_schema,
@@ -295,6 +301,7 @@ class Builder:
         self.warehouse_view_lineage(schema_key)
         used_sql = self.load_airflow(schema_key)
         self.load_dagster(schema_key)
+        self.load_spark(schema_key)
         self.load_sql_files(projects, used_sql, schema_key)
         self.load_definitions()
         self.load_ossie()
@@ -1209,6 +1216,51 @@ class Builder:
             Node(id=f'table.asset:{uri}', kind='table', name=uri, origins=['airflow'], attrs={'asset': uri})
         )
         return node
+
+    def load_spark(self, schema_key: str) -> None:
+        """PySpark jobs: each SQL string a job passes to ``spark.sql``, analysed in the Spark
+        dialect (``[spark] dialect``), gives the tables it writes column lineage."""
+        from konstruct import spark
+
+        files = discover_spark_files(self.config)
+        statements_read = 0
+        for path in files:
+            rel = self.rel_path(path)
+            self.watch(path)
+            try:
+                job = spark.parse(path.read_text(encoding='utf-8'), rel)
+            except OSError as error:
+                self.graph.warn(f'spark: cannot read {rel}: {error}')
+                continue
+            for problem in job.problems:
+                self.graph.warn(f'spark: {problem}')
+            writes: set[str] = set()
+            for item in job.statements:
+                sql = spark.without_session_catalog(item.sql, self.config.spark_dialect)
+                for statement in self.analyse_cached(
+                    sql, kind='spark', schema_key=schema_key, dialect=self.config.spark_dialect
+                ):
+                    if not statement.target:
+                        for problem in statement.errors:
+                            self.graph.warn(f'spark: {rel}:{item.line}: {problem}')
+                        continue
+                    writes.add(statement.target)
+                    target = self.relation(statement.target, 'spark')
+                    target.path = target.path or rel
+                    self.apply(
+                        statement, target=target, origin='spark', label=f'spark {rel}:{item.line}', via=rel
+                    )
+            statements_read += len(job.statements)
+            self.sources.append(
+                {
+                    'input': 'spark',
+                    'path': rel,
+                    'detail': f'writes {", ".join(sorted(writes))}' if writes else 'writes nothing',
+                }
+            )
+        if files:
+            self.inputs['spark_jobs'] = len(files)
+            self.inputs['spark_statements'] = statements_read
 
     def load_sql_files(self, projects: list[dbt.DbtProject], used: set[Path], schema_key: str) -> None:
         files = discover_sql_files(self.config, projects, used)

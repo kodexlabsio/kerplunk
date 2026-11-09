@@ -52,6 +52,7 @@ uv run pytest --cov                             # everything, with branch covera
 | Lineage against data | `test_verify` | `verify` confirms true lineage and catches removed edges, false edges and dropped filters; a differential property test runs generated queries on generated data and requires the static lineage to agree with execution |
 | Gate | `test_gate` | `gate` on real git repositories: a safe change passes; a breaking change, a new meaning for an approved term and a new conflicting column fail, each with its file and fix; a conflict the change does not touch does not; the CLI's exit status, JSON and markdown |
 | Change review | `test_diff` | `diff` on real git repositories: formatting and CTE renames are not changes, removed columns still read downstream are breaking, conditions, DAGs, two commits, all output formats, and dbt Jinja rendering |
+| PySpark | `test_spark` | The SQL a job passes to `spark.sql` (literals, f-strings without placeholders, concatenations, names bound once), names bound more than once and SQL formatted with keyword arguments as warnings, which files are jobs (Databricks notebooks too) and which objects are sessions (Snowpark files apart), `spark_catalog` left out, column lineage of the tables a job writes, `[spark] paths` and `dialect`, `konstruct status` and `init` |
 | Dagster | `test_dagster` | The Dagster parser, assets and op jobs joining dbt and warehouse lineage, sensors ordering work, and parity with Dagster's own asset and job graphs (needs Dagster; see the CI job) |
 | Databricks | `test_databricks_live` | The connector against a Databricks workspace with Unity Catalog; runs when workspace credentials are set (see the file) |
 | Agent benchmark | `test_agent_benchmark` | The harness on a miniature Spider 2.0-DBT tree with a scripted agent: both arms, the same prompt, the graph and skill only in the Konstruct arm, the database the profile writes, scoring, timeouts that stop what the agent started, refusing an output directory with instructions above it, and resuming |
@@ -114,7 +115,7 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/), che
 |------|----------|
 | `konstruct/graph.py` | Graph model, name resolution, impact, trace and path |
 | `konstruct/sql.py` | sqlglot column lineage, canonical expressions and conditions |
-| `konstruct/dbt.py`, `jinja.py`, `airflow.py`, `dagster.py`, `warehouse.py`, `definitions.py` | Inputs, the sandboxed dbt renderer and business definitions |
+| `konstruct/dbt.py`, `jinja.py`, `airflow.py`, `dagster.py`, `spark.py`, `warehouse.py`, `definitions.py` | Inputs, the sandboxed dbt renderer and business definitions |
 | `konstruct/ontology.py`, `ossie.py` | The ontology derived from the graph, and Apache Ossie models read and written |
 | `konstruct/config.py`, `build.py`, `usage.py` | Configuration, discovery, the build and its cache, and usage from query history |
 | `konstruct/query.py`, `explain.py`, `conflicts.py`, `diff.py`, `gate.py`, `verify.py` | Questions over the graph: impact and the rest, formulas, conflicting definitions, change review, the gate, lineage against data |

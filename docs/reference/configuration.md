@@ -17,6 +17,10 @@ run = true                        # run `dbt docs generate` when artefacts are m
 [airflow]
 dags = ["orchestration/dags"]     # default: Python files that look like DAGs
 
+[spark]
+paths = ["jobs/"]                 # PySpark jobs; default: Python files that use spark.sql
+dialect = "spark"                 # the SQL dialect of their spark.sql strings (or "databricks")
+
 [sql]
 paths = ["sql/**/*.sql"]          # default: .sql files outside dbt folders and not used by DAGs
 
