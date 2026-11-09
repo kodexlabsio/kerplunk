@@ -5,7 +5,7 @@
 //! source system's table (`outside_warehouse`) answers only to its full name and id, so the short
 //! names keep meaning the warehouse table it lands as.
 
-use std::collections::HashMap;
+use crate::fnv::FnvHashMap;
 
 /// One relation as the index is built from it. Names and ids are already in lower case.
 #[derive(Clone, Copy, Debug)]
@@ -22,7 +22,7 @@ pub struct Relation<'a> {
 #[derive(Debug, Default)]
 pub struct RelationNames {
     /// Each name to the relations answering to it, in the order they were given.
-    keys: HashMap<Box<str>, Vec<u32>>,
+    keys: FnvHashMap<Box<str>, Vec<u32>>,
     names: Vec<Box<str>>,
     relations: Vec<Option<Box<str>>>,
 }

@@ -8,8 +8,10 @@
 //! Edge directions follow `konstruct/core/graph.py`: `feeds` and `contains` run with data flow,
 //! `derived_from`, `tests` and `runs` against it.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::OnceLock;
+
+use crate::fnv::FnvHashMap;
 
 /// The kind of an edge. The variants are in the alphabetical order of their names, so comparing
 /// kinds compares the names, as Python does when it sorts by them.
@@ -130,7 +132,7 @@ impl Adjacency {
 #[derive(Debug, Default)]
 struct Interner {
     ids: Vec<Box<str>>,
-    ordinals: HashMap<Box<str>, u32>,
+    ordinals: FnvHashMap<Box<str>, u32>,
 }
 
 impl Interner {
@@ -152,7 +154,7 @@ pub struct GraphIndex {
     /// missing, which traversals skip.
     nodes: usize,
     ids: Vec<Box<str>>,
-    ordinals: HashMap<Box<str>, u32>,
+    ordinals: FnvHashMap<Box<str>, u32>,
     edges: Vec<Edge>,
     outgoing: Adjacency,
     incoming: Adjacency,

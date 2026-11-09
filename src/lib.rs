@@ -4,6 +4,7 @@
 //! faster as compiled code, and the `python` feature exposes them as `konstruct._core`. Without
 //! that feature the crate builds and tests as plain Rust.
 
+pub mod fnv;
 pub mod graph;
 pub mod names;
 pub mod search;

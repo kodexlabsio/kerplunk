@@ -10,7 +10,8 @@
 //! on how the two languages fold case.
 
 use std::cmp::Ordering;
-use std::collections::HashMap;
+
+use crate::fnv::FnvHashMap;
 
 /// Words a question is made of that say nothing about what it is asking for.
 const STOPWORDS: &[&str] = &[
@@ -94,7 +95,7 @@ struct Entry {
 #[derive(Debug, Default)]
 pub struct SearchIndex {
     entries: Vec<Entry>,
-    vocabulary: HashMap<Box<str>, u32>,
+    vocabulary: FnvHashMap<Box<str>, u32>,
     /// For each word number, how many nodes have the word among their names.
     frequency: Vec<u32>,
 }
