@@ -9,6 +9,7 @@ from typing import Any
 import duckdb
 
 from konstruct import Project
+from konstruct.status import inspect
 
 
 def test_lineage_crosses_repositories(tmp_path: Path) -> None:
@@ -42,6 +43,12 @@ def test_lineage_crosses_repositories(tmp_path: Path) -> None:
     assert 'repositories: ../missing is not a directory' in graph.warnings
     assert (finance / 'konstruct-out' / 'repositories' / 'marketing').is_dir()
     assert not (marketing / 'konstruct-out').exists()
+    status = inspect(finance)
+    assert [(r['name'], r['path'], r['found']) for r in status.repositories] == [
+        ('marketing', '../marketing', '1 SQL file, 1 definitions file'),
+        ('missing', '../missing', 'not a directory'),
+    ]
+    assert 'repository  marketing (../marketing): 1 SQL file, 1 definitions file' in str(status)
 
 
 def _model(package: str, name: str, raw: str, depends: list[str], schema: str) -> dict[str, Any]:
@@ -224,6 +231,17 @@ def test_select_star_over_another_repositorys_relation(tmp_path: Path) -> None:
     graph = project.build(dialect='duckdb', warehouses=False, run_dbt=False).graph
     assert any('SELECT * over relations with unknown columns: main.x' in w for w in graph.warnings)
     assert [c.label for c in project.impact('x.qty').columns] == ['z.qty']
+
+
+def test_status_does_not_follow_the_repositories_others_list(tmp_path: Path) -> None:
+    a, b = tmp_path / 'a', tmp_path / 'b'
+    a.mkdir()
+    b.mkdir()
+    (a / 'konstruct.toml').write_text('repositories = ["../b"]\n')
+    (b / 'konstruct.toml').write_text('repositories = ["../a"]\n')
+    (b / 'x.sql').write_text('create table main.x as select 1 as n')
+    status = inspect(a)
+    assert [(r['name'], r['found']) for r in status.repositories] == [('b', '1 SQL file')]
 
 
 def test_a_term_two_repositories_define(tmp_path: Path) -> None:

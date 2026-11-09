@@ -3,7 +3,7 @@
 | Command | Purpose |
 |---------|---------|
 | `konstruct build [path] [-u]` | Build `konstruct-out/` (`graph.json`, `REPORT.md`, `graph.html` and `ontology.yml`). `-u/--update` reuses cached analyses of anything unchanged (keyed by file hashes, compiled SQL, manifest checksums and the upstream columns each model sees). `--no-dbt`, `--no-warehouse`, `--dialect`, `--out`, `--json` (a machine-readable summary), `--strict` (exit 1 on warnings) |
-| `konstruct status` | What Konstruct finds (configuration, dbt projects and whether their artefacts are current, warehouses, DAG and SQL files), whether the graph is out of date and which inputs changed, and whether the skill is installed |
+| `konstruct status` | What Konstruct finds (configuration, dbt projects and whether their artefacts are current, warehouses, DAG and SQL files, definitions files, and the inputs of each other repository listed in `repositories`), whether the graph is out of date and which inputs changed, and whether the skill is installed |
 | `konstruct init` | Write a commented `konstruct.toml` from what discovery found (`--stdout` to print it) |
 | `konstruct impact <table.column>` | Everything downstream: derived columns, relations, models that join, filter or group on it, tests, exposures and the DAG tasks that run them |
 | `konstruct trace <table.column>` | Everything upstream, each step marked `direct` (passed through or renamed) or `transformed` |

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -34,6 +35,7 @@ class Status:
     definitions_files: list[str] = field(default_factory=list)
     graph: dict[str, Any] = field(default_factory=dict)
     skills: list[str] = field(default_factory=list)
+    repositories: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -47,6 +49,7 @@ class Status:
             'definitions_files': self.definitions_files,
             'graph': self.graph,
             'skills': self.skills,
+            'repositories': self.repositories,
         }
 
     def lines(self) -> list[tuple[str, str]]:
@@ -65,6 +68,8 @@ class Status:
         rows.append(('airflow', _files(self.dag_files, 'DAG file')))
         rows.append(('sql', _files(self.sql_files, 'SQL file')))
         rows.append(('definitions', _files(self.definitions_files, 'definitions file')))
+        for repository in self.repositories:
+            rows.append(('repository', f'{repository["name"]} ({repository["path"]}): {repository["found"]}'))
         graph = self.graph
         if graph.get('exists'):
             state = (
@@ -91,6 +96,13 @@ def _files(files: list[str], noun: str) -> str:
         return f'no {noun}s found'
     shown = ', '.join(files[:4]) + (f' and {len(files) - 4} more' if len(files) > 4 else '')
     return f'{len(files)} {noun}{"s" if len(files) != 1 else ""}: {shown}'
+
+
+_INPUT_KEYS = ('dbt_projects', 'warehouses', 'dag_files', 'sql_files', 'definitions_files')
+
+
+def _count(number: int, noun: str) -> str:
+    return f'{number} {noun}{"" if number == 1 else "s"}' if number else ''
 
 
 def _age(timestamp: float) -> str:
@@ -123,8 +135,12 @@ def _sql_used_by(dag_files: list[Path]) -> set[Path]:
     return used
 
 
-def inspect(path: Path, out_dir: Path | None = None, home: Path | None = None) -> Status:
-    from konstruct.build import changed_inputs
+def inspect(
+    path: Path, out_dir: Path | None = None, home: Path | None = None, *, follow: bool = True
+) -> Status:
+    """What Konstruct finds at ``path``; with ``follow``, also in each repository it lists, though
+    not in theirs, as the build does not follow them."""
+    from konstruct.build import changed_inputs, repository_name
     from konstruct.project import find_out_dir
 
     config = load_config(path, out_dir)
@@ -160,6 +176,24 @@ def inspect(path: Path, out_dir: Path | None = None, home: Path | None = None) -
     status.definitions_files = [_relative(p, root) for p in discover_definitions_files(config)]
 
     out = out_dir or find_out_dir(root)
+    names: list[str] = []
+    for repository in config.repositories if follow else []:
+        names.append(repository_name(config, repository, names))
+        entry: dict[str, Any] = {'name': names[-1], 'path': os.path.relpath(repository, root)}
+        if not repository.is_dir():
+            entry['found'] = 'not a directory'
+        else:
+            other = inspect(repository, out / 'repositories' / names[-1], home, follow=False)
+            counts = [
+                _count(len(other.dbt_projects), 'dbt project'),
+                _count(len(other.warehouses), 'warehouse'),
+                _count(len(other.dag_files), 'DAG file'),
+                _count(len(other.sql_files), 'SQL file'),
+                _count(len(other.definitions_files), 'definitions file'),
+            ]
+            entry['found'] = ', '.join(c for c in counts if c) or 'no inputs found'
+            entry['inputs'] = {k: v for k, v in other.to_dict().items() if k in _INPUT_KEYS}
+        status.repositories.append(entry)
     graph_path = out / 'graph.json'
     if graph_path.is_file():
         graph = Graph.read(graph_path)
