@@ -1,5 +1,8 @@
 version: 2
 
+# Each version update waits a week after its release (cooldown), so that a compromised release is
+# likely to be found and withdrawn first. Security updates are not delayed.
+
 updates:
   - package-ecosystem: uv
     directory: /
@@ -8,6 +11,8 @@ updates:
       day: monday
       time: '00:00'
       timezone: 'Europe/London'
+    cooldown:
+      default-days: 7
     assignees:
       - dcrdev
     commit-message:
@@ -33,6 +38,8 @@ updates:
       day: monday
       time: '00:00'
       timezone: 'Europe/London'
+    cooldown:
+      default-days: 7
     assignees:
       - dcrdev
     commit-message:
@@ -49,6 +56,8 @@ updates:
     schedule:
       interval: monthly
       timezone: 'Europe/London'
+    cooldown:
+      default-days: 7
     assignees:
       - dcrdev
     commit-message:
