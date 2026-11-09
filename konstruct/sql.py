@@ -426,7 +426,10 @@ def _leaves(node: LineageNode) -> Iterator[Leaf]:
             if isinstance(current.expression, exp.Table):
                 yield current, 'direct' if direct else 'transformed', parent, path
             continue
-        for child in reversed(current.downstream):
+        # sqlglot collects a node's inputs in a set, whose order follows string hashing and so
+        # changes between processes; walking them by name makes the sources, and the edges built
+        # from them, come out in the same order on every build.
+        for child in reversed(sorted(current.downstream, key=lambda c: c.name)):
             for suffix in sorted(_field_suffixes(current.expression, child)):
                 stack.append((child, direct, seen | {id(current)}, current.name, suffix + path))
 

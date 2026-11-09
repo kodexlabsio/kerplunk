@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+
 import pytest
 
 from konstruct.sql import ColumnSource, StatementLineage, analyse, dialect_for, strip_templating
@@ -402,3 +406,24 @@ def test_list_elements_in_filters_are_references() -> None:
         "select id from db.s.orders o where o.items[1].sku = 'x'", dialect='duckdb', schema=LISTS
     )
     assert result.references == [('db.s.orders', 'items.sku')]
+
+
+def test_source_order_does_not_depend_on_the_hash_seed() -> None:
+    # sqlglot gathers a column's inputs in a set, so their order follows Python's string hashing,
+    # which changes from one process to the next unless PYTHONHASHSEED is fixed.
+    script = (
+        'from konstruct.sql import analyse\n'
+        "sql = \"select sum(case when payment_method = 'credit_card' then amount else 0 end) as cc, "
+        'coalesce(refund, fee, amount, tax) as net from main.payments"\n'
+        "[result] = analyse(sql, dialect='duckdb', schema={'main.payments': "
+        "{'payment_method': 'TEXT', 'amount': 'INT', 'refund': 'INT', 'fee': 'INT', 'tax': 'INT'}})\n"
+        'print([(name, [s.column for s in sources]) for name, sources in result.columns.items()])\n'
+    )
+    outputs = set()
+    for seed in range(8):
+        env = {**os.environ, 'PYTHONHASHSEED': str(seed)}
+        done = subprocess.run(
+            [sys.executable, '-c', script], env=env, capture_output=True, text=True, check=True
+        )
+        outputs.add(done.stdout)
+    assert len(outputs) == 1, outputs
