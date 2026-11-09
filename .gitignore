@@ -41,3 +41,8 @@ coverage.xml
 docs/_build/
 .claude/plans/
 .claude/settings.local.json
+
+# Rust
+/target/
+konstruct/_core*.so
+konstruct/_core*.pyd
