@@ -4,9 +4,9 @@ On generated dbt projects (`.kodex/scripts/benchmark.py`): models in layers, eac
 
 | Models | Columns | Column edges | Cold build | `--update`, no change | `--update`, one model edited | impact | trace | explain | graph.html |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 100 | 2,200 | 2,540 | 1.57 s | 0.18 s | 0.15 s | 0.5 ms | 0.4 ms | 1.4 ms | 1.4 MB |
-| 500 | 10,200 | 12,940 | 8.11 s | 1.43 s | 1.29 s | 2.5 ms | 2.0 ms | 3.7 ms | 6.7 MB |
-| 1,000 | 20,200 | 25,940 | 16.48 s | 3.1 s | 2.82 s | 5.2 ms | 3.5 ms | 7.2 ms | 13.4 MB |
-| 2,000 | 40,200 | 51,940 | 37.23 s | 7.56 s | 6.43 s | 8.9 ms | 6.7 ms | 8.4 ms | 27.1 MB |
+| 100 | 2,200 | 2,540 | 1.28 s | 0.21 s | 0.16 s | 0.5 ms | 0.4 ms | 1.4 ms | 1.4 MB |
+| 500 | 10,200 | 12,940 | 7.02 s | 1.53 s | 1.21 s | 3.5 ms | 2.7 ms | 3.1 ms | 6.7 MB |
+| 1,000 | 20,200 | 25,940 | 13.59 s | 2.82 s | 2.48 s | 5.8 ms | 3.7 ms | 5.3 ms | 13.4 MB |
+| 2,000 | 40,200 | 51,940 | 31.34 s | 5.46 s | 5.86 s | 8.9 ms | 7.9 ms | 7.5 ms | 27.1 MB |
 
 Time grows linearly with the size of the project. Query times are medians over five runs on the deepest model. In the browser, the 2,000-model `graph.html` opens in under half a second, and selecting a column isolates its lineage in about 0.2 seconds. Run `uv run .kodex/scripts/benchmark.py 300 3000` to measure other sizes on your machine.
