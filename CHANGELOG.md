@@ -1,3 +1,17 @@
+## v0.12.0 (2026-11-09)
+
+### BREAKING CHANGE
+
+- Code that imports a module directly uses its new path, such as konstruct.core.graph for konstruct.graph or konstruct.analysis.explain for konstruct.explain.
+
+### Feat
+
+- **definitions**: Write an Ossie model back as authored, graded on Ossie's portability ladder
+
+### Refactor
+
+- Group the package's modules into subpackages by role
+
 ## v0.11.13 (2026-11-09)
 
 ### Feat
