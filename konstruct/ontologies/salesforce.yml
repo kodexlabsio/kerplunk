@@ -1,0 +1,29 @@
+# Salesforce, as Fivetran lands its standard objects (snake_case field names).
+name: salesforce
+description: Salesforce accounts, contacts, leads and opportunities
+schemas: ['*salesforce*', '*sfdc*']
+match:
+  account: [id, name]
+  opportunity: [id, account_id, amount, stage_name, is_won, close_date]
+terms:
+  - name: Salesforce account
+    kind: entity
+    definition: A company or person a business sells to, in Salesforce.
+    columns: [account.id]
+  - name: Salesforce contact
+    kind: entity
+    definition: A person at a Salesforce account.
+    columns: [contact.id]
+  - name: Salesforce lead
+    kind: entity
+    definition: >-
+      A prospect captured in Salesforce; converted leads are kept, marked with is_converted.
+    columns: [lead.id]
+  - name: Salesforce opportunity
+    kind: entity
+    definition: A potential sale to an account, moving through sales stages.
+    columns: [opportunity.id]
+  - name: Salesforce opportunity amount
+    kind: measure
+    definition: The estimated value of an opportunity, in the opportunity's currency.
+    columns: [opportunity.amount]

@@ -495,7 +495,9 @@ class _Deriver:
             if column.id in self.keys:
                 continue
             self.add_key(column, f'term {term.name!r} ({where})', name)
-            if column.id not in self.unique:
+            # A pack's key is the source's own; the project has nothing to test, but nothing has
+            # tested it either, so it is not counted as unique.
+            if column.id not in self.unique and not term.attrs.get('registry'):
                 self.rules['entity-keys-are-unique'].violations.append(
                     f'{graph.label(column)}, the key of {name!r} ({where}), has no uniqueness test'
                 )

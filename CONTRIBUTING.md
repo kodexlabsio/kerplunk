@@ -16,6 +16,10 @@ For a security problem, follow [SECURITY.md](https://github.com/kodexlabsio/kons
 
 For anything larger than a fix, open an issue first, so the approach can be agreed before you write it. New inputs (an orchestrator, a warehouse) and new commands especially benefit from this.
 
+## Contributing an Ontology Pack
+
+An ontology pack describes the entities, keys and measures of a schema that many teams load, such as a SaaS tool's tables as Fivetran or Airbyte land them, so every project that has the schema gets them without writing them. A pack is one file in `konstruct/ontologies/`: a `definitions.yml` with a `name`, a `description`, `schemas` patterns for the schema names the source lands in, and a `match` block naming the tables and the columns only that source has (see [The Ontology](https://kodexlabsio.github.io/konstruct/guide/ontology.html)). Add a test to `tests/test_registry.py` with a warehouse that has the schema, and take column names from the tool's published schema, not from one project's copy of it.
+
 ## Making a Change
 
 The [Development section of the README](https://kodexlabsio.github.io/konstruct/development.html) covers setting up, the test suite and the commands. In short:

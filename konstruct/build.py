@@ -1242,6 +1242,59 @@ class Builder:
         if files:
             self.inputs['powerbi_tables'] = len(tables)
 
+    def bind_ontology_packs(self) -> None:
+        """The terms of the ontology packs whose source schemas the graph has, bound to them, after
+        every repository is merged. A pack term is left out when the project already has a term of
+        that name or synonym, or a term bound to one of its columns: the project's own model of the
+        source wins."""
+        from konstruct import registry
+
+        if self.config.ontology_packs == []:
+            return
+        terms = [n for n in self.graph.nodes.values() if n.kind == 'term']
+        names = {n.name.lower() for n in terms} | {
+            str(s).lower() for n in terms for s in n.attrs.get('synonyms', [])
+        }
+        slugs = {definitions.slug(n.name) for n in terms}
+        bound = {e.target for n in terms for e in self.graph.out_edges(n.id, 'defines')}
+        schemas: dict[str, dict[str, set[str]]] = {}
+        loaded: dict[str, set[str]] = {}
+        for node in self.graph.relations():
+            if node.relation and node.relation.count('.') >= 1 and not node.attrs.get('outside_warehouse'):
+                schema, _, table = node.relation.rpartition('.')
+                columns = schemas.setdefault(schema, {}).setdefault(table, set())
+                columns.update(c.name.lower() for c in self.graph.columns_of(node.id))
+                if node.attrs.get('loaded_by'):
+                    loaded.setdefault(schema, set()).add(table)
+        matches = registry.find(registry.load_packs(self.config.ontology_packs), schemas, loaded)
+        suffixes = registry.suffixes(matches)
+        found: list[definitions.Term] = []
+        for match in matches:
+            parsed = registry.terms(match, schemas, suffixes.get(match.schema))
+            for problem in parsed.errors:
+                self.graph.warn(f'ontologies: {problem}')
+            kept = []
+            for term in parsed.terms:
+                targets = [_bind(self.graph, ref)[0] for ref in term.columns]
+                if (
+                    {n.lower() for n in term.names} & names
+                    or term.slug in slugs
+                    or any(t is not None and t.id in bound for t in targets)
+                ):
+                    continue
+                kept.append(term)
+            found.extend(kept)
+            self.sources.append(
+                {
+                    'input': 'ontology pack',
+                    'name': match.pack.name,
+                    'detail': f'{match.schema}: {len(kept)} term{"s" if len(kept) != 1 else ""}',
+                }
+            )
+        if found:
+            self.add_terms(found)
+            self.inputs['ontology_pack_terms'] = len(found)
+
     def load_definitions(self) -> None:
         """Business terms from definitions.yml, attached to the columns they name."""
         terms: list[definitions.Term] = []
@@ -1260,6 +1313,11 @@ class Builder:
             self.sources.append(
                 {'input': 'definitions', 'path': rel, 'detail': f'{count} term{"s" if count != 1 else ""}'}
             )
+        self.add_terms(terms)
+        self.inputs['definitions'] = len(terms)
+
+    def add_terms(self, terms: list[definitions.Term]) -> None:
+        """Term nodes for ``terms``, with their columns, filters and related terms."""
         for problem in definitions.validate(terms):
             self.graph.warn(f'definitions: {problem}')
         nodes: dict[str, Node] = {}
@@ -1276,10 +1334,13 @@ class Builder:
                     name=term.name,
                     description=term.definition or None,
                     path=term.path,
-                    origins=['definitions'],
+                    origins=['registry' if term.path.startswith('ontology pack ') else 'definitions'],
                     attrs={
                         k: v
                         for k, v in {
+                            'registry': term.path.removeprefix('ontology pack ')
+                            if term.path.startswith('ontology pack ')
+                            else None,
                             'kind': term.kind,
                             'synonyms': term.synonyms,
                             'status': term.status,
@@ -1335,7 +1396,6 @@ class Builder:
                 target = nodes.get(related.lower())
                 if source is not None and target is not None and target is not source:
                     self.graph.add_edge(source.id, target.id, 'relates_to')
-        self.inputs['definitions'] = len(terms)
 
     def dagster_ops(
         self,
@@ -1923,6 +1983,8 @@ def build(config: Config, *, update: bool = False) -> BuildResult:
     if config.repositories:
         link_shared_relations(graph)
         bind_across_repositories(graph, wheres)
+    # Packs bind once, to the merged graph, so repositories that share a warehouse share its terms.
+    builder.bind_ontology_packs()
     graph.meta['dialect'] = builder.dialect or dialect_for(None)
     config.out_dir.mkdir(parents=True, exist_ok=True)
     graph_path = config.out_dir / 'graph.json'

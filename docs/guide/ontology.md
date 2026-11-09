@@ -61,6 +61,20 @@ terms:
     columns: [customers.customer_lifetime_value, customer_ltv.lifetime_value]
 ```
 
+## Ontology Packs
+
+Konstruct ships ontology packs for schemas that many teams load, and binds a pack's terms whenever the graph has its schema, so entities, keys and measures that every user of a source shares come without a `definitions.yml`:
+
+| Pack | Recognised by | Terms |
+|------|---------------|-------|
+| `stripe` | `charge` and `customer` tables (or `charges` and `customers`) with Stripe's own columns such as `captured`, `paid`, `livemode` and `delinquent` | Customer, charge, invoice and subscription entities; charge amount and refunded amount, in the currency's smallest unit |
+| `shopify` | `order` and `customer` (or plural) with `financial_status`, `fulfillment_status`, `taxes_included` and `verified_email` | Order, customer and product entities; order total and subtotal |
+| `salesforce` | `account` and `opportunity` with `stage_name`, `is_won` and `close_date`, as Fivetran lands them | Account, contact, lead and opportunity entities; opportunity amount |
+| `hubspot` | `deal` and `contact`, as Fivetran lands them | Contact, company and deal entities; deal amount |
+| `ga4` | `events_YYYYMMDD` tables of the BigQuery export | Event name and pseudonymous user, on the newest daily table (not the intraday or fresh one) |
+
+A schema matches when it has the pack's tables with their columns, and when something shows it comes from that source: its name contains the source's (`stripe`, `fivetran_stripe`, `analytics_123456` for GA4), or Fivetran or Airbyte landed its tables. An application's own `orders` and `customers` tables therefore match nothing. The pack's terms are then bound to that schema as drafts named after the source (`Stripe customer`), leaving out any whose table or column the schema does not have, and a pack matched in several schemas gets the shortest part of each schema's name that tells them apart (`Stripe customer (prod.stripe)`). Packs bind once, after every repository is merged, so repositories that share a warehouse share its pack terms. The project's own model of a source wins: a pack term is left out when a term in `definitions.yml` has its name or a synonym of it, or is bound to one of its columns. A pack's keys name entities but, untested, give no relationship cardinality. `[ontologies] packs` in `konstruct.toml` chooses the packs, and `packs = []` turns them off. To add a pack for another schema, see Contributing.
+
 ## Using It
 
 | Interface | Use |

@@ -33,6 +33,9 @@ paths = ["sql/**/*.sql"]          # default: .sql files outside dbt folders and 
 [definitions]
 paths = ["definitions.yml"]       # business terms; default: every definitions.yml
 
+[ontologies]
+packs = ["stripe", "shopify"]     # ontology packs to bind; default: all; [] for none
+
 [ossie]
 paths = ["semantic/"]             # Apache Ossie models; default: every *.ossie.yaml
 

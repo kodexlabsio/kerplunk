@@ -200,6 +200,8 @@ class Config:
     spark_paths: list[Path] | None = None
     powerbi_paths: list[Path] | None = None
     spark_dialect: str = 'spark'
+    ontology_packs: list[str] | None = None
+    """The ontology packs to bind: None for every pack Konstruct ships, [] for none."""
     fivetran_lineage: bool = True
     """Read the Fivetran Platform Connector's lineage tables when a warehouse has them."""
     looker_paths: list[Path] | None = None
@@ -253,6 +255,23 @@ def _flag(data: dict[str, Any], key: str, where: str, default: bool) -> bool:
     if not isinstance(value, bool):
         raise ConfigError(f'{where} must be true or false, not {value!r}')
     return value
+
+
+def _packs(data: dict[str, Any]) -> list[str] | None:
+    if 'packs' not in data:
+        return None
+    from konstruct.registry import load_packs
+
+    packs = data['packs']
+    if not isinstance(packs, list) or not all(isinstance(p, str) for p in packs):
+        raise ConfigError('[ontologies] packs must be a list of pack names')
+    known = {p.name for p in load_packs()}
+    unknown = sorted(set(packs) - known)
+    if unknown:
+        raise ConfigError(
+            f'[ontologies] packs: no pack named {unknown[0]!r} (there are {", ".join(sorted(known))})'
+        )
+    return list(packs)
 
 
 def _usage_settings(data: dict[str, Any]) -> UsageSettings:
@@ -319,6 +338,7 @@ def load_config(root: Path, out_dir: Path | None = None) -> Config:
         powerbi_paths=[root / p for p in data.get('powerbi', {}).get('paths', [])]
         if 'paths' in data.get('powerbi', {})
         else None,
+        ontology_packs=_packs(data.get('ontologies', {})),
         sql_paths=list(sql['paths']) if 'paths' in sql else None,
         usage=_usage_settings(data.get('usage', {})),
         fivetran_lineage=_flag(data.get('fivetran', {}), 'lineage', '[fivetran] lineage', True),

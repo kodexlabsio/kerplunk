@@ -1,0 +1,36 @@
+# Stripe, as Fivetran (singular table names) and Airbyte (plural) land it.
+name: stripe
+description: Stripe payments
+schemas: ['*stripe*']
+match:
+  charge|charges: [id, amount, amount_refunded, captured, paid, currency, livemode]
+  customer|customers: [id, delinquent, livemode]
+terms:
+  - name: Stripe customer
+    kind: entity
+    definition: A customer object in Stripe, which charges, invoices and subscriptions belong to.
+    columns: [customer.id]
+  - name: Stripe charge
+    kind: entity
+    definition: >-
+      One attempt to move money from a payment method, successful or not; test-mode charges have
+      livemode false.
+    columns: [charge.id]
+  - name: Stripe invoice
+    kind: entity
+    definition: A statement of what a customer owes for a period or a one-off purchase.
+    columns: [invoice.id]
+  - name: Stripe subscription
+    kind: entity
+    definition: A customer's recurring plan, billed by invoices.
+    columns: [subscription.id]
+  - name: Stripe charge amount
+    kind: measure
+    definition: >-
+      The amount a charge asked for, in the currency's smallest unit (cents for USD, yen for
+      JPY), before refunds; divide by 100 only for two-decimal currencies.
+    columns: [charge.amount]
+  - name: Stripe refunded amount
+    kind: measure
+    definition: The part of a charge refunded, in the currency's smallest unit.
+    columns: [charge.amount_refunded]

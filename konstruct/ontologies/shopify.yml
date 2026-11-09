@@ -1,0 +1,32 @@
+# Shopify, as Fivetran (singular table names) and Airbyte (plural) land it.
+name: shopify
+description: Shopify orders, customers and products
+schemas: ['*shopify*']
+match:
+  order|orders: [id, total_price, subtotal_price, financial_status, fulfillment_status, taxes_included]
+  customer|customers: [id, verified_email]
+terms:
+  - name: Shopify order
+    kind: entity
+    definition: >-
+      A customer's request to purchase one or more products from a shop, from the online store,
+      point of sale, a draft order or the API; cancelled orders are kept.
+    columns: [order.id]
+  - name: Shopify customer
+    kind: entity
+    definition: A customer record in a Shopify shop, with or without an account.
+    columns: [customer.id]
+  - name: Shopify product
+    kind: entity
+    definition: An item a Shopify shop sells, with one or more variants.
+    columns: [product.id]
+  - name: Shopify order total
+    kind: measure
+    definition: >-
+      The order's total when it was placed: line items after discounts, plus shipping, duties,
+      taxes and tips, in the shop's currency. Later edits, returns and refunds are not reflected.
+    columns: [order.total_price]
+  - name: Shopify order subtotal
+    kind: measure
+    definition: The order's line items after discounts, before shipping, duties, taxes and tips.
+    columns: [order.subtotal_price]

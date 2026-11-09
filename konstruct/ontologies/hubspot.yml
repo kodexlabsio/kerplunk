@@ -1,0 +1,24 @@
+# HubSpot, as Fivetran lands it.
+name: hubspot
+description: HubSpot contacts, companies and deals
+schemas: ['*hubspot*']
+match:
+  deal: [deal_id, property_amount]
+  contact: [id]
+terms:
+  - name: HubSpot contact
+    kind: entity
+    definition: A person in the HubSpot CRM.
+    columns: [contact.id]
+  - name: HubSpot company
+    kind: entity
+    definition: An organisation in the HubSpot CRM.
+    columns: [company.id]
+  - name: HubSpot deal
+    kind: entity
+    definition: A potential sale moving through a HubSpot pipeline.
+    columns: [deal.deal_id]
+  - name: HubSpot deal amount
+    kind: measure
+    definition: The total value of a deal, in the deal's own currency (deal_currency_code).
+    columns: [deal.property_amount]
