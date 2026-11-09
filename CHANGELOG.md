@@ -1,3 +1,9 @@
+## v0.11.5 (2026-11-09)
+
+### Feat
+
+- **cli**: Compare the data stack with any date in konstruct diff
+
 ## v0.11.4 (2026-11-09)
 
 ### Perf
