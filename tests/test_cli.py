@@ -255,3 +255,66 @@ def test_verify_needs_a_duckdb_warehouse(tmp_path: Path, capsys: pytest.CaptureF
         and 'needs the models built in a DuckDB file or a Postgres database' in err
         and '--warehouse snowflake, bigquery, databricks or trino' in err
     )
+
+
+def test_status_lists_every_input_and_the_packs_bound(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import duckdb
+
+    monkeypatch.setenv('HOME', str(tmp_path))
+    con = duckdb.connect(str(tmp_path / 'w.duckdb'))
+    con.execute('create schema stripe')
+    con.execute(
+        'create table stripe.charge (id varchar, amount bigint, amount_refunded bigint, captured boolean, '
+        'paid boolean, currency varchar, livemode boolean)'
+    )
+    con.execute('create table stripe.customer (id varchar, delinquent boolean, livemode boolean)')
+    con.close()
+    (tmp_path / 'assets.py').write_text('from dagster import asset\n\n@asset\ndef a():\n    pass\n')
+    (tmp_path / 'shop.ossie.yaml').write_text('version: "0.2.0.dev0"\nname: shop\ndatasets: []\n')
+    (tmp_path / 'terms.ttl').write_text('')
+    (tmp_path / 'vocabdir').mkdir()
+    other = tmp_path.parent / f'{tmp_path.name}-other'  # beside the project, not inside it
+    other.mkdir()
+    (other / 'assets.py').write_text('from dagster import asset\n\n@asset\ndef b():\n    pass\n')
+    (tmp_path / 'konstruct.toml').write_text(
+        f'repositories = ["../{other.name}"]\n\n[vocabularies]\npaths = ["terms.ttl", "vocabdir"]\n'
+    )
+    code, out, _ = run(capsys, 'status', '-C', str(tmp_path))
+    assert code == 0
+    assert '  dagster      1 Dagster file: assets.py' in out
+    assert '  ossie        1 Ossie model: shop.ossie.yaml' in out
+    assert '  vocabularies 1 vocabulary file: terms.ttl' in out  # a directory is not one
+    assert f'repository   {other.name} (../{other.name}): 1 Dagster file' in out
+    assert 'packs' not in out  # nothing built yet
+    run(capsys, 'build', '-C', str(tmp_path))
+    code, out, _ = run(capsys, 'status', '-C', str(tmp_path), '--json')
+    assert json.loads(out)['ontology_packs'] == [{'name': 'stripe', 'detail': 'w.stripe: 4 terms'}]
+    code, out, _ = run(capsys, 'status', '-C', str(tmp_path))
+    assert '  packs        stripe (w.stripe: 4 terms)' in out
+
+
+def test_status_shows_what_the_last_build_read_from_the_warehouse(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv('HOME', str(tmp_path))
+    (tmp_path / 'x.sql').write_text('create table t2 as select a from t1')
+    run(capsys, 'build', '-C', str(tmp_path))
+    path = tmp_path / 'konstruct-out' / 'graph.json'
+    data = json.loads(path.read_text())
+    data['meta']['sources'] += [
+        {'input': 'fivetran', 'name': 'stripe', 'detail': '12 tables'},
+        {'input': 'usage', 'path': 'snowflake', 'detail': '12 columns queried in the last 90 days'},
+    ]
+    path.write_text(json.dumps(data))
+    code, out, _ = run(capsys, 'status', '-C', str(tmp_path))
+    assert code == 0
+    assert '  fivetran     stripe: 12 tables' in out
+    assert '  usage        snowflake: 12 columns queried in the last 90 days' in out
+    code, out, _ = run(capsys, 'status', '-C', str(tmp_path), '--json')
+    assert code == 0
+    assert json.loads(out)['built_from'] == [
+        {'input': 'fivetran', 'name': 'stripe', 'detail': '12 tables'},
+        {'input': 'usage', 'name': 'snowflake', 'detail': '12 columns queried in the last 90 days'},
+    ]

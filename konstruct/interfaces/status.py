@@ -15,8 +15,10 @@ from konstruct.engine.config import (
     Config,
     WarehouseConfig,
     discover_dag_files,
+    discover_dagster_files,
     discover_definitions_files,
     discover_looker_files,
+    discover_ossie_files,
     discover_powerbi_files,
     discover_spark_files,
     discover_sql_files,
@@ -39,6 +41,13 @@ class Status:
     looker_files: list[str] = field(default_factory=list)
     powerbi_files: list[str] = field(default_factory=list)
     definitions_files: list[str] = field(default_factory=list)
+    dagster_files: list[str] = field(default_factory=list)
+    ossie_files: list[str] = field(default_factory=list)
+    vocabulary_files: list[str] = field(default_factory=list)
+    ontology_packs: list[dict[str, str]] = field(default_factory=list)
+    """The ontology packs the last build bound: each pack's name and its schema and term count."""
+    built_from: list[dict[str, str]] = field(default_factory=list)
+    """Inputs the last build read from the warehouse rather than files: Fivetran lineage and usage."""
     graph: dict[str, Any] = field(default_factory=dict)
     skills: list[str] = field(default_factory=list)
     repositories: list[dict[str, Any]] = field(default_factory=list)
@@ -56,6 +65,11 @@ class Status:
             'looker_files': self.looker_files,
             'powerbi_files': self.powerbi_files,
             'definitions_files': self.definitions_files,
+            'dagster_files': self.dagster_files,
+            'ossie_files': self.ossie_files,
+            'vocabulary_files': self.vocabulary_files,
+            'ontology_packs': self.ontology_packs,
+            'built_from': self.built_from,
             'graph': self.graph,
             'skills': self.skills,
             'repositories': self.repositories,
@@ -75,6 +89,8 @@ class Status:
             source = f' ({warehouse["source"]})' if warehouse.get('source') else ''
             rows.append(('warehouse', f'{warehouse["name"]}{source}'))
         rows.append(('airflow', _files(self.dag_files, 'DAG file')))
+        if self.dagster_files:
+            rows.append(('dagster', _files(self.dagster_files, 'Dagster file')))
         if self.spark_files:
             rows.append(('spark', _files(self.spark_files, 'PySpark job')))
         rows.append(('sql', _files(self.sql_files, 'SQL file')))
@@ -83,6 +99,18 @@ class Status:
         if self.powerbi_files:
             rows.append(('power bi', _files(self.powerbi_files, 'TMDL file')))
         rows.append(('definitions', _files(self.definitions_files, 'definitions file')))
+        if self.vocabulary_files:
+            rows.append(('vocabularies', _files(self.vocabulary_files, 'vocabulary file')))
+        if self.ossie_files:
+            rows.append(('ossie', _files(self.ossie_files, 'Ossie model')))
+        if self.graph.get('exists'):
+            shown = [f'{p["name"]} ({p["detail"]})' for p in self.ontology_packs]
+            packs = ', '.join(shown[:4]) + (f' and {len(shown) - 4} more' if len(shown) > 4 else '')
+            rows.append(('packs', packs or 'none bound in the last build'))
+            for item in self.built_from:
+                rows.append(
+                    (item['input'], f'{item["name"]}: {item["detail"]}' if item['name'] else item['detail'])
+                )
         for repository in self.repositories:
             rows.append(('repository', f'{repository["name"]} ({repository["path"]}): {repository["found"]}'))
         graph = self.graph
@@ -113,7 +141,19 @@ def _files(files: list[str], noun: str) -> str:
     return f'{len(files)} {noun}{"s" if len(files) != 1 else ""}: {shown}'
 
 
-_INPUT_KEYS = ('dbt_projects', 'warehouses', 'dag_files', 'spark_files', 'sql_files', 'definitions_files')
+_INPUT_KEYS = (
+    'dbt_projects',
+    'warehouses',
+    'dag_files',
+    'dagster_files',
+    'spark_files',
+    'sql_files',
+    'looker_files',
+    'powerbi_files',
+    'definitions_files',
+    'vocabulary_files',
+    'ossie_files',
+)
 
 
 def _count(number: int, noun: str) -> str:
@@ -192,6 +232,9 @@ def inspect(
     status.definitions_files = [_relative(p, root) for p in discover_definitions_files(config)]
     status.looker_files = [_relative(p, root) for p in discover_looker_files(config)]
     status.powerbi_files = [_relative(p, root) for p in discover_powerbi_files(config)]
+    status.dagster_files = [_relative(p, root) for p in discover_dagster_files(config)]
+    status.ossie_files = [_relative(p, root) for p in discover_ossie_files(config)]
+    status.vocabulary_files = [_relative(p, root) for p in config.vocabulary_paths if p.is_file()]
 
     out = out_dir or find_out_dir(root)
     names: list[str] = []
@@ -206,8 +249,14 @@ def inspect(
                 _count(len(other.dbt_projects), 'dbt project'),
                 _count(len(other.warehouses), 'warehouse'),
                 _count(len(other.dag_files), 'DAG file'),
+                _count(len(other.dagster_files), 'Dagster file'),
+                _count(len(other.spark_files), 'PySpark job'),
                 _count(len(other.sql_files), 'SQL file'),
+                _count(len(other.looker_files), 'LookML file'),
+                _count(len(other.powerbi_files), 'TMDL file'),
                 _count(len(other.definitions_files), 'definitions file'),
+                _count(len(other.vocabulary_files), 'vocabulary file'),
+                _count(len(other.ossie_files), 'Ossie model'),
             ]
             entry['found'] = ', '.join(c for c in counts if c) or 'no inputs found'
             entry['inputs'] = {k: v for k, v in other.to_dict().items() if k in _INPUT_KEYS}
@@ -224,6 +273,22 @@ def inspect(
             'nodes': len(graph.nodes),
             'warnings': len(graph.warnings),
         }
+        sources = [s for s in graph.meta.get('sources') or [] if isinstance(s, dict)]
+        status.ontology_packs = [
+            {'name': str(s['name']), 'detail': str(s.get('detail', ''))}
+            for s in sources
+            if s.get('input') == 'ontology pack'
+        ]
+        # Loader lineage and usage come from the warehouse at build time, not from files.
+        status.built_from = [
+            {
+                'input': str(s['input']),
+                'name': str(s.get('name') or s.get('path') or ''),
+                'detail': str(s.get('detail', '')),
+            }
+            for s in sources
+            if s.get('input') in ('fivetran', 'usage')
+        ]
     else:
         status.graph = {'exists': False, 'path': _relative(graph_path, root)}
 
