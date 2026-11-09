@@ -10,7 +10,24 @@ const keys = Object.keys(enGB).sort();
 
 describe('message catalogues', () => {
     it('carry the locales the viewer offers', () => {
-        expect(Object.keys(CATALOGUES).sort()).toEqual(['en-GB']);
+        expect(Object.keys(CATALOGUES).sort()).toEqual(
+            [
+                'ar',
+                'de',
+                'en-GB',
+                'en-US',
+                'es',
+                'fr',
+                'hi',
+                'it',
+                'ja',
+                'ko',
+                'nl',
+                'pl',
+                'pt-BR',
+                'zh-Hans',
+            ].sort(),
+        );
     });
 
     for (const [locale, messages] of Object.entries(CATALOGUES)) {

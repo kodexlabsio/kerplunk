@@ -263,6 +263,11 @@ def viewer_data(graph: Graph, cache: Any = None, ontology: Ontology | None = Non
     data['sql'] = code(graph, cache)
     data['ontology'] = ontology_data(graph, ontology)
     data['conflicts'] = conflicts_data(graph, cache)
+    # The page's language follows the reader's browser; KONSTRUCT_LOCALE (such as de or pt-BR)
+    # sets the one to use when the reader has not chosen one.
+    locale = os.environ.get('KONSTRUCT_LOCALE', '').strip()
+    if locale:
+        data['locale'] = locale
     return data
 
 

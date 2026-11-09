@@ -266,6 +266,15 @@ def test_the_ontology_and_conflicts_are_embedded(jaffle_built_graph: Path) -> No
     assert 'model.jaffle_shop.orders' in data['sql']
 
 
+def test_konstruct_locale_sets_the_page_language(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('KONSTRUCT_LOCALE', 'pt-BR')
+    page = write_html(sample_graph(), tmp_path / 'graph.html').read_text(encoding='utf-8')
+    assert explain_json(page)['locale'] == 'pt-BR'
+    monkeypatch.delenv('KONSTRUCT_LOCALE')
+    page = write_html(sample_graph(), tmp_path / 'graph.html').read_text(encoding='utf-8')
+    assert 'locale' not in explain_json(page)
+
+
 def test_conflicts_are_reused_while_the_graph_is_unchanged(tmp_path: Path) -> None:
     from konstruct.engine.build import Cache
     from konstruct.outputs.html import conflicts_data

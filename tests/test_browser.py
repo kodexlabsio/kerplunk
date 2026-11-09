@@ -67,6 +67,15 @@ def open_page(browser: Any) -> Iterator[Any]:
         page.context.close()
 
 
+def wait_for_ids(page: Any, ids: list[str]) -> None:
+    """Wait until the graph draws exactly these nodes: a route change renders after the hash changes."""
+    page.wait_for_function(
+        'ids => JSON.stringify([...document.querySelectorAll("#nodes [data-id]")]'
+        '.map(e => e.getAttribute("data-id")).sort()) === JSON.stringify(ids)',
+        arg=sorted(ids),
+    )
+
+
 def graph_ids(page: Any) -> list[str]:
     ids: list[str] = page.eval_on_selector_all(
         '#nodes [data-id]', "els => els.map(e => e.getAttribute('data-id'))"
@@ -152,24 +161,23 @@ def test_links_selectors_and_full_screen(jaffle_built_graph: Path, open_page: An
     page.fill('#select', 'path:models/staging')
     page.fill('#exclude', 'stg_customers')
     page.press('#select', 'Enter')
-    page.wait_for_function("location.hash.includes('exclude=stg_customers')")
-    assert sorted(graph_ids(page)) == ['model.jaffle_shop.stg_orders', 'model.jaffle_shop.stg_payments']
+    wait_for_ids(page, ['model.jaffle_shop.stg_orders', 'model.jaffle_shop.stg_payments'])
+    assert 'exclude=stg_customers' in page.evaluate('location.hash')
     page.fill('#select', '+orders.amount nowhere')
     page.fill('#exclude', '')
     page.press('#select', 'Enter')
     page.wait_for_selector(".row[data-col='seed.jaffle_shop.raw_payments#amount']")
     assert 'Nothing matches nowhere' in page.inner_text('#selector-status')
     page.go_back()
-    page.wait_for_function("location.hash.includes('exclude=stg_customers')")
-    assert sorted(graph_ids(page)) == ['model.jaffle_shop.stg_orders', 'model.jaffle_shop.stg_payments']
+    wait_for_ids(page, ['model.jaffle_shop.stg_orders', 'model.jaffle_shop.stg_payments'])
 
     # A node page goes full screen with its selection, and comes back.
     node = open_page(graph, '#/node/model.jaffle_shop.customers')
     node.click('#fullscreen')
     node.wait_for_function("location.hash.startsWith('#/lineage?select=+customers+')")
-    assert node.locator('#page').count() == 0
+    node.wait_for_selector('#page', state='detached')
     node.click("[data-direction='upstream']")
-    assert node.input_value('#select') == '+customers'
+    node.wait_for_function("document.getElementById('select').value === '+customers'")
     node.keyboard.press('Shift+L')
     node.wait_for_selector('#page h1:text-is("customers")')
 
@@ -231,7 +239,7 @@ def test_search_palette(jaffle_built_graph: Path, open_page: Any) -> None:
 
 
 @pytest.mark.dbt
-def test_columns_theme_and_export(jaffle_built_graph: Path, open_page: Any) -> None:
+def test_columns_theme_language_and_export(jaffle_built_graph: Path, open_page: Any) -> None:
     page = open_page(jaffle_built_graph / 'konstruct-out' / 'graph.html', '#/lineage', accept_downloads=True)
     page.wait_for_selector('#nodes [data-id]')
     page.click('#columns')
@@ -254,6 +262,24 @@ def test_columns_theme_and_export(jaffle_built_graph: Path, open_page: Any) -> N
     theme = page.evaluate('document.documentElement.dataset.theme')
     page.click('#theme')
     assert page.evaluate('document.documentElement.dataset.theme') != theme
+    page.select_option('#language', 'de')
+    assert page.evaluate('document.documentElement.lang') == 'de'
+    assert 'Übersicht' in page.inner_text('#nav')
+    # The choice is remembered.
+    page.reload()
+    page.wait_for_selector('#lineage')
+    assert page.evaluate('document.documentElement.lang') == 'de'
+
+
+@pytest.mark.dbt
+def test_right_to_left_and_locale_parameter(jaffle_built_graph: Path, open_page: Any) -> None:
+    graph = jaffle_built_graph / 'konstruct-out' / 'graph.html'
+    page = open_page(graph, '', locale='ar-EG')
+    assert page.evaluate('document.documentElement.dir') == 'rtl'
+    assert page.evaluate('document.documentElement.lang') == 'ar'
+    page.goto(graph.as_uri() + '?lang=pt-PT#/glossary')
+    page.wait_for_selector('#page h1:text-is("Glossário")')
+    assert page.evaluate('document.documentElement.dir') == 'ltr'
 
 
 def test_hostile_text_is_shown_as_text(tmp_path: Path, open_page: Any) -> None:
@@ -297,7 +323,8 @@ def test_a_large_graph_stays_responsive(tmp_path: Path, open_page: Any) -> None:
     page.goto(path.as_uri() + '#/node/model.p.m1199')
     page.wait_for_selector('#page h1:text-is("m1199")')
     assert page.input_value('#select') == '+m1199+'
-    assert page.locator('#nodes [data-id]').count() < 30
+    # Its lineage is the model and its 30 ancestors.
+    page.wait_for_selector('#selector-status:has-text("31 nodes of 1,200")')
     page.click('#col-table a.col-link:text-is("c0")')
     page.wait_for_selector('#comes-from')
     assert time.perf_counter() - clicked < 5
