@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import re
+import sys
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -143,6 +144,7 @@ class Builder:
         }
         self.cache = Cache(config.out_dir / 'cache.json', enabled=update)
         self.vocabulary_files: set[str] = set()
+        self.workers = _Workers()
         self.index = RelationIndex(self.graph)
         self.dialect: str | None = config.dialect
         self.default_catalog = config.default_catalog
@@ -618,41 +620,107 @@ class Builder:
 
     def dbt_lineage(self) -> None:
         count = 0
-        for loaded in self.loads:
-            for model in _topological(loaded.models):
-                node = self.graph.nodes[model.node_id]
-                upstream = [self.graph.nodes[u] for u in model.upstream if u in self.graph.nodes]
-                upstream_schema = self.schema_columns(upstream)
-                checksum = node.attrs.get('checksum')
-                key = Cache.key('dbt', model.sql, self.dialect, model.relation, upstream_schema, checksum)
-                dialect = loaded.dialect or self.dialect
+        prepared: dict[str, tuple[str, Any]] = {}
+        try:
+            for loaded in self.loads:
+                ordered = _topological(loaded.models)
+                ids = {m.node_id for m in ordered}
+                applied: set[str] = set()
+                considered: set[str] = set()
+                for index, model in enumerate(ordered):
+                    if model.node_id not in considered:
+                        # Every later model whose upstream models are all applied can be analysed
+                        # now, side by side; each result is used only if the model's own key, at
+                        # its turn, is the one it was analysed with.
+                        ready = [
+                            m
+                            for m in ordered[index:]
+                            if m.node_id not in considered
+                            and all(u not in ids or u in applied for u in m.upstream)
+                        ]
+                        considered.update(m.node_id for m in ready)
+                        self.prepare_models(ready, loaded, prepared)
+                    node = self.graph.nodes[model.node_id]
+                    key, schema, dialect = self.model_key(model, loaded)
+                    early = prepared.pop(model.node_id, None)
 
-                def compute(
-                    model: dbt.ModelSql = model,
-                    schema: dict[str, Any] = upstream_schema,
-                    dialect: str | None = dialect,
-                    loaded: dbt.DbtLoad = loaded,
-                ) -> Any:
-                    return [
-                        s.to_dict()
-                        for s in analyse(
-                            model.sql,
-                            dialect=dialect,
-                            schema=schema,
-                            default_catalog=loaded.default_catalog,
-                            default_db=loaded.default_schema,
-                            target=model.relation,
+                    def compute(
+                        model: dbt.ModelSql = model,
+                        schema: dict[str, Any] = schema,
+                        dialect: str | None = dialect,
+                        loaded: dbt.DbtLoad = loaded,
+                        early: tuple[str, Any] | None = early,
+                        key: str = key,
+                    ) -> Any:
+                        if early is not None and early[0] == key:
+                            self.workers.used += 1
+                            return early[1]
+                        return _analyse_model(
+                            (
+                                model.sql,
+                                dialect,
+                                schema,
+                                loaded.default_catalog,
+                                loaded.default_schema,
+                                model.relation,
+                            )
                         )
-                    ]
 
-                statements = [StatementLineage.from_dict(s) for s in self.cache.get_or_compute(key, compute)]
-                selects = [s for s in statements if s.kind in ('select', 'unparsed')]
-                if not model.compiled:
-                    node.attrs['lineage'] = 'from uncompiled SQL'
-                for statement in selects[-1:]:
-                    self.apply(statement, target=node, origin='dbt', label=f'dbt model {node.name}')
-                count += 1
+                    statements = [
+                        StatementLineage.from_dict(s) for s in self.cache.get_or_compute(key, compute)
+                    ]
+                    selects = [s for s in statements if s.kind in ('select', 'unparsed')]
+                    if not model.compiled:
+                        node.attrs['lineage'] = 'from uncompiled SQL'
+                    for statement in selects[-1:]:
+                        self.apply(statement, target=node, origin='dbt', label=f'dbt model {node.name}')
+                    applied.add(model.node_id)
+                    count += 1
+        finally:
+            # Also when the build fails, so no worker outlives it.
+            self.workers.close()
         self.inputs['dbt_models'] = count
+
+    def model_key(self, model: dbt.ModelSql, loaded: dbt.DbtLoad) -> tuple[str, dict[str, Any], str | None]:
+        """A model's cache key, the schema of the models it reads, and its dialect."""
+        node = self.graph.nodes[model.node_id]
+        upstream = [self.graph.nodes[u] for u in model.upstream if u in self.graph.nodes]
+        schema = self.schema_columns(upstream)
+        key = Cache.key('dbt', model.sql, self.dialect, model.relation, schema, node.attrs.get('checksum'))
+        return key, schema, loaded.dialect or self.dialect
+
+    def prepare_models(
+        self, models: list[dbt.ModelSql], loaded: dbt.DbtLoad, prepared: dict[str, tuple[str, Any]]
+    ) -> None:
+        """Analyse the models that are not cached in worker processes, when there are enough of
+        them to repay starting the workers."""
+        if len(models) < PARALLEL_MINIMUM or _workers() < 2 or self.workers.failed:
+            return
+        work = []
+        for model in models:
+            key, schema, dialect = self.model_key(model, loaded)
+            if key not in self.cache.entries:
+                work.append(
+                    (
+                        model.node_id,
+                        key,
+                        (
+                            model.sql,
+                            dialect,
+                            schema,
+                            loaded.default_catalog,
+                            loaded.default_schema,
+                            model.relation,
+                        ),
+                    )
+                )
+        if len(work) < PARALLEL_MINIMUM:
+            return
+        results = self.workers.map([list(w[2]) for w in work])
+        if results is None:
+            return
+        for (node_id, key, _), result in zip(work, results, strict=True):
+            prepared[node_id] = (key, result)
 
     def warehouse_view_lineage(self, schema_key: str) -> None:
         for node in list(self.graph.relations()):
@@ -1826,6 +1894,118 @@ def changed_inputs(graph_path: Path, graph: Graph) -> list[str]:
             except OSError:
                 continue
     return sorted(set(changed))
+
+
+PARALLEL_MINIMUM = 64
+"""Fewer models than this to analyse are analysed in the build's own process."""
+
+
+def _workers() -> int:
+    """How many processes analyse models: ``KONSTRUCT_WORKERS``, or the CPUs, up to eight."""
+    configured = os.environ.get('KONSTRUCT_WORKERS', '').strip()
+    if configured.isdigit():
+        return max(1, int(configured))
+    import sys
+
+    if getattr(sys, 'frozen', False):
+        return 1  # a frozen application cannot start a Python worker
+    try:
+        cpus = len(os.sched_getaffinity(0))  # the CPUs this process may use, not the host's
+    except AttributeError:
+        cpus = os.cpu_count() or 1
+    return max(1, min(cpus, 8))
+
+
+def _analyse_model(job: tuple[str, str | None, dict[str, Any], str | None, str | None, str | None]) -> Any:
+    """One model's lineage as plain data, in the build's own process."""
+    from konstruct import worker
+
+    return worker.run(list(job))
+
+
+def _worker_command() -> list[str]:
+    """The command that starts a worker, read when it starts."""
+    return [sys.executable, '-P', '-m', 'konstruct.worker']
+
+
+class _Workers:
+    """Worker processes for one build, started on first use and stopped when the build ends."""
+
+    def __init__(self) -> None:
+        self.processes: list[Any] = []
+        self.failed = False
+        self.used = 0
+        """Results from workers the build used."""
+        self.directory: str | None = None
+        """The workers' own empty working directory, removed when they stop."""
+
+    def map(self, jobs: list[list[Any]]) -> list[Any] | None:
+        """The results of ``jobs``, in order, analysed side by side; None when the workers cannot
+        run, so the build analyses them itself."""
+        import subprocess
+        import tempfile
+        from concurrent.futures import ThreadPoolExecutor
+
+        import orjson
+
+        if self.failed:
+            return None
+        try:
+            while len(self.processes) < min(_workers(), len(jobs)):
+                if self.directory is None:
+                    self.directory = tempfile.mkdtemp(prefix='konstruct-workers-')
+                self.processes.append(
+                    # -P keeps the working directory off the worker's path, and that directory is
+                    # its own and empty, so nothing in the repository or a shared directory is
+                    # imported.
+                    subprocess.Popen(
+                        _worker_command(),
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                        cwd=self.directory,
+                    )
+                )
+            count = min(len(self.processes), len(jobs))
+            chunks = [jobs[i::count] for i in range(count)]
+
+            def run(index: int) -> list[Any]:
+                process = self.processes[index]
+                process.stdin.write(orjson.dumps(chunks[index]) + b'\n')
+                process.stdin.flush()
+                line = process.stdout.readline()
+                if not line:
+                    raise OSError('a worker stopped')
+                result: list[Any] = orjson.loads(line)
+                return result
+
+            with ThreadPoolExecutor(max_workers=count) as threads:
+                parts = list(threads.map(run, range(count)))
+            if [len(p) for p in parts] != [len(c) for c in chunks]:
+                raise ValueError('a worker returned the wrong number of results')
+        except (OSError, ValueError) as error:
+            log.debug('worker processes failed, so models are analysed in this process: %s', error)
+            self.failed = True
+            self.close()
+            return None
+        results: list[Any] = [None] * len(jobs)
+        for index, part in enumerate(parts):
+            results[index::count] = part
+        return results
+
+    def close(self) -> None:
+        for process in self.processes:
+            try:
+                process.stdin.close()
+                process.wait(timeout=10)
+            except Exception:  # a worker that will not stop is killed
+                process.kill()
+        self.processes = []
+        if self.directory is not None:
+            import shutil
+
+            shutil.rmtree(self.directory, ignore_errors=True)
+            self.directory = None
 
 
 def _topological(models: list[dbt.ModelSql]) -> list[dbt.ModelSql]:

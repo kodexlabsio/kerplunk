@@ -120,3 +120,128 @@ def test_large_project(tmp_path: Path) -> None:
     deepest = project.trace(f'm{MODELS - 1:03}.c00')
     assert any(c.label.startswith('raw_') for c in deepest.columns)
     print(f'\n{MODELS} models: full build {full:.1f}s, --update {incremental:.1f}s, {lineage} lineage edges')
+
+
+def _graph(root: Path) -> str:
+    data = json.loads((root / 'konstruct-out' / 'graph.json').read_text())
+    data['meta'] = {
+        k: v for k, v in data['meta'].items() if k not in ('root', 'generated_at', 'build_seconds')
+    }
+    return json.dumps(data, sort_keys=True).replace(str(root), 'ROOT')
+
+
+def test_models_analysed_in_workers_give_the_same_graph(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from konstruct import build
+
+    monkeypatch.setattr(build, 'PARALLEL_MINIMUM', 4)
+    used: list[int] = []
+    real_close = build._Workers.close
+
+    def close(self: Any) -> None:
+        used.append(self.used)
+        real_close(self)
+
+    monkeypatch.setattr(build._Workers, 'close', close)
+    for catalog in (True, False):
+        graphs = []
+        for workers in ('1', '3'):
+            monkeypatch.setenv('KONSTRUCT_WORKERS', workers)
+            root = tmp_path / f'{catalog}-{workers}'
+            root.mkdir()
+            make_project(root, 80, 6)
+            if not catalog:
+                # Columns are then inferred onto shared tables as models are applied.
+                (root / 'target' / 'catalog.json').unlink()
+            Project(root).build(warehouses=False, run_dbt=False)
+            graphs.append(_graph(root))
+        assert graphs[0] == graphs[1]
+    assert used[1] > 0 and used[3] > 0  # the three-worker builds used results from workers
+
+
+def test_workers_import_nothing_from_the_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from konstruct import build
+
+    monkeypatch.setattr(build, 'PARALLEL_MINIMUM', 4)
+    monkeypatch.setenv('KONSTRUCT_WORKERS', '2')
+    make_project(tmp_path, 40, 4)
+    marker = tmp_path / 'ran'
+    for module in ('orjson', 'sqlglot', 'konstruct'):
+        (tmp_path / f'{module}.py').write_text(f'open({str(marker)!r}, "w").write("{module}")\n')
+    monkeypatch.chdir(tmp_path)
+    graph = Project(tmp_path).build(warehouses=False, run_dbt=False).graph
+    assert not marker.exists()
+    assert graph.meta['inputs']['dbt_models'] == 40
+
+
+def test_a_failing_build_stops_its_workers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from konstruct import build
+
+    monkeypatch.setattr(build, 'PARALLEL_MINIMUM', 4)
+    monkeypatch.setenv('KONSTRUCT_WORKERS', '2')
+    make_project(tmp_path, 40, 4)
+    started: list[Any] = []
+    real_map = build._Workers.map
+
+    def map_(self: Any, jobs: list[Any]) -> Any:
+        result = real_map(self, jobs)
+        started.extend(self.processes)
+        return result
+
+    calls = {'n': 0}
+    real_apply = build.Builder.apply
+
+    def apply(self: Any, *args: Any, **kwargs: Any) -> None:
+        calls['n'] += 1
+        if calls['n'] == 30:
+            raise RuntimeError('a failure in the middle of the build')
+        real_apply(self, *args, **kwargs)
+
+    monkeypatch.setattr(build._Workers, 'map', map_)
+    monkeypatch.setattr(build.Builder, 'apply', apply)
+    with pytest.raises(RuntimeError):
+        Project(tmp_path).build(warehouses=False, run_dbt=False)
+    assert started and all(p.poll() is not None for p in started)
+
+
+def test_workers_that_cannot_start_leave_the_build_to_do_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+
+    from konstruct import build
+
+    monkeypatch.setattr(build, 'PARALLEL_MINIMUM', 4)
+    monkeypatch.setenv('KONSTRUCT_WORKERS', '2')
+    monkeypatch.setattr(sys, 'executable', str(tmp_path / 'no-python'))
+    make_project(tmp_path, 40, 4)
+    seen: list[tuple[bool, int]] = []
+    real_close = build._Workers.close
+
+    def close(self: Any) -> None:
+        seen.append((self.failed, self.used))
+        real_close(self)
+
+    monkeypatch.setattr(build._Workers, 'close', close)
+    graph = Project(tmp_path).build(warehouses=False, run_dbt=False).graph
+    assert graph.meta['inputs']['dbt_models'] == 40
+    assert not graph.warnings
+    # The workers did fail to start, and the build analysed every model itself.
+    assert seen and seen[0] == (True, 0)
+
+
+def test_workers_keep_their_directory_off_the_path() -> None:
+    from konstruct import build
+
+    # -P stops Python putting the working directory first on sys.path.
+    assert build._worker_command()[1:] == ['-P', '-m', 'konstruct.worker']
+    workers = build._Workers()
+    directory = None
+    try:
+        assert workers.map([['select 1 as a', 'duckdb', None, None, None, None]]) is not None
+        directory = workers.directory
+        assert directory is not None and not any(Path(directory).iterdir())
+    finally:
+        workers.close()
+    assert directory is not None and not Path(directory).exists()

@@ -97,3 +97,9 @@ namespaces = ["sales"]
 [warehouse.properties]            # passed to pyiceberg.catalog.load_catalog
 credential = "${ICEBERG_CREDENTIAL}"
 ```
+
+## Environment
+
+| Variable | Effect |
+|----------|--------|
+| `KONSTRUCT_WORKERS` | How many worker processes analyse dbt models in a build: by default one per CPU, up to eight; `1` analyses them in the build's own process |
