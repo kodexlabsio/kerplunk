@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from konstruct.core.graph import Graph, Node, column_id
-from konstruct.outputs.html import write_html
+from konstruct.outputs.html import VIEWER_SQL_LIMIT, write_html
 
 HOSTILE = 'Ends here </script><script>alert(1)</script> and\u2028continues & <b>more</b>'
 SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
@@ -148,3 +150,115 @@ def test_inline_script_is_valid_javascript(tmp_path: Path) -> None:
     script.write_text(inline_script(page), encoding='utf-8')
     result = subprocess.run([node, '--check', str(script)], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
+
+
+def explain_json(page: str) -> dict[str, Any]:
+    match = re.search(r'<script type="application/json" id="konstruct-explain">(.*?)</script>', page, re.S)
+    assert match is not None
+    data: dict[str, Any] = json.loads(match.group(1))
+    return data
+
+
+def test_the_sql_behind_models_and_tasks_is_embedded(tmp_path: Path) -> None:
+    root = tmp_path / 'project'
+    (root / 'models').mkdir(parents=True)
+    (root / 'models' / 'orders.sql').write_text("select * from {{ ref('stg_orders') }}\n")
+    (root / 'models' / 'big.sql').write_text('select 1\n' + '-' * (VIEWER_SQL_LIMIT + 10))
+    compiled = root / 'target' / 'compiled' / 'shop' / 'models'
+    compiled.mkdir(parents=True)
+    (compiled / 'orders.sql').write_text('select * from db.main.stg_orders\n')
+    (root / 'dags' / 'sql').mkdir(parents=True)
+    (root / 'dags' / 'sql' / 'report.sql').write_text('create table report as select 1\n')
+    (tmp_path / 'secret.sql').write_text('outside the project')
+    graph = Graph()
+    graph.meta = {'root': str(root)}
+    graph.add_node(
+        Node('model.shop.orders', 'model', 'orders', path='models/orders.sql', attrs={'package': 'shop'})
+    )
+    graph.add_node(Node('model.shop.big', 'model', 'big', path='models/big.sql'))
+    graph.add_node(Node('model.shop.away', 'model', 'away', path='../secret.sql'))
+    graph.add_node(Node('model.shop.gone', 'model', 'gone', path='models/gone.sql'))
+    graph.add_node(Node('task.nightly.report', 'task', 'report', attrs={'sql_path': 'dags/sql/report.sql'}))
+    sql = explain_json(write_html(graph, tmp_path / 'graph.html').read_text(encoding='utf-8'))['sql']
+    assert sql['model.shop.orders'] == {
+        's': "select * from {{ ref('stg_orders') }}\n",
+        'c': 'select * from db.main.stg_orders\n',
+    }
+    assert sql['task.nightly.report'] == {'s': 'create table report as select 1\n'}
+    assert len(sql['model.shop.big']['s']) == VIEWER_SQL_LIMIT and sql['model.shop.big']['t'] == 1
+    assert 'model.shop.away' not in sql and 'model.shop.gone' not in sql
+
+
+def test_the_sql_is_read_again_only_when_a_file_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from konstruct.engine.build import Cache
+    from konstruct.outputs import html
+
+    root = tmp_path / 'project'
+    (root / 'models').mkdir(parents=True)
+    orders = root / 'models' / 'orders.sql'
+    orders.write_text('select 1\n')
+    (tmp_path / 'secret.sql').write_text('outside the project')
+    (root / 'models' / 'link.sql').symlink_to(tmp_path / 'secret.sql')
+    graph = Graph()
+    graph.meta = {'root': str(root)}
+    graph.add_node(
+        Node('model.shop.orders', 'model', 'orders', path='models/orders.sql', attrs={'package': 'shop'})
+    )
+    graph.add_node(Node('model.shop.link', 'model', 'link', path='models/link.sql'))
+    first = Cache(tmp_path / 'cache.json', enabled=False)
+    assert html.code(graph, first.quiet()) == {'model.shop.orders': {'s': 'select 1\n'}}
+    first.save()
+    # The next build reads nothing that has not changed.
+    cache = Cache(tmp_path / 'cache.json', enabled=True).quiet()
+    reads: list[str] = []
+    read = html._read
+
+    def counted(root: Path, relative: str) -> str | None:
+        reads.append(relative)
+        return read(root, relative)
+
+    monkeypatch.setattr(html, '_read', counted)
+    assert html.code(graph, cache) == {'model.shop.orders': {'s': 'select 1\n'}}
+    assert reads == []
+    # A file whose size changes, or a compiled copy that appears, is read again.
+    orders.write_text('select 22\n')
+    assert html.code(graph, cache)['model.shop.orders'] == {'s': 'select 22\n'}
+
+    # So is a file rewritten in place at the same size with its times put back, as some tools do:
+    # its change time still moves.
+    def build() -> dict[str, dict[str, Any]]:
+        builds = Cache(tmp_path / 'cache.json', enabled=True)
+        found = html.code(graph, builds.quiet())
+        builds.save()
+        return found
+
+    monkeypatch.undo()
+    assert build()['model.shop.orders'] == {'s': 'select 22\n'}
+    before = orders.stat()
+    orders.write_text('select 33\n')
+    os.utime(orders, ns=(before.st_atime_ns, before.st_mtime_ns))
+    assert build()['model.shop.orders'] == {'s': 'select 33\n'}
+    compiled = root / 'target' / 'compiled' / 'shop' / 'models'
+    compiled.mkdir(parents=True)
+    (compiled / 'orders.sql').write_text('select 22 from compiled\n')
+    assert build()['model.shop.orders'] == {'s': 'select 33\n', 'c': 'select 22 from compiled\n'}
+
+
+def test_a_graph_without_its_project_embeds_no_sql(tmp_path: Path) -> None:
+    graph = sample_graph()
+    graph.meta['root'] = str(tmp_path / 'missing')
+    assert explain_json(write_html(graph, tmp_path / 'graph.html').read_text(encoding='utf-8'))['sql'] == {}
+
+
+@pytest.mark.dbt
+def test_the_ontology_and_conflicts_are_embedded(jaffle_built_graph: Path) -> None:
+    data = explain_json((jaffle_built_graph / 'konstruct-out' / 'graph.html').read_text(encoding='utf-8'))
+    customer = next(e for e in data['ontology']['entities'] if e['name'] == 'customer')
+    assert 'model.jaffle_shop.customers#customer_id' in customer['key_ids']
+    measure = next(m for m in data['ontology']['measures'] if m['name'] == 'Order amount')
+    assert measure['columns'][0]['id'] == 'model.jaffle_shop.orders#amount'
+    assert {r['name'] for r in data['ontology']['rules']} >= {'one-formula-per-measure'}
+    assert data['conflicts']['candidates'] > 0 and 'conflicts' in data['conflicts']
+    assert 'model.jaffle_shop.orders' in data['sql']
