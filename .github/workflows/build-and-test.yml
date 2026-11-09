@@ -458,7 +458,7 @@ jobs:
 
       # konstruct ships the built page so installing it needs no Node.js; it must match the source.
       - name: The committed build is up to date
-        run: git diff --exit-code -- ../konstruct/viewer.html
+        run: git diff --exit-code -- ../konstruct/outputs/viewer.html
 
   dagster-parity:
     name: Dagster parser against Dagster

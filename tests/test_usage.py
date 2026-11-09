@@ -10,14 +10,14 @@ from typing import Any
 import pytest
 
 from konstruct import Project
-from konstruct.cli import main
-from konstruct.usage import (
+from konstruct.inputs.usage import (
     UsageSettings,
     aggregate_queries,
     bigquery_sql,
     databricks_sql,
     snowflake_sql,
 )
+from konstruct.interfaces.cli import main
 
 # The SQL each reader sends, checked against the documented views
 
@@ -205,7 +205,7 @@ def test_databricks_usage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
 
 
 def test_bigquery_usage_parses_query_text(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from konstruct.warehouse import BigQueryConnector
+    from konstruct.inputs.warehouse import BigQueryConnector
 
     field = types.SimpleNamespace
     schema = [

@@ -10,7 +10,7 @@ import duckdb
 import pytest
 
 from konstruct import Project, QueryError
-from konstruct.cli import main
+from konstruct.interfaces.cli import main
 
 
 @pytest.fixture
@@ -177,7 +177,7 @@ def test_viewer_formulas_are_cached_and_recomputed_downstream_of_a_change(tmp_pa
 
 
 def test_a_composed_formula_does_not_depend_on_what_was_explained_first(tmp_path: Path) -> None:
-    from konstruct.explain import Explainer
+    from konstruct.analysis.explain import Explainer
 
     con = duckdb.connect(str(tmp_path / 'w.duckdb'))
     for statement in (
@@ -205,7 +205,7 @@ def test_tidying_brackets_keeps_meaning_and_is_the_same_alone_or_inside() -> Non
     import sqlglot
     from sqlglot import exp
 
-    from konstruct.explain import _unparen
+    from konstruct.analysis.explain import _unparen
 
     xor = exp.and_(exp.Paren(this=exp.Xor(this=exp.column('a'), expression=exp.column('b'))), exp.column('c'))
     assert _unparen(xor).sql('mysql') == '(a XOR b) AND c'
@@ -219,7 +219,7 @@ def test_tidying_brackets_keeps_meaning_and_is_the_same_alone_or_inside() -> Non
 def test_brackets_that_still_matter_are_kept() -> None:
     import sqlglot
 
-    from konstruct.explain import _unparen
+    from konstruct.analysis.explain import _unparen
 
     assert _unparen(sqlglot.parse_one('(addr).city', read='duckdb')).sql('duckdb') == '(addr).city'
     assert (

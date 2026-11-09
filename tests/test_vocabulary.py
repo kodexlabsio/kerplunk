@@ -9,8 +9,8 @@ from typing import Any
 import pytest
 
 from konstruct import Project
-from konstruct.definitions import parse, validate
-from konstruct.vocabulary import merge, read
+from konstruct.semantics.definitions import parse, validate
+from konstruct.semantics.vocabulary import merge, read
 
 TURTLE = """
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
@@ -174,7 +174,7 @@ def test_merging_keeps_each_project_name_where_it_is() -> None:
         'terms:\n  - {name: Revenue, definition: R.}\n  - {name: Sales, definition: S.}\n',
         'definitions.yml',
     ).terms
-    from konstruct.definitions import Term
+    from konstruct.semantics.definitions import Term
 
     vocabulary = [
         Term(name='Revenue', definition='', path='v.ttl', line=0, synonyms=['Sales', 'Turnover'], iri='ex:R')
@@ -202,7 +202,7 @@ def test_every_cycle_is_found_once() -> None:
 
 
 def test_diff_reports_a_changed_broader_term() -> None:
-    from konstruct.diff import compare_definitions
+    from konstruct.analysis.diff import compare_definitions
 
     before = 'terms:\n  - {name: Rate, definition: A ratio.}\n  - {name: Number, definition: N.}\n'
     after = before.replace(

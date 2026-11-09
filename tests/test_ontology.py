@@ -10,10 +10,10 @@ import pytest
 import yaml
 
 from konstruct import Project
-from konstruct.cli import main
-from konstruct.definitions import parse
-from konstruct.graph import Graph, Node, NodeKind
-from konstruct.ontology import derive, entity_name, id_like, name_matches
+from konstruct.core.graph import Graph, Node, NodeKind
+from konstruct.interfaces.cli import main
+from konstruct.semantics.definitions import parse
+from konstruct.semantics.ontology import derive, entity_name, id_like, name_matches
 
 
 @pytest.mark.parametrize(

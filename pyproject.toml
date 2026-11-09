@@ -50,7 +50,7 @@ Homepage = "https://github.com/kodexlabsio/konstruct"
 Issues = "https://github.com/kodexlabsio/konstruct/issues"
 
 [project.scripts]
-konstruct = "konstruct.cli:main"
+konstruct = "konstruct.interfaces.cli:main"
 
 [dependency-groups]
 dev = [

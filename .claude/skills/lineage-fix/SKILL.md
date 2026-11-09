@@ -9,7 +9,7 @@ description: Reproduce and fix wrong or missing column lineage, a misread DAG, o
    it directly:
    ```bash
    uv run python -c "
-   from konstruct.sql import analyse
+   from konstruct.core.sql import analyse
    for s in analyse('''<sql>''', dialect='duckdb', schema={'db.s.t': {'a': 'INT'}}):
        print(s.target, s.columns, s.references, s.expressions, s.errors)
    "
@@ -20,8 +20,8 @@ description: Reproduce and fix wrong or missing column lineage, a misread DAG, o
    `tests/test_airflow.py` or `tests/test_dagster.py` (orchestration). Assert exact columns,
    transforms and references.
 3. **Find the cause.** Column lineage: `_column_lineage`, `_leaves` and `_references` in
-   `konstruct/sql.py`. Canonical expressions: `_Canonical`. Formulas: `Explainer.compose` in
-   `konstruct/explain.py`. dbt rendering without dbt: `konstruct/jinja.py`.
+   `konstruct/core/sql.py`. Canonical expressions: `_Canonical`. Formulas: `Explainer.compose` in
+   `konstruct/analysis/explain.py`. dbt rendering without dbt: `konstruct/inputs/jinja.py`.
 4. **Check against the data.** Lineage claims must survive `konstruct verify`
    (`tests/test_verify.py`, including the differential property test). A fix that changes what is
    claimed should run:

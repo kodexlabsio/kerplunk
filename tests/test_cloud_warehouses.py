@@ -19,9 +19,14 @@ from typing import Any
 import pytest
 
 from konstruct import Project
-from konstruct.config import load_config
-from konstruct.dbt import read_project
-from konstruct.warehouse import BigQueryConnector, DatabricksConnector, MissingDriver, SnowflakeConnector
+from konstruct.engine.config import load_config
+from konstruct.inputs.dbt import read_project
+from konstruct.inputs.warehouse import (
+    BigQueryConnector,
+    DatabricksConnector,
+    MissingDriver,
+    SnowflakeConnector,
+)
 
 from .test_warehouse import require
 
@@ -134,7 +139,7 @@ def test_missing_drivers_are_reported(monkeypatch: pytest.MonkeyPatch, tmp_path:
 
 
 def test_dbt_profiles_for_cloud_warehouses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from konstruct.config import discover_warehouses
+    from konstruct.engine.config import discover_warehouses
 
     monkeypatch.setenv('SF_PASSWORD', 'secret')
     for name, target in {

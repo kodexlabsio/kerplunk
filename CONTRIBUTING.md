@@ -18,7 +18,7 @@ For anything larger than a fix, open an issue first, so the approach can be agre
 
 ## Contributing an Ontology Pack
 
-An ontology pack describes the entities, keys and measures of a schema that many teams load, such as a SaaS tool's tables as Fivetran or Airbyte land them, so every project that has the schema gets them without writing them. A pack is one file in `konstruct/ontologies/`: a `definitions.yml` with a `name`, a `description`, `schemas` patterns for the schema names the source lands in, and a `match` block naming the tables and the columns only that source has (see [The Ontology](https://kodexlabsio.github.io/konstruct/guide/ontology.html)). Add a test to `tests/test_registry.py` with a warehouse that has the schema, and take column names from the tool's published schema, not from one project's copy of it.
+An ontology pack describes the entities, keys and measures of a schema that many teams load, such as a SaaS tool's tables as Fivetran or Airbyte land them, so every project that has the schema gets them without writing them. A pack is one file in `konstruct/semantics/ontologies/`: a `definitions.yml` with a `name`, a `description`, `schemas` patterns for the schema names the source lands in, and a `match` block naming the tables and the columns only that source has (see [The Ontology](https://kodexlabsio.github.io/konstruct/guide/ontology.html)). Add a test to `tests/test_registry.py` with a warehouse that has the schema, and take column names from the tool's published schema, not from one project's copy of it.
 
 ## Making a Change
 
@@ -37,7 +37,7 @@ A pull request is ready when:
 2. **The checks pass.** `uv run ruff check`, `uv run ruff format --check` and `uv run mypy` (strict) are clean, and the pre-push hook has run the tests.
 3. **Output changes are reviewed.** If the CLI's text or `REPORT.md` changes, regenerate the golden files with `KONSTRUCT_UPDATE_GOLDEN=1 uv run pytest tests/test_golden.py` and check the diff is what you meant.
 4. **Performance is no worse.** For changes to the build, SQL analysis or formulas, run `uv run .kodex/scripts/benchmark.py 500` before and after.
-5. **The viewer is rebuilt.** Changes under `viewer/` pass `pnpm check` and `pnpm test`, and the rebuilt `konstruct/viewer.html` is committed with them (the pre-commit hook does the rebuild).
+5. **The viewer is rebuilt.** Changes under `viewer/` pass `pnpm check` and `pnpm test`, and the rebuilt `konstruct/outputs/viewer.html` is committed with them (the pre-commit hook does the rebuild).
 6. **The README says what changed**, if a user would notice it: a new command, option, input or limitation.
 
 ## Commits

@@ -12,10 +12,9 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from konstruct import Project, warehouse
-from konstruct.graph import Graph, column_id
-from konstruct.query import QueryError
-from konstruct.verify import (
+from konstruct import Project
+from konstruct.analysis.query import QueryError
+from konstruct.analysis.verify import (
     BigQuerySource,
     DbApiSource,
     SampledEngine,
@@ -25,6 +24,8 @@ from konstruct.verify import (
     claims,
     verify,
 )
+from konstruct.core.graph import Graph, column_id
+from konstruct.inputs import warehouse
 
 REPORT_SQL = """
 create table main.report as
@@ -587,7 +588,7 @@ def test_db_api_precision_and_scale_are_kept() -> None:
 def test_each_remote_warehouse_type_makes_its_engine(
     project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from konstruct.verify import sampled_engine
+    from konstruct.analysis.verify import sampled_engine
 
     driver = _Driver(project.root / 'shop.duckdb')
     monkeypatch.setattr(warehouse, '_driver', lambda module, extra: driver)

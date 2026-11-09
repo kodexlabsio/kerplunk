@@ -19,6 +19,19 @@ Every result is a dataclass. `str(result)` is the text the CLI prints and `resul
 JSON that `--json` and the MCP server return, so a script can move between the three freely. A name
 that matches nothing, or several things, raises {class}`konstruct.QueryError` with suggestions.
 
+`konstruct.Project`, the result types it returns and {class}`konstruct.QueryError` are imported from
+`konstruct` itself. The modules behind them are grouped by role, for code that needs one directly:
+
+| Package | Modules |
+|---------|---------|
+| `konstruct.core` | `graph` (the graph and its traversal), `sql` (column lineage from SQL), `jsonio` |
+| `konstruct.inputs` | `dbt`, `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `warehouse`, `usage` |
+| `konstruct.engine` | `build`, `config`, `worker` |
+| `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `ossie`, `registry` |
+| `konstruct.analysis` | `query`, `explain`, `conflicts`, `diff`, `gate`, `verify`, `history` |
+| `konstruct.outputs` | `report`, `html`, `export` |
+| `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
+
 ## Opening and Building a Project
 
 A `Project` points at a repository. It reads nothing until asked: {meth}`~konstruct.Project.build`
@@ -44,7 +57,7 @@ if not project.has_graph() or project.changed_inputs():
 .. autoproperty:: konstruct.Project.graph
 .. autoproperty:: konstruct.Project.root
 .. autoproperty:: konstruct.Project.graph_path
-.. autofunction:: konstruct.project.find_out_dir
+.. autofunction:: konstruct.interfaces.project.find_out_dir
 ```
 
 ## Impact, Trace and Paths
@@ -170,23 +183,23 @@ print(result.totals())  # {'claimed': 36, 'confirmed': 36, ...}
 .. autoclass:: konstruct.Explanation
    :members:
 
-.. autoclass:: konstruct.explain.Step
+.. autoclass:: konstruct.analysis.explain.Step
    :members:
 ```
 
 ### History
 
 ```{eval-rst}
-.. autoclass:: konstruct.history.History
+.. autoclass:: konstruct.analysis.history.History
    :members:
 
-.. autoclass:: konstruct.history.FormulaChange
+.. autoclass:: konstruct.analysis.history.FormulaChange
    :members:
 
-.. autoclass:: konstruct.history.TermChange
+.. autoclass:: konstruct.analysis.history.TermChange
    :members:
 
-.. autoclass:: konstruct.history.Commit
+.. autoclass:: konstruct.analysis.history.Commit
    :members:
 ```
 
@@ -203,90 +216,90 @@ print(result.totals())  # {'claimed': 36, 'confirmed': 36, ...}
 ### Ontology
 
 ```{eval-rst}
-.. autoclass:: konstruct.ontology.Ontology
+.. autoclass:: konstruct.semantics.ontology.Ontology
    :members:
 
-.. autoclass:: konstruct.ontology.Entity
+.. autoclass:: konstruct.semantics.ontology.Entity
    :members:
 
-.. autoclass:: konstruct.ontology.Measure
+.. autoclass:: konstruct.semantics.ontology.Measure
    :members:
 
-.. autoclass:: konstruct.ontology.MeasureColumn
+.. autoclass:: konstruct.semantics.ontology.MeasureColumn
    :members:
 
-.. autoclass:: konstruct.ontology.Relationship
+.. autoclass:: konstruct.semantics.ontology.Relationship
    :members:
 
-.. autoclass:: konstruct.ontology.Rule
+.. autoclass:: konstruct.semantics.ontology.Rule
    :members:
 ```
 
 ### Conflicts
 
 ```{eval-rst}
-.. autoclass:: konstruct.conflicts.Conflicts
+.. autoclass:: konstruct.analysis.conflicts.Conflicts
    :members:
 
-.. autoclass:: konstruct.conflicts.Conflict
+.. autoclass:: konstruct.analysis.conflicts.Conflict
    :members:
 
-.. autoclass:: konstruct.conflicts.Side
+.. autoclass:: konstruct.analysis.conflicts.Side
    :members:
 
-.. autoclass:: konstruct.conflicts.Difference
+.. autoclass:: konstruct.analysis.conflicts.Difference
    :members:
 ```
 
 ### Changes
 
 ```{eval-rst}
-.. autoclass:: konstruct.diff.Diff
+.. autoclass:: konstruct.analysis.diff.Diff
    :members:
 
-.. autoclass:: konstruct.diff.RelationChange
+.. autoclass:: konstruct.analysis.diff.RelationChange
    :members:
 
-.. autoclass:: konstruct.diff.ColumnChange
+.. autoclass:: konstruct.analysis.diff.ColumnChange
    :members:
 
-.. autoclass:: konstruct.diff.DagChange
+.. autoclass:: konstruct.analysis.diff.DagChange
    :members:
 
-.. autoclass:: konstruct.diff.YamlChange
+.. autoclass:: konstruct.analysis.diff.YamlChange
    :members:
 
-.. autoclass:: konstruct.diff.DefinitionsChange
+.. autoclass:: konstruct.analysis.diff.DefinitionsChange
    :members:
 
-.. autoclass:: konstruct.diff.Selection
+.. autoclass:: konstruct.analysis.diff.Selection
    :members:
 ```
 
 ### The Gate
 
 ```{eval-rst}
-.. autoclass:: konstruct.gate.Gate
+.. autoclass:: konstruct.analysis.gate.Gate
    :members:
 
-.. autoclass:: konstruct.gate.Finding
+.. autoclass:: konstruct.analysis.gate.Finding
    :members:
 ```
 
 ### Verification
 
 ```{eval-rst}
-.. autoclass:: konstruct.verify.Verification
+.. autoclass:: konstruct.analysis.verify.Verification
    :members:
 
-.. autoclass:: konstruct.verify.ModelResult
+.. autoclass:: konstruct.analysis.verify.ModelResult
    :members:
 ```
 
 ### Builds
 
 ```{eval-rst}
-.. autoclass:: konstruct.build.BuildResult
+.. autoclass:: konstruct.engine.build.BuildResult
    :members:
 ```
 
@@ -314,7 +327,7 @@ for column in graph.columns_of(orders.id):
 .. autoclass:: konstruct.Edge
    :members:
 
-.. autoclass:: konstruct.graph.Step
+.. autoclass:: konstruct.core.graph.Step
    :members:
 ```
 
@@ -325,54 +338,54 @@ These are stable enough to build on, but `Project` is the supported entry point.
 ### SQL Lineage
 
 ```{eval-rst}
-.. autofunction:: konstruct.sql.analyse
+.. autofunction:: konstruct.core.sql.analyse
 
-.. autoclass:: konstruct.sql.StatementLineage
+.. autoclass:: konstruct.core.sql.StatementLineage
    :members:
 
-.. autoclass:: konstruct.sql.ColumnSource
+.. autoclass:: konstruct.core.sql.ColumnSource
    :members:
 ```
 
 ### Formulas, Conflicts and Export
 
 ```{eval-rst}
-.. autoclass:: konstruct.explain.Explainer
+.. autoclass:: konstruct.analysis.explain.Explainer
    :members: explain, compose, steps, summaries
 
-.. autofunction:: konstruct.explain.explain
+.. autofunction:: konstruct.analysis.explain.explain
 
-.. autofunction:: konstruct.conflicts.find_conflicts
+.. autofunction:: konstruct.analysis.conflicts.find_conflicts
 
-.. autofunction:: konstruct.conflicts.core
+.. autofunction:: konstruct.analysis.conflicts.core
 
-.. autofunction:: konstruct.export.export
+.. autofunction:: konstruct.outputs.export.export
 ```
 
 ### Business Definitions
 
 ```{eval-rst}
-.. autofunction:: konstruct.definitions.parse
+.. autofunction:: konstruct.semantics.definitions.parse
 
-.. autofunction:: konstruct.definitions.parse_file
+.. autofunction:: konstruct.semantics.definitions.parse_file
 
-.. autofunction:: konstruct.definitions.validate
+.. autofunction:: konstruct.semantics.definitions.validate
 
-.. autoclass:: konstruct.definitions.Term
+.. autoclass:: konstruct.semantics.definitions.Term
    :members: name, definition, synonyms, owner, status, approved, grain, columns, filters, unit, currency, related, exceptions, slug, names
 
-.. autoclass:: konstruct.definitions.Owner
+.. autoclass:: konstruct.semantics.definitions.Owner
 ```
 
 ### Configuration, Usage and Builds
 
 ```{eval-rst}
-.. autofunction:: konstruct.config.load_config
+.. autofunction:: konstruct.engine.config.load_config
 
-.. autoclass:: konstruct.usage.UsageSettings
+.. autoclass:: konstruct.inputs.usage.UsageSettings
    :members:
 
-.. autofunction:: konstruct.build.build
+.. autofunction:: konstruct.engine.build.build
 ```
 
 ## Errors
@@ -380,9 +393,9 @@ These are stable enough to build on, but `Project` is the supported entry point.
 ```{eval-rst}
 .. autoexception:: konstruct.QueryError
 
-.. autoexception:: konstruct.diff.DiffError
+.. autoexception:: konstruct.analysis.diff.DiffError
 
-.. autoexception:: konstruct.config.ConfigError
+.. autoexception:: konstruct.engine.config.ConfigError
 
-.. autoexception:: konstruct.warehouse.MissingDriver
+.. autoexception:: konstruct.inputs.warehouse.MissingDriver
 ```

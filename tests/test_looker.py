@@ -6,8 +6,8 @@ import textwrap
 from pathlib import Path
 
 from konstruct import Project
-from konstruct.looker import parse, resolve
-from konstruct.status import inspect
+from konstruct.inputs.looker import parse, resolve
+from konstruct.interfaces.status import inspect
 
 VIEW = textwrap.dedent(
     """\

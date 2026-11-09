@@ -9,7 +9,7 @@ from typing import Any
 import duckdb
 
 from konstruct import Project
-from konstruct.status import inspect
+from konstruct.interfaces.status import inspect
 
 
 def test_lineage_crosses_repositories(tmp_path: Path) -> None:

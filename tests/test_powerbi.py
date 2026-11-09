@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from konstruct import Project
-from konstruct.config import load_config
-from konstruct.powerbi import (
+from konstruct.engine.config import load_config
+from konstruct.inputs.powerbi import (
     model_name,
     native_query,
     native_reads,
@@ -17,7 +17,7 @@ from konstruct.powerbi import (
     references,
     resolve,
 )
-from konstruct.status import inspect, render_config
+from konstruct.interfaces.status import inspect, render_config
 
 
 def tmdl(text: str) -> str:

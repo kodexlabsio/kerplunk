@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from konstruct.graph import Graph, Node, column_id
-from konstruct.html import write_html
+from konstruct.core.graph import Graph, Node, column_id
+from konstruct.outputs.html import write_html
 
 HOSTILE = 'Ends here </script><script>alert(1)</script> and\u2028continues & <b>more</b>'
 SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
@@ -124,7 +124,7 @@ def test_column_formulas_and_conditions_are_embedded(tmp_path: Path) -> None:
 
 def test_the_viewer_assets_follow_the_design_rules() -> None:
     """DESIGN.md: Manrope and JetBrains Mono, no text below 14px (13.5px eyebrows), no em dashes."""
-    from konstruct.html import template
+    from konstruct.outputs.html import template
 
     page = template()
     assert re.search(r'font-family:\s*"?Manrope"?', page) and re.search(

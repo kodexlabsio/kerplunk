@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from konstruct.graph import Graph, Node, column_id, relation_key
+from konstruct.core.graph import Graph, Node, column_id, relation_key
 
 
 def small_graph() -> Graph:

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from konstruct import Project, QueryError
-from konstruct.cli import main
+from konstruct.interfaces.cli import main
 
 
 def git(root: Path, *args: str, author: str = 'Ada', committed: str | None = None) -> str:

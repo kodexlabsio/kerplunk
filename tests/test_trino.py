@@ -17,10 +17,10 @@ from typing import Any
 import pytest
 
 from konstruct import Project
-from konstruct.config import discover_warehouses, load_config
-from konstruct.dbt import read_project
-from konstruct.verify import DbApiSource, _for_duckdb, _sample_type, sampled_engine
-from konstruct.warehouse import MissingDriver, TrinoConnector
+from konstruct.analysis.verify import DbApiSource, _for_duckdb, _sample_type, sampled_engine
+from konstruct.engine.config import discover_warehouses, load_config
+from konstruct.inputs.dbt import read_project
+from konstruct.inputs.warehouse import MissingDriver, TrinoConnector
 
 
 class _Cursor:

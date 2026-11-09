@@ -14,8 +14,8 @@ from typing import Any
 
 import pytest
 
-from konstruct.graph import Graph, Node, column_id
-from konstruct.html import write_html
+from konstruct.core.graph import Graph, Node, column_id
+from konstruct.outputs.html import write_html
 
 pytestmark = pytest.mark.browser
 

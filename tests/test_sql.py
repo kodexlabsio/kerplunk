@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from konstruct.sql import ColumnSource, StatementLineage, analyse, dialect_for, strip_templating
+from konstruct.core.sql import ColumnSource, StatementLineage, analyse, dialect_for, strip_templating
 
 SCHEMA = {
     'db.main.orders': {
@@ -414,7 +414,7 @@ def test_source_order_does_not_depend_on_the_hash_seed() -> None:
     # sqlglot gathers a column's inputs in a set, so their order follows Python's string hashing,
     # which changes from one process to the next unless PYTHONHASHSEED is fixed.
     script = (
-        'from konstruct.sql import analyse\n'
+        'from konstruct.core.sql import analyse\n'
         "sql = \"select sum(case when payment_method = 'credit_card' then amount else 0 end) as cc, "
         'coalesce(refund, fee, amount, tax) as net from main.payments"\n'
         "[result] = analyse(sql, dialect='duckdb', schema={'main.payments': "
@@ -438,7 +438,7 @@ def test_canonical_expansion_leaves_the_statement_as_it_was() -> None:
     from sqlglot.lineage import lineage
     from sqlglot.optimizer.qualify import qualify
 
-    from konstruct import sql as module
+    from konstruct.core import sql as module
 
     for text in (
         'with c as (select x + 1 as a, y + 2 as b from t) select a * b as m from c',
@@ -479,10 +479,13 @@ def test_sql_the_parser_fails_on_is_unparsed(dialect: str, sql: str) -> None:
 
 @pytest.mark.parametrize(('dialect', 'sql'), CRASHES)
 def test_every_reader_of_sql_survives_what_the_parser_fails_on(dialect: str, sql: str) -> None:
-    from konstruct import conflicts, export, looker, ontology, ossie, powerbi, spark
-    from konstruct.build import _filter_columns
-    from konstruct.explain import Explainer
-    from konstruct.graph import Graph
+    from konstruct.analysis import conflicts
+    from konstruct.analysis.explain import Explainer
+    from konstruct.core.graph import Graph
+    from konstruct.engine.build import _filter_columns
+    from konstruct.inputs import looker, powerbi, spark
+    from konstruct.outputs import export
+    from konstruct.semantics import ontology, ossie
 
     assert looker._derived_reads(sql, dialect) is None
     assert powerbi.native_reads(sql, dialect) is None

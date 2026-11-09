@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from konstruct import Project
-from konstruct.dagster import parse_file, parse_source
+from konstruct.inputs.dagster import parse_file, parse_source
 
 FIXTURE = Path(__file__).parent / 'fixtures' / 'dagster' / 'definitions.py'
 
@@ -179,7 +179,7 @@ def test_keys_resources_and_selections(tmp_path: Path) -> None:
 
 
 def test_round_trip() -> None:
-    from konstruct.dagster import DagsterFile
+    from konstruct.inputs.dagster import DagsterFile
 
     parsed = parse_file(FIXTURE)
     assert DagsterFile.from_dict(parsed.to_dict()) == parsed

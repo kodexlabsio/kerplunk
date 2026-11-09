@@ -9,7 +9,7 @@ description: Update the Konstruct documentation (Sphinx with MyST Markdown in do
   links. Detail lives in `docs/`: `docs/guide/` (how to use each capability), `docs/reference/`
   (CLI, Python API, MCP, configuration, outputs, limitations), and the project pages. Images are in
   `docs/images/`.
-- **Generated parts.** The command reference is rendered from `konstruct.cli.parser()` by
+- **Generated parts.** The command reference is rendered from `konstruct.interfaces.cli.parser()` by
   sphinx-argparse, and the Python API by autodoc from docstrings. The MCP table in
   `docs/reference/mcp.md` is written by hand; `tests/test_docs.py` fails if it misses a tool, or if
   `docs/reference/cli.md` misses a command.

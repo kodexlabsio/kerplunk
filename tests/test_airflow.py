@@ -5,7 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from konstruct.airflow import DagInfo, DbtInvocation, looks_like_dag_file, parse_dbt_commands, parse_file
+from konstruct.inputs.airflow import (
+    DagInfo,
+    DbtInvocation,
+    looks_like_dag_file,
+    parse_dbt_commands,
+    parse_file,
+)
 
 EXAMPLE_DAG = (
     Path(__file__).resolve().parents[1] / 'examples' / 'jaffle_shop' / 'dags' / 'jaffle_shop_daily.py'

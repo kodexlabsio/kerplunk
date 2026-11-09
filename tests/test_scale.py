@@ -133,7 +133,7 @@ def _graph(root: Path) -> str:
 def test_models_analysed_in_workers_give_the_same_graph(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from konstruct import build
+    from konstruct.engine import build
 
     monkeypatch.setattr(build, 'PARALLEL_MINIMUM', 4)
     used: list[int] = []
@@ -161,7 +161,7 @@ def test_models_analysed_in_workers_give_the_same_graph(
 
 
 def test_workers_import_nothing_from_the_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from konstruct import build
+    from konstruct.engine import build
 
     monkeypatch.setattr(build, 'PARALLEL_MINIMUM', 4)
     monkeypatch.setenv('KONSTRUCT_WORKERS', '2')
@@ -176,7 +176,7 @@ def test_workers_import_nothing_from_the_project(tmp_path: Path, monkeypatch: py
 
 
 def test_a_failing_build_stops_its_workers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from konstruct import build
+    from konstruct.engine import build
 
     monkeypatch.setattr(build, 'PARALLEL_MINIMUM', 4)
     monkeypatch.setenv('KONSTRUCT_WORKERS', '2')
@@ -210,7 +210,7 @@ def test_workers_that_cannot_start_leave_the_build_to_do_it(
 ) -> None:
     import sys
 
-    from konstruct import build
+    from konstruct.engine import build
 
     monkeypatch.setattr(build, 'PARALLEL_MINIMUM', 4)
     monkeypatch.setenv('KONSTRUCT_WORKERS', '2')
@@ -232,10 +232,10 @@ def test_workers_that_cannot_start_leave_the_build_to_do_it(
 
 
 def test_workers_keep_their_directory_off_the_path() -> None:
-    from konstruct import build
+    from konstruct.engine import build
 
     # -P stops Python putting the working directory first on sys.path.
-    assert build._worker_command()[1:] == ['-P', '-m', 'konstruct.worker']
+    assert build._worker_command()[1:] == ['-P', '-m', 'konstruct.engine.worker']
     workers = build._Workers()
     directory = None
     try:

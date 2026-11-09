@@ -10,7 +10,7 @@ import duckdb
 import pytest
 
 from konstruct import Project
-from konstruct.cli import main
+from konstruct.interfaces.cli import main
 
 
 def git(root: Path, *args: str) -> None:

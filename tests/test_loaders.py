@@ -8,10 +8,10 @@ import duckdb
 import pytest
 
 from konstruct import Project
-from konstruct.config import ConfigError, load_config
-from konstruct.loaders import LineageSchema, airbyte_raw_namespace, lineage_sql, loader_of
-from konstruct.report import analyse
-from konstruct.status import inspect, render_config
+from konstruct.engine.config import ConfigError, load_config
+from konstruct.inputs.loaders import LineageSchema, airbyte_raw_namespace, lineage_sql, loader_of
+from konstruct.interfaces.status import inspect, render_config
+from konstruct.outputs.report import analyse
 
 LOG = """
 create schema fivetran_log;
@@ -216,7 +216,7 @@ def test_older_platform_connector_schemas() -> None:
 
 def test_unreadable_lineage_is_a_warning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     warehouse(tmp_path, LANDED, LOG)
-    from konstruct import warehouse as module
+    from konstruct.inputs import warehouse as module
 
     def refuse(connector: object, sql: str) -> None:
         raise RuntimeError('permission denied for schema fivetran_log')

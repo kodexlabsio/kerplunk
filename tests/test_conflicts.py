@@ -11,8 +11,8 @@ import duckdb
 import pytest
 
 from konstruct import Project
-from konstruct.cli import main
-from konstruct.conflicts import core
+from konstruct.analysis.conflicts import core
+from konstruct.interfaces.cli import main
 
 FINANCE = """\
 create table finance.daily_revenue as

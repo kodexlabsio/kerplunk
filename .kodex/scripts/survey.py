@@ -120,7 +120,7 @@ def write_profiles(projects: list[Path], into: Path) -> None:
 def survey(url: str, ref: str | None, work: Path, *, deps: bool) -> dict[str, Any]:
     """Survey one project in this process (see ``survey_isolated``)."""
     from konstruct import Project
-    from konstruct.report import analyse
+    from konstruct.outputs.report import analyse
 
     record: dict[str, Any] = {'url': url, 'ref': ref}
     checkout = work / 'checkout'

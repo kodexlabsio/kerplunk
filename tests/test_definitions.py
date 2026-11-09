@@ -12,9 +12,9 @@ import duckdb
 import pytest
 
 from konstruct import Project, QueryError
-from konstruct.cli import main
-from konstruct.definitions import Owner, Term, parse, slug, validate
-from konstruct.diff import compare_definitions
+from konstruct.analysis.diff import compare_definitions
+from konstruct.interfaces.cli import main
+from konstruct.semantics.definitions import Owner, Term, parse, slug, validate
 
 FULL = """\
 version: 1

@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from konstruct import __version__
-from konstruct.cli import main
+from konstruct.interfaces.cli import main
 
 GOLDEN = Path(__file__).parent / 'golden'
 UPDATE = bool(os.environ.get('KONSTRUCT_UPDATE_GOLDEN'))

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from konstruct.airflow import parse_file
+from konstruct.inputs.airflow import parse_file
 
 pytestmark = pytest.mark.airflow_parity
 

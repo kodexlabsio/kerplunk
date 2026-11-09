@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 
 from konstruct import __version__
-from konstruct.cli import find_out_dir, main
-from konstruct.console import Console, colour_enabled
+from konstruct.interfaces.cli import find_out_dir, main
+from konstruct.interfaces.console import Console, colour_enabled
 
 
 def run(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, str, str]:
@@ -219,7 +219,7 @@ def test_version_and_help() -> None:
 
     def cli(*args: str) -> str:
         return subprocess.run(
-            [sys.executable, '-m', 'konstruct.cli', *args],
+            [sys.executable, '-m', 'konstruct.interfaces.cli', *args],
             capture_output=True,
             text=True,
             env=env,

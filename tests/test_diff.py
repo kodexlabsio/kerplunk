@@ -11,9 +11,9 @@ import duckdb
 import pytest
 
 from konstruct import Project
-from konstruct.cli import main
-from konstruct.diff import DiffError, default_base
-from konstruct.jinja import Renderer, render_model
+from konstruct.analysis.diff import DiffError, default_base
+from konstruct.inputs.jinja import Renderer, render_model
+from konstruct.interfaces.cli import main
 
 # Renderer
 
@@ -387,7 +387,7 @@ def test_column_aware_selection_is_sound(built_jaffle: Path, tmp_path: Path) -> 
 
 
 def test_dbt_yaml_changes() -> None:
-    from konstruct.diff import compare_yaml
+    from konstruct.analysis.diff import compare_yaml
 
     before = """
 version: 2

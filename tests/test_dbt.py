@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from konstruct import dbt
-from konstruct.graph import Graph, Node
+from konstruct.core.graph import Graph, Node
+from konstruct.inputs import dbt
 
 pytestmark = pytest.mark.dbt
 

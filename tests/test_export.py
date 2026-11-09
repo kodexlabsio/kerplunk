@@ -15,7 +15,7 @@ from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
 from konstruct import Project, QueryError
-from konstruct.cli import main
+from konstruct.interfaces.cli import main
 
 SCHEMAS = Path(__file__).parent / 'fixtures' / 'openlineage'
 
@@ -169,8 +169,8 @@ def test_cli_export(project: Project, tmp_path: Path, capsys: pytest.CaptureFixt
 
 
 def test_unknown_format() -> None:
-    from konstruct.export import export
-    from konstruct.graph import Graph
+    from konstruct.core.graph import Graph
+    from konstruct.outputs.export import export
 
     with pytest.raises(ValueError, match='unknown export format'):
         export(Graph(), 'yaml')

@@ -9,9 +9,9 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from konstruct.build import Cache, RelationIndex, build
-from konstruct.config import load_config
-from konstruct.graph import Graph, Node
+from konstruct.core.graph import Graph, Node
+from konstruct.engine.build import Cache, RelationIndex, build
+from konstruct.engine.config import load_config
 
 from .test_warehouse import require
 

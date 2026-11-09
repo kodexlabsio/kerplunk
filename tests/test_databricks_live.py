@@ -24,7 +24,7 @@ from typing import Any
 import pytest
 
 from konstruct import Project
-from konstruct.warehouse import DatabricksConnector
+from konstruct.inputs.warehouse import DatabricksConnector
 
 pytestmark = pytest.mark.databricks
 
@@ -118,7 +118,7 @@ def test_build_and_view_lineage(schema: str, tmp_path: Path) -> None:
 
 def test_usage_from_system_tables(schema: str, tmp_path: Path) -> None:
     """Reads system.access.column_lineage when the principal may; skips if it may not."""
-    from konstruct.usage import UsageSettings, databricks_usage
+    from konstruct.inputs.usage import UsageSettings, databricks_usage
 
     try:
         rows = databricks_usage(DatabricksConnector(_options()), UsageSettings(days=1))

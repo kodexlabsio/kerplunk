@@ -9,9 +9,9 @@ from pathlib import Path
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from konstruct.airflow import parse_file
-from konstruct.graph import Graph, Node, column_id, relation_key
-from konstruct.sql import analyse, strip_templating
+from konstruct.core.graph import Graph, Node, column_id, relation_key
+from konstruct.core.sql import analyse, strip_templating
+from konstruct.inputs.airflow import parse_file
 
 SETTINGS = settings(deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 

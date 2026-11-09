@@ -8,8 +8,8 @@ import duckdb
 import pytest
 
 from konstruct import Project
-from konstruct.config import ConfigError, load_config
-from konstruct.registry import find, load_packs, suffixes
+from konstruct.engine.config import ConfigError, load_config
+from konstruct.semantics.registry import find, load_packs, suffixes
 
 CHARGE = (
     'id varchar, amount bigint, amount_refunded bigint, captured boolean, paid boolean, '

@@ -52,7 +52,7 @@ def test_builds_without_warnings(project: Project) -> None:
     assert graph.warnings == []
     kinds = {n.kind for n in graph.nodes.values()}
     assert {'model', 'seed', 'source', 'test', 'column'} <= kinds
-    from konstruct.report import analyse
+    from konstruct.outputs.report import analyse
 
     findings = analyse(graph)
     assert findings.lineage_covered / findings.lineage_total > 0.98

@@ -10,7 +10,7 @@ import anyio
 import pytest
 from mcp import Client, StdioServerParameters
 
-from konstruct.mcp_server import build_server
+from konstruct.interfaces.mcp_server import build_server
 
 pytestmark = pytest.mark.dbt
 
@@ -91,7 +91,7 @@ def test_over_stdio(jaffle_built_graph: Path) -> None:
     env = {**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[1] / 'src')}
     params = StdioServerParameters(
         command=sys.executable,
-        args=['-m', 'konstruct.cli', 'mcp', '--path', str(jaffle_built_graph)],
+        args=['-m', 'konstruct.interfaces.cli', 'mcp', '--path', str(jaffle_built_graph)],
         env=env,
     )
 

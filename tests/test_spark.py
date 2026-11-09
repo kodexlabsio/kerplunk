@@ -8,11 +8,12 @@ from typing import Any
 
 import pytest
 
-from konstruct import Project, build
-from konstruct.config import ConfigError, load_config
-from konstruct.spark import looks_like_spark_file, parse, without_session_catalog
-from konstruct.sql import analyse as real_analyse
-from konstruct.status import inspect
+from konstruct import Project
+from konstruct.core.sql import analyse as real_analyse
+from konstruct.engine import build
+from konstruct.engine.config import ConfigError, load_config
+from konstruct.inputs.spark import looks_like_spark_file, parse, without_session_catalog
+from konstruct.interfaces.status import inspect
 
 JOB = textwrap.dedent(
     '''\

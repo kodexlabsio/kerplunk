@@ -91,8 +91,8 @@ def dbt_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(scope='session')
 def jaffle_built_graph(built_jaffle: Path, tmp_path_factory: pytest.TempPathFactory) -> Path:
     """The example after a full `konstruct build`: the project root, with konstruct-out inside."""
-    from konstruct.build import build
-    from konstruct.config import load_config
+    from konstruct.engine.build import build
+    from konstruct.engine.config import load_config
 
     dbt = dbt_executable()
     assert dbt is not None

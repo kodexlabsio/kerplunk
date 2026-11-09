@@ -35,7 +35,7 @@ Generated from the command's own argument definitions.
 
 ```{eval-rst}
 .. argparse::
-   :module: konstruct.cli
+   :module: konstruct.interfaces.cli
    :func: parser
    :prog: konstruct
 ```

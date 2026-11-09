@@ -9,7 +9,7 @@ from typing import Any
 import duckdb
 import pytest
 
-from konstruct.warehouse import DuckDBConnector, IcebergConnector, PostgresConnector, RelationMeta
+from konstruct.inputs.warehouse import DuckDBConnector, IcebergConnector, PostgresConnector, RelationMeta
 
 
 def require(variable: str) -> str:
@@ -151,7 +151,7 @@ def test_postgres_metadata(postgres_schema: tuple[str, str]) -> None:
 
 @pytest.mark.postgres
 def test_postgres_view_sql_parses_to_lineage(postgres_schema: tuple[str, str]) -> None:
-    from konstruct.sql import analyse
+    from konstruct.core.sql import analyse
 
     dsn, schema = postgres_schema
     relations = by_name(PostgresConnector(dsn, schemas=[schema]).fetch())
@@ -277,6 +277,6 @@ def test_iceberg_rest_catalog() -> None:
     ],
 )
 def test_struct_fields(dtype: str, dialect: str, expected: list[str]) -> None:
-    from konstruct.warehouse import struct_fields
+    from konstruct.inputs.warehouse import struct_fields
 
     assert [c.name for c in struct_fields('x', dtype, dialect)] == expected

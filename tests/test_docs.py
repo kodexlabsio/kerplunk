@@ -9,7 +9,7 @@ ROOT = Path(__file__).parent.parent
 
 
 def test_the_mcp_reference_lists_every_tool() -> None:
-    tree = ast.parse((ROOT / 'konstruct' / 'mcp_server.py').read_text())
+    tree = ast.parse((ROOT / 'konstruct' / 'interfaces' / 'mcp_server.py').read_text())
     build = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'build_server')
     tools = {
         node.name
@@ -27,7 +27,7 @@ def test_the_mcp_reference_lists_every_tool() -> None:
 def test_every_command_has_a_row_in_the_cli_reference() -> None:
     import argparse
 
-    from konstruct.cli import parser
+    from konstruct.interfaces.cli import parser
 
     action = next(a for a in parser()._actions if isinstance(a, argparse._SubParsersAction))
     commands = set(action.choices)
@@ -43,7 +43,7 @@ def test_the_generated_references_are_wired_in() -> None:
 
 
 PUBLIC_RESULTS = {
-    'query.py': [
+    'analysis/query.py': [
         'Item',
         'Walk',
         'PathResult',
@@ -55,7 +55,7 @@ PUBLIC_RESULTS = {
         'EdgeItem',
         'QueryResult',
     ],
-    'diff.py': [
+    'analysis/diff.py': [
         'ColumnChange',
         'RelationChange',
         'DagChange',
@@ -64,12 +64,12 @@ PUBLIC_RESULTS = {
         'Selection',
         'Diff',
     ],
-    'verify.py': ['ModelResult', 'Verification'],
-    'build.py': ['BuildResult'],
-    'graph.py': ['Node', 'Edge', 'Step'],
-    'explain.py': ['Step', 'Explanation'],
-    'conflicts.py': ['Difference', 'Side', 'Conflict', 'Conflicts'],
-    'ontology.py': ['Entity', 'MeasureColumn', 'Measure', 'Relationship', 'Rule', 'Ontology'],
+    'analysis/verify.py': ['ModelResult', 'Verification'],
+    'engine/build.py': ['BuildResult'],
+    'core/graph.py': ['Node', 'Edge', 'Step'],
+    'analysis/explain.py': ['Step', 'Explanation'],
+    'analysis/conflicts.py': ['Difference', 'Side', 'Conflict', 'Conflicts'],
+    'semantics/ontology.py': ['Entity', 'MeasureColumn', 'Measure', 'Relationship', 'Rule', 'Ontology'],
 }
 
 

@@ -7,8 +7,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
     plugins: [svelte(), viteSingleFile({ removeViteModuleLoader: true })],
     build: {
-        // Writes ../konstruct/viewer.html: the entry's name, in the package directory.
-        outDir: '../konstruct',
+        // Writes ../konstruct/outputs/viewer.html: the entry's name, in the package directory.
+        outDir: '../konstruct/outputs',
         rollupOptions: { input: 'viewer.html' },
         emptyOutDir: false,
         assetsInlineLimit: Number.MAX_SAFE_INTEGER,

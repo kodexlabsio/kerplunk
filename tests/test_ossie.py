@@ -14,8 +14,8 @@ import pytest
 import yaml
 
 from konstruct import Project
-from konstruct.cli import main
-from konstruct.ossie import datatype, parse
+from konstruct.interfaces.cli import main
+from konstruct.semantics.ossie import datatype, parse
 
 FIXTURES = Path(__file__).parent / 'fixtures' / 'ossie'
 SCHEMA = json.loads((FIXTURES / 'ossie-schema.json').read_text())
@@ -243,7 +243,7 @@ def test_a_bug_in_an_export_is_not_reported_as_a_user_error(
     def broken(*_: Any, **__: Any) -> str:
         raise ValueError('a bug')
 
-    monkeypatch.setattr('konstruct.export.mermaid', broken)
+    monkeypatch.setattr('konstruct.outputs.export.mermaid', broken)
     with pytest.raises(ValueError, match='a bug'):
         main(['export', 'mermaid', '-C', str(tmp_path), '--no-build'])
 
@@ -466,7 +466,7 @@ def test_a_measure_that_is_not_an_aggregate_is_reported(
     project = Project(tmp_path)
     project.build(dialect='duckdb', warehouses=False, run_dbt=False)
     with (
-        caplog.at_level('WARNING', logger='konstruct.ossie'),
+        caplog.at_level('WARNING', logger='konstruct.semantics.ossie'),
         pytest.raises(ValueError, match='nothing to export'),
     ):
         project.export('ossie')
@@ -496,7 +496,7 @@ def test_a_field_that_repeats_a_column(tmp_path: Path, caplog: pytest.LogCapture
     )
     project = Project(tmp_path)
     project.build(dialect='duckdb', warehouses=False, run_dbt=False)
-    with caplog.at_level('WARNING', logger='konstruct.ossie'):
+    with caplog.at_level('WARNING', logger='konstruct.semantics.ossie'):
         document = valid(project.export('ossie'))
     assert {m['name']: m['expression']['sql'] for m in document['metrics']} == {
         'largest_refund': 'MAX((CASE WHEN refunds.cents > 0 THEN refunds.cents ELSE 0 END))'

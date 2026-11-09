@@ -11,10 +11,8 @@ The main entry point is `Project`::
 
 __version__ = '0.11.13'
 
-from konstruct.explain import Explanation
-from konstruct.graph import Edge, Graph, Node
-from konstruct.project import Project
-from konstruct.query import (
+from konstruct.analysis.explain import Explanation
+from konstruct.analysis.query import (
     Definitions,
     Description,
     EdgeItem,
@@ -27,6 +25,8 @@ from konstruct.query import (
     TermDefinition,
     Walk,
 )
+from konstruct.core.graph import Edge, Graph, Node
+from konstruct.interfaces.project import Project
 
 __all__ = [
     'Definitions',

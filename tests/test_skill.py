@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from konstruct.skill import InstallError, install, render_skill
+from konstruct.interfaces.skill import InstallError, install, render_skill
 
 
 def frontmatter(text: str) -> dict[str, object]:

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from konstruct.graph import Graph, Node
-from konstruct.report import analyse, render, write_report
+from konstruct.core.graph import Graph, Node
+from konstruct.outputs.report import analyse, render, write_report
 
 
 def graph() -> Graph:
