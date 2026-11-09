@@ -20,7 +20,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from itertools import combinations
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import sqlglot
 from sqlglot import exp
@@ -28,6 +28,9 @@ from sqlglot import exp
 from konstruct.analysis.explain import Explainer, short_sql
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
 from konstruct.core.sql import PARSE_ERRORS
+
+if TYPE_CHECKING:
+    from konstruct.interfaces.layout import Style
 
 # Words that qualify a measure without changing which measure it is.
 MODIFIERS = frozenset(
@@ -218,10 +221,15 @@ class Conflicts:
             'conflicts': [c.to_dict() for c in self.conflicts],
         }
 
-    def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import conflicts_lines, show
 
-        return plain(self)
+        return show(conflicts_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
     def markdown(self) -> str:
         lines = ['# Conflicting definitions', '', self.summary(), '']

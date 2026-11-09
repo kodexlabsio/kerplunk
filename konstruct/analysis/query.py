@@ -9,10 +9,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from konstruct import _core
 from konstruct.core.graph import RELATION_KINDS, Graph, Node, Step
+
+if TYPE_CHECKING:
+    from konstruct.interfaces.layout import Style
 
 
 class QueryError(Exception):
@@ -39,7 +42,7 @@ def load_graph(out_dir: Path) -> Graph:
 def resolve_one(graph: Graph, ref: str) -> Node:
     found = graph.resolve(ref)
     if not found:
-        hints = _near(ref, [graph.label(n) for n in search_nodes(graph, ref, limit=10)])
+        hints = suggest(graph, ref)
         suffix = f'; did you mean {", ".join(hints)}?' if hints else ''
         words = ' '.join(_TOKEN.findall(ref.lower())) or ref
         raise QueryError(
@@ -53,14 +56,25 @@ def resolve_one(graph: Graph, ref: str) -> Node:
     return found[0]
 
 
-def _near(ref: str, labels: list[str], limit: int = 3) -> list[str]:
-    """``labels`` that look most like ``ref`` first, for a "did you mean" list."""
+def suggest(graph: Graph, ref: str, limit: int = 3) -> list[str]:
+    """Names ``ref`` may have meant, closest first: what a search on its words finds, and, for a
+    typo the words do not match (``custmers``, ``custmers.amout``), the relations whose names are
+    close and the closest columns of those relations."""
     import difflib
 
-    needle = ref.lower()
-    return sorted(labels, key=lambda label: -difflib.SequenceMatcher(None, needle, label.lower()).ratio())[
-        :limit
-    ]
+    needle = ref.strip().lower()
+    found = [graph.label(n) for n in search_nodes(graph, ref, limit=10)]
+    relations = {graph.label(n).lower(): n for n in graph.nodes.values() if n.kind in RELATION_KINDS}
+    head, dot, tail = needle.rpartition('.')
+    for match in difflib.get_close_matches(head if dot else needle, list(relations), n=limit, cutoff=0.6):
+        relation = relations[match]
+        if dot:
+            columns = {c.name.lower(): graph.label(c) for c in graph.columns_of(relation.id)}
+            found += [columns[c] for c in difflib.get_close_matches(tail, list(columns), n=limit, cutoff=0.6)]
+        found.append(graph.label(relation))
+    unique = list(dict.fromkeys(found))
+    unique.sort(key=lambda label: -difflib.SequenceMatcher(None, needle, label.lower()).ratio())
+    return unique[:limit]
 
 
 def _drop_empty(data: dict[str, Any]) -> dict[str, Any]:
@@ -112,20 +126,9 @@ class Item:
         return _drop_empty({f.name: getattr(self, f.name) for f in fields(self)})
 
     def __str__(self) -> str:
-        meta = [self.relation_kind or self.kind]
-        meta += [
-            str(v)
-            for v in (self.data_type, self.status, self.transform, self.verified, self.role, self.command)
-            if v
-        ]
-        if self.through:
-            meta.append(f'via {self.through}')
-        parts = [self.label, f'[{", ".join(meta)}]']
-        if self.path:
-            parts.append(self.path)
-        if self.depth is not None:
-            parts.insert(0, f'{self.depth:>2}')
-        return '  '.join(parts)
+        from konstruct.interfaces.render import item_line
+
+        return item_line(self)
 
 
 def item(graph: Graph, node: Node, step: Step | None = None, **extra: Any) -> Item:
@@ -152,11 +155,6 @@ def item(graph: Graph, node: Node, step: Step | None = None, **extra: Any) -> It
                 data['through'] = graph.label(graph.nodes[through]) if through in graph.nodes else through
     data.update(extra)
     return Item(**data)
-
-
-def _shorten(text: str, width: int = 140) -> str:
-    flat = ' '.join(text.split())
-    return flat if len(flat) <= width else flat[: width - 3] + '...'
 
 
 def _plural(count: int, word: str) -> str:
@@ -202,19 +200,19 @@ class Walk:
     """The ids the walk started from: the target and, for a relation, its columns."""
 
     SECTIONS = (
-        ('columns', 'Columns'),
-        ('relations', 'Relations'),
-        ('joins_and_filters', 'Relations that join, filter or group on it'),
-        ('filtered_by', 'Columns that filter or join its relation'),
-        ('tests', 'Tests'),
-        ('exposures', 'Exposures'),
-        ('tasks', 'Orchestration'),
-        ('terms', 'Business terms'),
+        'columns',
+        'relations',
+        'joins_and_filters',
+        'filtered_by',
+        'tests',
+        'exposures',
+        'tasks',
+        'terms',
     )
 
     @property
     def total(self) -> int:
-        return sum(len(getattr(self, key)) for key, _ in self.SECTIONS)
+        return sum(len(getattr(self, key)) for key in self.SECTIONS)
 
     def summary(self) -> str:
         counts = [
@@ -237,17 +235,22 @@ class Walk:
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {'direction': self.direction, 'target': self.target.to_dict()}
-        for key, _ in self.SECTIONS:
+        for key in self.SECTIONS:
             data[key] = [i.to_dict() for i in getattr(self, key)]
         data['entities'] = self.entities
         data['total'] = self.total
         data['summary'] = self.summary()
         return data
 
-    def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import show, walk_lines
 
-        return plain(self)
+        return show(walk_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
 
 def _walk(graph: Graph, start: Node, steps: list[Step], direction: Literal['downstream', 'upstream']) -> Walk:
@@ -344,10 +347,15 @@ class PathResult:
             'steps': [s.to_dict() for s in self.steps],
         }
 
-    def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import path_lines, show
 
-        return plain(self)
+        return show(path_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
 
 def path(graph: Graph, start_ref: str, end_ref: str) -> PathResult:
@@ -422,10 +430,15 @@ class SearchResult:
     def to_dict(self) -> dict[str, Any]:
         return {'query': self.query, 'results': [r.to_dict() for r in self.results]}
 
-    def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import search_lines, show
 
-        return plain(self)
+        return show(search_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
 
 def search(graph: Graph, text: str, limit: int = 20, kinds: list[str] | None = None) -> SearchResult:
@@ -477,6 +490,9 @@ class Description:
     """For a term, the columns it is bound to."""
     related: list[str] = field(default_factory=list)
     """For a term, its related terms."""
+    neighbours: dict[str, list[Item]] = field(default_factory=dict, repr=False)
+    """``upstream``, ``downstream`` and ``terms`` as items rather than text, for rendering. Not part
+    of ``to_dict()``."""
 
     LISTS = (
         ('terms', 'Defined by'),
@@ -491,7 +507,6 @@ class Description:
         ('after', 'After'),
         ('before', 'Before'),
     )
-    HIDDEN_ATTRS = frozenset({'fqn', 'dbt_name', 'checksum', 'view_sql', 'expression', 'conditions'})
 
     def to_dict(self) -> dict[str, Any]:
         data = self.node.to_dict()
@@ -506,10 +521,15 @@ class Description:
             data[key] = getattr(self, key)
         return data
 
-    def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import description_lines, show
 
-        return plain(self)
+        return show(description_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
 
 def _attr_text(value: Any) -> str:
@@ -569,17 +589,24 @@ def describe(graph: Graph, ref: str) -> Description:
         result.columns = [item(graph, c) for c in graph.columns_of(node.id)]
     checked = [node.id, *(c.id for c in graph.columns_of(node.id))]
     result.tests = sorted({graph.nodes[e.source].name for t in checked for e in graph.in_edges(t, 'tests')})
-    result.upstream = sorted(
-        {_neighbour(graph, o) for _, o in graph.upstream_edges(node.id) if graph.nodes[o].kind != 'dag'}
-    )
-    result.downstream = sorted(
-        {_neighbour(graph, o) for _, o in graph.downstream_edges(node.id) if graph.nodes[o].kind != 'dag'}
-    )
-    result.terms = sorted(
-        _term_label(graph, graph.nodes[e.source])
-        for e in graph.in_edges(node.id, 'defines')
-        if e.attrs.get('role') != 'input'
-    )
+    upstream = {o for _, o in graph.upstream_edges(node.id) if graph.nodes[o].kind != 'dag'}
+    downstream = {o for _, o in graph.downstream_edges(node.id) if graph.nodes[o].kind != 'dag'}
+    terms = {e.source for e in graph.in_edges(node.id, 'defines') if e.attrs.get('role') != 'input'}
+
+    def term(node_id: str) -> str:
+        return _term_label(graph, graph.nodes[node_id])
+
+    def neighbour(node_id: str) -> str:
+        return _neighbour(graph, node_id)
+
+    for key, ids, label in (
+        ('upstream', upstream, neighbour),
+        ('downstream', downstream, neighbour),
+        ('terms', terms, term),
+    ):
+        ordered = sorted(ids, key=label)
+        setattr(result, key, [label(i) for i in ordered])
+        result.neighbours[key] = [item(graph, graph.nodes[i]) for i in ordered]
     if node.kind == 'term':
         result.defines = sorted(
             graph.label(graph.nodes[e.target]) for e in graph.out_edges(node.id, 'defines')
@@ -663,10 +690,15 @@ class TermDefinition:
         data['columns'] = [c.to_dict() for c in self.columns]
         return _drop_empty(data)
 
-    def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import show, term_lines
 
-        return plain(self)
+        return show(term_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
 
 @dataclass
@@ -689,10 +721,15 @@ class Definitions:
             }
         )
 
-    def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import definitions_lines, show
 
-        return plain(self)
+        return show(definitions_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
 
 _STATUS_ORDER = {'approved': 0, 'agreed': 1, 'draft': 2, 'retired': 3}
@@ -780,10 +817,15 @@ class Listing:
     def to_dict(self) -> dict[str, Any]:
         return {'kinds': self.kinds, 'items': [i.to_dict() for i in self.items]}
 
-    def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import listing_lines, show
 
-        return plain(self)
+        return show(listing_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
 
 def list_nodes(graph: Graph, kinds: list[str] | None = None) -> Listing:
@@ -855,8 +897,9 @@ class EdgeItem:
         return _drop_empty({f.name: getattr(self, f.name) for f in fields(self)})
 
     def __str__(self) -> str:
-        extra = self.transform or self.role
-        return f'{self.source_label} -{self.kind}-> {self.target_label}' + (f' ({extra})' if extra else '')
+        from konstruct.interfaces.render import edge_line
+
+        return edge_line(self)
 
 
 @dataclass
@@ -893,10 +936,15 @@ class QueryResult:
             data['definitions'] = [d.to_dict() for d in self.definitions]
         return data
 
-    def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import query_lines, show
 
-        return plain(self)
+        return show(query_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
 
 def query(graph: Graph, question: str, limit: int = 8, depth: int = 1) -> QueryResult:

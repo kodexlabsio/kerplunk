@@ -31,7 +31,7 @@ import time
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import sqlglot
 from sqlglot import exp
@@ -39,6 +39,9 @@ from sqlglot.errors import ErrorLevel, SqlglotError
 
 from konstruct.core.graph import Graph, Node
 from konstruct.core.sql import PARSE_ERRORS, strip_templating, table_key
+
+if TYPE_CHECKING:
+    from konstruct.interfaces.layout import Style
 
 STRATEGIES = ('shift', 'null', 'shuffle')
 _TEXT = ('VARCHAR', 'TEXT', 'STRING', 'CHAR', 'BPCHAR', 'CHARACTER VARYING', 'CHARACTER')
@@ -151,10 +154,15 @@ class Verification:
             )
         return '\n'.join(lines)
 
-    def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import show, verification_lines
 
-        return plain(self)
+        return show(verification_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
     def markdown(self) -> str:
         t = self.totals()

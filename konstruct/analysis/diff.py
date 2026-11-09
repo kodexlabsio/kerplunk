@@ -22,7 +22,7 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from konstruct.analysis.query import Walk, impact
 from konstruct.analysis.verify import defining_sql_file
@@ -31,6 +31,9 @@ from konstruct.core.sql import StatementLineage, analyse, strip_templating
 from konstruct.inputs import airflow, dbt
 from konstruct.inputs.jinja import Renderer, render_model
 from konstruct.semantics.definitions import FILE_NAMES as DEFINITION_FILES
+
+if TYPE_CHECKING:
+    from konstruct.interfaces.layout import Style
 
 
 class DiffError(Exception):
@@ -593,10 +596,15 @@ class Diff:
             text += f' (exposures: {", ".join(exposures)})'
         return text
 
-    def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import diff_lines, show
 
-        return plain(self)
+        return show(diff_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
     def markdown(self) -> str:
         c = self.counts()

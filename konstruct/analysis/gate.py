@@ -21,11 +21,14 @@ Each finding says what to do about it, so an agent can fix the change and run th
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from konstruct.analysis.conflicts import Conflicts
 from konstruct.analysis.diff import Diff, RelationChange
 from konstruct.core.graph import Graph, column_id
+
+if TYPE_CHECKING:
+    from konstruct.interfaces.layout import Style
 
 RULES = {
     'breaking': 'Keep the column, or change the models that read it in the same change.',
@@ -69,19 +72,31 @@ class Gate:
         """Whether nothing stops the change."""
         return not self.findings
 
+    @property
+    def verdict(self) -> str:
+        """``Gate passed`` or ``Gate failed``."""
+        return 'Gate passed' if self.passed else 'Gate failed'
+
+    def detail(self) -> str:
+        """What the verdict rests on: the files changed, or how many findings there are."""
+        if self.passed:
+            return f'{self.changed} changed file{"s" if self.changed != 1 else ""}, nothing breaks.'
+        count = len(self.findings)
+        return f'{count} finding{"s" if count != 1 else ""} to fix before proposing the change.'
+
     def summary(self) -> str:
         """One line: passed, or how many findings there are."""
-        if self.passed:
-            return (
-                f'Gate passed: {self.changed} changed file{"s" if self.changed != 1 else ""}, nothing breaks.'
-            )
-        count = len(self.findings)
-        return f'Gate failed: {count} finding{"s" if count != 1 else ""} to fix before proposing the change.'
+        return f'{self.verdict}: {self.detail()}'
+
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import gate_lines, show
+
+        return show(gate_lines, self, style)
 
     def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
-
-        return plain(self)
+        return self.text()
 
     def markdown(self) -> str:
         """The result as markdown, for a pull request comment or a job summary."""

@@ -27,7 +27,7 @@ from __future__ import annotations
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import sqlglot
 import yaml
@@ -35,6 +35,9 @@ from sqlglot import exp
 
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
 from konstruct.core.sql import PARSE_ERRORS
+
+if TYPE_CHECKING:
+    from konstruct.interfaces.layout import Style
 
 ONTOLOGY_VERSION = 1
 
@@ -193,10 +196,15 @@ class Ontology:
         """Every rule violation, each prefixed with its rule."""
         return [f'{rule.name}: {v}' for rule in self.rules for v in rule.violations]
 
-    def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import ontology_lines, show
 
-        return plain(self)
+        return show(ontology_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
     def to_dict(self) -> dict[str, Any]:
         return {

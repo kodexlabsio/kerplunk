@@ -18,7 +18,9 @@ from typing import Any
 
 from konstruct import __version__
 from konstruct.interfaces.console import Console
+from konstruct.interfaces.layout import Text
 from konstruct.interfaces.project import OUT_DIR, Project, find_out_dir
+from konstruct.interfaces.render import build_lines
 
 __all__ = ['OUT_DIR', 'find_out_dir', 'main', 'parser']
 
@@ -43,18 +45,20 @@ def _ready(
 
             raise QueryError(f'no graph at {project.graph_path}; run `konstruct build` first')
         console.info(f'no graph yet; building {project.path}')
-        project.build()
+        with console.progress(f'Building {project.path}'):
+            project.build()
         return project
     changed = project.changed_inputs()
     if changed and (warn_stale or args.refresh):
         shown = ', '.join(changed[:3]) + (f' and {len(changed) - 3} more' if len(changed) > 3 else '')
         if args.refresh:
             console.info(f'{len(changed)} input(s) changed ({shown}); updating the graph')
-            project.build(update=True)
+            with console.progress('Updating the graph'):
+                project.build(update=True)
         else:
             console.warn(
-                f'the graph is older than {len(changed)} changed input(s) ({shown}); '
-                'results may be out of date. Add --refresh or run `konstruct build --update`'
+                f'the graph is older than {len(changed)} changed input(s) ({shown})',
+                'results may be out of date: add --refresh, or run `konstruct build --update`',
             )
     return project
 
@@ -63,7 +67,7 @@ def _emit(console: Console, result: Any, as_json: bool) -> None:
     if as_json:
         console.print(json.dumps(result.to_dict(), indent=2))
     else:
-        console.print(str(result))
+        console.print(result.text(console.ui))
 
 
 def _relative(path: Path) -> str:
@@ -89,9 +93,11 @@ def cmd_build(args: argparse.Namespace, console: Console) -> int:
     config.override(
         run_dbt=False if args.no_dbt else None, warehouses=not args.no_warehouse, dialect=args.dialect
     )
-    if not args.json:
+    progress = console.progress(f'Building {config.root}')
+    if not args.json and not progress.enabled:
         console.info(f'building {config.root}')
-    result = build(config, update=args.update)
+    with progress:
+        result = build(config, update=args.update)
     graph = result.graph
     findings = analyse(graph)
     stats = graph.stats()
@@ -118,49 +124,21 @@ def _print_build(
     console: Console, root: Path, result: Any, findings: Any, outputs: list[str], update: bool
 ) -> None:
     graph = result.graph
-    sources: list[dict[str, str]] = graph.meta.get('sources', [])
-    console.print(f'{console.style("konstruct", "bold")}  {root}')
-    console.print()
-    if not sources:
-        console.row('inputs', 'none found: no dbt project, DAG, SQL file or warehouse', style=('yellow',))
-    for source in sources:
-        name = source.get('name') or source.get('path', '')
-        if source.get('input') == 'dbt':
-            name = f'{source["name"]} ({source["path"]})'
-        text = '  '.join(part for part in (name, source.get('detail', '')) if part)
-        note = source.get('note')
-        if note:
-            text += '  ' + console.style(f'({note})', 'dim')
-        failed = source.get('status') == 'failed'
-        console.row(source.get('input', ''), text, style=('red',) if failed else ())
-    console.print()
-    stats = graph.stats()
-    counts = ', '.join(
-        f'{count} {kind}{"s" if count != 1 else ""}'
-        for kind, count in sorted(stats.items())
-        if not kind.startswith('edge:') and kind != 'column'
-    )
-    console.row('graph', f'{counts or "empty"}; {stats.get("column", 0)} columns')
-    if findings.lineage_total:
-        share = 100 * findings.lineage_covered / findings.lineage_total
-        console.row(
-            'lineage',
-            f'{findings.lineage_covered} of {findings.lineage_total} columns of models and built tables ({share:.0f}%)',
-        )
-    if update:
-        total = result.cache_hits + result.cache_misses
-        console.row('reused', f'{result.cache_hits} of {total} cached analyses')
-    if graph.warnings:
-        console.row('warnings', str(len(graph.warnings)), style=('yellow',))
-        for warning in graph.warnings[:5]:
-            console.print(f'    {console.style("-", "yellow")} {warning}')
-        if len(graph.warnings) > 5:
-            console.print(f'    and {len(graph.warnings) - 5} more in {outputs[1]}')
-    else:
-        console.row('warnings', 'none', style=('green',))
     folder = _relative(result.outputs[0].parent)
     names = ', '.join(path.name for path in result.outputs)
-    console.row('wrote', f'{names} to {folder} in {result.seconds:.1f}s')
+    lines = build_lines(
+        console.ui,
+        str(root),
+        graph.meta.get('sources', []),
+        graph.stats(),
+        findings.lineage_covered,
+        findings.lineage_total,
+        (result.cache_hits, result.cache_hits + result.cache_misses) if update else None,
+        graph.warnings,
+        f'{names} to {folder} in {result.seconds:.1f}s',
+        outputs[1],
+    )
+    console.print(console.ui.render(lines))
 
 
 # status and init
@@ -170,16 +148,7 @@ def cmd_status(args: argparse.Namespace, console: Console) -> int:
     from konstruct.interfaces.status import inspect
 
     status = inspect(Path(args.project))
-    if args.json:
-        console.print(json.dumps(status.to_dict(), indent=2))
-        return 0
-    console.print(f'{console.style("konstruct", "bold")}  {status.root}')
-    console.print()
-    for key, value in status.lines():
-        attention = (
-            key == 'graph' and ('changed' in value or 'not built' in value)
-        ) or 'not installed' in value
-        console.row(key, value, width=13, style=('yellow',) if attention else ())
+    _emit(console, status, args.json)
     return 0
 
 
@@ -306,12 +275,17 @@ def cmd_verify(args: argparse.Namespace, console: Console) -> int:
         console.info(
             'perturbing inputs and rerunning models; this reads the warehouse but never writes to it'
         )
-    result = project.verify(warehouse=args.warehouse, seed=args.seed, max_rows=args.rows, models=args.model)
+    with console.progress('Verifying the lineage against the data'):
+        result = project.verify(
+            warehouse=args.warehouse, seed=args.seed, max_rows=args.rows, models=args.model
+        )
     _emit(console, result, args.json)
     if not args.json:
-        console.print(
-            f'\nWrote VERIFY.md and verify.json to {_relative(project.out_dir)}; graph.json now marks confirmed edges.'
+        wrote = Text(
+            (f'Wrote VERIFY.md and verify.json to {_relative(project.out_dir)}; ', 'dim'),
+            ('graph.json now marks confirmed edges.', 'dim'),
         )
+        console.print('\n' + console.ui.line(wrote))
     if not result.checked:
         return 1
     return 1 if args.strict and result.totals()['unexplained'] else 0
@@ -323,23 +297,24 @@ def cmd_gate(args: argparse.Namespace, console: Console) -> int:
     project = _project(args)
     options: dict[str, Any] = {'run_dbt': False if args.no_dbt else None, 'warehouses': not args.no_warehouse}
     update = not args.no_update
-    if not project.has_graph():
-        # One build, with the gate's options, rather than a default build and then an update.
-        project.build(**options)
-        update = False
     try:
-        result = project.gate(base=args.base, update=update, **options)
+        with console.progress(f'Checking the change against {args.base or "the merge base with main"}'):
+            if not project.has_graph():
+                # One build, with the gate's options, rather than a default build and then an update.
+                project.build(**options)
+                update = False
+            result = project.gate(base=args.base, update=update, **options)
     except DiffError as error:
         console.error(str(error))
         return 1
     if args.json_file:
         Path(args.json_file).write_text(json.dumps(result.to_dict(), indent=2) + '\n', encoding='utf-8')
-    if args.format == 'json':
+    if args.format == 'json' or args.json:
         console.print(json.dumps(result.to_dict(), indent=2))
     elif args.format == 'markdown':
         console.print(result.markdown().rstrip())
     else:
-        console.print(str(result))
+        console.print(result.text(console.ui))
     return 0 if result.passed else 1
 
 
@@ -349,20 +324,21 @@ def cmd_diff(args: argparse.Namespace, console: Console) -> int:
     # Changed inputs are what diff is about: it reads the current SQL itself, so no stale warning.
     project = _ready(_project(args), args, console, warn_stale=False)
     try:
-        result = project.diff(base=args.base, head=args.head)
+        with console.progress(f'Comparing with {args.base or "the merge base with main"}'):
+            result = project.diff(base=args.base, head=args.head)
     except DiffError as error:
         console.error(str(error))
         return 1
     if args.json_file:
         Path(args.json_file).write_text(json.dumps(result.to_dict(), indent=2) + '\n', encoding='utf-8')
-    if args.format == 'json':
+    if args.format == 'json' or args.json:
         console.print(json.dumps(result.to_dict(), indent=2))
     elif args.format == 'markdown':
         console.print(result.markdown().rstrip())
     elif args.format == 'selector':
         console.print(result.selection.selector)
     else:
-        console.print(str(result))
+        console.print(result.text(console.ui))
     return 1 if args.fail_on_breaking and result.breaking else 0
 
 
@@ -579,7 +555,12 @@ def parser() -> argparse.ArgumentParser:
     historical = add('history', "when a column's formula changed, and who approved the terms bound to it")
     historical.add_argument('ref', metavar='COLUMN', help='e.g. customers.lifetime_value')
     historical.add_argument(
-        '--limit', type=int, default=50, metavar='N', help='the most commits to read per file (default 50)'
+        '-n',
+        '--limit',
+        type=int,
+        default=50,
+        metavar='N',
+        help='the most commits to read per file (default 50)',
     )
     _query_options(historical)
     historical.set_defaults(func=cmd_history)
@@ -710,7 +691,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for name, default in (('project', '.'), ('no_color', False), ('verbose', False), ('quiet', False)):
         if not hasattr(args, name):
             setattr(args, name, default)
-    console = Console(colour=False if args.no_color else None, quiet=args.quiet)
+    console = Console(colour=False if args.no_color else None, quiet=args.quiet, verbose=args.verbose)
     if not getattr(args, 'func', None):
         arguments.print_help()
         return 2
@@ -721,7 +702,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     try:
         code: int = args.func(args, console)
-    except (QueryError, ConfigError, InstallError, ExportError) as error:
+    except QueryError as error:
+        console.error(str(error), hint=error.hint, suggestions=error.suggestions)
+        return 1
+    except (ConfigError, InstallError, ExportError) as error:
         console.error(str(error))
         return 1
     except KeyboardInterrupt:

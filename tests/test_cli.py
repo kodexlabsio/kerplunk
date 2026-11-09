@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -29,22 +30,23 @@ def test_build_prints_what_it_found(
     assert code == 0
     assert 'building' in err
     lines = out.splitlines()
-    assert lines[0] == f'konstruct  {jaffle}'
+    assert lines[0] == f'Built {jaffle}'
     assert (
-        '  dbt        jaffle_shop (.)  5 models, 3 seeds, 20 tests, 1 exposure  (ran dbt docs generate)'
-        in lines
+        '  dbt          jaffle_shop (.)            5 models, 3 seeds, 20 tests, 1 exposure  '
+        '(ran dbt docs generate)' in lines
     )
-    assert '  duckdb     duckdb jaffle_shop.duckdb  9 relations  (dbt profile jaffle_shop)' in lines
-    assert '  airflow    dags/jaffle_shop_daily.py  1 DAG, 6 tasks' in lines
-    assert '  lineage    32 of 32 columns of models and built tables (100%)' in lines
-    assert '  warnings   none' in lines
+    assert '  duckdb       duckdb jaffle_shop.duckdb  9 relations  (dbt profile jaffle_shop)' in lines
+    assert '  airflow      dags/jaffle_shop_daily.py  1 DAG, 6 tasks' in lines
+    assert '  lineage      32 of 32 columns of models and built tables (100%)' in lines
+    assert '  warnings     none' in lines
     assert any(
-        line.startswith('  wrote      graph.json, REPORT.md, graph.html, ontology.yml to ') for line in lines
+        line.startswith('  wrote        graph.json, REPORT.md, graph.html, ontology.yml to ')
+        for line in lines
     )
 
     code, out, _ = run(capsys, 'build', str(jaffle), '--update')
     assert code == 0
-    assert '  reused     7 of 7 cached analyses' in out.splitlines()
+    assert '  reused       7 of 7 cached analyses' in out.splitlines()
 
     code, out, _ = run(capsys, 'build', '-C', str(jaffle), '--json', '-u')
     data = json.loads(out)
@@ -137,7 +139,7 @@ def test_build_options_and_errors(tmp_path: Path, capsys: pytest.CaptureFixture[
     assert code == 1 and 'is not a directory' in err
     (tmp_path / 'bad.sql').write_text('select from where (')
     code, out, _ = run(capsys, 'build', str(tmp_path), '--strict')
-    assert code == 1 and '  warnings   1' in out
+    assert code == 1 and re.search(r'^  warnings +1$', out, re.M)
     (tmp_path / 'konstruct.toml').write_text("[[warehouse]]\ntype = 'oracle'\n")
     code, _, err = run(capsys, 'build', str(tmp_path))
     assert code == 1 and "unknown warehouse type 'oracle'" in err
@@ -149,7 +151,7 @@ def test_build_options_and_errors(tmp_path: Path, capsys: pytest.CaptureFixture[
 def test_empty_project(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     code, out, _ = run(capsys, 'build', str(tmp_path))
     assert code == 0
-    assert '  inputs     none found: no dbt project, DAG, SQL file or warehouse' in out
+    assert re.search(r'^  inputs +none found: no dbt project, DAG, SQL file or warehouse$', out, re.M)
 
 
 @pytest.mark.dbt
@@ -205,10 +207,10 @@ def test_no_command_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
 def test_colour(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv('FORCE_COLOR', '1')
     monkeypatch.delenv('NO_COLOR', raising=False)
-    assert Console().style('x', 'bold') == '\x1b[1mx\x1b[0m'
+    assert Console().ui.paint('x', 'strong') == '\x1b[1mx\x1b[0m'
     monkeypatch.setenv('NO_COLOR', '1')
     assert not colour_enabled(sys.stdout)
-    assert Console(colour=False).style('x', 'red') == 'x'
+    assert Console(colour=False).ui.paint('x', 'error') == 'x'
     Console(quiet=True).info('hidden')
     Console(colour=False).warn('shown')
     assert capsys.readouterr().err == 'konstruct: shown\n'
@@ -283,16 +285,16 @@ def test_status_lists_every_input_and_the_packs_bound(
     )
     code, out, _ = run(capsys, 'status', '-C', str(tmp_path))
     assert code == 0
-    assert '  dagster      1 Dagster file: assets.py' in out
-    assert '  ossie        1 Ossie model: shop.ossie.yaml' in out
-    assert '  vocabularies 1 vocabulary file: terms.ttl' in out  # a directory is not one
-    assert f'repository   {other.name} (../{other.name}): 1 Dagster file' in out
+    assert '  dagster       1 Dagster file: assets.py' in out
+    assert '  ossie         1 Ossie model: shop.ossie.yaml' in out
+    assert '  vocabularies  1 vocabulary file: terms.ttl' in out  # a directory is not one
+    assert f'  repository    {other.name} (../{other.name}): 1 Dagster file' in out
     assert 'packs' not in out  # nothing built yet
     run(capsys, 'build', '-C', str(tmp_path))
     code, out, _ = run(capsys, 'status', '-C', str(tmp_path), '--json')
     assert json.loads(out)['ontology_packs'] == [{'name': 'stripe', 'detail': 'w.stripe: 4 terms'}]
     code, out, _ = run(capsys, 'status', '-C', str(tmp_path))
-    assert '  packs        stripe (w.stripe: 4 terms)' in out
+    assert '  packs         stripe (w.stripe: 4 terms)' in out
 
 
 def test_status_shows_what_the_last_build_read_from_the_warehouse(

@@ -23,7 +23,7 @@ import hashlib
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import sqlglot
 from sqlglot import exp
@@ -32,6 +32,9 @@ from sqlglot.dialects.dialect import Dialect
 from konstruct.core import jsonio
 from konstruct.core.graph import Graph, Node
 from konstruct.core.sql import PARSE_ERRORS
+
+if TYPE_CHECKING:
+    from konstruct.interfaces.layout import Style
 
 _QUALIFIED_COLUMN = re.compile(r'[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*){1,3}')
 MAX_COMPOSED = 4000
@@ -97,10 +100,15 @@ class Explanation:
             'steps': [s.to_dict() for s in self.steps],
         }
 
-    def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import explanation_lines, show
 
-        return plain(self)
+        return show(explanation_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
 
 def _composed_from(graph: Graph, node: Node) -> list[Node]:
@@ -184,10 +192,15 @@ class _Namer:
         return found
 
     def condition(self, text: str) -> str:
-        prefix, sep, rest = text.partition(': ')
-        if not sep:
-            return self.text(text)
-        return f'{prefix}: {self.text(rest)}'
+        clause, rest = split_condition(text)
+        return f'{clause}: {self.text(rest)}' if clause else self.text(text)
+
+
+def split_condition(text: str) -> tuple[str, str]:
+    """A recorded condition as its clause and its SQL: ``WHERE: a > 0`` gives ``('WHERE', 'a > 0')``.
+    A condition with no clause gives an empty one."""
+    clause, sep, rest = text.partition(': ')
+    return (clause, rest) if sep else ('', text)
 
 
 def short_sql(graph: Graph, sql: str, *, condition: bool = False) -> str:

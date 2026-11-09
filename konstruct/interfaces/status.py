@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from konstruct.core.graph import Graph
 from konstruct.engine.config import (
@@ -26,6 +26,9 @@ from konstruct.engine.config import (
     load_config,
 )
 from konstruct.inputs import dbt
+
+if TYPE_CHECKING:
+    from konstruct.interfaces.layout import Style
 
 
 @dataclass
@@ -76,6 +79,12 @@ class Status:
         }
 
     def lines(self) -> list[tuple[str, str]]:
+        """Each finding as a label and a sentence."""
+        return [(key, value) for key, value, _ in self.rows()]
+
+    def rows(self) -> list[tuple[str, str, str]]:
+        """Each finding as a label, a sentence and its state: ``ok``, ``attention`` (something to
+        do, such as a stale graph or a missing skill), or empty."""
         rows: list[tuple[str, str]] = [('config', self.config_file or 'none; inputs are discovered')]
         if self.dbt_projects:
             for project in self.dbt_projects:
@@ -85,6 +94,7 @@ class Status:
         rows.append(
             ('dbt on PATH', 'yes' if self.dbt_on_path else 'no (Konstruct uses existing target/ artefacts)')
         )
+        states = {len(rows) - 1: 'ok' if self.dbt_on_path else ''}
         for warehouse in self.warehouses or [{'name': 'none found', 'source': ''}]:
             source = f' ({warehouse["source"]})' if warehouse.get('source') else ''
             rows.append(('warehouse', f'{warehouse["name"]}{source}'))
@@ -121,17 +131,25 @@ class Status:
                 else f'{len(graph["changed"])} input(s) changed since: ' + ', '.join(graph['changed'][:5])
             )
             rows.append(('graph', f'{graph["path"]}, built {graph["age"]}; {state}'))
+            states[len(rows) - 1] = 'attention' if graph['changed'] else 'ok'
         else:
             rows.append(('graph', 'not built yet; run `konstruct build`'))
+            states[len(rows) - 1] = 'attention'
         rows.append(
             ('skill', ', '.join(self.skills) if self.skills else 'not installed; run `konstruct install`')
         )
-        return rows
+        states[len(rows) - 1] = '' if self.skills else 'attention'
+        return [(key, value, states.get(index, '')) for index, (key, value) in enumerate(rows)]
+
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import show, status_lines
+
+        return show(status_lines, self, style)
 
     def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
-
-        return plain(self)
+        return self.text()
 
 
 def _files(files: list[str], noun: str) -> str:

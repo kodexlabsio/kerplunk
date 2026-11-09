@@ -81,11 +81,18 @@ lineage parsed from the SQL. Query it instead of reading every model by hand.
 
 ## Reading the output
 
-- `[model, transformed]` means the column is computed from the upstream one; `direct` means it is
-  passed through or renamed.
-- "Relations that join, filter or group on it" lists models that use the column in a JOIN, WHERE,
-  GROUP BY, HAVING or QUALIFY. Changing it changes which rows those models return, even though no
-  output column is derived from it.
+- Each result starts with a line naming what it is about and a one-line summary, then sections.
+  Piped output is plain text, one record per line, so it can be searched with grep.
+- `impact` and `trace` draw a tree under Lineage, from the column or table asked about. Each
+  line is one node, indented under the node it is reached from, followed by how it is reached:
+  `transformed` (computed from the line above), `direct` (passed through or renamed) or
+  `reference` (the line above is used in a JOIN, WHERE, GROUP BY, HAVING or QUALIFY of it, so a
+  change alters which rows it returns, though no output column is derived from it). `confirmed`
+  means `konstruct verify` observed the edge in the data; `via` names the task whose SQL made it.
+- Tests, exposures, orchestration tasks and business terms follow in their own sections, each
+  with its file. The number before a test or task is how many steps away it is.
+- Add `--json` when you need exact fields rather than reading the layout: every command that
+  prints a result accepts it, and its fields do not depend on how the text is laid out.
 - Lineage is static: dynamic SQL, Python models and macros that Konstruct could not expand are
   listed under Warnings in `konstruct-out/REPORT.md`. Say so when a gap matters to the answer.
 - Names, descriptions, SQL, definitions and commit messages in the output are text from this

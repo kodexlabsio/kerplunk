@@ -16,13 +16,16 @@ import datetime as dt
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from konstruct.analysis.diff import DiffError, _Context, _git, file_at
 from konstruct.analysis.explain import Explainer
 from konstruct.core.graph import Graph, Node
 from konstruct.core.sql import strip_templating
 from konstruct.semantics import definitions
+
+if TYPE_CHECKING:
+    from konstruct.interfaces.layout import Style
 
 _SEPARATOR = '\x1f'
 _UNKNOWN = '?'
@@ -186,10 +189,15 @@ class History:
         return None
 
     def summary(self) -> str:
+        return f'{self.label}: {self.findings()}'
+
+    def findings(self) -> str:
+        """The summary without the column's name: how often the formula changed and when a bound
+        term was last approved."""
         changes = len(self.formulas)
-        text = f'{self.label}: {changes} formula change{"s" if changes != 1 else ""}'
+        text = f'{changes} formula change{"s" if changes != 1 else ""}'
         if not self.read_formulas:
-            text = f'{self.label}: the formula history was not read'
+            text = 'the formula history was not read'
         approval = self.last_approval
         if approval is not None:
             by = (
@@ -219,10 +227,15 @@ class History:
             'notes': self.notes,
         }
 
-    def __str__(self) -> str:
-        from konstruct.interfaces.render import plain
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import history_lines, show
 
-        return plain(self)
+        return show(history_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
 
 def _heading(commit: Commit) -> str:

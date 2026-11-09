@@ -2,33 +2,37 @@
 
 Each renderer turns one result type into lines of :class:`~konstruct.interfaces.layout.Text`
 with the same shape: a header line naming what the result is about, a one-line summary, then
-sections of aligned tables, trees and key and value blocks. :func:`render` styles them for a
-terminal; :func:`plain` gives the stable ASCII text that pipes, ``grep``, coding agents and the
-golden files read.
+sections of aligned tables, trees and key and value blocks. Each result's ``text(style)`` calls
+:func:`show` with its renderer: with no style it gives the stable ASCII text that pipes,
+``grep``, coding agents and the golden files read, and with a terminal's style the drawn output.
 
-Results are matched by class name, so importing this module imports none of them.
+This module imports no result type at run time, so loading it loads no analysis.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from konstruct.interfaces.layout import (
     Branch,
     Cell,
+    Part,
     Style,
     Text,
     bar,
     blank,
+    command,
     formula,
     header,
+    pad,
     pairs,
     paragraph,
     section,
     sql,
     table,
     tree,
+    width_of,
     wrap,
 )
 
@@ -41,6 +45,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.query import (
         Definitions,
         Description,
+        EdgeItem,
         Item,
         Listing,
         PathResult,
@@ -59,40 +64,27 @@ STATUS_ROLES = {'approved': 'ok', 'agreed': 'accent', 'draft': 'warn', 'retired'
 EDGE_ROLES = {'transformed': 'accent', 'direct': 'dim', 'reference': '', 'run': 'dim', 'seed': 'dim'}
 
 
-def plain(result: Any) -> str:
-    """``result`` as plain text: ASCII, no colour and no wrapping."""
-    return render(result, Style.plain())
+Result = TypeVar('Result')
 
 
-def render(result: Any, style: Style) -> str:
-    renderer = RENDERERS.get(type(result).__name__)
-    if renderer is None:
-        return str(result)
-    return style.render(renderer(result, style))
-
-
-def lines_of(result: Any, style: Style) -> Lines:
-    return RENDERERS[type(result).__name__](result, style)
+def show(lines: Callable[[Result, Style], Lines], result: Result, style: Style | None = None) -> str:
+    """``result`` drawn by its renderer ``lines``: plain text with no style, else for a terminal."""
+    style = style or Style()
+    return style.render(lines(result, style))
 
 
 # Shared pieces
-
-
-def _shorten(value: str, width: int) -> str:
-    flat = ' '.join(value.split())
-    return flat if len(flat) <= width else flat[: width - 3] + '...'
 
 
 def _plural(count: int, word: str, plural: str | None = None) -> str:
     return f'{count} {word if count == 1 else plural or word + "s"}'
 
 
-def _note(style: Style, value: str | None, *, indent: int = 2, width: int = 140) -> Lines:
-    """A description under a heading: dim, wrapped on a terminal, cut short in plain text."""
+def _note(style: Style, value: str | None, *, indent: int = 2) -> Lines:
+    """A description under a heading: dim, on one line in plain text and wrapped on a terminal."""
     if not value:
         return []
-    shown = ' '.join(value.split()) if style.width is not None else _shorten(value, width)
-    return paragraph(style, Text((shown, 'dim')), indent=indent)
+    return paragraph(style, Text((' '.join(value.split()), 'dim')), indent=indent)
 
 
 def _summary(style: Style, value: str | Text) -> Lines:
@@ -100,53 +92,73 @@ def _summary(style: Style, value: str | Text) -> Lines:
     return paragraph(style, value, indent=0)
 
 
-def _status(value: str | None) -> Text:
-    return Text((value or '', STATUS_ROLES.get(value or '', '')))
-
-
-def _edge(entry: Item) -> Text:
-    word = entry.transform or entry.role or entry.command or ''
-    return Text((word, EDGE_ROLES.get(word, '')))
-
-
-def _where(entry: Item) -> Text:
-    """Where a node lives: its file, and the task whose SQL made the edge."""
+def _commands(value: str, role: str = '') -> Text:
+    """Text in ``role`` with each command in backticks picked out in the accent colour."""
+    if value.count('`') % 2:
+        return Text((value, role))
     out = Text()
-    if entry.path:
-        out.append((entry.path, 'dim'))
-    if entry.through:
-        out.append(('  ' if entry.path else '') + f'via {entry.through}', 'dim')
+    for index, piece in enumerate(value.split('`')):
+        out.append(('`' + piece + '`', 'accent') if index % 2 else (piece, role))
     return out
 
 
-def _verified(entry: Item) -> Text:
-    return Text((entry.verified or '', 'ok' if entry.verified == 'confirmed' else 'warn'))
+def _status(value: str | None) -> Part:
+    return (value or '', STATUS_ROLES.get(value or '', ''))
 
 
-def _kind(entry: Item) -> Text:
-    return Text((entry.relation_kind or entry.kind, 'dim'))
+def _edge(entry: Item) -> Cell:
+    word = entry.transform or entry.role or entry.command or ''
+    return (word, EDGE_ROLES.get(word, ''))
 
 
-def _neighbour(value: str) -> list[Cell]:
-    """``label (kind)`` as two cells."""
-    label, sep, kind = value.rpartition(' (')
-    if not sep:
-        return [value]
-    return [label, Text((kind.rstrip(')'), 'dim'))]
+def _place(entry: Item) -> Cell:
+    """Where a node lives: its file, and the task whose SQL made the edge."""
+    if entry.through:
+        return (f'{entry.path}  via {entry.through}' if entry.path else f'via {entry.through}', 'dim')
+    return (entry.path or '', 'dim')
 
 
-def _condition(value: str) -> tuple[str, str]:
-    prefix, sep, rest = value.partition(': ')
-    return (prefix, rest) if sep else ('', value)
+def _facts(entry: Item, style: Style) -> list[Cell]:
+    """How a node was reached and what it is: edge, verification, kind, type and place. One call
+    per node, as a walk can reach tens of thousands of them, and plain strings when nothing is
+    coloured."""
+    edge = entry.transform or entry.role or entry.command or ''
+    verified = entry.verified or ''
+    through = entry.through
+    path = entry.path or ''
+    place = (f'{path}  via {through}' if path else f'via {through}') if through else path
+    if not style.colour:
+        return [edge, verified, entry.relation_kind or entry.kind, entry.data_type or '', place]
+    return [
+        (edge, EDGE_ROLES.get(edge, '')),
+        (verified, 'ok' if verified == 'confirmed' else 'warn'),
+        (entry.relation_kind or entry.kind, 'dim'),
+        (entry.data_type or '', 'dim'),
+        (place, 'dim'),
+    ]
+
+
+def _verified(entry: Item) -> Cell:
+    return (entry.verified or '', 'ok' if entry.verified == 'confirmed' else 'warn')
+
+
+def _kind(entry: Item) -> Cell:
+    return (entry.relation_kind or entry.kind, 'dim')
+
+
+def _type(entry: Item) -> Cell:
+    return (entry.data_type or '', 'dim')
 
 
 def _conditions(style: Style, values: Sequence[str], *, indent: int = 2) -> Lines:
     """Join, filter and grouping conditions, the clause aligned and the SQL highlighted."""
-    split = [_condition(v) for v in values]
+    from konstruct.analysis.explain import split_condition
+
+    split = [split_condition(v) for v in values]
     width = max((len(p) for p, _ in split), default=0)
     lines: Lines = []
-    for prefix, rest in split:
-        lead = Text(' ' * indent, (prefix.ljust(width), 'keyword'), '  ' if prefix else '')
+    for clause, rest in split:
+        lead = Text(' ' * indent, (clause.ljust(width), 'keyword'), '  ' if clause else '')
         lines += wrap(style, sql(rest), first=lead, hanging=indent + width + 2)
     return lines
 
@@ -154,10 +166,31 @@ def _conditions(style: Style, values: Sequence[str], *, indent: int = 2) -> Line
 def _items(style: Style, entries: Sequence[Item], *, depth: bool = True) -> Lines:
     rows: list[list[Cell]] = []
     for entry in entries:
-        hop = Text((str(entry.depth), 'dim')) if depth and entry.depth is not None else None
-        extra = Text((entry.command or entry.status or '', STATUS_ROLES.get(entry.status or '', 'dim')))
-        rows.append([hop, entry.label, extra, _where(entry)])
+        hop: Cell = (str(entry.depth), 'dim') if depth and entry.depth is not None else None
+        extra = (entry.command or entry.status or '', STATUS_ROLES.get(entry.status or '', 'dim'))
+        rows.append([hop, entry.label, extra, _place(entry)])
     return table(style, rows, right=[0], flex=3)
+
+
+def item_line(entry: Item) -> str:
+    """One node on one line, as the tables show it: hops, name, edge, kind, type and file."""
+    cells = [
+        str(entry.depth) if entry.depth is not None else '',
+        entry.label,
+        entry.transform or entry.role or '',
+        entry.verified or '',
+        entry.relation_kind or entry.kind,
+        entry.data_type or '',
+        entry.status or entry.command or '',
+        _place(entry)[0],  # type: ignore[index]
+    ]
+    return '  '.join(c for c in cells if c)
+
+
+def edge_line(edge: EdgeItem) -> str:
+    """One edge on one line, as the Connections section shows it."""
+    extra = edge.transform or edge.role
+    return f'{edge.source_label}  {edge.kind} ->  {edge.target_label}' + (f'  {extra}' if extra else '')
 
 
 # Impact and trace
@@ -176,25 +209,14 @@ def walk_lines(walk: Walk, style: Style) -> Lines:
     implied = [r for r in walk.relations if r.depth is None]
     if column and implied:
         lines += [blank(), section('Relations', len(implied))]
-        lines += table(style, [[r.label, _kind(r), _where(r)] for r in implied], flex=2)
+        lines += table(style, [[r.label, _kind(r), _place(r)] for r in implied], flex=2)
     if not column and walk.columns:
         lines += [blank(), section('Columns', len(walk.columns))]
-        rows = [
-            [
-                Text((str(c.depth), 'dim')),
-                c.label,
-                _edge(c),
-                _verified(c),
-                _kind(c),
-                Text((c.data_type or '', 'dim')),
-                _where(c),
-            ]
-            for c in walk.columns
-        ]
+        rows = [[(str(c.depth), 'dim'), c.label, *_facts(c, style)] for c in walk.columns]
         lines += table(style, rows, right=[0], flex=6, drop=[4, 5, 3])
     if walk.filtered_by:
         lines += [blank(), section('Columns that filter or join its relation', len(walk.filtered_by))]
-        rows = [[c.label, _kind(c), Text((c.data_type or '', 'dim')), _where(c)] for c in walk.filtered_by]
+        rows = [[c.label, _kind(c), _type(c), _place(c)] for c in walk.filtered_by]
         lines += table(style, rows, flex=3)
     for key, heading in (('tests', 'Tests'), ('exposures', 'Exposures'), ('tasks', 'Orchestration')):
         entries: list[Item] = getattr(walk, key)
@@ -202,10 +224,10 @@ def walk_lines(walk: Walk, style: Style) -> Lines:
             lines += [blank(), section(heading, len(entries)), *_items(style, entries)]
     if walk.terms:
         lines += [blank(), section('Business terms', len(walk.terms))]
-        lines += table(style, [[t.label, _status(t.status), _where(t)] for t in walk.terms], flex=2)
+        lines += table(style, [[t.label, _status(t.status), _place(t)] for t in walk.terms], flex=2)
     if walk.entities:
         lines += [blank(), section('Business entities', len(walk.entities))]
-        rows = [[name, Text((', '.join(relations), 'dim'))] for name, relations in walk.entities.items()]
+        rows = [[name, (', '.join(relations), 'dim')] for name, relations in walk.entities.items()]
         lines += table(style, rows, flex=1)
     return lines
 
@@ -222,16 +244,8 @@ def _lineage(walk: Walk, style: Style) -> Lines:
     shown.sort(key=lambda i: (i.depth or 0, i.label))
     ids = {i.id for i in shown}
     start = set(walk.start)
-    branches = {
-        i.id: Branch(
-            Text(i.label), [_edge(i), _verified(i), _kind(i), Text((i.data_type or '', 'dim')), _where(i)]
-        )
-        for i in shown
-    }
-    root = Branch(
-        Text((target.label, 'subject')),
-        ['', '', _kind(target), Text((target.data_type or '', 'dim')), _where(target)],
-    )
+    branches = {i.id: Branch(i.label, _facts(i, style)) for i in shown}
+    root = Branch((target.label, 'subject'), ['', '', _kind(target), _type(target), _place(target)])
 
     def parent(node_id: str) -> str | None:
         seen: set[str] = set()
@@ -268,7 +282,7 @@ def path_lines(result: PathResult, style: Style) -> Lines:
             _plural(steps, 'step'),
         )
     ]
-    rows = table(style, [[s.label, _kind(s), _where(s)] for s in result.steps], flex=2)
+    rows = table(style, [[s.label, _kind(s), _place(s)] for s in result.steps], flex=2)
     for index, (step, row) in enumerate(zip(result.steps, rows, strict=True)):
         if index:
             arrow = style.glyph('down' if step.direction == 'forward' else 'up')
@@ -286,10 +300,9 @@ def search_lines(result: SearchResult, style: Style) -> Lines:
 def _matches(style: Style, entries: Sequence[Item], *, indent: int) -> Lines:
     rows: list[list[Cell]] = []
     for entry in entries:
-        facts = Text((entry.relation_kind or entry.kind, 'dim'))
-        if entry.data_type:
-            facts.append((f' {entry.data_type}', 'dim'))
-        rows.append([entry.label, facts, _status(entry.status), _where(entry)])
+        kind = entry.relation_kind or entry.kind
+        facts = (f'{kind} {entry.data_type}' if entry.data_type else kind, 'dim')
+        rows.append([entry.label, facts, _status(entry.status), _place(entry)])
     lines: Lines = []
     for entry, row in zip(entries, table(style, rows, indent=indent, flex=3), strict=True):
         lines.append(row)
@@ -300,7 +313,7 @@ def _matches(style: Style, entries: Sequence[Item], *, indent: int) -> Lines:
 def listing_lines(result: Listing, style: Style) -> Lines:
     if not result.items:
         return [Text(f'No {" or ".join(result.kinds)} nodes.')]
-    rows = [[i.label, Text((i.kind, 'dim')), Text((i.path or '', 'dim'))] for i in result.items]
+    rows: list[list[Cell]] = [[i.label, (i.kind, 'dim'), (i.path or '', 'dim')] for i in result.items]
     # Column headings only on a terminal: piped, every line is a record.
     headings = ['name', 'kind', 'path'] if style.width is not None else None
     return table(style, rows, indent=0, flex=2, headers=headings)
@@ -316,7 +329,7 @@ def description_lines(result: Description, style: Style) -> Lines:
 
     node = result.node
     lines = [header('', node.label, node.relation_kind or node.kind, node.data_type)]
-    lines += _note(style, node.description, width=10_000)
+    lines += _note(style, node.description)
     facts: list[tuple[str, Cell]] = [
         ('id', Text((node.id, 'dim'))),
         ('relation', result.relation),
@@ -330,14 +343,7 @@ def description_lines(result: Description, style: Style) -> Lines:
     lines += [blank(), *pairs(style, facts)]
     if result.columns:
         lines += [blank(), section('Columns', len(result.columns))]
-        rows = [
-            [
-                c.name,
-                Text((c.data_type or '', 'dim')),
-                Text((_shorten(c.description or '', 100 if style.width is None else 10_000), 'dim')),
-            ]
-            for c in result.columns
-        ]
+        rows = [[c.name, _type(c), (' '.join((c.description or '').split()), 'dim')] for c in result.columns]
         lines += table(style, rows, flex=2)
     for key, heading in result.LISTS:
         values: list[str] = getattr(result, key)
@@ -346,14 +352,10 @@ def description_lines(result: Description, style: Style) -> Lines:
         lines += [blank(), section(heading, len(values))]
         if key == 'conditions':
             lines += _conditions(style, values)
-        elif key in ('upstream', 'downstream', 'terms'):
-            rows = [_neighbour(v) for v in values]
-            if key == 'terms':
-                rows = [
-                    [r[0], _status(r[1].plain if isinstance(r[1], Text) else None)] if len(r) > 1 else r
-                    for r in rows
-                ]
-            lines += table(style, rows, flex=1)
+        elif key == 'terms':
+            lines += table(style, [[t.name, _status(t.status)] for t in result.neighbours[key]], flex=1)
+        elif key in ('upstream', 'downstream'):
+            lines += table(style, [[n.label, (n.kind, 'dim')] for n in result.neighbours[key]], flex=1)
         else:
             lines += table(style, [[v] for v in values])
     return lines
@@ -365,12 +367,11 @@ def description_lines(result: Description, style: Style) -> Lines:
 def term_lines(term: TermDefinition, style: Style, *, indent: int = 0) -> Lines:
     from konstruct.analysis.query import _attr_text, _where
 
-    pad = ' ' * indent
-    lines = [Text(pad, (term.name, 'subject'), '  ', _status(term.status))]
+    lines = [Text(' ' * indent, (term.name, 'subject'), '  ', _status(term.status))]
     if term.definition:
         lines += [*paragraph(style, term.definition, indent=indent + 2), blank()]
     columns = [c.label for c in term.columns]
-    width = max((len(c) for c in columns), default=0)
+    width = max((width_of(c) for c in columns), default=0)
     facts: list[tuple[str, Cell]] = [
         (
             'owner',
@@ -394,7 +395,7 @@ def term_lines(term: TermDefinition, style: Style, *, indent: int = 0) -> Lines:
             facts.append(
                 (
                     'columns' if index == 0 else '',
-                    Text(column.label.ljust(width), '  ', (column.data_type or '', 'dim')),
+                    Text(pad(column.label, width), '  ', (column.data_type or '', 'dim')),
                 )
             )
     else:
@@ -462,7 +463,7 @@ def query_lines(result: QueryResult, style: Style) -> Lines:
 
 def explanation_lines(result: Explanation, style: Style) -> Lines:
     lines = [header('Formula of', result.label, result.data_type)]
-    lines += _note(style, result.description, width=10_000)
+    lines += _note(style, result.description)
     if result.expression is None:
         lines += [
             blank(),
@@ -505,6 +506,8 @@ _CHANGE_ROLES = {'added': 'ok', 'removed': 'error', 'changed': 'warn'}
 
 
 def diff_lines(result: Diff, style: Style) -> Lines:
+    from konstruct.analysis.explain import split_condition
+
     files = len(result.source_files)
     lines = [
         header('Diff', f'{result.shown_base}..{result.shown_head}', _plural(files, 'file') + ' changed'),
@@ -544,10 +547,10 @@ def diff_lines(result: Diff, style: Style) -> Lines:
             lines += impact(change.impact)
         for sign, conditions in (('+', relation.conditions_added), ('-', relation.conditions_removed)):
             for condition in conditions:
-                prefix, rest = _condition(condition)
+                clause, rest = split_condition(condition)
                 lead = Text(label('rows', 'accent'), (f'{sign} ', 'ok' if sign == '+' else 'error'))
-                if prefix:
-                    lead.append((prefix, 'keyword')).append(' ')
+                if clause:
+                    lead.append((clause, 'keyword')).append(' ')
                 lines += wrap(style, sql(rest), first=lead, hanging=width + 4)
         if relation.conditions_added or relation.conditions_removed:
             lines += impact(relation.rows_impact)
@@ -569,9 +572,8 @@ def diff_lines(result: Diff, style: Style) -> Lines:
         lines += [blank(), Text((definitions_change.path, 'strong'), ('  (business definitions)', 'dim'))]
         lines += [Text('  ', line) for line in definitions_change.lines()]
     if result.selection.modified_plus:
-        # The command is not wrapped, so it can be copied whole.
         lines += [blank(), Text(('dbt', 'title'), '  ', result.selection.summary())]
-        lines.append(Text('  ', result.selection.command(), whole=True))
+        lines += command(style, result.selection.command())
     if result.other:
         lines += [
             blank(),
@@ -581,8 +583,9 @@ def diff_lines(result: Diff, style: Style) -> Lines:
 
 
 def gate_lines(result: Gate, style: Style) -> Lines:
-    verdict, _, rest = result.summary().partition(': ')
-    lines = _summary(style, Text((verdict, 'good' if result.passed else 'bad'), f': {rest}'))
+    lines = _summary(
+        style, Text((result.verdict, 'good' if result.passed else 'bad'), f': {result.detail()}')
+    )
     for finding in result.findings:
         role = 'error' if finding.rule == 'breaking' else 'warn'
         lines += [
@@ -644,8 +647,7 @@ def _count(value: int, role: str) -> Text:
 def history_lines(result: History, style: Style) -> Lines:
     from konstruct.analysis.history import Commit
 
-    summary = result.summary()
-    summary = summary.removeprefix(f'{result.label}: ')
+    summary = result.findings()
     lines = [
         header('History of', result.label, result.path),
         *_summary(style, summary[:1].upper() + summary[1:] + '.'),
@@ -705,6 +707,7 @@ def _shown(value: Any) -> str:
 
 def conflicts_lines(result: Conflicts, style: Style) -> Lines:
     from konstruct.analysis.conflicts import _reach_text
+    from konstruct.analysis.explain import split_condition
 
     lines = _summary(style, Text((result.summary(), 'ok' if not result.conflicts else '')))
     current = None
@@ -731,8 +734,8 @@ def conflicts_lines(result: Conflicts, style: Style) -> Lines:
             if difference.side:
                 who = f' only in {conflict.a.label if difference.side == "a" else conflict.b.label}'
             lead = Text('    ', ('- ', 'dim'), (difference.kind, 'warn'), f'{who}: ')
-            prefix, rest = _condition(difference.detail)
-            body = Text((prefix, 'keyword'), ' ', sql(rest)) if prefix else Text(difference.detail)
+            clause, rest = split_condition(difference.detail)
+            body = Text((clause, 'keyword'), ' ', sql(rest)) if clause else Text(difference.detail)
             if difference.path:
                 body.append((f'  ({difference.path})', 'dim'))
             lines += wrap(style, body, first=lead, hanging=6)
@@ -819,34 +822,11 @@ def ontology_lines(result: Ontology, style: Style) -> Lines:
 
 
 def status_lines(result: Status, style: Style) -> Lines:
-    rows: list[tuple[str, Cell]] = []
-    for key, value in result.lines():
-        attention = (
-            key == 'graph' and ('changed' in value or 'not built' in value)
-        ) or 'not installed' in value
-        good = (key == 'graph' and value.endswith('up to date')) or value == 'yes'
-        rows.append((key, Text((value, 'warn' if attention else 'ok' if good else ''))))
+    roles = {'ok': 'ok', 'attention': 'warn'}
+    rows: list[tuple[str, Cell]] = [
+        (key, _commands(value, roles.get(state, ''))) for key, value, state in result.rows()
+    ]
     return [header('Status of', str(result.root)), blank(), *pairs(style, rows)]
-
-
-RENDERERS: dict[str, Callable[[Any, Style], Lines]] = {
-    'Walk': walk_lines,
-    'PathResult': path_lines,
-    'SearchResult': search_lines,
-    'Listing': listing_lines,
-    'Description': description_lines,
-    'TermDefinition': term_lines,
-    'Definitions': definitions_lines,
-    'QueryResult': query_lines,
-    'Explanation': explanation_lines,
-    'Diff': diff_lines,
-    'Gate': gate_lines,
-    'Verification': verification_lines,
-    'History': history_lines,
-    'Conflicts': conflicts_lines,
-    'Ontology': ontology_lines,
-    'Status': status_lines,
-}
 
 
 def build_lines(
@@ -863,7 +843,7 @@ def build_lines(
 ) -> Lines:
     """The summary `konstruct build` prints: what it read, what the graph holds, what it wrote."""
     keys = [s.get('input', '') for s in sources] + ['warnings']
-    width = max(len(k) for k in keys)
+    width = max(width_of(k) for k in keys)
     lines = [header('Built', root), blank()]
     rows: list[list[Cell]] = []
     if not sources:
@@ -875,7 +855,7 @@ def build_lines(
         if source.get('input') == 'dbt':
             name = f'{source["name"]} ({source["path"]})'
         names.append(name)
-    name_width = max((len(n) for n in names if len(n) <= 40), default=0)
+    name_width = max((width_of(n) for n in names if width_of(n) <= 40), default=0)
     for source, name in zip(sources, names, strict=True):
         failed = source.get('status') == 'failed'
         detail = Text((source.get('detail', ''), 'error' if failed else ''))
