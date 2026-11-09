@@ -142,17 +142,6 @@ Lineage tools usually assert their lineage. Konstruct measures it, and every num
 
 Composed formulas are evaluated on the data and must match the final model row for row; the static Airflow and Dagster parsers are compared with Airflow's and Dagster's own graphs; and OpenLineage exports are validated against the specification. [Performance](https://kodexlabsio.github.io/konstruct/performance.html) and [verification](https://kodexlabsio.github.io/konstruct/guide/verify.html) give the details.
 
-## Use It From
-
-| Interface | What it is for |
-|-----------|----------------|
-| **Command line** | `impact`, `trace`, `explain`, `history`, `define`, `conflicts`, `diff`, `verify`, `export` and more: [every command](https://kodexlabsio.github.io/konstruct/reference/cli.html) |
-| **Coding agents** | A `/konstruct` skill for Claude Code and Cursor, and an MCP server with [thirteen tools](https://kodexlabsio.github.io/konstruct/reference/mcp.html) |
-| **Pull requests** | A GitHub Action that comments, annotates and fails the check on breaking changes, and runs `konstruct gate`, the check an agent passes before opening a pull request |
-| **Python** | `konstruct.Project`: [typed results](https://kodexlabsio.github.io/konstruct/reference/python-api.html) for every question |
-| **A browser** | `graph.html`, one offline file with column lineage, formulas and business terms: [the viewer](https://kodexlabsio.github.io/konstruct/guide/viewer.html) |
-| **Other tools** | OpenLineage events, Mermaid, Graphviz and CSV: [exporting](https://kodexlabsio.github.io/konstruct/guide/exporting.html) |
-
 ## Inputs
 
 | | |
@@ -163,6 +152,51 @@ Composed formulas are evaluated on the data and must match the final model row f
 | **Dashboards** | dbt exposures, Looker views field by field from LookML, and Power BI semantic models from TMDL |
 | **Ingestion** | The tables Fivetran and Airbyte land, and column lineage from each Fivetran source system |
 | **Meaning** | Business terms in `definitions.yml` and SKOS or OWL vocabularies, with a concept hierarchy, ontology packs for Stripe, Shopify, Salesforce, HubSpot and GA4 bound automatically, and column usage from Snowflake, BigQuery and Databricks query history |
+
+## Features
+
+Try the [live demo](https://kodexlabsio.github.io/konstruct/demo/): the viewer for the jaffle_shop example, rebuilt from main with the documentation.
+
+**Lineage and impact**
+
+- `konstruct impact` and `konstruct trace`: everything downstream or upstream of a table or column, through dbt models, SQL files, warehouse views, Airflow and Dagster tasks, PySpark jobs, loaders and dashboards, with the transform at each step.
+- `konstruct path`: how two tables or columns are connected.
+- `konstruct build --update`: an incremental rebuild that reanalyses only what changed.
+- `konstruct search`, `konstruct describe`, `konstruct list` and `konstruct query`: find anything in the graph by name, inspect one node, list a kind, or ask in plain words.
+- One graph across repositories that share a warehouse, and across warehouses.
+
+**How a value is calculated**
+
+- `konstruct explain`: a column's formula composed through every model upstream, down to source columns, with the joins and filters on the way.
+- `konstruct history`: when a column's formula changed, in which commit, and whether its definition was approved after the change.
+
+**How far to trust it**
+
+- `konstruct verify`: lineage checked against the data by perturbation, on DuckDB, Postgres and samples of Snowflake, BigQuery, Databricks and Trino, read only ([verify](https://kodexlabsio.github.io/konstruct/guide/verify.html)).
+- Column usage from Snowflake, BigQuery and Databricks query history, so the columns people read stand out ([usage](https://kodexlabsio.github.io/konstruct/guide/usage.html)).
+
+**Change review**
+
+- `konstruct diff`: what a branch does to each column, ignoring formatting and renamed CTEs, and the `dbt build --select` that rebuilds exactly what it changes ([reviewing changes](https://kodexlabsio.github.io/konstruct/guide/reviewing-changes.html)).
+- `konstruct gate`: the check a coding agent passes before it proposes a change, and CI before it merges. It fails on a removed column something still reads, an approved definition whose meaning changed, and a new column that computes a business idea differently from an existing one.
+- A [GitHub Action](https://kodexlabsio.github.io/konstruct/guide/github-action.html) that comments on each pull request, annotates breaking changes and fails the check when a removed column is still read.
+
+**Meaning**
+
+- `konstruct define`: the approved business definition of a term from `definitions.yml`, with its owner, status, grain, required filters and bound columns ([business definitions](https://kodexlabsio.github.io/konstruct/guide/definitions.html)).
+- SKOS and OWL vocabularies read as terms, with a concept hierarchy.
+- `konstruct ontology`: the entities and their keys, the measures with their composed formulas, and the relationships between entities, with cardinality where a key is tested, checked against rules that `--strict` turns into a failing build ([the ontology](https://kodexlabsio.github.io/konstruct/guide/ontology.html)).
+- `konstruct conflicts`: the same measure computed in different ways, and exactly what differs ([conflicts](https://kodexlabsio.github.io/konstruct/guide/conflicts.html)).
+- Ontology packs for Stripe, Shopify, Salesforce, HubSpot and GA4, bound automatically when their tables are in the warehouse.
+- Apache Ossie semantic models read as an input and written as an export, with each metric's lineage and trust added ([Ossie](https://kodexlabsio.github.io/konstruct/guide/ossie.html)).
+
+**Where to use it**
+
+- The command line: `konstruct init`, `konstruct build`, `konstruct status`, `konstruct open` and every command above, the commands that answer a question with `--json` output for scripts ([every command](https://kodexlabsio.github.io/konstruct/reference/cli.html)).
+- Coding agents: `konstruct install` adds the skill for Claude Code and Cursor, and `konstruct mcp` runs the [MCP server](https://kodexlabsio.github.io/konstruct/reference/mcp.html), whose tools are `impact`, `trace`, `path`, `search`, `describe`, `query`, `explain`, `history`, `define`, `conflicts`, `ontology`, `diff` and `gate`.
+- Python: `konstruct.Project`, with [typed results](https://kodexlabsio.github.io/konstruct/reference/python-api.html) for every question.
+- A browser: `graph.html`, [one offline file](https://kodexlabsio.github.io/konstruct/guide/viewer.html) with the lineage, formulas, business terms, verification results and usage, with `REPORT.md` and `ontology.yml` beside it for reading in a repository.
+- Other tools: `konstruct export` writes OpenLineage events, Mermaid, Graphviz DOT, CSV and Apache Ossie ([exporting](https://kodexlabsio.github.io/konstruct/guide/exporting.html)).
 
 ## Documentation
 

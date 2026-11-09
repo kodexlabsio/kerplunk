@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).parent.parent
 
 
@@ -92,3 +94,66 @@ def test_every_field_of_a_public_result_is_documented() -> None:
                 if not documented:
                     missing.append(f'{module}:{node.name}.{statement.target.id}')
     assert missing == []
+
+
+def _features() -> str:
+    readme = (ROOT / 'README.md').read_text(encoding='utf-8')
+    return readme.split('## Features', 1)[1].split('\n## ', 1)[0]
+
+
+def _bullet(features: str, start: str) -> str:
+    return next(line for line in features.splitlines() if line.startswith(f'- {start}'))
+
+
+def test_the_readme_lists_every_command_and_format() -> None:
+    """The README's feature list names every command, export format, verify warehouse and usage
+    warehouse, and only ontology packs that exist."""
+    import argparse
+
+    from konstruct.analysis.verify import REMOTE
+    from konstruct.inputs.usage import SUPPORTED
+    from konstruct.interfaces.cli import parser
+    from konstruct.outputs.export import FORMATS
+    from konstruct.semantics.registry import load_packs
+
+    features = _features()
+    commands = next(a for a in parser()._actions if isinstance(a, argparse._SubParsersAction)).choices
+    missing = [c for c in commands if f'`konstruct {c}`' not in features]
+    names = {
+        'openlineage': 'OpenLineage',
+        'mermaid': 'Mermaid',
+        'dot': 'Graphviz DOT',
+        'csv': 'CSV',
+        'ossie': 'Ossie',
+    }
+    exports = _bullet(features, 'Other tools')
+    missing += [f'export {f}' for f in FORMATS if f not in names or names[f] not in exports]
+    titles = {'bigquery': 'BigQuery'}
+    verify = _bullet(features, '`konstruct verify`')
+    missing += [f'verify on {w}' for w in REMOTE if titles.get(w, w.capitalize()) not in verify]
+    usage = _bullet(features, 'Column usage')
+    missing += [f'usage from {w}' for w in SUPPORTED if titles.get(w, w.capitalize()) not in usage]
+    assert not missing
+    packs = _bullet(features, 'Ontology packs for ')
+    named = packs.removeprefix('- Ontology packs for ').split(', bound')[0].replace(' and ', ', ').split(', ')
+    from konstruct.semantics.registry import PACKS
+
+    # Every pack the README names exists, and it names every hand-written pack.
+    assert {n.lower() for n in named} <= {p.name for p in load_packs()}, named
+    assert {path.stem for path in PACKS.glob('*.yml')} <= {n.lower() for n in named}, named
+
+
+@pytest.mark.dbt
+def test_the_readme_lists_every_mcp_tool(jaffle_built_graph: Path) -> None:
+    import anyio
+    from mcp import Client
+
+    from konstruct.interfaces.mcp_server import build_server
+
+    async def names() -> list[str]:
+        async with Client(build_server(jaffle_built_graph)) as client:
+            return [t.name for t in (await client.list_tools()).tools]
+
+    tools = anyio.run(names)
+    listed = _bullet(_features(), 'Coding agents')
+    assert tools and [t for t in tools if f'`{t}`' not in listed] == []
