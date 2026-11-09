@@ -74,6 +74,19 @@ def test_duckdb_schema_filter_and_read_only(duck: Path) -> None:
     con.close()
 
 
+def test_duckdb_primary_keys(tmp_path: Path) -> None:
+    path = tmp_path / 'keys.duckdb'
+    con = duckdb.connect(str(path))
+    con.execute('create table customers (customer_id int primary key, email text unique)')
+    con.execute('create table order_lines (order_id int, line int, primary key (order_id, line))')
+    con.execute('create table notes (body text)')
+    con.close()
+    relations = by_name(DuckDBConnector(path).fetch())
+    assert relations['customers'].attrs == {'primary_key': ['customer_id']}
+    assert relations['order_lines'].attrs == {'primary_key': ['order_id', 'line']}
+    assert relations['notes'].attrs == {}
+
+
 # Postgres
 
 
@@ -96,7 +109,12 @@ def postgres_schema() -> Iterator[tuple[str, str]]:
         con.execute(
             f'create materialized view {schema}.customer_count as select count(*) as n from {schema}.customers'
         )
-        con.execute(f'create table {schema}.events (id int, at date) partition by range (at)')
+        con.execute(
+            f'create table {schema}.lines (order_id int, line int, sku text, primary key (line, order_id))'
+        )
+        con.execute(
+            f'create table {schema}.events (id int, at date, primary key (id, at)) partition by range (at)'
+        )
         con.execute(
             f"create table {schema}.events_2026 partition of {schema}.events for values from ('2026-01-01') to ('2027-01-01')"
         )
@@ -111,7 +129,7 @@ def postgres_schema() -> Iterator[tuple[str, str]]:
 def test_postgres_metadata(postgres_schema: tuple[str, str]) -> None:
     dsn, schema = postgres_schema
     relations = by_name(PostgresConnector(dsn, schemas=[schema]).fetch())
-    assert set(relations) == {'customers', 'customer_emails', 'customer_count', 'events'}
+    assert set(relations) == {'customers', 'customer_emails', 'customer_count', 'events', 'lines'}
     customers = relations['customers']
     assert customers.parts[1:] == (schema, 'customers')
     assert customers.comment == 'One row per customer'
@@ -120,6 +138,9 @@ def test_postgres_metadata(postgres_schema: tuple[str, str]) -> None:
         ('email', 'text', 'Contact email. PII.'),
         ('Mixed Case', 'integer', None),
     ]
+    assert customers.attrs == {'primary_key': ['id']}
+    assert relations['lines'].attrs == {'primary_key': ['line', 'order_id']}
+    assert relations['events'].attrs == {'primary_key': ['id', 'at']}
     view = relations['customer_emails']
     assert view.kind == 'view'
     assert view.view_sql is not None

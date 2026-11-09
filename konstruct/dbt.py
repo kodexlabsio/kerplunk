@@ -254,7 +254,25 @@ def _catalog_columns(
     return [(c['name'], c.get('type'), _description(c.get('comment'))) for c in columns if c.get('name')]
 
 
+def _primary_key(item: dict[str, Any]) -> list[str]:
+    """The columns of a model's ``primary_key`` constraint, declared on the model or on its columns."""
+    for constraint in item.get('constraints') or []:
+        if isinstance(constraint, dict) and constraint.get('type') == 'primary_key':
+            return [str(c) for c in constraint.get('columns') or []]
+    return [
+        str(column.get('name', name))
+        for name, column in (item.get('columns') or {}).items()
+        if isinstance(column, dict)
+        and any(
+            isinstance(c, dict) and c.get('type') == 'primary_key' for c in column.get('constraints') or []
+        )
+    ]
+
+
 def _add_columns(graph: Graph, parent: Node, item: dict[str, Any], catalog: dict[str, Any] | None) -> None:
+    primary_key = _primary_key(item)
+    if primary_key:
+        parent.attrs['primary_key'] = primary_key
     documented = {
         name.lower(): col for name, col in (item.get('columns') or {}).items() if isinstance(col, dict)
     }

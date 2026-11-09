@@ -275,3 +275,18 @@ def test_select_nodes_ignores_non_dbt_nodes() -> None:
     graph = Graph()
     graph.add_node(Node('table.x', 'table', 'x'))
     assert dbt.select_nodes(graph, [], []) == []
+
+
+def test_primary_key_constraints() -> None:
+    model = {
+        'constraints': [
+            {'type': 'not_null', 'columns': ['a']},
+            {'type': 'primary_key', 'columns': ['a', 'b']},
+        ]
+    }
+    assert dbt._primary_key(model) == ['a', 'b']
+    column = {'columns': {'id': {'name': 'ID', 'constraints': [{'type': 'primary_key'}]}}}
+    assert dbt._primary_key(column) == ['ID']
+    assert dbt._primary_key({'columns': {'id': {'constraints': [{'type': 'unique'}]}}}) == []
+    both = {'columns': {c: {'constraints': [{'type': 'primary_key'}]} for c in ('order_id', 'line')}}
+    assert dbt._primary_key(both) == ['order_id', 'line']

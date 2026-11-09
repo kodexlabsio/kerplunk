@@ -104,6 +104,14 @@ class DuckDBConnector:
                 columns.setdefault((catalog, schema, table), []).extend(
                     [ColumnMeta(name, dtype, comment), *_duckdb_struct_fields(name, dtype)]
                 )
+            primary_keys = {
+                (row[0], row[1], row[2]): [str(c) for c in row[3]]
+                for row in con.execute(
+                    'select database_name, schema_name, table_name, constraint_column_names '
+                    "from duckdb_constraints() where constraint_type = 'PRIMARY KEY' and database_name = ?",
+                    [current],
+                ).fetchall()
+            }
         finally:
             con.close()
 
@@ -119,6 +127,7 @@ class DuckDBConnector:
                     comment=comment or (view[1] if view else None),
                     columns=columns.get((catalog, schema, table), []),
                     view_sql=view[0] if view else None,
+                    attrs=_primary_key_attrs(primary_keys.get((catalog, schema, table))),
                 )
             )
         return relations
@@ -211,6 +220,17 @@ class PostgresConnector:
             columns: dict[int, list[ColumnMeta]] = {}
             for oid, name, dtype, comment in cur.fetchall():
                 columns.setdefault(oid, []).append(ColumnMeta(name, dtype, comment))
+            cur.execute(
+                """
+                select con.conrelid, array_agg(a.attname order by k.ordinality)
+                from pg_constraint con
+                cross join lateral unnest(con.conkey) with ordinality as k(attnum, ordinality)
+                join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.attnum
+                where con.contype = 'p'
+                group by con.conrelid
+                """
+            )
+            primary_keys: dict[int, list[str]] = {oid: list(names) for oid, names in cur.fetchall()}
 
         relations = []
         for database, schema, table, kind, comment, view_sql, oid in tables:
@@ -225,9 +245,14 @@ class PostgresConnector:
                     view_sql=f'create view {_quote_pg(schema)}.{_quote_pg(table)} as {view_sql}'
                     if view_sql
                     else None,
+                    attrs=_primary_key_attrs(primary_keys.get(oid)),
                 )
             )
         return relations
+
+
+def _primary_key_attrs(columns: list[str] | None) -> dict[str, Any]:
+    return {'primary_key': columns} if columns else {}
 
 
 def _quote_pg(name: str) -> str:
