@@ -50,3 +50,7 @@ Orchestration (2)
 
 Business terms (1)
   Payment method  [term, draft]  definitions.yml
+
+Business entities (2)
+  order: orders
+  payment: stg_payments

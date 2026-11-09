@@ -34,3 +34,8 @@ Orchestration (2)
 Business terms (2)
   Customer lifetime value  [term, approved]  definitions.yml
   Order amount  [term, approved]  definitions.yml
+
+Business entities (3)
+  customer: customers
+  order: orders
+  payment: stg_payments

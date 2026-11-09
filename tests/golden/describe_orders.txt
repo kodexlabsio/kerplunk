@@ -8,6 +8,7 @@ orders (model)
   materialized: table
   table type: table
   in warehouse: True
+  entities: order
 
 Columns (9)
   order_id              INTEGER  This is a unique identifier for an order

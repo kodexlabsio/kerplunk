@@ -1929,6 +1929,16 @@ def build(config: Config, *, update: bool = False) -> BuildResult:
     # The ontology's own rules are build warnings, so they reach graph.json and REPORT.md and
     # `--strict` fails on them; the rules it carries over from definitions.yml already are.
     ontology = derive_ontology(graph)
+    # Each relation that holds one row per instance of an entity records it, so impact and trace
+    # can say which business entities a change reaches without deriving the ontology again.
+    held: dict[str, set[str]] = {}
+    for entity in ontology.entities:
+        for key in entity.key_ids:
+            column = graph.nodes.get(key)
+            if column is not None and column.parent in graph.nodes:
+                held.setdefault(column.parent, set()).add(entity.name)
+    for relation_id, entity_names in held.items():
+        graph.nodes[relation_id].attrs['entities'] = sorted(entity_names)
     for rule in ontology.rules:
         if rule.name not in ('bound-columns-exist', 'approved-terms-are-owned'):
             for violation in rule.violations:

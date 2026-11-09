@@ -44,14 +44,16 @@ def build_server(root: Path) -> MCPServer:
     @server.tool()
     def impact(ref: str, max_depth: int | None = None) -> dict[str, Any]:
         """Everything downstream of a table, model or column (e.g. `orders` or `orders.amount`):
-        derived columns, relations, models that join or filter on it, tests, exposures and the
-        orchestration tasks that run them. Use before renaming, dropping or changing it."""
+        derived columns, relations, models that join or filter on it, tests, exposures, the
+        orchestration tasks that run them and the business entities it touches. Use before
+        renaming, dropping or changing it."""
         return run(project.impact, ref, max_depth)
 
     @server.tool()
     def trace(ref: str, max_depth: int | None = None) -> dict[str, Any]:
         """Everything upstream of a table, model or column: the source columns it is derived from,
-        each marked direct (passed through or renamed) or transformed, and the tasks that build it."""
+        each marked direct (passed through or renamed) or transformed, the tasks that build it and
+        the business entities involved."""
         return run(project.trace, ref, max_depth)
 
     @server.tool()

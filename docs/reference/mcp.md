@@ -4,8 +4,8 @@
 
 | Tool | Arguments | What it returns |
 |------|-----------|-----------------|
-| `impact` | `ref`, `max_depth=None` | Everything downstream of a table, model or column (e.g. `orders` or `orders.amount`): derived columns, relations, models that join or filter on it, tests, exposures and the orchestration tasks that run them. Use before renaming, dropping or changing it. |
-| `trace` | `ref`, `max_depth=None` | Everything upstream of a table, model or column: the source columns it is derived from, each marked direct (passed through or renamed) or transformed, and the tasks that build it. |
+| `impact` | `ref`, `max_depth=None` | Everything downstream of a table, model or column (e.g. `orders` or `orders.amount`): derived columns, relations, models that join or filter on it, tests, exposures, the orchestration tasks that run them and the business entities it touches. Use before renaming, dropping or changing it. |
+| `trace` | `ref`, `max_depth=None` | Everything upstream of a table, model or column: the source columns it is derived from, each marked direct (passed through or renamed) or transformed, the tasks that build it and the business entities involved. |
 | `search` | `text`, `limit=20`, `kinds=None` | Find nodes whose names or descriptions match the words in `text`. `kinds` limits the results to node kinds: source, table, column, model, seed, snapshot, dag, task, test, exposure. |
 | `describe` | `ref` | One node in detail: description, path, columns with types and descriptions, tests, immediate upstream and downstream neighbours, and for tasks what they run. |
 | `conflicts` | `limit=20` | Columns that appear to measure the same business idea (by name, synonyms or a shared business term) but are computed differently: each pair with its formula in terms of sources, and exactly what differs (source columns, filters, joins, aggregation) with the file each lives in, ranked by how much depends on them downstream. |

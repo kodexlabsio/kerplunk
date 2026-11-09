@@ -23,3 +23,7 @@ Orchestration (5)
 
 Business terms (1)
   Customer lifetime value  [term, approved]  definitions.yml
+
+Business entities (2)
+  customer: customers
+  payment: stg_payments

@@ -38,3 +38,7 @@ Orchestration (4)
 
 Business terms (1)
   Completed order  [term, agreed]  definitions.yml
+
+Business entities (2)
+  customer: customers
+  order: orders, stg_orders

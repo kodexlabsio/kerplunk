@@ -166,6 +166,9 @@ class Walk:
     """Orchestration tasks that read, write or run anything reached."""
     terms: list[Item] = field(default_factory=list)
     """Business terms bound to the target or, downstream, to anything reached."""
+    entities: dict[str, list[str]] = field(default_factory=dict)
+    """The business entities (from the ontology) whose relations the walk reaches, each with
+    those relations by label: which business objects a change touches."""
 
     SECTIONS = (
         ('columns', 'Columns'),
@@ -205,6 +208,7 @@ class Walk:
         data: dict[str, Any] = {'direction': self.direction, 'target': self.target.to_dict()}
         for key, _ in self.SECTIONS:
             data[key] = [i.to_dict() for i in getattr(self, key)]
+        data['entities'] = self.entities
         data['total'] = self.total
         data['summary'] = self.summary()
         return data
@@ -219,6 +223,9 @@ class Walk:
             items: list[Item] = getattr(self, key)
             if items:
                 lines += ['', f'{heading} ({len(items)})', *(f'  {i}' for i in items)]
+        if self.entities:
+            lines += ['', f'Business entities ({len(self.entities)})']
+            lines += [f'  {name}: {", ".join(relations)}' for name, relations in self.entities.items()]
         return '\n'.join(lines)
 
 
@@ -256,6 +263,17 @@ def _walk(graph: Graph, start: Node, steps: list[Step], direction: Literal['down
         reached |= {s.node.id for s in steps} | relation_ids
     terms = {e.source for target in reached for e in graph.in_edges(target, 'defines')}
     walk.terms = [item(graph, graph.nodes[t]) for t in sorted(terms)]
+    # The business entities whose relations the walk reaches, the start's own included.
+    own: str | None = start.parent if start.kind == 'column' else start.id
+    touched = {own or '', *relation_ids, *listed}
+    entities: dict[str, set[str]] = {}
+    for relation_id in touched:
+        relation = graph.nodes.get(relation_id)
+        if relation is None:
+            continue
+        for name in relation.attrs.get('entities') or []:
+            entities.setdefault(str(name), set()).add(graph.label(relation))
+    walk.entities = {name: sorted(entities[name]) for name in sorted(entities)}
     return walk
 
 

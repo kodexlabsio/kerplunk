@@ -525,3 +525,40 @@ def test_the_example_ontology_is_the_same_in_any_order(jaffle_built_graph: Path)
     for edge in reversed(graph.edges):
         reordered.add_edge(edge.source, edge.target, edge.kind, **edge.attrs)
     assert derive(reordered).to_yaml() == derive(graph).to_yaml()
+
+
+@pytest.mark.dbt
+def test_impact_and_trace_name_the_business_entities_they_reach(jaffle_built_graph: Path) -> None:
+    project = Project(jaffle_built_graph)
+    impact = project.impact('stg_payments.amount')
+    assert impact.entities == {'customer': ['customers'], 'order': ['orders'], 'payment': ['stg_payments']}
+    assert '\nBusiness entities (3)\n  customer: customers\n' in str(impact)
+    assert impact.to_dict()['entities']['order'] == ['orders']
+    trace = project.trace('customers.customer_lifetime_value')
+    assert set(trace.entities) == {'customer', 'payment'}
+    assert Project(jaffle_built_graph).impact('raw_customers').entities == {
+        'customer': ['customers', 'stg_customers']
+    }
+
+
+def test_a_relation_can_hold_several_entities(tmp_path: Path) -> None:
+    (tmp_path / 'build.sql').write_text(
+        'create table main.orders as select o.order_id, o.invoice_id, o.customer_id, o.amount from raw.orders o;\n'
+        'create table main.users as select user_id, name from raw.users;\n'
+        'create table main.accounts as select account_id, user_id, plan from raw.accounts;\n'
+    )
+    (tmp_path / 'definitions.yml').write_text(
+        'terms:\n'
+        '  - {name: Order, kind: entity, definition: A sale., columns: [main.orders.order_id]}\n'
+        '  - {name: Invoice, kind: entity, definition: A bill., columns: [main.orders.invoice_id]}\n'
+        '  - {name: Account, kind: entity, definition: A login., columns: [main.accounts.account_id]}\n'
+        '  - name: User\n'
+        '    kind: entity\n'
+        '    definition: A person.\n'
+        '    columns: [main.users.user_id, main.accounts.user_id]\n'
+    )
+    project = Project(tmp_path)
+    project.build(dialect='duckdb', warehouses=False, run_dbt=False)
+    assert project.impact('raw.orders.invoice_id').entities == {'invoice': ['orders'], 'order': ['orders']}
+    # A key that is also another entity's foreign key keeps the relation's own entity.
+    assert project.impact('raw.accounts.plan').entities == {'account': ['accounts'], 'user': ['accounts']}
