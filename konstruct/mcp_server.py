@@ -96,10 +96,11 @@ def build_server(root: Path) -> MCPServer:
 
     @server.tool()
     def diff(base: str | None = None, head: str | None = None) -> dict[str, Any]:
-        """What the current branch changes, column by column, compared with `base` (default: the
-        merge base with main): columns added, removed or changed with their expressions before and
-        after, changed join and filter conditions, removed columns still read downstream (breaking),
-        changed DAG tasks, and the downstream impact of each change. Use before proposing a merge."""
+        """What the current branch changes, column by column, compared with `base` (a commit, or a
+        date such as 2026-10-01 for the last commit before its start; default: the merge base with
+        main): columns added, removed or changed with their expressions before and after, changed
+        join and filter conditions, removed columns still read downstream (breaking), changed DAG
+        tasks, and the downstream impact of each change. Use before proposing a merge."""
         from konstruct.diff import DiffError
 
         try:

@@ -558,9 +558,11 @@ def parser() -> argparse.ArgumentParser:
 
     diff = add('diff', 'what a change does, column by column, compared with a base commit (git)')
     diff.add_argument(
-        '--base', metavar='REF', help='commit to compare with (default: the merge base with main)'
+        '--base',
+        metavar='REF',
+        help='commit or date (2026-10-01) to compare with (default: the merge base with main)',
     )
-    diff.add_argument('--head', metavar='REF', help='commit to compare (default: the working tree)')
+    diff.add_argument('--head', metavar='REF', help='commit or date to compare (default: the working tree)')
     diff.add_argument(
         '--format',
         choices=['text', 'markdown', 'json', 'selector'],

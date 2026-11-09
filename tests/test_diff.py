@@ -271,6 +271,29 @@ def test_comparing_two_commits_and_the_default_base(repo: Path) -> None:
     assert default_base(repo) == 'HEAD'
 
 
+def test_comparing_with_a_date(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    base = git(repo, 'rev-parse', 'HEAD').strip()
+    (repo / 'sql' / 'ltv.sql').write_text(BASE_LTV.replace('count(*)', 'count(distinct status)'))
+    # Made on the date itself: a date alone means its start, whatever the time of day now.
+    monkeypatch.setenv('GIT_COMMITTER_DATE', '2030-01-01T00:30:00')
+    monkeypatch.setenv('GIT_AUTHOR_DATE', '2030-01-01T00:30:00')
+    git(repo, 'commit', '-qam', 'change')
+    result = Project(repo).diff(base='2030-01-01', head='HEAD')
+    assert (result.base, result.base_commit, result.head_commit) == ('2030-01-01', base, None)
+    assert result.shown_base == f'2030-01-01 ({base[:7]})'
+    assert result.to_dict()['base'] == '2030-01-01'
+    assert [c.column for r in result.relations for c in r.columns] == ['orders']
+    assert Project(repo).diff(base='2030-01-01 01:00', head='HEAD').summary() == (
+        'No change to models, SQL or DAGs.'
+    )
+    with pytest.raises(DiffError, match='no commit on this branch before 1999-01-01'):
+        Project(repo).diff(base='1999-01-01')
+    with pytest.raises(DiffError, match='2030-13-45 is not a valid date'):
+        Project(repo).diff(base='2030-13-45')
+    git(repo, 'tag', '1999-01-01', base)
+    assert Project(repo).diff(base='1999-01-01', head='HEAD').base_commit is None
+
+
 def test_outside_git(tmp_path: Path) -> None:
     (tmp_path / 'x.sql').write_text('create table b as select a from t')
     project = Project(tmp_path)

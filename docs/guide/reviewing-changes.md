@@ -2,6 +2,8 @@
 
 `konstruct diff` answers "what does this branch do to the data?" For each dbt model, SQL file and DAG file that changed, it analyses the base and current versions and compares each output column's canonical expression: the expression with every CTE, subquery and alias inlined down to physical columns. Reformatting, renaming a CTE or reordering columns is therefore not a change, and a real change is shown in full. Join, filter and grouping conditions are compared the same way. A removed column is breaking when a downstream model's current SQL still reads it, so a change that also updates its consumers is not flagged.
 
+The base is the merge base with main unless `--base` names another commit or a date: `konstruct diff --base 2026-10-01 --head HEAD` shows what changed in the data stack since the first of October, column by column, taking the last commit on the current branch before that date begins. A date and time (`2026-10-01 14:30`) is also accepted; both are read in the machine's local time zone, and a branch or tag named like a date is taken as that ref. JSON output keeps the date as `base` and gives the commit it stands for as `base_commit`.
+
 ![konstruct diff on a branch of the example project](../images/demo-diff.gif)
 
 ```text

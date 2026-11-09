@@ -17,8 +17,10 @@ conditions. It then reports:
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +45,29 @@ def _git(root: Path, *args: str, check: bool = True) -> str:
     if check and result.returncode != 0:
         raise DiffError(f'git {" ".join(args)} failed: {result.stderr.strip() or result.stdout.strip()}')
     return result.stdout
+
+
+_DATE = re.compile(r'^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$')
+
+
+def resolve_ref(root: Path, ref: str) -> str:
+    """``ref`` as git takes it, or for a date (``2026-10-01``, ``2026-10-01 14:30``) the last
+    commit on the current branch's history made before it, so a change can be reviewed since a
+    point in time. A date alone means midnight at its start, in the machine's local time zone; a
+    branch or tag named like a date is taken as that ref."""
+    if not _DATE.match(ref) or _git(
+        root, 'rev-parse', '--verify', '--quiet', f'{ref}^{{commit}}', check=False
+    ):
+        return ref
+    try:
+        moment = datetime.fromisoformat(ref)
+    except ValueError:
+        raise DiffError(f'{ref} is not a valid date') from None
+    before = moment.strftime('%Y-%m-%d %H:%M:%S')
+    commit = _git(root, 'rev-list', '-1', '--first-parent', f'--before={before}', 'HEAD', check=False).strip()
+    if not commit:
+        raise DiffError(f'no commit on this branch before {ref}')
+    return commit
 
 
 def default_base(root: Path) -> str:
@@ -413,6 +438,10 @@ class Diff:
     """The commit compared, or ``working tree``."""
     files: dict[str, str]
     """Every changed file."""
+    base_commit: str | None = None
+    """The commit a date given as ``base`` stands for."""
+    head_commit: str | None = None
+    """The commit a date given as ``head`` stands for."""
     selection: Selection = field(default_factory=Selection)
     """The column-aware dbt selection for the change."""
     relations: list[RelationChange] = field(default_factory=list)
@@ -425,6 +454,16 @@ class Diff:
     """Changes to dbt YAML."""
     definitions: list[DefinitionsChange] = field(default_factory=list)
     """Changes to definitions.yml."""
+
+    @property
+    def shown_base(self) -> str:
+        """``base``, with the commit a date stands for (``2026-10-01 (abc1234)``)."""
+        return f'{self.base} ({self.base_commit[:7]})' if self.base_commit else self.base
+
+    @property
+    def shown_head(self) -> str:
+        """``head``, with the commit a date stands for."""
+        return f'{self.head} ({self.head_commit[:7]})' if self.head_commit else self.head
 
     @property
     def source_files(self) -> list[str]:
@@ -506,6 +545,8 @@ class Diff:
         return {
             'base': self.base,
             'head': self.head,
+            **({'base_commit': self.base_commit} if self.base_commit else {}),
+            **({'head_commit': self.head_commit} if self.head_commit else {}),
             'summary': self.summary(),
             'counts': self.counts(),
             'breaking': [
@@ -534,7 +575,7 @@ class Diff:
 
     def __str__(self) -> str:
         lines = [
-            f'konstruct diff  {self.base}..{self.head}  ({len(self.source_files)} file{"s" if len(self.source_files) != 1 else ""} changed)',
+            f'konstruct diff  {self.shown_base}..{self.shown_head}  ({len(self.source_files)} file{"s" if len(self.source_files) != 1 else ""} changed)',
             '',
         ]
         lines.append(self.summary())
@@ -644,7 +685,7 @@ class Diff:
         if self.selection.modified_plus:
             lines += [f'**dbt:** {self.selection.summary()}', '', f'```\n{self.selection.command()}\n```', '']
         lines.append(
-            f'<sub>{c["files"]} file{"s" if c["files"] != 1 else ""} compared between `{self.base}` and `{self.head}` by Konstruct. '
+            f'<sub>{c["files"]} file{"s" if c["files"] != 1 else ""} compared between `{self.shown_base}` and `{self.shown_head}` by Konstruct. '
             'Expressions are compared with CTEs and aliases inlined, so formatting and renames do not count.</sub>'
         )
         return '\n'.join(lines) + '\n'
@@ -709,9 +750,17 @@ class _Context:
 def diff(graph: Graph, root: Path, *, base: str | None = None, head: str | None = None) -> Diff:
     """Compare ``base`` (default: the merge base with main) with ``head`` (default: the working tree)."""
     repository = Path(_git(root, 'rev-parse', '--show-toplevel').strip())
-    base = base or default_base(root)
+    given_base, given_head = base, head
+    base = resolve_ref(root, base) if base else default_base(root)
+    head = resolve_ref(root, head) if head else None
     files = changed_files(root, base, head)
-    result = Diff(base=base, head=head or 'working tree', files=files)
+    result = Diff(
+        base=given_base or base,
+        head=given_head or 'working tree',
+        files=files,
+        base_commit=base if given_base and base != given_base else None,
+        head_commit=head if given_head and head != given_head else None,
+    )
     context = _Context(graph, root)
     prefix = root.resolve().relative_to(repository.resolve())
     by_path: dict[str, list[Node]] = {}
