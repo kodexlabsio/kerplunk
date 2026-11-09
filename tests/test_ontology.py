@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import textwrap
 from pathlib import Path
 
@@ -279,9 +280,9 @@ def test_cli_text_yaml_json_and_strict(tmp_path: Path, capsys: pytest.CaptureFix
     capsys.readouterr()
     assert main(['ontology', '-C', str(tmp_path)]) == 0
     text = capsys.readouterr().out
-    assert text.startswith('1 entity, 1 measure, 0 relationships, 1 rule violation.')
-    assert '  customer  key customer_id: customers  (term ' in text
-    assert '    orders.amount = orders.amount * 2  verified 0/1' in text
+    assert text.startswith('Ontology: 1 entity, 1 measure, 0 relationships, 1 rule violation.\n')
+    assert re.search(r"^  customer  key customer_id  customers  term '", text, re.M)
+    assert '    orders.amount  = orders.amount * 2  verified 0/1\n' in text
     assert main(['ontology', '-C', str(tmp_path), '--format', 'yaml']) == 0
     assert yaml.safe_load(capsys.readouterr().out)['entities'][0]['key'] == 'customer_id'
     assert main(['ontology', '-C', str(tmp_path), '--json']) == 0
@@ -532,7 +533,7 @@ def test_impact_and_trace_name_the_business_entities_they_reach(jaffle_built_gra
     project = Project(jaffle_built_graph)
     impact = project.impact('stg_payments.amount')
     assert impact.entities == {'customer': ['customers'], 'order': ['orders'], 'payment': ['stg_payments']}
-    assert '\nBusiness entities (3)\n  customer: customers\n' in str(impact)
+    assert '\nBusiness entities (3)\n  customer  customers\n' in str(impact)
     assert impact.to_dict()['entities']['order'] == ['orders']
     trace = project.trace('customers.customer_lifetime_value')
     assert set(trace.entities) == {'customer', 'payment'}

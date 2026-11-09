@@ -152,33 +152,9 @@ class Verification:
         return '\n'.join(lines)
 
     def __str__(self) -> str:
-        header = (
-            f'Verified against {self.warehouse} (seed {self.seed}, strategies {", ".join(self.strategies)}, '
-            f'up to {self.max_rows} rows per input)'
-        )
-        width = max([len(m.label) for m in self.models] + [5])
-        rows = [
-            f'  {"model".ljust(width)}  claimed  confirmed  not exercised  via joins/filters  unexplained',
-        ]
-        for m in self.models:
-            if m.skipped:
-                rows.append(f'  {m.label.ljust(width)}  skipped: {m.skipped}')
-                continue
-            rows.append(
-                f'  {m.label.ljust(width)}  {m.claimed:>7}  {len(m.confirmed):>9}  {len(m.not_exercised):>13}  '
-                f'{len(m.through_references):>17}  {len(m.unexplained):>11}'
-            )
-        details = []
-        for m in self.checked:
-            for kind, items in (('unexplained', m.unexplained), ('not exercised', m.not_exercised)):
-                for output, source in items:
-                    details.append(f'  {m.label}.{output} <- {source}  ({kind})')
-        text = [header, '', *rows, '', self.summary()]
-        if details:
-            text += ['', *details[:40]]
-            if len(details) > 40:
-                text.append(f'  and {len(details) - 40} more in VERIFY.md')
-        return '\n'.join(text)
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
     def markdown(self) -> str:
         t = self.totals()

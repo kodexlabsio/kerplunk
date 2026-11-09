@@ -194,48 +194,9 @@ class Ontology:
         return [f'{rule.name}: {v}' for rule in self.rules for v in rule.violations]
 
     def __str__(self) -> str:
-        lines = [
-            f'{len(self.entities)} entit{"y" if len(self.entities) == 1 else "ies"}, '
-            f'{len(self.measures)} measure{"" if len(self.measures) == 1 else "s"}, '
-            f'{len(self.relationships)} relationship{"" if len(self.relationships) == 1 else "s"}, '
-            f'{len(self.violations)} rule violation{"" if len(self.violations) == 1 else "s"}.'
-        ]
-        if self.entities:
-            lines += ['', 'Entities']
-            for entity in self.entities:
-                named = f'  (term {entity.term!r})' if entity.term else ''
-                lines.append(f'  {entity.name}  key {entity.key}: {", ".join(entity.relations)}{named}')
-        if self.measures:
-            lines += ['', 'Measures']
-            for measure in self.measures:
-                about = ', '.join(x for x in (measure.status, measure.owner, measure.grain) if x)
-                lines.append(f'  {measure.name}  [{about}]')
-                if measure.expression:
-                    lines.append(
-                        f'    = {measure.expression}  (reads {", ".join(c.column for c in measure.columns) or "no column"})'
-                    )
-                # A metric's columns are its inputs, already listed with its expression.
-                for column in [] if measure.expression else measure.columns:
-                    checked = f'  verified {column.verified}/{column.edges}' if column.edges else ''
-                    partial = '  (partial)' if not column.complete else ''
-                    lines.append(f'    {column.column} = {column.formula or "?"}{checked}{partial}')
-        if self.relationships:
-            lines += ['', 'Relationships']
-            for rel in self.relationships:
-                tested = '  (tested)' if rel.tested else ''
-                cardinality = rel.cardinality or 'cardinality unknown'
-                lines.append(f'  {rel.source} -> {rel.target}  {cardinality}  {rel.via}{tested}')
-        if self.concepts:
-            lines += ['', 'Concepts']
-            for concept in self.concepts:
-                if concept.broader:
-                    lines.append(f'  {concept.name}  a kind of {", ".join(concept.broader)}')
-        broken = [rule for rule in self.rules if rule.violations]
-        if broken:
-            lines += ['', 'Rule violations']
-            for rule in broken:
-                lines += [f'  {rule.name}: {v}' for v in rule.violations]
-        return '\n'.join(lines)
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
     def to_dict(self) -> dict[str, Any]:
         return {

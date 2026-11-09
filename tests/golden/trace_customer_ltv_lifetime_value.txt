@@ -1,29 +1,30 @@
-Upstream of customer_ltv.lifetime_value (table)
+Upstream of customer_ltv.lifetime_value (table, DOUBLE)
 3 columns, 3 relations, 5 tasks and 1 business term upstream.
 
-Columns (3)
-   1  customers.customer_lifetime_value  [model, DOUBLE, direct, via jaffle_shop_daily.build_customer_ltv]  models/customers.sql
-   2  stg_payments.amount  [model, DOUBLE, transformed]  models/staging/stg_payments.sql
-   3  raw_payments.amount  [seed, INTEGER, transformed]  seeds/raw_payments.csv
+Lineage
+  customer_ltv.lifetime_value                        table  DOUBLE
+  `- customers.customer_lifetime_value  direct       model  DOUBLE   models/customers.sql  via jaffle_shop_daily.build_customer_ltv
+     `- stg_payments.amount             transformed  model  DOUBLE   models/staging/stg_payments.sql
+        `- raw_payments.amount          transformed  seed   INTEGER  seeds/raw_payments.csv
 
 Relations (3)
-  customers  [model]  models/customers.sql
-  stg_payments  [model]  models/staging/stg_payments.sql
-  raw_payments  [seed]  seeds/raw_payments.csv
+  customers     model  models/customers.sql
+  stg_payments  model  models/staging/stg_payments.sql
+  raw_payments  seed   seeds/raw_payments.csv
 
 Columns that filter or join its relation (1)
-  customers.customer_lifetime_value  [model, DOUBLE]  models/customers.sql
+  customers.customer_lifetime_value  model  DOUBLE  models/customers.sql
 
 Orchestration (5)
-   1  jaffle_shop_daily.build_customer_ltv  [task]  dags/jaffle_shop_daily.py
-   1  jaffle_shop_daily.notify_crm  [task]  dags/jaffle_shop_daily.py
-   2  jaffle_shop_daily.dbt_run_marts  [task, run]  dags/jaffle_shop_daily.py
-   3  jaffle_shop_daily.dbt_run_staging  [task, run]  dags/jaffle_shop_daily.py
-   4  jaffle_shop_daily.dbt_seed  [task, seed]  dags/jaffle_shop_daily.py
+  1  jaffle_shop_daily.build_customer_ltv        dags/jaffle_shop_daily.py
+  1  jaffle_shop_daily.notify_crm                dags/jaffle_shop_daily.py
+  2  jaffle_shop_daily.dbt_run_marts       run   dags/jaffle_shop_daily.py
+  3  jaffle_shop_daily.dbt_run_staging     run   dags/jaffle_shop_daily.py
+  4  jaffle_shop_daily.dbt_seed            seed  dags/jaffle_shop_daily.py
 
 Business terms (1)
-  Customer lifetime value  [term, approved]  definitions.yml
+  Customer lifetime value  approved  definitions.yml
 
 Business entities (2)
-  customer: customers
-  payment: stg_payments
+  customer  customers
+  payment   stg_payments

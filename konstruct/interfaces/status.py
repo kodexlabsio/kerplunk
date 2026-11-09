@@ -129,9 +129,9 @@ class Status:
         return rows
 
     def __str__(self) -> str:
-        return '\n'.join(
-            f'{key:<12} {value}' if len(key) >= 12 else f'{key:<12}{value}' for key, value in self.lines()
-        )
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
 
 def _files(files: list[str], noun: str) -> str:

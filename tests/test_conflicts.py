@@ -154,7 +154,7 @@ def test_command_files_and_formats(tmp_path: Path, capsys: pytest.CaptureFixture
     out = capsys.readouterr().out
     assert out.startswith('1 conflicting definition among 5 computed columns.')
     assert (
-        "filter only in daily_revenue.revenue: WHERE: orders.status = 'completed'  (finance/revenue.sql)"
+        "filter only in daily_revenue.revenue: WHERE orders.status = 'completed'  (finance/revenue.sql)"
         in out
     )
     report = (tmp_path / 'konstruct-out' / 'CONFLICTS.md').read_text()

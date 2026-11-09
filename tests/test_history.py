@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -122,10 +123,12 @@ def test_renamed_files_are_followed(repository: Path) -> None:
 def test_the_command(repository: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(['history', 'ltv.total', '-C', str(repository)]) == 0
     out = capsys.readouterr().out
-    assert out.splitlines()[0].startswith('ltv.total: 2 formula changes')
-    assert 'Grace: Approve lifetime value' in out
-    assert "term 'lifetime value': status draft -> approved" in out
-    assert '    was: SUM(orders.amount)' in out and '    now: SUM(orders.amount - orders.refund)' in out
+    assert out.splitlines()[0] == 'History of ltv.total (ltv.sql)'
+    assert out.splitlines()[1].startswith('2 formula changes')
+    assert re.search(r'  Grace  Approve lifetime value$', out, re.M)
+    assert "    term  'lifetime value'  owner   Ada -> Grace\n" in out
+    assert re.search(r'^ +status +draft -> approved$', out, re.M)
+    assert '    was  SUM(orders.amount)\n' in out and '    now  SUM(orders.amount - orders.refund)\n' in out
 
 
 def test_not_a_column_or_not_a_repository(tmp_path: Path) -> None:

@@ -1,8 +1,8 @@
-Customer lifetime value  [term, approved]  definitions.yml
-      Total value of every payment a customer has made, across all orders and payment methods, in Australian dollars.
-customers.customer_lifetime_value  [model, DOUBLE]  models/customers.sql
-customer_ltv.lifetime_value  [table, DOUBLE]
-Order amount  [term, approved]  definitions.yml
-      Total of all payments recorded against an order, in Australian dollars.
-customer_dashboard  [exposure]  models/exposures.yml
-      Weekly view of customers, their orders and lifetime value.
+Customer lifetime value            term          approved  definitions.yml
+    Total value of every payment a customer has made, across all orders and payment methods, in Australian dollars.
+customers.customer_lifetime_value  model DOUBLE            models/customers.sql
+customer_ltv.lifetime_value        table DOUBLE
+Order amount                       term          approved  definitions.yml
+    Total of all payments recorded against an order, in Australian dollars.
+customer_dashboard                 exposure                models/exposures.yml
+    Weekly view of customers, their orders and lifetime value.

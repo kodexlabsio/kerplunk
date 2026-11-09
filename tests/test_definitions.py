@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import textwrap
@@ -189,8 +190,10 @@ def test_define_by_name_synonym_and_column(project: Project) -> None:
     with pytest.raises(QueryError, match="no term or column matches 'gross margin'"):
         project.define('gross margin')
     text = str(by_synonym)
-    assert 'Customer lifetime value  [approved, Priya Shah (Head of Finance), approved 2026-10-30]' in text
-    assert 'also called: lifetime value, LTV, CLV' in text
+    assert text.startswith('Customer lifetime value  approved\n')
+    assert re.search(r'^  owner +Priya Shah \(Head of Finance\)$', text, re.M)
+    assert re.search(r'^  approved +2026-10-30$', text, re.M)
+    assert re.search(r'^  also called +lifetime value, LTV, CLV$', text, re.M)
     assert json.loads(json.dumps(by_synonym.to_dict()))['terms'][0]['currency'] == 'AUD'
 
 
@@ -203,7 +206,8 @@ def test_terms_in_describe_search_query_and_impact(project: Project) -> None:
     assert term.defines == ['customer_ltv.lifetime_value', 'customers.customer_lifetime_value']
     assert term.related == ['Customer', 'Order amount']
     text = str(term)
-    assert 'owner: Priya Shah (Head of Finance)' in text and 'synonyms: lifetime value, LTV, CLV' in text
+    assert re.search(r'^  owner +Priya Shah \(Head of Finance\)$', text, re.M)
+    assert re.search(r'^  synonyms +lifetime value, LTV, CLV$', text, re.M)
     assert project.search('ltv').results[0].label == 'Customer lifetime value'
     answer = project.query('what is lifetime value')
     assert [d.name for d in answer.definitions] == ['Customer lifetime value']
@@ -217,7 +221,7 @@ def test_terms_in_describe_search_query_and_impact(project: Project) -> None:
 @pytest.mark.dbt
 def test_define_on_the_command_line(project: Project, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(['define', 'lifetime', 'value', '-C', str(project.path)]) == 0
-    assert capsys.readouterr().out.startswith('Customer lifetime value  [approved')
+    assert capsys.readouterr().out.startswith('Customer lifetime value  approved\n')
     assert main(['define', 'stg_orders.status', '-C', str(project.path)]) == 3
     assert main(['define', 'LTV', '-C', str(project.path), '--json']) == 0
     assert (

@@ -1,9 +1,9 @@
-customers      model     models/customers.sql
-orders         model     models/orders.sql
-stg_customers  model     models/staging/stg_customers.sql
-stg_orders     model     models/staging/stg_orders.sql
-stg_payments   model     models/staging/stg_payments.sql
-raw_customers  seed      seeds/raw_customers.csv
-raw_orders     seed      seeds/raw_orders.csv
-raw_payments   seed      seeds/raw_payments.csv
+customers      model  models/customers.sql
+orders         model  models/orders.sql
+stg_customers  model  models/staging/stg_customers.sql
+stg_orders     model  models/staging/stg_orders.sql
+stg_payments   model  models/staging/stg_payments.sql
+raw_customers  seed   seeds/raw_customers.csv
+raw_orders     seed   seeds/raw_orders.csv
+raw_payments   seed   seeds/raw_payments.csv
 customer_ltv   table

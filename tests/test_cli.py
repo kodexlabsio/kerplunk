@@ -60,13 +60,13 @@ def test_query_commands(jaffle_built_graph: Path, capsys: pytest.CaptureFixture[
     code, out, _ = run(capsys, 'impact', 'stg_payments.amount', '-C', project)
     assert code == 0
     assert out.splitlines()[:2] == [
-        'Downstream of stg_payments.amount (model)',
+        'Downstream of stg_payments.amount (model, DOUBLE)',
         '7 columns, 3 relations, 5 tests, 1 exposure, 2 tasks and 2 business terms downstream.',
     ]
     code, out, _ = run(capsys, '-C', project, 'trace', 'orders.amount', '--json')
     assert code == 0 and json.loads(out)['direction'] == 'upstream'
     code, out, _ = run(capsys, 'path', 'raw_orders', 'orders', '--project', project)
-    assert code == 0 and '-feeds-> orders (model)' in out
+    assert code == 0 and '  v feeds\n  orders      model' in out
     code, out, _ = run(capsys, 'search', 'lifetime', 'value', '-C', project, '-n', '1')
     assert code == 0 and out.startswith('Customer lifetime value')
     graph_file = str(jaffle_built_graph / 'konstruct-out' / 'graph.json')
@@ -99,7 +99,7 @@ def test_query_commands_build_a_missing_graph(tmp_path: Path, capsys: pytest.Cap
     code, out, err = run(capsys, 'trace', 't2.b', '-C', str(tmp_path))
     assert code == 0
     assert 'no graph yet; building' in err
-    assert 't1.a  [table, transformed' in out
+    assert '`- t1.a  transformed  table' in out
 
 
 def test_stale_graphs_are_reported_and_refreshed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

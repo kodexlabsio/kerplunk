@@ -1,56 +1,58 @@
 Definitions
-  Payment method  [draft, no owner]
+  Payment method  draft
     How a payment was made, as recorded by the payment provider.
-    defined in: definitions.yml:49
-    columns:
-      stg_payments.payment_method  VARCHAR
+
+    owner       no owner
+    defined in  definitions.yml:49
+    columns     stg_payments.payment_method  VARCHAR
 
 Best matches
-  Payment method  [term, draft]  definitions.yml
+  Payment method               term           draft  definitions.yml
       How a payment was made, as recorded by the payment provider.
-  raw_payments.payment_method  [seed, VARCHAR]  seeds/raw_payments.csv
-  stg_payments.payment_method  [model, VARCHAR]  models/staging/stg_payments.sql
+  raw_payments.payment_method  seed VARCHAR          seeds/raw_payments.csv
+  stg_payments.payment_method  model VARCHAR         models/staging/stg_payments.sql
 
-Connections
-  Payment method -defines-> stg_payments.payment_method
-  stg_payments.payment_method -derived_from-> raw_payments.payment_method (direct)
-  accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card -tests-> stg_payments.payment_method
-  orders.credit_card_amount -derived_from-> stg_payments.payment_method (transformed)
-  orders.coupon_amount -derived_from-> stg_payments.payment_method (transformed)
-  orders.bank_transfer_amount -derived_from-> stg_payments.payment_method (transformed)
-  orders.gift_card_amount -derived_from-> stg_payments.payment_method (transformed)
+Connections (7)
+  Payment method               defines ->       stg_payments.payment_method
+  stg_payments.payment_method  derived_from ->  raw_payments.payment_method  direct
+  accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card  tests ->         stg_payments.payment_method
+  orders.credit_card_amount    derived_from ->  stg_payments.payment_method  transformed
+  orders.coupon_amount         derived_from ->  stg_payments.payment_method  transformed
+  orders.bank_transfer_amount  derived_from ->  stg_payments.payment_method  transformed
+  orders.gift_card_amount      derived_from ->  stg_payments.payment_method  transformed
 
-Downstream of raw_payments.payment_method (seed)
+Downstream of raw_payments.payment_method (seed, VARCHAR)
 5 columns, 2 relations, 5 tests, 1 exposure, 2 tasks and 1 business term downstream.
 
-Columns (5)
-   1  stg_payments.payment_method  [model, VARCHAR, direct]  models/staging/stg_payments.sql
-   2  orders.bank_transfer_amount  [model, DOUBLE, transformed]  models/orders.sql
-   2  orders.coupon_amount  [model, DOUBLE, transformed]  models/orders.sql
-   2  orders.credit_card_amount  [model, DOUBLE, transformed]  models/orders.sql
-   2  orders.gift_card_amount  [model, DOUBLE, transformed]  models/orders.sql
+Lineage
+  raw_payments.payment_method                     seed   VARCHAR  seeds/raw_payments.csv
+  `- stg_payments.payment_method     direct       model  VARCHAR  models/staging/stg_payments.sql
+     |- orders.bank_transfer_amount  transformed  model  DOUBLE   models/orders.sql
+     |- orders.coupon_amount         transformed  model  DOUBLE   models/orders.sql
+     |- orders.credit_card_amount    transformed  model  DOUBLE   models/orders.sql
+     `- orders.gift_card_amount      transformed  model  DOUBLE   models/orders.sql
 
 Relations (2)
-  orders  [model]  models/orders.sql
-  stg_payments  [model]  models/staging/stg_payments.sql
+  orders        model  models/orders.sql
+  stg_payments  model  models/staging/stg_payments.sql
 
 Tests (5)
-   2  accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card  [test]  models/staging/schema.yml
-   3  not_null_orders_bank_transfer_amount  [test]  models/schema.yml
-   3  not_null_orders_coupon_amount  [test]  models/schema.yml
-   3  not_null_orders_credit_card_amount  [test]  models/schema.yml
-   3  not_null_orders_gift_card_amount  [test]  models/schema.yml
+  2  accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card  models/staging/schema.yml
+  3  not_null_orders_bank_transfer_amount  models/schema.yml
+  3  not_null_orders_coupon_amount         models/schema.yml
+  3  not_null_orders_credit_card_amount    models/schema.yml
+  3  not_null_orders_gift_card_amount      models/schema.yml
 
 Exposures (1)
-   3  customer_dashboard  [exposure]  models/exposures.yml
+  3  customer_dashboard  models/exposures.yml
 
 Orchestration (2)
-   2  jaffle_shop_daily.dbt_run_staging  [task, run]  dags/jaffle_shop_daily.py
-   3  jaffle_shop_daily.dbt_run_marts  [task, run]  dags/jaffle_shop_daily.py
+  2  jaffle_shop_daily.dbt_run_staging  run  dags/jaffle_shop_daily.py
+  3  jaffle_shop_daily.dbt_run_marts    run  dags/jaffle_shop_daily.py
 
 Business terms (1)
-  Payment method  [term, draft]  definitions.yml
+  Payment method  draft  definitions.yml
 
 Business entities (2)
-  order: orders
-  payment: stg_payments
+  order    orders
+  payment  stg_payments

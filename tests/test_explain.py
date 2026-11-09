@@ -48,7 +48,7 @@ def test_composition_crosses_from_an_airflow_sql_file_into_dbt(project: Project)
     assert result.steps[0].conditions == ['WHERE: customers.customer_lifetime_value > 0']
     text = str(result)
     assert 'In terms of sources\n  = SUM(raw_payments.amount / 100)' in text
-    assert 'WHERE: customers.customer_lifetime_value > 0' in text
+    assert '\n      WHERE  customers.customer_lifetime_value > 0\n' in text
     data = result.to_dict()
     assert data['composed'] == 'SUM(raw_payments.amount / 100)'
     assert json.loads(json.dumps(data)) == data

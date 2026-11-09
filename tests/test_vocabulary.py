@@ -67,16 +67,16 @@ def test_the_build_merges_a_vocabulary_into_the_definitions(tmp_path: Path) -> N
         ['Measure'],
         ['Net revenue'],
     )
-    assert '  a kind of: Measure' in str(definition) and '  kinds: Net revenue' in str(definition)
+    assert '  a kind of    Measure\n' in str(definition) and '  kinds        Net revenue\n' in str(definition)
     assert project.describe('Measure').attrs['narrower'] == ['Revenue']
     ontology = project.ontology()
     concepts = {c.name: c for c in ontology.concepts}
     assert concepts['Revenue'].broader == ['Measure'] and concepts['Revenue'].narrower == ['Net revenue']
-    assert '  Revenue  a kind of Measure' in str(ontology)
+    assert '  Revenue      a kind of Measure' in str(ontology)
     assert ontology.to_dict()['concepts'][0] == {'name': 'Customer', 'broader': ['Party']}
     assert (
         str(project.define('Measure').terms[0]).count(
-            'defined in: vocab.ttl (https://example.com/vocab#Measure)'
+            'defined in  vocab.ttl (https://example.com/vocab#Measure)'
         )
         == 1
     )

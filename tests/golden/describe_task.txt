@@ -1,17 +1,18 @@
 jaffle_shop_daily.build_customer_ltv (task)
-  id: task.jaffle_shop_daily.build_customer_ltv
-  path: dags/jaffle_shop_daily.py
-  from: airflow
-  dag: jaffle_shop_daily
-  operator: SQLExecuteQueryOperator
-  line: 24
-  sql path: dags/sql/customer_ltv.sql
+
+  id        task.jaffle_shop_daily.build_customer_ltv
+  path      dags/jaffle_shop_daily.py
+  from      airflow
+  dag       jaffle_shop_daily
+  operator  SQLExecuteQueryOperator
+  line      24
+  sql path  dags/sql/customer_ltv.sql
 
 Upstream (1)
-  customers (model)
+  customers  model
 
 Downstream (1)
-  customer_ltv (table)
+  customer_ltv  table
 
 After (1)
   dbt_test

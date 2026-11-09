@@ -16,7 +16,17 @@ from konstruct.core.graph import RELATION_KINDS, Graph, Node, Step
 
 
 class QueryError(Exception):
-    """A reference that matches nothing or several things, or a missing graph."""
+    """A reference that matches nothing or several things, or a missing graph.
+
+    ``suggestions`` holds the names the reference may have meant and ``hint`` a command that
+    could help, for the CLI to show; the message alone says the same in one line."""
+
+    def __init__(
+        self, message: str, *, suggestions: list[str] | None = None, hint: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.suggestions = suggestions or []
+        self.hint = hint
 
 
 def load_graph(out_dir: Path) -> Graph:
@@ -29,13 +39,28 @@ def load_graph(out_dir: Path) -> Graph:
 def resolve_one(graph: Graph, ref: str) -> Node:
     found = graph.resolve(ref)
     if not found:
-        hints = [graph.label(n) for n in search_nodes(graph, ref, limit=5)]
+        hints = _near(ref, [graph.label(n) for n in search_nodes(graph, ref, limit=10)])
         suffix = f'; did you mean {", ".join(hints)}?' if hints else ''
-        raise QueryError(f'nothing in the graph matches {ref!r}{suffix}')
+        words = ' '.join(_TOKEN.findall(ref.lower())) or ref
+        raise QueryError(
+            f'nothing in the graph matches {ref!r}{suffix}',
+            suggestions=hints,
+            hint=f'`konstruct search {words}`',
+        )
     if len(found) > 1:
         options = ', '.join(f'{n.id}' for n in found[:10])
         raise QueryError(f'{ref!r} is ambiguous; use one of: {options}')
     return found[0]
+
+
+def _near(ref: str, labels: list[str], limit: int = 3) -> list[str]:
+    """``labels`` that look most like ``ref`` first, for a "did you mean" list."""
+    import difflib
+
+    needle = ref.lower()
+    return sorted(labels, key=lambda label: -difflib.SequenceMatcher(None, needle, label.lower()).ratio())[
+        :limit
+    ]
 
 
 def _drop_empty(data: dict[str, Any]) -> dict[str, Any]:
@@ -168,6 +193,13 @@ class Walk:
     entities: dict[str, list[str]] = field(default_factory=dict)
     """The business entities (from the ontology) whose relations the walk reaches, each with
     those relations by label: which business objects a change touches."""
+    parents: dict[str, str | None] = field(default_factory=dict, repr=False)
+    """For each node reached, the id of the node it was reached from: the walk as a tree, for
+    rendering. Not part of ``to_dict()``."""
+    owners: dict[str, str] = field(default_factory=dict, repr=False)
+    """For each column reached, its relation's id, so a tree can be drawn between relations."""
+    start: list[str] = field(default_factory=list, repr=False)
+    """The ids the walk started from: the target and, for a relation, its columns."""
 
     SECTIONS = (
         ('columns', 'Columns'),
@@ -213,28 +245,21 @@ class Walk:
         return data
 
     def __str__(self) -> str:
-        title = 'Downstream of' if self.direction == 'downstream' else 'Upstream of'
-        lines = [f'{title} {self.target.label} ({self.target.relation_kind or self.target.kind})']
-        if self.target.description:
-            lines.append(f'  {_shorten(self.target.description)}')
-        lines.append(self.summary())
-        for key, heading in self.SECTIONS:
-            items: list[Item] = getattr(self, key)
-            if items:
-                lines += ['', f'{heading} ({len(items)})', *(f'  {i}' for i in items)]
-        if self.entities:
-            lines += ['', f'Business entities ({len(self.entities)})']
-            lines += [f'  {name}: {", ".join(relations)}' for name, relations in self.entities.items()]
-        return '\n'.join(lines)
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
 
 def _walk(graph: Graph, start: Node, steps: list[Step], direction: Literal['downstream', 'upstream']) -> Walk:
     start_ids = set(graph.expand(start))
-    walk = Walk(direction=direction, target=item(graph, start))
+    walk = Walk(direction=direction, target=item(graph, start), start=[start.id, *start_ids])
     relation_ids: set[str] = set()
     listed: set[str] = set()
     for step in sorted(steps, key=lambda s: (s.depth, s.node.id)):
         node = step.node
+        walk.parents.setdefault(node.id, step.previous)
+        if node.kind == 'column' and node.parent:
+            walk.owners[node.id] = node.parent
         if node.id in start_ids:
             continue
         entry = item(graph, node, step)
@@ -320,17 +345,9 @@ class PathResult:
         }
 
     def __str__(self) -> str:
-        if not self.found:
-            return f'No path between {self.start.label} and {self.end.label}.'
-        lines = [
-            f'Path from {self.start.label} to {self.end.label} ({_plural(len(self.steps) - 1, "step")}):'
-        ]
-        for step in self.steps:
-            arrow = ''
-            if step.via:
-                arrow = f'-{step.via}-> ' if step.direction == 'forward' else f'<-{step.via}- '
-            lines.append(f'  {arrow}{step.label} ({step.relation_kind or step.kind})')
-        return '\n'.join(lines)
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
 
 def path(graph: Graph, start_ref: str, end_ref: str) -> PathResult:
@@ -406,14 +423,9 @@ class SearchResult:
         return {'query': self.query, 'results': [r.to_dict() for r in self.results]}
 
     def __str__(self) -> str:
-        if not self.results:
-            return f'Nothing matches {self.query!r}.'
-        lines = []
-        for result in self.results:
-            lines.append(str(result))
-            if result.description:
-                lines.append(f'      {_shorten(result.description)}')
-        return '\n'.join(lines)
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
 
 def search(graph: Graph, text: str, limit: int = 20, kinds: list[str] | None = None) -> SearchResult:
@@ -495,35 +507,9 @@ class Description:
         return data
 
     def __str__(self) -> str:
-        node = self.node
-        lines = [f'{node.label} ({node.relation_kind or node.kind})', f'  id: {node.id}']
-        for key, value in (
-            ('relation', self.relation),
-            ('path', node.path),
-            ('data_type', node.data_type),
-            ('description', node.description),
-            ('expression', self.expression),
-        ):
-            if value:
-                lines.append(f'  {key}: {value}')
-        if self.origins:
-            lines.append(f'  from: {", ".join(self.origins)}')
-        for key, value in self.attrs.items():
-            if key not in self.HIDDEN_ATTRS and value not in (None, '', [], {}):
-                lines.append(f'  {key.replace("_", " ")}: {_attr_text(value)}')
-        if self.columns:
-            lines += ['', f'Columns ({len(self.columns)})']
-            width = max(len(c.name) for c in self.columns)
-            for column in self.columns:
-                text = f'  {column.name.ljust(width)}  {column.data_type or ""}'.rstrip()
-                if column.description:
-                    text += f'  {_shorten(column.description, 100)}'
-                lines.append(text)
-        for key, heading in self.LISTS:
-            values: list[str] = getattr(self, key)
-            if values:
-                lines += ['', f'{heading} ({len(values)})', *(f'  {v}' for v in values)]
-        return '\n'.join(lines)
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
 
 def _attr_text(value: Any) -> str:
@@ -678,31 +664,9 @@ class TermDefinition:
         return _drop_empty(data)
 
     def __str__(self) -> str:
-        owner = _attr_text(self.owner) if self.owner else 'no owner'
-        head = f'{self.name}  [{self.status}, {owner}'
-        head += f', approved {self.approved}]' if self.approved else ']'
-        lines = [head]
-        if self.definition:
-            lines.append(f'  {self.definition}')
-        for key, value in (
-            ('also called', ', '.join(self.synonyms)),
-            ('grain', self.grain),
-            ('unit', ' '.join(v for v in (self.unit, self.currency) if v)),
-            ('required filters', '; '.join(self.filters)),
-            ('exceptions', self.exceptions),
-            ('related', ', '.join(self.related)),
-            ('a kind of', ', '.join(self.broader)),
-            ('kinds', ', '.join(self.narrower)),
-            ('defined in', _where(self.path, self.line, self.iri)),
-        ):
-            if value:
-                lines.append(f'  {key}: {value}')
-        if self.columns:
-            lines.append('  columns:')
-            lines += [f'    {c.label}' + (f'  {c.data_type}' if c.data_type else '') for c in self.columns]
-        else:
-            lines.append('  columns: none bound')
-        return '\n'.join(lines)
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
 
 @dataclass
@@ -726,12 +690,9 @@ class Definitions:
         )
 
     def __str__(self) -> str:
-        if not self.terms:
-            target = self.column.label if self.column else repr(self.query)
-            return f'No business term defines {target}. Add one to definitions.yml.'
-        heading = f'Terms defining {self.column.label}' if self.column else None
-        body = '\n\n'.join(str(t) for t in self.terms)
-        return f'{heading}\n\n{body}' if heading else body
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
 
 _STATUS_ORDER = {'approved': 0, 'agreed': 1, 'draft': 2, 'retired': 3}
@@ -797,7 +758,11 @@ def define(graph: Graph, ref: str) -> Definitions:
             hints = [n.name for n in search_nodes(graph, ref, limit=5, kinds=['term'])]
             hints = hints or [graph.label(n) for n in search_nodes(graph, ref, limit=5)]
             suffix = f'; did you mean {", ".join(hints)}?' if hints else ''
-            raise QueryError(f'no term or column matches {ref!r}{suffix}')
+            raise QueryError(
+                f'no term or column matches {ref!r}{suffix}',
+                suggestions=hints,
+                hint=f'`konstruct search {needle}`',
+            )
     ordered = sorted(terms, key=lambda n: (_STATUS_ORDER.get(str(n.attrs.get('status')), 9), n.name))
     return Definitions(query=ref, terms=[term_definition(graph, n) for n in ordered], column=column)
 
@@ -816,14 +781,9 @@ class Listing:
         return {'kinds': self.kinds, 'items': [i.to_dict() for i in self.items]}
 
     def __str__(self) -> str:
-        if not self.items:
-            return f'No {" or ".join(self.kinds)} nodes.'
-        width = max(len(i.label) for i in self.items)
-        lines = []
-        for entry in self.items:
-            line = f'{entry.label.ljust(width)}  {entry.kind:<9} {entry.path or ""}'.rstrip()
-            lines.append(line)
-        return '\n'.join(lines)
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
 
 def list_nodes(graph: Graph, kinds: list[str] | None = None) -> Listing:
@@ -934,27 +894,9 @@ class QueryResult:
         return data
 
     def __str__(self) -> str:
-        if not self.matches:
-            return (
-                f'Nothing in the graph matches {self.question!r}. '
-                'Try `konstruct search` with a table or column name.'
-            )
-        lines = []
-        if self.definitions:
-            lines += ['Definitions', *('  ' + str(d).replace('\n', '\n  ') for d in self.definitions), '']
-        lines.append('Best matches')
-        for match in self.matches:
-            lines.append(f'  {match}')
-            if match.description:
-                lines.append(f'      {_shorten(match.description)}')
-        if self.edges:
-            lines += ['', 'Connections', *(f'  {e}' for e in self.edges[: self.EDGE_LIMIT])]
-            if len(self.edges) > self.EDGE_LIMIT:
-                lines.append(f'  and {len(self.edges) - self.EDGE_LIMIT} more')
-        for walk in (self.impact, self.lineage):
-            if walk is not None:
-                lines += ['', str(walk)]
-        return '\n'.join(lines)
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
 
 def query(graph: Graph, question: str, limit: int = 8, depth: int = 1) -> QueryResult:

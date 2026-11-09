@@ -1,29 +1,30 @@
 orders (model)
-  id: model.jaffle_shop.orders
-  relation: jaffle_shop.main.orders
-  path: models/orders.sql
-  description: This table has basic information about orders, as well as some derived facts based on payments
-  from: dbt, duckdb
-  package: jaffle_shop
-  materialized: table
-  table type: table
-  in warehouse: True
-  entities: order
+  This table has basic information about orders, as well as some derived facts based on payments
+
+  id            model.jaffle_shop.orders
+  relation      jaffle_shop.main.orders
+  path          models/orders.sql
+  from          dbt, duckdb
+  package       jaffle_shop
+  materialized  table
+  table type    table
+  in warehouse  True
+  entities      order
 
 Columns (9)
   order_id              INTEGER  This is a unique identifier for an order
   customer_id           INTEGER  Foreign key to the customers table
-  order_date            DATE  Date (UTC) that the order was placed
+  order_date            DATE     Date (UTC) that the order was placed
   status                VARCHAR  Orders can be one of the following statuses: | status | description | |----------------|---------...
-  credit_card_amount    DOUBLE  Amount of the order (AUD) paid for by credit card
-  coupon_amount         DOUBLE  Amount of the order (AUD) paid for by coupon
-  bank_transfer_amount  DOUBLE  Amount of the order (AUD) paid for by bank transfer
-  gift_card_amount      DOUBLE  Amount of the order (AUD) paid for by gift card
-  amount                DOUBLE  Total amount (AUD) of the order
+  credit_card_amount    DOUBLE   Amount of the order (AUD) paid for by credit card
+  coupon_amount         DOUBLE   Amount of the order (AUD) paid for by coupon
+  bank_transfer_amount  DOUBLE   Amount of the order (AUD) paid for by bank transfer
+  gift_card_amount      DOUBLE   Amount of the order (AUD) paid for by gift card
+  amount                DOUBLE   Total amount (AUD) of the order
 
 Joins, filters and grouping (2)
-  GROUP BY: stg_payments.order_id
-  LEFT JOIN ON: stg_orders.order_id = stg_payments.order_id
+  GROUP BY      stg_payments.order_id
+  LEFT JOIN ON  stg_orders.order_id = stg_payments.order_id
 
 Tests (10)
   accepted_values_orders_status__placed__shipped__completed__return_pending__returned
@@ -38,12 +39,12 @@ Tests (10)
   unique_orders_order_id
 
 Upstream (5)
-  jaffle_shop_daily.dbt_run_marts (task)
-  stg_orders (model)
-  stg_orders.order_id (column)
-  stg_payments (model)
-  stg_payments.order_id (column)
+  jaffle_shop_daily.dbt_run_marts  task
+  stg_orders                       model
+  stg_orders.order_id              column
+  stg_payments                     model
+  stg_payments.order_id            column
 
 Downstream (2)
-  customer_dashboard (exposure)
-  jaffle_shop_daily.dbt_run_marts (task)
+  customer_dashboard               exposure
+  jaffle_shop_daily.dbt_run_marts  task

@@ -122,7 +122,7 @@ def test_the_cli_exits_1_on_failure_and_writes_json(repo: Path, capsys: pytest.C
     assert main(['gate', '-C', str(repo), '--base', 'HEAD', '--json-file', str(out), '-q']) == 1
     text = capsys.readouterr().out
     assert text.startswith('Gate failed: 1 finding to fix before proposing the change.')
-    assert "  fix: Ask the term's owner to re-approve it" in text
+    assert "\n  fix   Ask the term's owner to re-approve it" in text
     data = json.loads(out.read_text())
     assert data['passed'] is False and data['findings'][0]['rule'] == 'approved-definition-changed'
     assert main(['gate', '-C', str(repo), '--base', 'HEAD', '--format', 'markdown', '-q']) == 1

@@ -219,14 +219,9 @@ class Conflicts:
         }
 
     def __str__(self) -> str:
-        lines = [self.summary()]
-        current = None
-        for conflict in self.conflicts:
-            if conflict.idea != current:
-                current = conflict.idea
-                lines += ['', f'{conflict.idea}']
-            lines += ['  ' + line for line in conflict.lines()]
-        return '\n'.join(lines)
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
     def markdown(self) -> str:
         lines = ['# Conflicting definitions', '', self.summary(), '']

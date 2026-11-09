@@ -1,5 +1,8 @@
-Path from raw_payments to customer_dashboard (3 steps):
-  raw_payments (seed)
-  -feeds-> stg_payments (model)
-  -feeds-> customers (model)
-  -feeds-> customer_dashboard (exposure)
+Path from raw_payments to customer_dashboard (3 steps)
+  raw_payments        seed      seeds/raw_payments.csv
+  v feeds
+  stg_payments        model     models/staging/stg_payments.sql
+  v feeds
+  customers           model     models/customers.sql
+  v feeds
+  customer_dashboard  exposure  models/exposures.yml

@@ -97,11 +97,14 @@ def test_path(project: Project) -> None:
     assert labels(result.steps) == ['raw_orders.id', 'stg_orders.order_id', 'customers.number_of_orders']
     assert [s.direction for s in result.steps] == [None, 'backward', 'backward']
     assert str(project.path_between('raw_payments', 'customer_dashboard')).splitlines() == [
-        'Path from raw_payments to customer_dashboard (3 steps):',
-        '  raw_payments (seed)',
-        '  -feeds-> stg_payments (model)',
-        '  -feeds-> customers (model)',
-        '  -feeds-> customer_dashboard (exposure)',
+        'Path from raw_payments to customer_dashboard (3 steps)',
+        '  raw_payments        seed      seeds/raw_payments.csv',
+        '  v feeds',
+        '  stg_payments        model     models/staging/stg_payments.sql',
+        '  v feeds',
+        '  customers           model     models/customers.sql',
+        '  v feeds',
+        '  customer_dashboard  exposure  models/exposures.yml',
     ]
 
 
@@ -129,7 +132,8 @@ def test_describe(project: Project) -> None:
     assert 'unique_orders_order_id' in described.tests
     assert 'customer_dashboard (exposure)' in described.downstream
     text = str(described)
-    assert text.startswith('orders (model)\n  id: model.jaffle_shop.orders')
+    assert text.startswith('orders (model)\n  This table has basic information about orders')
+    assert '\n  id            model.jaffle_shop.orders\n' in text
     assert 'Columns (9)' in text and '  order_id  ' in text
     task = project.describe('jaffle_shop_daily.dbt_run_marts')
     assert task.runs == ['customers', 'orders']
@@ -154,7 +158,8 @@ def test_query(project: Project) -> None:
     assert lineage.lineage is not None
     assert lineage.lineage.target.label == 'customers.customer_lifetime_value'
     assert str(project.query('zzz qqq')).startswith('Nothing in the graph matches')
-    assert str(result).startswith('Definitions\n  Payment method  [draft, no owner]')
+    assert str(result).startswith('Definitions\n  Payment method  draft\n')
+    assert '\n    owner       no owner\n' in str(result)
     assert '\nBest matches\n' in str(result)
 
 

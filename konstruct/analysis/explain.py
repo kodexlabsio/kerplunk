@@ -98,30 +98,9 @@ class Explanation:
         }
 
     def __str__(self) -> str:
-        head = self.label + (f'  ({self.data_type})' if self.data_type else '')
-        lines = [head]
-        if self.description:
-            lines.append(f'  {self.description}')
-        if self.expression is None:
-            lines += ['', '  No expression recorded: this column is read from a source, or the SQL that']
-            lines.append('  builds it could not be analysed.')
-            return '\n'.join(lines)
-        lines += ['', f'  = {self.expression}']
-        if self.composed and self.composed != self.expression:
-            lines += ['', 'In terms of sources', f'  = {self.composed}']
-        if not self.complete:
-            lines.append('  (partial: some columns on the way have no recorded expression)')
-        if self.sources:
-            lines += ['', f'Sources ({len(self.sources)})', *(f'  {s}' for s in self.sources)]
-        derived = [s for s in self.steps if s.expression is not None]
-        if derived:
-            lines += ['', 'Step by step']
-            for step in derived:
-                checked = step.verified and all(v == 'confirmed' for v in step.verified)
-                lines.append(f'  {step.label} = {step.expression}' + ('  [verified]' if checked else ''))
-                for condition in step.conditions:
-                    lines.append(f'      {condition}')
-        return '\n'.join(lines)
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
 
 def _composed_from(graph: Graph, node: Node) -> list[Node]:

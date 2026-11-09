@@ -220,29 +220,9 @@ class History:
         }
 
     def __str__(self) -> str:
-        lines = [self.summary()]
-        if self.path:
-            lines.append(f'  defined in {self.path}')
-        events: dict[tuple[int, str], tuple[Commit, list[str]]] = {}
-        for change in self.formulas:
-            if change.before is None:
-                body = [f'    added: {change.after}']
-            elif change.after is None:
-                body = [f'    removed (was {change.before})']
-            else:
-                body = [f'    was: {change.before}', f'    now: {change.after}']
-            events.setdefault((change.commit.order, change.commit.sha), (change.commit, []))[1].extend(body)
-        for term in self.terms:
-            body = [
-                f'    term {term.term!r}: {k} {_shown(b)} -> {_shown(a)}'
-                for k, (b, a) in term.changes.items()
-            ]
-            events.setdefault((term.commit.order, term.commit.sha), (term.commit, []))[1].extend(body)
-        for key in sorted(events):
-            commit, body = events[key]
-            lines += [_heading(commit), *body]
-        lines += [f'  note: {n}' for n in self.notes]
-        return '\n'.join(lines)
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
 
 def _heading(commit: Commit) -> str:

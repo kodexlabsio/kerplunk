@@ -48,7 +48,7 @@ def test_lineage_crosses_repositories(tmp_path: Path) -> None:
         ('marketing', '../marketing', '1 SQL file, 1 definitions file'),
         ('missing', '../missing', 'not a directory'),
     ]
-    assert 'repository  marketing (../marketing): 1 SQL file, 1 definitions file' in str(status)
+    assert '  repository   marketing (../marketing): 1 SQL file, 1 definitions file' in str(status)
 
 
 def _model(package: str, name: str, raw: str, depends: list[str], schema: str) -> dict[str, Any]:

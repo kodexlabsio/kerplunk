@@ -594,57 +594,9 @@ class Diff:
         return text
 
     def __str__(self) -> str:
-        lines = [
-            f'konstruct diff  {self.shown_base}..{self.shown_head}  ({len(self.source_files)} file{"s" if len(self.source_files) != 1 else ""} changed)',
-            '',
-        ]
-        lines.append(self.summary())
-        for relation in self.relations:
-            if not relation.changed and not relation.note:
-                continue
-            lines += ['', f'{relation.path}  ({relation.kind} {relation.label}, {relation.status})']
-            if relation.note:
-                lines.append(f'  {relation.note}')
-            for change in relation.columns:
-                head = f'  {change.change:<8} {change.column}'
-                if change.change == 'changed':
-                    head += f'\n             was  {change.before}\n             now  {change.after}'
-                lines.append(head)
-                for consumer in change.breaks:
-                    lines.append(f'           BREAKS {consumer}, which still reads it')
-                impact_line = self._impact_line(change.impact)
-                if impact_line:
-                    lines.append(f'           affects {impact_line}')
-            for condition in relation.conditions_added:
-                lines.append(f'  rows     + {condition}')
-            for condition in relation.conditions_removed:
-                lines.append(f'  rows     - {condition}')
-            if relation.conditions_added or relation.conditions_removed:
-                impact_line = self._impact_line(relation.rows_impact)
-                if impact_line:
-                    lines.append(f'           affects {impact_line}')
-        for dag in self.dags:
-            lines += ['', f'{dag.path}  (DAG {dag.dag}, {dag.status})']
-            for label, items in (
-                ('task +', dag.tasks_added),
-                ('task -', dag.tasks_removed),
-                ('after +', dag.dependencies_added),
-                ('after -', dag.dependencies_removed),
-                ('runs', dag.runs_changed),
-                ('sql', dag.sql_changed),
-            ):
-                lines += [f'  {label:<8} {item}' for item in items]
-        for yaml_change in self.yaml:
-            lines += ['', f'{yaml_change.path}  (dbt YAML)']
-            lines += [f'  {line}' for line in yaml_change.lines()]
-        for definitions_change in self.definitions:
-            lines += ['', f'{definitions_change.path}  (business definitions)']
-            lines += [f'  {line}' for line in definitions_change.lines()]
-        if self.selection.modified_plus:
-            lines += ['', f'dbt: {self.selection.summary()}', f'  {self.selection.command()}']
-        if self.other:
-            lines += ['', f'Not analysed: {", ".join(self.other)}']
-        return '\n'.join(lines)
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
     def markdown(self) -> str:
         c = self.counts()

@@ -79,11 +79,9 @@ class Gate:
         return f'Gate failed: {count} finding{"s" if count != 1 else ""} to fix before proposing the change.'
 
     def __str__(self) -> str:
-        lines = [self.summary()]
-        for finding in self.findings:
-            where = f' ({finding.path})' if finding.path else ''
-            lines += ['', f'{finding.rule}: {finding.message}{where}', f'  fix: {finding.fix}']
-        return '\n'.join(lines)
+        from konstruct.interfaces.render import plain
+
+        return plain(self)
 
     def markdown(self) -> str:
         """The result as markdown, for a pull request comment or a job summary."""

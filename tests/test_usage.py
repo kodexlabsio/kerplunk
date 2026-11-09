@@ -150,7 +150,9 @@ def test_snowflake_usage_on_columns_report_and_describe(
     assert '## Most queried columns' in report
     assert 'From Snowflake access history, the last 30 days' in report
     assert '| `ORDERS.AMOUNT` | 1200 | 14 | 100 |' in report
-    assert 'usage: 1200 queries by 14 users in 30 days (score 100)' in str(project.describe('orders.amount'))
+    assert '  usage         1200 queries by 14 users in 30 days (score 100)' in str(
+        project.describe('orders.amount')
+    )
     # Read once a day: an update reuses the counts without querying the history again.
     queries = sum('access_history' in sql for sql in log)
     project.build(update=True)

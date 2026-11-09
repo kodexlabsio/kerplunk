@@ -1,44 +1,45 @@
 Downstream of stg_orders (model)
 9 columns, 3 relations, 8 tests, 1 exposure, 4 tasks and 1 business term downstream.
 
-Columns (9)
-   1  customers.first_order  [model, DATE, transformed]  models/customers.sql
-   1  customers.most_recent_order  [model, DATE, transformed]  models/customers.sql
-   1  customers.number_of_orders  [model, BIGINT, transformed]  models/customers.sql
-   1  orders.customer_id  [model, INTEGER, direct]  models/orders.sql
-   1  orders.order_date  [model, DATE, direct]  models/orders.sql
-   1  orders.order_id  [model, INTEGER, direct]  models/orders.sql
-   1  orders.status  [model, VARCHAR, direct]  models/orders.sql
-   2  customer_ltv.number_of_orders  [table, BIGINT, direct, via jaffle_shop_daily.build_customer_ltv]
-   2  customer_ltv.segment  [table, VARCHAR, transformed, via jaffle_shop_daily.build_customer_ltv]
+Lineage
+  stg_orders          model  models/staging/stg_orders.sql
+  |- customers        model  models/customers.sql
+  |  `- customer_ltv  table  via jaffle_shop_daily.build_customer_ltv
+  `- orders           model  models/orders.sql
 
-Relations (3)
-   1  customers  [model]  models/customers.sql
-   1  orders  [model]  models/orders.sql
-   2  customer_ltv  [table, via jaffle_shop_daily.build_customer_ltv]
+Columns (9)
+  1  customers.first_order          transformed  model  DATE     models/customers.sql
+  1  customers.most_recent_order    transformed  model  DATE     models/customers.sql
+  1  customers.number_of_orders     transformed  model  BIGINT   models/customers.sql
+  1  orders.customer_id             direct       model  INTEGER  models/orders.sql
+  1  orders.order_date              direct       model  DATE     models/orders.sql
+  1  orders.order_id                direct       model  INTEGER  models/orders.sql
+  1  orders.status                  direct       model  VARCHAR  models/orders.sql
+  2  customer_ltv.number_of_orders  direct       table  BIGINT   via jaffle_shop_daily.build_customer_ltv
+  2  customer_ltv.segment           transformed  table  VARCHAR  via jaffle_shop_daily.build_customer_ltv
 
 Tests (8)
-   1  accepted_values_stg_orders_status__placed__shipped__completed__return_pending__returned  [test]  models/staging/schema.yml
-   1  not_null_stg_orders_order_id  [test]  models/staging/schema.yml
-   1  unique_stg_orders_order_id  [test]  models/staging/schema.yml
-   2  accepted_values_orders_status__placed__shipped__completed__return_pending__returned  [test]  models/schema.yml
-   2  not_null_orders_customer_id  [test]  models/schema.yml
-   2  not_null_orders_order_id  [test]  models/schema.yml
-   2  relationships_orders_customer_id__customer_id__ref_customers_  [test]  models/schema.yml
-   2  unique_orders_order_id  [test]  models/schema.yml
+  1  accepted_values_stg_orders_status__placed__shipped__completed__return_pending__returned  models/staging/schema.yml
+  1  not_null_stg_orders_order_id  models/staging/schema.yml
+  1  unique_stg_orders_order_id    models/staging/schema.yml
+  2  accepted_values_orders_status__placed__shipped__completed__return_pending__returned  models/schema.yml
+  2  not_null_orders_customer_id   models/schema.yml
+  2  not_null_orders_order_id      models/schema.yml
+  2  relationships_orders_customer_id__customer_id__ref_customers_  models/schema.yml
+  2  unique_orders_order_id        models/schema.yml
 
 Exposures (1)
-   2  customer_dashboard  [exposure]  models/exposures.yml
+  2  customer_dashboard  models/exposures.yml
 
 Orchestration (4)
-   1  jaffle_shop_daily.dbt_run_staging  [task, run]  dags/jaffle_shop_daily.py
-   2  jaffle_shop_daily.build_customer_ltv  [task]  dags/jaffle_shop_daily.py
-   2  jaffle_shop_daily.dbt_run_marts  [task, run]  dags/jaffle_shop_daily.py
-   3  jaffle_shop_daily  [dag]  dags/jaffle_shop_daily.py
+  1  jaffle_shop_daily.dbt_run_staging     run  dags/jaffle_shop_daily.py
+  2  jaffle_shop_daily.build_customer_ltv       dags/jaffle_shop_daily.py
+  2  jaffle_shop_daily.dbt_run_marts       run  dags/jaffle_shop_daily.py
+  3  jaffle_shop_daily                          dags/jaffle_shop_daily.py
 
 Business terms (1)
-  Completed order  [term, agreed]  definitions.yml
+  Completed order  agreed  definitions.yml
 
 Business entities (2)
-  customer: customers
-  order: orders, stg_orders
+  customer  customers
+  order     orders, stg_orders

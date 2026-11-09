@@ -1,4 +1,6 @@
-Verified against jaffle_shop.duckdb (seed 1729, strategies shift, null, shuffle, up to 10000 rows per input)
+Verified against jaffle_shop.duckdb (seed 1729, shift, null, shuffle, up to 10000 rows per input)
+36 of 36 claimed column edges confirmed by perturbation (100%) across 6 models.
+33 influences through joins, filters or grouping, all predicted as references; 0 unexplained.
 
   model          claimed  confirmed  not exercised  via joins/filters  unexplained
   customers            7          7              0                 12            0
@@ -7,8 +9,5 @@ Verified against jaffle_shop.duckdb (seed 1729, strategies shift, null, shuffle,
   stg_orders           4          4              0                  0            0
   stg_payments         4          4              0                  0            0
   customer_ltv         5          5              0                  4            0
-
-36 of 36 claimed column edges confirmed by perturbation (100%) across 6 models.
-33 influences through joins, filters or grouping, all predicted as references; 0 unexplained.
 
 Wrote VERIFY.md and verify.json to <root>/konstruct-out; graph.json now marks confirmed edges.
