@@ -71,6 +71,7 @@ from konstruct.warehouse import (
     IcebergConnector,
     PostgresConnector,
     SnowflakeConnector,
+    TrinoConnector,
 )
 
 
@@ -125,6 +126,23 @@ class WarehouseConfig:
         if self.type == 'databricks':
             options_only = {k: v for k, v in options.items() if k not in ('catalogs', 'schemas', 'type')}
             return DatabricksConnector(options_only, catalogs=options.get('catalogs'), schemas=schemas)
+        if self.type == 'trino':
+            reserved = ('catalogs', 'schemas', 'type', 'password', 'token', 'unsupported_method')
+            if options.get('unsupported_method'):
+                raise ValueError(
+                    f'dbt profile method {options["unsupported_method"]!r} is not supported '
+                    '(none, ldap and jwt are); set the connection in konstruct.toml'
+                )
+            for key in ('password', 'token'):
+                if key in self.options and not options.get(key):
+                    raise ValueError(f'{key} is set but empty')
+            return TrinoConnector(
+                {k: v for k, v in options.items() if k not in reserved},
+                catalogs=options.get('catalogs'),
+                schemas=schemas,
+                password=options.get('password'),
+                token=options.get('token'),
+            )
         if self.type == 'bigquery':
             return BigQueryConnector(
                 project=str(options.get('project', '')),
@@ -134,7 +152,7 @@ class WarehouseConfig:
             )
         raise ConfigError(
             f'unknown warehouse type {self.type!r} '
-            '(expected duckdb, postgres, iceberg, snowflake, bigquery or databricks)'
+            '(expected duckdb, postgres, iceberg, snowflake, bigquery, databricks or trino)'
         )
 
     def describe(self, root: Path | None = None) -> str:
@@ -514,6 +532,27 @@ def discover_warehouses(config: Config, projects: list[DbtProject]) -> list[Ware
                     'databricks',
                     {k: v for k, v in options.items() if v},
                     source=f'dbt profile {project.profile}',
+                )
+            )
+        elif kind == 'trino':
+            options = {
+                'host': target.get('host'),
+                'port': int(target['port']) if str(target.get('port') or '').isdigit() else None,
+                'user': target.get('user'),
+                'catalog': target.get('database'),
+                'schema': target.get('schema'),
+                'http_scheme': target.get('http_scheme'),
+            }
+            method = str(target.get('method') or 'none').lower()
+            if method == 'ldap' and target.get('password'):
+                options['password'] = target.get('password')
+            elif method == 'jwt' and target.get('jwt_token'):
+                options['token'] = target.get('jwt_token')
+            elif method not in ('none', 'ldap', 'jwt'):
+                options['unsupported_method'] = method
+            found.append(
+                WarehouseConfig(
+                    'trino', {k: v for k, v in options.items() if v}, source=f'dbt profile {project.profile}'
                 )
             )
     for path in iter_files(config, '.duckdb'):

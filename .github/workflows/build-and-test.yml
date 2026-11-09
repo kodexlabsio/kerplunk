@@ -387,6 +387,37 @@ jobs:
         if: env.KONSTRUCT_TEST_DATABRICKS_TOKEN == ''
         run: echo "Set the KONSTRUCT_TEST_DATABRICKS_* repository secrets to run these tests."
 
+  trino:
+    name: Trino connector against a Trino server
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      trino:
+        image: trinodb/trino:484@sha256:2704eb53935af5e582d63d6033e9bf99d20c325e9b0e30b1016ef59a4773979f
+        ports:
+          - 8080:8080
+    env:
+      KONSTRUCT_TEST_TRINO_HOST: localhost
+      KONSTRUCT_TEST_TRINO_PORT: '8080'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Wait for Trino to start
+        run: |
+          for _ in $(seq 1 90); do
+            if curl -fs http://localhost:8080/v1/info | grep -q '"starting":false'; then exit 0; fi
+            sleep 2
+          done
+          echo "Trino did not start" >&2
+          exit 1
+
+      - name: Integration tests
+        run: uv run --extra trino pytest tests/test_trino.py -m trino -v
+
   viewer:
     name: Viewer (Svelte and TypeScript)
     runs-on: ubuntu-latest

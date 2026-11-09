@@ -67,6 +67,16 @@ http_path = "${DATABRICKS_HTTP_PATH}"
 access_token = "${DATABRICKS_TOKEN}"
 catalogs = ["main"]
 
+[[warehouse]]                     # needs konstruct[trino]; Starburst too
+type = "trino"                    # other options are passed to trino.dbapi.connect
+host = "trino.example.com"
+port = 443
+user = "me"
+password = "${TRINO_PASSWORD}"    # or token = "${TRINO_JWT}"; either one means https
+catalog = "lake"                  # default for catalogs
+schema = "sales"                  # for unqualified tables
+catalogs = ["lake", "hive"]
+
 [[warehouse]]
 type = "iceberg"
 name = "lake"                     # the catalogue name SQL uses, e.g. lake.sales.orders

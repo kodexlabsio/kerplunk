@@ -16,7 +16,7 @@ change. Comparing what changed with what the graph claims gives, per model and o
 Everything is seeded, so a run can be reproduced exactly.
 
 A model built in DuckDB is checked in the warehouse file, one in Postgres in a transaction that is
-rolled back. A model in Snowflake, BigQuery or Databricks is checked on a sample: up to a number
+rolled back. A model in Snowflake, BigQuery, Databricks or Trino is checked on a sample: up to a number
 of rows of each input are read once per run (with a ``SELECT``, or BigQuery's table listing),
 copied into an in-memory DuckDB database in types that hold their values, and the model's SQL is
 translated to DuckDB to be rerun there. Nothing is written to the warehouse.
@@ -706,11 +706,12 @@ class DbApiSource:
         for d in description:
             # DB-API gives precision and scale as the fifth and sixth fields, when it knows them.
             precision, scale = (d[4], d[5]) if len(d) > 5 else (None, None)
-            types.append(
-                f'DECIMAL({precision}, {scale})'
-                if isinstance(precision, int) and isinstance(scale, int) and precision > 0
-                else None
-            )
+            if isinstance(precision, int) and isinstance(scale, int) and precision > 0:
+                types.append(f'DECIMAL({precision}, {scale})')
+            elif self.dialect == 'trino' and isinstance(d[1], str):
+                types.append(d[1])  # Trino's type code is the type's full name
+            else:
+                types.append(None)
         return names, types, rows
 
     def close(self) -> None:
@@ -763,7 +764,7 @@ _REMOTE_TYPES = {
     'TIME': 'TIME',
     **dict.fromkeys(('TIMESTAMP_NTZ', 'DATETIME', 'TIMESTAMP_NTZ'), 'TIMESTAMP'),
     **dict.fromkeys(('TIMESTAMP_TZ', 'TIMESTAMP_LTZ', 'TIMESTAMPTZ'), 'TIMESTAMPTZ'),
-    **dict.fromkeys(('VARIANT', 'OBJECT', 'ARRAY', 'JSON', 'STRUCT', 'RECORD', 'MAP'), 'JSON'),
+    **dict.fromkeys(('VARIANT', 'OBJECT', 'ARRAY', 'JSON', 'STRUCT', 'RECORD', 'MAP', 'ROW'), 'JSON'),
     **dict.fromkeys(('GEOGRAPHY', 'GEOMETRY'), 'VARCHAR'),
     **dict.fromkeys(('BINARY', 'VARBINARY', 'BYTES'), 'BLOB'),
 }
@@ -782,6 +783,8 @@ def _sample_type(remote: str | None, dialect: str, values: list[Any]) -> str:
         return _value_type(values)
     if base.startswith('ARRAY<') or base.startswith('STRUCT<') or base.startswith('MAP<'):
         return 'JSON'
+    if base in ('TIMESTAMP', 'TIME') and text.endswith('WITH TIME ZONE'):
+        return base + 'TZ'  # Trino's timestamp(p) and time(p) with time zone
     if base == 'TIMESTAMP':
         # BigQuery's TIMESTAMP is an instant; Databricks' and Snowflake's default is local time.
         return 'TIMESTAMPTZ' if dialect == 'bigquery' else _value_type(values)
@@ -826,11 +829,24 @@ def _plain(value: Any) -> Any:
     return value.tolist() if hasattr(value, 'tolist') else str(value)
 
 
+def _jsonable(value: Any) -> Any:
+    """A value json can write: rows with field names (Trino's) as objects, and map keys as text."""
+    names = getattr(value, '_names', None)
+    if names is not None and isinstance(value, tuple):
+        keys = [f'field{i}' if k is None else str(k) for i, k in enumerate(names)]
+        return {k: _jsonable(v) for k, v in zip(keys, value, strict=False)}
+    if isinstance(value, dict):
+        return {k if isinstance(k, str) else str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
 def _for_duckdb(value: Any, dtype: str) -> Any:
     if value is None:
         return None
     if dtype == 'JSON':
-        return value if isinstance(value, str) else json.dumps(value, default=_plain)
+        return value if isinstance(value, str) else json.dumps(_jsonable(value), default=_plain)
     if dtype == 'VARCHAR' and not isinstance(value, str):
         return str(value)
     return value
@@ -950,11 +966,11 @@ class SampledEngine(DuckDBEngine):
             self.source.close()
 
 
-REMOTE = ('snowflake', 'bigquery', 'databricks')
+REMOTE = ('snowflake', 'bigquery', 'databricks', 'trino')
 
 
 def sampled_engine(connector: Any, graph: Graph | None = None) -> SampledEngine:
-    """A :class:`SampledEngine` reading through a Snowflake, BigQuery or Databricks connector from
+    """A :class:`SampledEngine` reading through a Snowflake, BigQuery, Databricks or Trino connector from
     :mod:`konstruct.warehouse`, with its connection options."""
     from konstruct import warehouse
 
@@ -965,10 +981,14 @@ def sampled_engine(connector: Any, graph: Graph | None = None) -> SampledEngine:
     elif isinstance(connector, warehouse.DatabricksConnector):
         connection = warehouse._driver('databricks.sql', 'databricks').connect(**connector.options)
         source = DbApiSource(connection, 'databricks')
+    elif isinstance(connector, warehouse.TrinoConnector):
+        source = DbApiSource(connector.connect(), 'trino')
     elif isinstance(connector, warehouse.BigQueryConnector):
         source = BigQuerySource(connector.client())
     else:
-        raise ValueError(f'{type(connector).__name__} is not a Snowflake, BigQuery or Databricks connector')
+        raise ValueError(
+            f'{type(connector).__name__} is not a Snowflake, BigQuery, Databricks or Trino connector'
+        )
     return SampledEngine(source, f'{source.dialect} (sampled)', graph)
 
 

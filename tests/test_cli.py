@@ -253,5 +253,5 @@ def test_verify_needs_a_duckdb_warehouse(tmp_path: Path, capsys: pytest.CaptureF
     assert (
         code == 1
         and 'needs the models built in a DuckDB file or a Postgres database' in err
-        and '--warehouse snowflake, bigquery or databricks' in err
+        and '--warehouse snowflake, bigquery, databricks or trino' in err
     )

@@ -69,7 +69,8 @@ lineage parsed from the SQL. Query it instead of reading every model by hand.
      column that computes a business idea differently from an existing one, and says how to fix
      each. Fix what it reports and run it again until it passes; the pull request check runs it too.
    - `konstruct verify`: test the lineage against the data (DuckDB, Postgres, or a sample of
-     Snowflake, BigQuery or Databricks); edges it confirms are marked `confirmed` in impact and trace.
+     Snowflake, BigQuery, Databricks or Trino); edges it confirms are marked `confirmed` in impact
+     and trace.
    - `konstruct query "<question>"`: free-text questions; returns matching nodes and their
      connections, plus impact or lineage when the question asks for it.
    Add `--json` for structured output.

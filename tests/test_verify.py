@@ -603,7 +603,7 @@ def test_each_remote_warehouse_type_makes_its_engine(
     bigquery = sampled_engine(warehouse.BigQueryConnector(project='p'), project.graph)
     assert isinstance(bigquery.source, BigQuerySource) and bigquery.label == 'bigquery (sampled)'
     bigquery.close()
-    with pytest.raises(ValueError, match='is not a Snowflake, BigQuery or Databricks connector'):
+    with pytest.raises(ValueError, match='is not a Snowflake, BigQuery, Databricks or Trino connector'):
         sampled_engine(object())
 
 

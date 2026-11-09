@@ -480,14 +480,14 @@ class Project:
 
         For every dbt model and SQL-built table, copies its inputs (DuckDB), works inside a
         transaction that is rolled back (Postgres), or copies a sample of each input into an
-        in-memory DuckDB database (Snowflake, BigQuery, Databricks), perturbs one input column at
-        a time by shifting, nulling and shuffling it, reruns the model's SQL and records which
-        outputs change. A claimed edge is confirmed when its output changes; an observed influence the
+        in-memory DuckDB database (Snowflake, BigQuery, Databricks, Trino), perturbs one input
+        column at a time by shifting, nulling and shuffling it, reruns the model's SQL and records
+        which outputs change. A claimed edge is confirmed when its output changes; an observed influence the
         graph does not claim is reported as unexplained.
 
         Args:
-            warehouse: A DuckDB file, a ``postgresql://`` URL, or ``snowflake``, ``bigquery`` or
-                ``databricks`` for the configured warehouse of that type, sampled. By default,
+            warehouse: A DuckDB file, a ``postgresql://`` URL, or ``snowflake``, ``bigquery``,
+                ``databricks`` or ``trino`` for the configured warehouse of that type, sampled. By default,
                 the DuckDB or Postgres warehouse the build read.
             seed: The random seed, so a run can be repeated exactly.
             max_rows: The most rows sampled from any input.
@@ -542,7 +542,7 @@ class Project:
         return result
 
     def _remote_engine(self, kind: str) -> Engine:
-        """A sampled engine for the configured Snowflake, BigQuery or Databricks warehouse."""
+        """A sampled engine for the configured Snowflake, BigQuery, Databricks or Trino warehouse."""
         from konstruct.config import discover_warehouses
         from konstruct.dbt import find_projects
         from konstruct.verify import sampled_engine
@@ -574,8 +574,8 @@ class Project:
                     return connector.dsn
         raise query.QueryError(
             'verification needs the models built in a DuckDB file or a Postgres database; none was '
-            'found (pass --warehouse PATH or a postgresql:// URL, or --warehouse snowflake, bigquery '
-            'or databricks to check a sample of that warehouse)'
+            'found (pass --warehouse PATH or a postgresql:// URL, or --warehouse snowflake, bigquery, '
+            'databricks or trino to check a sample of that warehouse)'
         )
 
     def diff(self, base: str | None = None, head: str | None = None) -> Diff:

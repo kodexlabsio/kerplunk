@@ -16,6 +16,7 @@
 | **Snowflake** | Tables, views, columns, types, comments and view definitions from each database's `information_schema`, through `konstruct[snowflake]` | v0 |
 | **BigQuery** | Datasets, tables, views and view queries through the client API, with nested `RECORD` fields and their descriptions, through `konstruct[bigquery]` | v0 |
 | **Databricks** | Unity Catalog `information_schema` for each catalogue, including struct columns, through `konstruct[databricks]` | v0 |
+| **Trino** | Tables, views, columns, types (with `row` fields as `parent.child`), view definitions and column comments from each catalogue's `information_schema`, and table comments from `system.metadata.table_comments` when the user may read it, through `konstruct[trino]`; Starburst too. SQL is read in the Trino dialect | v0 |
 
 ## Several Repositories
 

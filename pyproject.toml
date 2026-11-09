@@ -41,7 +41,8 @@ dependencies = [
 snowflake = ["snowflake-connector-python>=3.12"]
 bigquery = ["google-cloud-bigquery>=3.25"]
 databricks = ["databricks-sql-connector>=3.4"]
-all = ["konstruct[snowflake,bigquery,databricks]"]
+trino = ["trino>=0.330"]
+all = ["konstruct[snowflake,bigquery,databricks,trino]"]
 
 [project.urls]
 Homepage = "https://github.com/kodexlabsio/konstruct"
@@ -110,7 +111,7 @@ exclude = ["^tests/fixtures/"]
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["pyiceberg.*", "duckdb.*", "airflow.*", "dagster.*", "dagster_dbt.*", "dagster_duckdb.*", "fakesnow.*", "snowflake.*", "databricks.*"]
+module = ["pyiceberg.*", "duckdb.*", "airflow.*", "dagster.*", "dagster_dbt.*", "dagster_duckdb.*", "fakesnow.*", "snowflake.*", "databricks.*", "trino.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -129,6 +130,7 @@ markers = [
     "bigquery: runs against the BigQuery emulator (KONSTRUCT_TEST_BIGQUERY_ENDPOINT)",
     "iceberg_rest: needs an Iceberg REST catalog (KONSTRUCT_TEST_ICEBERG_URI)",
     "databricks: runs against a real Databricks workspace (KONSTRUCT_TEST_DATABRICKS_*)",
+    "trino: runs against a Trino server (KONSTRUCT_TEST_TRINO_HOST)",
 ]
 
 [tool.commitizen]

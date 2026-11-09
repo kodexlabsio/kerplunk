@@ -643,7 +643,7 @@ def parser() -> argparse.ArgumentParser:
     verify = add(
         'verify',
         'test the column lineage against the data by perturbing inputs (DuckDB, Postgres, or a sample '
-        'of Snowflake, BigQuery or Databricks)',
+        'of Snowflake, BigQuery, Databricks or Trino)',
     )
     verify.add_argument('-m', '--model', action='append', metavar='NAME', help='only this model (repeatable)')
     verify.add_argument(
@@ -655,7 +655,7 @@ def parser() -> argparse.ArgumentParser:
     verify.add_argument(
         '--warehouse',
         metavar='WAREHOUSE',
-        help='DuckDB file, postgresql:// URL, or snowflake, bigquery or databricks for the configured one, '
+        help='DuckDB file, postgresql:// URL, or snowflake, bigquery, databricks or trino for the configured one, '
         'sampled (default: discovered)',
     )
     verify.add_argument(

@@ -493,6 +493,118 @@ class DatabricksConnector:
 
 
 @dataclass
+class TrinoConnector:
+    """Trino (and Starburst) through the ``trino`` client (the ``trino`` extra), reading each
+    catalogue's information_schema and the table comments in ``system.metadata``. ``options`` are
+    passed to ``trino.dbapi.connect``; ``catalogs`` defaults to the connection's catalogue."""
+
+    options: dict[str, Any]
+    catalogs: list[str] | None = None
+    schemas: list[str] | None = None
+    password: str | None = None
+    """For password (LDAP) authentication, with ``options['user']``."""
+    token: str | None = None
+    """For JWT authentication."""
+    label: str = 'trino'
+    dialect: str | None = 'trino'
+    default_schema: str | None = None
+
+    def connect(self) -> Any:
+        trino = _driver('trino', 'trino')
+        options = dict(self.options)
+        if self.token:
+            options['auth'] = _driver('trino.auth', 'trino').JWTAuthentication(self.token)
+        elif self.password:
+            options['auth'] = _driver('trino.auth', 'trino').BasicAuthentication(
+                str(options.get('user', '')), self.password
+            )
+        if 'auth' in options:
+            options.setdefault('http_scheme', 'https')
+        return trino.dbapi.connect(**options)
+
+    def fetch(self) -> list[RelationMeta]:
+        connection = self.connect()
+        try:
+            cursor = connection.cursor()
+            catalogs = [c.lower() for c in self.catalogs or [str(self.options.get('catalog') or '')] if c]
+            if not catalogs:
+                raise ValueError('no catalogue to read: set catalog or catalogs')
+            relations = []
+            for catalog in catalogs:
+                relations += _trino_catalog(cursor, catalog, _schemas_filter(self.schemas))
+            if relations:
+                self.default_schema = str(self.options.get('schema') or 'default')
+            return relations
+        finally:
+            connection.close()
+
+
+def _trino_catalog(cursor: Any, catalog: str, schemas: set[str] | None) -> list[RelationMeta]:
+    """One Trino catalogue: tables, views and columns (with their comments) from its
+    information_schema, and table comments from ``system.metadata``."""
+
+    def rows(sql: str) -> list[tuple[Any, ...]]:
+        cursor.execute(sql)
+        return list(cursor.fetchall())
+
+    name = '"' + catalog.replace('"', '""') + '"'
+    literal = "'" + catalog.replace("'", "''") + "'"
+    skip = "table_schema <> 'information_schema'"
+    wanted = ''
+    if schemas:
+        wanted = ', '.join("'" + s.replace("'", "''") + "'" for s in sorted(schemas))
+        skip += f' and table_schema in ({wanted})'
+    tables = rows(
+        f'select table_schema, table_name, table_type from {name}.information_schema.tables '
+        f'where {skip} order by 1, 2'
+    )
+    # comment is a hidden column of Trino's information_schema.columns, so it is named.
+    column_rows = rows(
+        f'select table_schema, table_name, column_name, data_type, comment, ordinal_position '
+        f'from {name}.information_schema.columns where {skip} order by 1, 2, 6'
+    )
+    columns: dict[tuple[str, str], list[ColumnMeta]] = {}
+    for schema, table, column, dtype, comment, _ in column_rows:
+        columns.setdefault((str(schema), str(table)), []).extend(
+            [ColumnMeta(str(column), dtype, comment or None), *struct_fields(str(column), dtype, 'trino')]
+        )
+    views = {
+        (str(schema), str(table)): definition
+        for schema, table, definition in rows(
+            f'select table_schema, table_name, view_definition from {name}.information_schema.views '
+            f'where {skip}'
+        )
+    }
+    try:
+        comments = {
+            (str(schema), str(table)): comment
+            for schema, table, comment in rows(
+                'select schema_name, table_name, comment from system.metadata.table_comments '
+                f'where catalog_name = {literal} and comment is not null'
+                + (f' and schema_name in ({wanted})' if wanted else '')
+            )
+        }
+    except Exception:  # system.metadata is not readable for every user
+        comments = {}
+    relations = []
+    for schema, table, table_type in tables:
+        key = (str(schema), str(table))
+        if schemas and key[0].lower() not in schemas:
+            continue
+        parts = (catalog, *key)
+        relations.append(
+            RelationMeta(
+                parts=parts,
+                kind='view' if 'VIEW' in str(table_type).upper() else 'table',
+                comment=comments.get(key) or None,
+                columns=columns.get(key, []),
+                view_sql=_view_statement(parts, views.get(key)),
+            )
+        )
+    return relations
+
+
+@dataclass
 class BigQueryConnector:
     """BigQuery through google-cloud-bigquery (the ``bigquery`` extra), using the client API, which
     also returns nested RECORD fields and their descriptions. ``endpoint`` points it at an emulator."""

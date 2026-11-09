@@ -90,7 +90,7 @@ Konstruct reads a data repository and its warehouse and builds a graph of every 
 
 ### One chain across tools
 
-A column computed in dbt, copied by an Airflow SQL task, written by a Dagster asset and shown on a dashboard is one chain, through DuckDB, Postgres, Snowflake, BigQuery, Databricks and Iceberg, and across repositories.
+A column computed in dbt, copied by an Airflow SQL task, written by a Dagster asset and shown on a dashboard is one chain, through DuckDB, Postgres, Snowflake, BigQuery, Databricks, Trino and Iceberg, and across repositories.
 
 <sub><a href="https://kodexlabsio.github.io/konstruct/guide/inputs.html">Inputs and how lineage works</a></sub>
 
@@ -158,7 +158,7 @@ Composed formulas are evaluated on the data and must match the final model row f
 |---|---|
 | **Transformation** | dbt (manifest, catalog, or rendered without dbt), standalone SQL files, the SQL in PySpark jobs, warehouse views |
 | **Orchestration** | Airflow (DAGs, TaskGroups, TaskFlow, assets, Cosmos) and Dagster (assets, op jobs, schedules, sensors), parsed without running them |
-| **Warehouses** | DuckDB, Postgres, Snowflake, BigQuery, Databricks, and Iceberg through any PyIceberg catalogue |
+| **Warehouses** | DuckDB, Postgres, Snowflake, BigQuery, Databricks, Trino, and Iceberg through any PyIceberg catalogue |
 | **Dashboards** | dbt exposures, and Looker views field by field from LookML |
 | **Meaning** | Business terms in `definitions.yml`, and column usage from Snowflake, BigQuery and Databricks query history |
 

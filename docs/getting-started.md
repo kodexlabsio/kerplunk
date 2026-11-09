@@ -13,7 +13,7 @@ uvx --from git+https://github.com/kodexlabsio/konstruct konstruct build
 ```
 
 For a warehouse extra, name it in the requirement, for example
-`uv tool install "konstruct[snowflake] @ git+https://github.com/kodexlabsio/konstruct"` (or `[bigquery]`, `[databricks]`, `[all]`).
+`uv tool install "konstruct[snowflake] @ git+https://github.com/kodexlabsio/konstruct"` (or `[bigquery]`, `[databricks]`, `[trino]`, `[all]`).
 To pin a release, add its tag: `git+https://github.com/kodexlabsio/konstruct@v0.8.0`. Each [release](https://github.com/kodexlabsio/konstruct/releases) also has the wheel attached.
 
 Then, in a repository with dbt models, SQL, DAGs or a warehouse:
@@ -38,7 +38,7 @@ uv run konstruct build examples/jaffle_shop    # about a second
 uv run konstruct impact stg_payments.amount -C examples/jaffle_shop
 ```
 
-`konstruct build` needs no configuration: it finds dbt projects, Airflow DAG files, Dagster definitions, PySpark jobs, LookML, SQL files, DuckDB files and the warehouse each dbt profile points at (DuckDB, Postgres, Snowflake, BigQuery or Databricks), and prints what it found and what it did with each. If a dbt project's `target/manifest.json` is missing or older than the project files and `dbt` is on `PATH`, it runs `dbt docs generate` first. `konstruct init` writes a commented `konstruct.toml` recording what discovery found, for when you want to pin or change it.
+`konstruct build` needs no configuration: it finds dbt projects, Airflow DAG files, Dagster definitions, PySpark jobs, LookML, SQL files, DuckDB files and the warehouse each dbt profile points at (DuckDB, Postgres, Snowflake, BigQuery, Databricks or Trino), and prints what it found and what it did with each. If a dbt project's `target/manifest.json` is missing or older than the project files and `dbt` is on `PATH`, it runs `dbt docs generate` first. `konstruct init` writes a commented `konstruct.toml` recording what discovery found, for when you want to pin or change it.
 
 ```text
 $ konstruct build
