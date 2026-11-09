@@ -4,8 +4,9 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedStr;
+use pyo3::types::{PyList, PyString};
 
-use crate::graph::{self, EdgeKind, EdgeSpec, Flow, Visit};
+use crate::graph::{self, EdgeKind, Flow, Visit};
 use crate::names::{self, Relation};
 use crate::search::{self, Document, Standing};
 
@@ -29,6 +30,14 @@ fn same_length(what: &str, expected: usize, lengths: &[usize]) -> PyResult<()> {
     }
 }
 
+/// The items of `list`, each as a Python string.
+fn strings<'py>(
+    list: &Bound<'py, PyList>,
+) -> impl Iterator<Item = PyResult<Bound<'py, PyString>>> + use<'py> {
+    list.iter()
+        .map(|item| item.cast_into::<PyString>().map_err(PyErr::from))
+}
+
 /// The edges of a graph, indexed for walks and shortest paths. Nodes and edges are numbered in
 /// the order they were given.
 #[pyclass(frozen, module = "konstruct._core")]
@@ -40,10 +49,10 @@ struct GraphIndex {
 impl GraphIndex {
     #[new]
     fn new(
-        nodes: Vec<PyBackedStr>,
-        sources: Vec<PyBackedStr>,
-        targets: Vec<PyBackedStr>,
-        kinds: Vec<PyBackedStr>,
+        nodes: &Bound<'_, PyList>,
+        sources: &Bound<'_, PyList>,
+        targets: &Bound<'_, PyList>,
+        kinds: &Bound<'_, PyList>,
         references: Vec<bool>,
     ) -> PyResult<Self> {
         same_length(
@@ -51,16 +60,25 @@ impl GraphIndex {
             sources.len(),
             &[targets.len(), kinds.len(), references.len()],
         )?;
-        let edges: Vec<EdgeSpec<'_>> = (0..sources.len())
-            .map(|i| EdgeSpec {
-                source: &sources[i],
-                target: &targets[i],
-                kind: EdgeKind::parse(&kinds[i]),
-                reference: references[i],
-            })
-            .collect();
+        let mut builder = graph::GraphIndex::builder();
+        for node in strings(nodes) {
+            builder.node(node?.to_str()?);
+        }
+        let edges = strings(sources)
+            .zip(strings(targets))
+            .zip(strings(kinds))
+            .zip(references);
+        for (((source, target), kind), reference) in edges {
+            let (source, target, kind) = (source?, target?, kind?);
+            builder.edge(
+                source.to_str()?,
+                target.to_str()?,
+                EdgeKind::parse(kind.to_str()?),
+                reference,
+            );
+        }
         Ok(Self {
-            inner: graph::GraphIndex::new(nodes.iter().map(|id| &**id), &edges),
+            inner: builder.build(),
         })
     }
 
@@ -156,14 +174,14 @@ impl SearchIndex {
     #[new]
     #[allow(clippy::too_many_arguments)]
     fn new(
-        ids: Vec<PyBackedStr>,
-        kinds: Vec<PyBackedStr>,
+        ids: &Bound<'_, PyList>,
+        kinds: &Bound<'_, PyList>,
         standings: Vec<u8>,
-        names: Vec<PyBackedStr>,
-        labels: Vec<PyBackedStr>,
-        words: Vec<PyBackedStr>,
-        descriptions: Vec<PyBackedStr>,
-        synonyms: Vec<Vec<PyBackedStr>>,
+        names: &Bound<'_, PyList>,
+        labels: &Bound<'_, PyList>,
+        words: &Bound<'_, PyList>,
+        descriptions: &Bound<'_, PyList>,
+        synonyms: &Bound<'_, PyList>,
     ) -> PyResult<Self> {
         let lengths = [
             kinds.len(),
@@ -178,9 +196,19 @@ impl SearchIndex {
             ids.len(),
             &[descriptions.len(), synonyms.len()],
         )?;
-        let mut documents = Vec::with_capacity(ids.len());
-        for i in 0..ids.len() {
-            let standing = match standings[i] {
+        let mut index = search::SearchIndex::default();
+        let fields = strings(ids)
+            .zip(strings(kinds))
+            .zip(standings)
+            .zip(strings(names));
+        let more = strings(labels)
+            .zip(strings(words))
+            .zip(strings(descriptions))
+            .zip(synonyms.iter());
+        for ((((id, kind), standing), name), (((label, words), description), synonyms)) in
+            fields.zip(more)
+        {
+            let standing = match standing {
                 0 => Standing::Other,
                 1 => Standing::Term,
                 2 => Standing::Relation,
@@ -191,20 +219,25 @@ impl SearchIndex {
                     )));
                 }
             };
-            documents.push(Document {
-                id: &ids[i],
-                kind: &kinds[i],
+            let (id, kind, name, label, words, description) =
+                (id?, kind?, name?, label?, words?, description?);
+            let synonyms: Vec<Bound<'_, PyString>> =
+                strings(synonyms.cast::<PyList>()?).collect::<PyResult<_>>()?;
+            index.add(Document {
+                id: id.to_str()?,
+                kind: kind.to_str()?,
                 standing,
-                name: &names[i],
-                label: &labels[i],
-                names: &words[i],
-                description: &descriptions[i],
-                synonyms: synonyms[i].iter().map(|s| &**s).collect(),
+                name: name.to_str()?,
+                label: label.to_str()?,
+                names: words.to_str()?,
+                description: description.to_str()?,
+                synonyms: synonyms
+                    .iter()
+                    .map(|s| s.to_str())
+                    .collect::<PyResult<_>>()?,
             });
         }
-        Ok(Self {
-            inner: search::SearchIndex::new(documents),
-        })
+        Ok(Self { inner: index })
     }
 
     /// The nodes matching `text`, best first, as (ordinal, score).

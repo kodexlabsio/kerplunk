@@ -162,42 +162,59 @@ pub struct GraphIndex {
     rank: OnceLock<Vec<u32>>,
 }
 
-/// An edge as the index is built from it, by endpoint ids.
-#[derive(Clone, Copy, Debug)]
-pub struct EdgeSpec<'a> {
-    pub source: &'a str,
-    pub target: &'a str,
-    pub kind: EdgeKind,
-    pub reference: bool,
+/// Builds a [`GraphIndex`]: the graph's nodes first, in its order, then its edges, in theirs.
+#[derive(Debug, Default)]
+pub struct GraphIndexBuilder {
+    interner: Interner,
+    /// The number of nodes, fixed by the first edge.
+    nodes: Option<usize>,
+    edges: Vec<Edge>,
+}
+
+impl GraphIndexBuilder {
+    /// Add the node `id`.
+    ///
+    /// # Panics
+    ///
+    /// When an edge has been added already: ordinals below the node count must be the nodes.
+    pub fn node(&mut self, id: &str) {
+        assert!(
+            self.nodes.is_none(),
+            "every node is added before the first edge"
+        );
+        self.interner.intern(id);
+    }
+
+    /// Add an edge from `source` to `target`; `reference` when it joins, filters or groups.
+    pub fn edge(&mut self, source: &str, target: &str, kind: EdgeKind, reference: bool) {
+        self.nodes.get_or_insert(self.interner.ids.len());
+        let source = self.interner.intern(source);
+        let target = self.interner.intern(target);
+        self.edges.push(Edge {
+            source,
+            target,
+            kind,
+            reference,
+        });
+    }
+
+    pub fn build(self) -> GraphIndex {
+        let count = self.interner.ids.len();
+        GraphIndex {
+            nodes: self.nodes.unwrap_or(count),
+            outgoing: Adjacency::new(count, &self.edges, |e| e.source),
+            incoming: Adjacency::new(count, &self.edges, |e| e.target),
+            ids: self.interner.ids,
+            ordinals: self.interner.ordinals,
+            edges: self.edges,
+            rank: OnceLock::new(),
+        }
+    }
 }
 
 impl GraphIndex {
-    /// Index `edges` over `nodes`, the graph's node ids in its order. Edges keep their order.
-    pub fn new<'a>(nodes: impl IntoIterator<Item = &'a str>, edges: &[EdgeSpec<'a>]) -> Self {
-        let mut interner = Interner::default();
-        for id in nodes {
-            interner.intern(id);
-        }
-        let node_count = interner.ids.len();
-        let edges: Vec<Edge> = edges
-            .iter()
-            .map(|spec| Edge {
-                source: interner.intern(spec.source),
-                target: interner.intern(spec.target),
-                kind: spec.kind,
-                reference: spec.reference,
-            })
-            .collect();
-        let count = interner.ids.len();
-        Self {
-            nodes: node_count,
-            outgoing: Adjacency::new(count, &edges, |e| e.source),
-            incoming: Adjacency::new(count, &edges, |e| e.target),
-            ids: interner.ids,
-            ordinals: interner.ordinals,
-            edges,
-            rank: OnceLock::new(),
-        }
+    pub fn builder() -> GraphIndexBuilder {
+        GraphIndexBuilder::default()
     }
 
     /// The number of nodes.
@@ -386,16 +403,12 @@ mod tests {
     use super::*;
 
     fn index(nodes: &[&str], edges: &[(&str, &str, &str)]) -> GraphIndex {
-        let specs: Vec<EdgeSpec<'_>> = edges
-            .iter()
-            .map(|&(source, target, kind)| EdgeSpec {
-                source,
-                target,
-                kind: EdgeKind::parse(kind),
-                reference: false,
-            })
-            .collect();
-        GraphIndex::new(nodes.iter().copied(), &specs)
+        let mut builder = GraphIndex::builder();
+        nodes.iter().for_each(|id| builder.node(id));
+        for &(source, target, kind) in edges {
+            builder.edge(source, target, EdgeKind::parse(kind), false);
+        }
+        builder.build()
     }
 
     fn ids(index: &GraphIndex, visits: &[Visit]) -> Vec<String> {
@@ -403,6 +416,14 @@ mod tests {
             .iter()
             .map(|v| index.ids[v.node as usize].to_string())
             .collect()
+    }
+
+    #[test]
+    #[should_panic(expected = "every node is added before the first edge")]
+    fn nodes_come_first() {
+        let mut builder = GraphIndex::builder();
+        builder.edge("a", "b", EdgeKind::Feeds, false);
+        builder.node("c");
     }
 
     #[test]
@@ -458,21 +479,11 @@ mod tests {
 
     #[test]
     fn reference_edges_stop_the_walk_when_asked() {
-        let specs = [
-            EdgeSpec {
-                source: "a",
-                target: "b",
-                kind: EdgeKind::Feeds,
-                reference: true,
-            },
-            EdgeSpec {
-                source: "b",
-                target: "c",
-                kind: EdgeKind::Feeds,
-                reference: false,
-            },
-        ];
-        let graph = GraphIndex::new(["a", "b", "c"], &specs);
+        let mut builder = GraphIndex::builder();
+        ["a", "b", "c"].iter().for_each(|id| builder.node(id));
+        builder.edge("a", "b", EdgeKind::Feeds, true);
+        builder.edge("b", "c", EdgeKind::Feeds, false);
+        let graph = builder.build();
         let start = [graph.node("a").unwrap()];
         assert_eq!(
             ids(&graph, &graph.walk(&start, Flow::Downstream, None, true)),

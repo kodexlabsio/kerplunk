@@ -103,25 +103,30 @@ pub struct SearchIndex {
 impl SearchIndex {
     pub fn new<'a>(documents: impl IntoIterator<Item = Document<'a>>) -> Self {
         let mut index = Self::default();
-        for document in documents {
-            let names = index.word_numbers(document.names);
-            for &word in &names {
-                index.frequency[word as usize] += 1;
-            }
-            let description = index.word_numbers(document.description);
-            index.entries.push(Entry {
-                id: document.id.into(),
-                id_length: document.id.chars().count(),
-                kind: document.kind.into(),
-                standing: document.standing,
-                name: document.name.into(),
-                label: document.label.into(),
-                names,
-                description,
-                synonyms: document.synonyms.into_iter().map(Into::into).collect(),
-            });
-        }
+        documents
+            .into_iter()
+            .for_each(|document| index.add(document));
         index
+    }
+
+    /// Add the next node; nodes are numbered in the order added.
+    pub fn add(&mut self, document: Document<'_>) {
+        let names = self.word_numbers(document.names);
+        for &word in &names {
+            self.frequency[word as usize] += 1;
+        }
+        let description = self.word_numbers(document.description);
+        self.entries.push(Entry {
+            id: document.id.into(),
+            id_length: document.id.chars().count(),
+            kind: document.kind.into(),
+            standing: document.standing,
+            name: document.name.into(),
+            label: document.label.into(),
+            names,
+            description,
+            synonyms: document.synonyms.into_iter().map(Into::into).collect(),
+        });
     }
 
     fn word_numbers(&mut self, text: &str) -> Vec<u32> {
