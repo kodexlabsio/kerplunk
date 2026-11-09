@@ -312,17 +312,92 @@ def test_wcag_aa_in_both_themes(jaffle_built_graph: Path, open_page: Any) -> Non
             '#/browse',
             '#/ontology',
         ):
-            page = open_page(graph, fragment, color_scheme=scheme)
+            # axe-core is added as an inline script, which the page's own policy would refuse.
+            page = open_page(graph, fragment, color_scheme=scheme, bypass_csp=True)
             assert axe_violations(page) == [], (scheme, fragment)
-    page = open_page(graph)
+    page = open_page(graph, bypass_csp=True)
     page.keyboard.press('Control+k')
     page.keyboard.type('order')
     assert axe_violations(page) == []
     # At 200% zoom (a 700 by 450 window) the navigation folds away and nothing scrolls sideways.
-    zoomed = open_page(graph, '#/node/model.jaffle_shop.orders', viewport={'width': 700, 'height': 450})
+    zoomed = open_page(
+        graph, '#/node/model.jaffle_shop.orders', viewport={'width': 700, 'height': 450}, bypass_csp=True
+    )
     assert zoomed.evaluate('document.documentElement.scrollWidth') <= 700
     assert not zoomed.locator('#nav').is_visible() or zoomed.locator('#nav').bounding_box()['x'] < 0
     assert axe_violations(zoomed) == []
+
+
+def test_a_served_page_loads_the_graph_and_follows_changes(browser: Any) -> None:
+    """Served by `konstruct serve`, the page fetches graph.json and reloads it in place when the
+    server sends an event, keeping the page and the view."""
+    import json
+    import queue
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from konstruct.outputs.html import template
+
+    graph = Graph()
+    orders = graph.add_node(Node('model.p.orders', 'model', 'orders', relation='db.s.orders'))
+    graph.add_column(orders, 'amount')
+    state = {'graph': graph.to_dict()}
+    events: queue.Queue[str] = queue.Queue()
+    page_html = template().replace(
+        '<meta charset="utf-8" />', '<meta charset="utf-8" />\n<meta name="konstruct-serve" content="" />', 1
+    )
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args: Any) -> None:
+            pass
+
+        def send(self, body: bytes, kind: str, status: int = 200) -> None:
+            self.send_response(status)
+            self.send_header('Content-Type', kind)
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self) -> None:
+            if self.path == '/graph.json':
+                self.send(json.dumps(state['graph']).encode(), 'application/json')
+            elif self.path == '/events':
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/event-stream')
+                self.end_headers()
+                try:
+                    while True:
+                        self.wfile.write(f'data: {events.get(timeout=30)}\n\n'.encode())
+                        self.wfile.flush()
+                except (queue.Empty, OSError):
+                    return
+            elif self.path == '/':
+                self.send(page_html.encode(), 'text/html; charset=utf-8')
+            else:
+                self.send(b'', 'text/plain', 404)
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        page = browser.new_page(viewport={'width': 1400, 'height': 900})
+        problems: list[str] = []
+        page.on('pageerror', lambda error: problems.append(str(error)))
+        page.on('console', lambda m: problems.append(m.text) if m.type in ('error', 'warning') else None)
+        page.goto(f'http://127.0.0.1:{server.server_address[1]}/#/node/model.p.orders')
+        page.wait_for_selector('#page h1:text-is("orders")')
+        page.wait_for_selector("#nodes [data-id='model.p.orders']")
+        more = graph.add_node(Node('model.p.revenue', 'model', 'revenue', relation='db.s.revenue'))
+        graph.add_edge(orders.id, more.id, 'feeds')
+        state['graph'] = graph.to_dict()
+        events.put('changed')
+        page.wait_for_selector("#nodes [data-id='model.p.revenue']")
+        assert page.inner_text('#page h1') == 'orders'
+        assert page.evaluate('location.hash') == '#/node/model.p.orders'
+        # explain.json is optional: the server here has none.
+        assert [p for p in problems if '404' not in p] == []
+        page.close()
+    finally:
+        server.shutdown()
 
 
 def test_hostile_text_is_shown_as_text(tmp_path: Path, open_page: Any) -> None:

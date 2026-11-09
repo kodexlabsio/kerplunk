@@ -60,7 +60,10 @@
     });
 
     onMount(() => {
-        if (viewer.lineageShown) viewer.request('fit');
+        if (viewer.carriedScroll) {
+            const page = document.getElementById('page');
+            if (page) page.scrollTop = viewer.carriedScroll;
+        } else if (viewer.lineageShown) viewer.request('fit');
     });
 
     function typing(event: KeyboardEvent): boolean {

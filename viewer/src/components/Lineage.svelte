@@ -124,8 +124,20 @@
         );
     });
 
+    // A graph loaded again by a serving Konstruct keeps the view it had.
+    // svelte-ignore state_referenced_locally
+    const carried = viewer.carriedView;
+    if (carried) {
+        view = carried;
+        viewer.carriedView = null;
+    }
+    $effect(() => {
+        viewer.lastView = view;
+    });
+
     // A new selection fits the graph to the window.
-    let lastKey = '';
+    // svelte-ignore state_referenced_locally
+    let lastKey = carried ? `${viewer.selectorText}\u0000${viewer.excludeText}` : '';
     $effect(() => {
         const key = `${viewer.selectorText}\u0000${viewer.excludeText}`;
         if (key === lastKey) return;
@@ -652,7 +664,7 @@
         if (svg) observer.observe(svg);
         const r = svg?.getBoundingClientRect();
         if (r && r.width) size = { w: r.width, h: r.height };
-        viewer.request('fit');
+        if (!carried) viewer.request('fit');
         return () => observer.disconnect();
     });
 

@@ -103,7 +103,9 @@ def test_page_references_no_external_resources(tmp_path: Path) -> None:
     assert all(u.startswith(('data:', '#')) for u in urls), [
         u[:40] for u in urls if not u.startswith('data:')
     ]
-    assert 'fetch(' not in page and 'XMLHttpRequest' not in page
+    # Only a page a server has marked (<meta name="konstruct-serve">) fetches its graph; the
+    # browser tests check that a static page makes no request at all.
+    assert 'XMLHttpRequest' not in page and 'konstruct-serve' in page
 
 
 def test_column_formulas_and_conditions_are_embedded(tmp_path: Path) -> None:
@@ -291,3 +293,26 @@ def test_conflicts_are_reused_while_the_graph_is_unchanged(tmp_path: Path) -> No
     graph.add_node(Node('model.shop.more', 'model', 'more'))
     conflicts_data(graph, cache)
     assert cache.misses == 1
+
+
+def test_the_page_carries_a_strict_content_security_policy(tmp_path: Path) -> None:
+    """The inline script and style are allowed by their hashes, which filling in the graph does not
+    change; nothing allows inline handlers, eval or other origins."""
+    import base64
+    import hashlib
+
+    page = write_html(sample_graph(), tmp_path / 'graph.html').read_text(encoding='utf-8')
+    match = re.search(r'<meta http-equiv="Content-Security-Policy" content="([^"]+)"', page)
+    assert match is not None
+    policy = dict(part.strip().split(' ', 1) for part in match.group(1).split(';'))
+    assert policy['default-src'] == "'none'"
+    assert 'unsafe' not in match.group(1)
+
+    def digest(text: str) -> str:
+        return f"'sha256-{base64.b64encode(hashlib.sha256(text.encode('utf-8')).digest()).decode()}'"
+
+    script = inline_script(page)
+    assert policy['script-src'] == digest(script)
+    styles = re.findall(r'<style[^>]*>(.*?)</style>', page.replace(script, ''), re.S)
+    assert policy['style-src'].split() == [digest(style) for style in styles]
+    assert not re.search(r'<[^>]+\son[a-z]+\s*=', page.replace(script, ''))

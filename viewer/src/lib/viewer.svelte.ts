@@ -70,6 +70,11 @@ export class Viewer {
     readonly collapsed = new SvelteSet<string>();
     readonly hiddenKinds = new SvelteSet<string>();
     readonly hiddenTransforms = new SvelteSet<Transform>();
+    /** The graph's pan and zoom, kept by the lineage view so a reload can restore it. */
+    lastView: { x: number; y: number; k: number } | null = null;
+    /** What a reloaded graph starts from: the view and the page's scroll before the reload. */
+    carriedView: { x: number; y: number; k: number } | null = null;
+    carriedScroll = 0;
     private requests = 0;
     private orderKey = '';
     private orderCache: string[][] = [];
@@ -92,6 +97,23 @@ export class Viewer {
     get index(): Entry[] {
         this.indexCache ??= buildIndex(this.model, this.ontology);
         return this.indexCache;
+    }
+
+    /** Keep what the reader was looking at when a served graph is loaded again. */
+    carryFrom(previous: Viewer): void {
+        this.theme = previous.theme;
+        this.dockOpen = previous.dockOpen;
+        this.dockSize = previous.dockSize;
+        this.allColumns = previous.allColumns;
+        for (const [to, from] of [
+            [this.expanded, previous.expanded],
+            [this.collapsed, previous.collapsed],
+            [this.hiddenKinds, previous.hiddenKinds],
+        ] as const)
+            for (const item of from) to.add(item);
+        for (const item of previous.hiddenTransforms) this.hiddenTransforms.add(item);
+        this.carriedView = previous.lastView;
+        this.carriedScroll = document.getElementById('page')?.scrollTop ?? 0;
     }
 
     // Routing

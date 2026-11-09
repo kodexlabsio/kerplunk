@@ -1,40 +1,30 @@
-import { mount } from 'svelte';
+import { mount, unmount } from 'svelte';
 import './app.css';
 import App from './App.svelte';
 import { i18n } from './lib/i18n.svelte';
-import type { Explanations, GraphData } from './lib/types';
+import { loadGraph, watchGraph, type Loaded } from './lib/source';
 import { Viewer } from './lib/viewer.svelte';
 
-function embedded<T>(id: string): T | null {
-    const text = document.getElementById(id)?.textContent ?? '';
-    if (!text.trim() || text.trim().startsWith('__KONSTRUCT_')) return null;
-    return JSON.parse(text) as T;
-}
+let app: ReturnType<typeof mount> | null = null;
+let viewer: Viewer | null = null;
 
-/** In `pnpm dev` the placeholders are still in the page: read dev/graph.json instead. */
-async function load(): Promise<[GraphData, Explanations]> {
-    const graph = embedded<GraphData>('konstruct-data');
-    if (graph) return [graph, embedded<Explanations>('konstruct-explain') ?? {}];
-    // Only `pnpm dev` reads a file; the production build never makes a request.
-    if (import.meta.env.DEV) {
-        const response = await fetch('/dev/graph.json');
-        const explain = await fetch('/dev/explain.json');
-        return [
-            response.ok ? ((await response.json()) as GraphData) : {},
-            explain.ok ? ((await explain.json()) as Explanations) : {},
-        ];
-    }
-    return [{}, {}];
+/** Show a graph; when one is already shown, keep the page, the selection and the view. */
+function show(loaded: Loaded): void {
+    const previous = viewer;
+    viewer = new Viewer(loaded.graph, loaded.explanations);
+    if (previous) viewer.carryFrom(previous);
+    const target = document.getElementById('root') ?? document.body;
+    if (app) void unmount(app);
+    app = mount(App, { target, props: { viewer } });
 }
 
 async function start(): Promise<void> {
-    const [graph, explanations] = await load();
-    i18n.choose(explanations.locale);
+    const loaded = await loadGraph();
+    i18n.choose(loaded.explanations.locale);
     // Names are fitted to cards with the real fonts, so wait for them.
     await document.fonts?.ready.catch(() => undefined);
-    const viewer = new Viewer(graph, explanations);
-    const target = document.getElementById('root') ?? document.body;
-    mount(App, { target, props: { viewer } });
+    show(loaded);
+    watchGraph(show);
 }
 
 void start();
