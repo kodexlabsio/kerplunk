@@ -1,3 +1,11 @@
+## v0.12.2 (2026-11-09)
+
+### Fix
+
+- **build**: Report Python and YAML files nested too deeply to read instead of stopping
+- **sql**: Report SQL that makes the parser fail with an AttributeError as unparsed
+- **mcp**: Refuse a diff base or head that git would read as an option
+
 ## v0.12.1 (2026-11-09)
 
 ### Feat
