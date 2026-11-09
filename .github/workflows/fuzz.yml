@@ -1,0 +1,76 @@
+name: Fuzz
+
+# Runs the Atheris harnesses in fuzz/ against the readers of untrusted input (SQL, Python DAG and
+# job files, definitions and Ossie YAML): each must report what it cannot read, never raise.
+# Pull requests that change the package fuzz each harness for two minutes; the weekly run for
+# twenty. A crash uploads the input that caused it.
+on:
+  pull_request:
+    paths: ['konstruct/**', 'fuzz/**', 'uv.lock', '.github/workflows/fuzz.yml']
+  schedule:
+    - cron: '41 3 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: '1'
+
+jobs:
+  fuzz:
+    name: Fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: sql
+            seeds: '*.sql'
+          - target: python
+            seeds: '*.py'
+          - target: yaml
+            seeds: '*.y*ml'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          python-version: '3.12'
+
+      - name: Seed the corpus with the examples and fixtures
+        env:
+          SEEDS: ${{ matrix.seeds }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/corpus"
+          find examples tests/fixtures -type f -name "$SEEDS" -size -64k \
+            -exec cp --backup=numbered -t "$RUNNER_TEMP/corpus" {} +
+
+      - name: Fuzz
+        env:
+          TARGET: ${{ matrix.target }}
+          SECONDS_TO_RUN: ${{ github.event_name == 'pull_request' && '120' || '1200' }}
+        run: >-
+          uv run --with atheris==3.1.0 python "fuzz/fuzz_${TARGET}.py"
+          -max_total_time="$SECONDS_TO_RUN" -timeout=30 -rss_limit_mb=4096
+          -artifact_prefix="$RUNNER_TEMP/" "$RUNNER_TEMP/corpus"
+
+      - name: Upload the input that crashed
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-${{ matrix.target }}-crash
+          path: |
+            ${{ runner.temp }}/crash-*
+            ${{ runner.temp }}/timeout-*
+            ${{ runner.temp }}/oom-*
