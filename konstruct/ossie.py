@@ -34,6 +34,7 @@ import yaml
 from sqlglot import exp
 
 from konstruct.graph import RELATION_KINDS, Graph, Node
+from konstruct.sql import PARSE_ERRORS
 
 log = logging.getLogger(__name__)
 
@@ -271,7 +272,7 @@ def _tree(sql: str, dialect: str | None) -> exp.Expression | None:
     try:
         tree = sqlglot.parse_one(sql, read=dialect)
         return tree if isinstance(tree, exp.Expression) else None
-    except (sqlglot.errors.ParseError, sqlglot.errors.TokenError, ValueError):
+    except PARSE_ERRORS:
         return None
 
 

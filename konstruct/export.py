@@ -32,6 +32,7 @@ from sqlglot import exp
 
 from konstruct import __version__
 from konstruct.graph import RELATION_KINDS, Graph, Node
+from konstruct.sql import PARSE_ERRORS
 
 Format = Literal['openlineage', 'mermaid', 'dot', 'csv', 'ossie']
 FORMATS: tuple[str, ...] = ('openlineage', 'mermaid', 'dot', 'csv', 'ossie')
@@ -155,7 +156,7 @@ def _subtype(expression: Any, transform: Any, dialect: str | None) -> str:
     if isinstance(expression, str):
         try:
             tree = sqlglot.parse_one(expression, read=dialect)
-        except (sqlglot.errors.ParseError, sqlglot.errors.TokenError, ValueError):
+        except PARSE_ERRORS:
             return 'TRANSFORMATION'
         if any(isinstance(n, exp.AggFunc) for n in tree.walk()):
             return 'AGGREGATION'

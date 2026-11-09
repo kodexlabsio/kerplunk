@@ -24,6 +24,10 @@ from sqlglot.schema import MappingSchema
 
 from konstruct.graph import relation_key
 
+# What parsing SQL can raise: sqlglot's parse functions can fail with TypeError, ValueError or
+# RecursionError rather than a SqlglotError, for example on `->` in DuckDB or `#>` in Postgres.
+PARSE_ERRORS: tuple[type[Exception], ...] = (SqlglotError, TypeError, ValueError, RecursionError)
+
 Transform = Literal['direct', 'transformed']
 
 # dbt adapter types (and common aliases) to sqlglot dialect names.
@@ -191,7 +195,7 @@ def analyse(
     resolved = Dialect.get_or_raise(dialect)
     try:
         statements = [s for s in sqlglot.parse(sql, dialect=resolved) if s is not None]
-    except SqlglotError as error:
+    except PARSE_ERRORS as error:
         return [StatementLineage(kind='unparsed', target=target, errors=[_first_line(error)])]
 
     results: list[StatementLineage] = []

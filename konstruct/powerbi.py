@@ -23,6 +23,8 @@ from typing import Any
 import sqlglot
 from sqlglot import exp
 
+from konstruct.sql import PARSE_ERRORS
+
 FILE_SUFFIX = '.tmdl'
 _OBJECT = re.compile(r"^(\w+)\s+('(?:[^']|'')*'|[^\s=:']+)\s*(?:=\s*(.*))?$")
 _OBJECT_KINDS = frozenset(
@@ -407,7 +409,7 @@ def native_reads(sql: str, dialect: str | None) -> list[str] | None:
     """The tables a native query reads, or None when it is not SQL that can be read."""
     try:
         trees = [t for t in sqlglot.parse(sql, read=dialect) if t is not None]
-    except (sqlglot.errors.ParseError, sqlglot.errors.TokenError, ValueError):
+    except PARSE_ERRORS:
         return None
     reads = set()
     for tree in trees:

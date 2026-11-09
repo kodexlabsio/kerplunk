@@ -38,7 +38,7 @@ from sqlglot import exp
 from sqlglot.errors import ErrorLevel, SqlglotError
 
 from konstruct.graph import Graph, Node
-from konstruct.sql import strip_templating, table_key
+from konstruct.sql import PARSE_ERRORS, strip_templating, table_key
 
 STRATEGIES = ('shift', 'null', 'shuffle')
 _TEXT = ('VARCHAR', 'TEXT', 'STRING', 'CHAR', 'BPCHAR', 'CHARACTER VARYING', 'CHARACTER')
@@ -290,7 +290,7 @@ def _query_for(text: str, relation: str, graph: Graph) -> str | None:
     catalog, schema = _defaults(graph)
     try:
         statements = sqlglot.parse(strip_templating(text), dialect='duckdb')
-    except SqlglotError:
+    except PARSE_ERRORS:
         return None
     for statement in statements:
         if isinstance(statement, (exp.Create, exp.Insert)) and isinstance(statement.expression, exp.Query):
@@ -412,7 +412,6 @@ def _targets(column: str, dtype: str) -> list[tuple[tuple[str, ...], str]]:
     """What to perturb in one input column: the column, and each field reachable through structs
     alone (fields inside list elements are covered by perturbing the list itself)."""
     from sqlglot import exp
-    from sqlglot.errors import SqlglotError
 
     targets: list[tuple[tuple[str, ...], str]] = [((column,), dtype)]
     if not dtype.upper().startswith('STRUCT'):

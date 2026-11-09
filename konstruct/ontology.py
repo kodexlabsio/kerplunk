@@ -34,6 +34,7 @@ import yaml
 from sqlglot import exp
 
 from konstruct.graph import RELATION_KINDS, Graph, Node
+from konstruct.sql import PARSE_ERRORS
 
 ONTOLOGY_VERSION = 1
 
@@ -711,7 +712,7 @@ class _Deriver:
         dialect = self.graph.meta.get('dialect')
         try:
             tree = sqlglot.parse_one(text, read=dialect if isinstance(dialect, str) else None)
-        except (sqlglot.errors.ParseError, sqlglot.errors.TokenError, ValueError):
+        except PARSE_ERRORS:
             return []
         pairs = []
         for eq in tree.find_all(exp.EQ):

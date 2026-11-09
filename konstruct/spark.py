@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 import sqlglot
 from sqlglot import exp
 
+from konstruct.sql import PARSE_ERRORS
+
 _SESSION_HINTS = ('spark', 'session')
 
 
@@ -151,7 +153,7 @@ def without_session_catalog(sql: str, dialect: str) -> str:
         return sql
     try:
         trees = sqlglot.parse(sql, read=dialect)
-    except (sqlglot.errors.ParseError, sqlglot.errors.TokenError, ValueError):
+    except PARSE_ERRORS:
         return sql
     for tree in trees:
         for table in tree.find_all(exp.Table) if tree is not None else []:

@@ -27,6 +27,7 @@ from sqlglot import exp
 
 from konstruct.explain import Explainer, short_sql
 from konstruct.graph import RELATION_KINDS, Graph, Node
+from konstruct.sql import PARSE_ERRORS
 
 # Words that qualify a measure without changing which measure it is.
 MODIFIERS = frozenset(
@@ -267,7 +268,7 @@ def _top_function(formula: str | None, dialect: str | None) -> str | None:
         return None
     try:
         tree = sqlglot.parse_one(formula, read=dialect)
-    except (sqlglot.errors.ParseError, sqlglot.errors.TokenError, ValueError):
+    except PARSE_ERRORS:
         return None
     node = tree
     while isinstance(node, exp.Paren):

@@ -30,7 +30,7 @@ from konstruct.config import (
     load_config,
 )
 from konstruct.graph import RELATION_KINDS, Edge, Graph, Node, relation_key
-from konstruct.sql import PLACEHOLDER, StatementLineage, analyse, dialect_for, strip_templating
+from konstruct.sql import PARSE_ERRORS, PLACEHOLDER, StatementLineage, analyse, dialect_for, strip_templating
 from konstruct.warehouse import MissingDriver, RelationMeta
 
 log = logging.getLogger(__name__)
@@ -1839,7 +1839,7 @@ def _filter_columns(sql: str, dialect: str | None) -> list[tuple[str | None, str
 
     try:
         tree = sqlglot.parse_one(sql, read=dialect)
-    except (sqlglot.errors.ParseError, sqlglot.errors.TokenError, ValueError):
+    except PARSE_ERRORS:
         return None
     return [(c.table or None, c.name) for c in tree.find_all(exp.Column)]
 

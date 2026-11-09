@@ -466,3 +466,32 @@ def test_canonical_expansion_leaves_the_statement_as_it_was() -> None:
         with contextlib.suppress(RecursionError):
             failing._expand(node)
         assert tree.sql() == before
+
+
+CRASHES = [('duckdb', '->'), ('duckdb', 'select ->'), ('duckdb', 'select a -> from t'), ('postgres', '#>')]
+
+
+@pytest.mark.parametrize(('dialect', 'sql'), CRASHES)
+def test_sql_the_parser_fails_on_is_unparsed(dialect: str, sql: str) -> None:
+    results = analyse(sql, dialect=dialect)
+    assert [r.kind for r in results] == ['unparsed'] and results[0].errors
+
+
+@pytest.mark.parametrize(('dialect', 'sql'), CRASHES)
+def test_every_reader_of_sql_survives_what_the_parser_fails_on(dialect: str, sql: str) -> None:
+    from konstruct import conflicts, export, looker, ontology, ossie, powerbi, spark
+    from konstruct.build import _filter_columns
+    from konstruct.explain import Explainer
+    from konstruct.graph import Graph
+
+    assert looker._derived_reads(sql, dialect) is None
+    assert powerbi.native_reads(sql, dialect) is None
+    assert spark.without_session_catalog(f'{sql} spark_catalog', dialect) == f'{sql} spark_catalog'
+    assert _filter_columns(sql, dialect) is None
+    assert conflicts._top_function(sql, dialect) is None
+    assert export._subtype(sql, 'transformed', dialect) == 'TRANSFORMATION'
+    assert ossie._tree(sql, dialect) is None
+    graph = Graph()
+    graph.meta['dialect'] = dialect
+    assert Explainer(graph).namer.parse(sql) is None
+    assert ontology._Deriver(graph).join_columns(f'INNER JOIN: {sql}') == []

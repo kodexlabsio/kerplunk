@@ -22,6 +22,8 @@ import lkml
 import sqlglot
 from sqlglot import exp
 
+from konstruct.sql import PARSE_ERRORS
+
 FILE_SUFFIX = '.lkml'
 _TABLE_COLUMN = re.compile(r'\$\{TABLE\}\.("(?:[^"]|"")+"|`[^`]+`|\w+)')
 _FIELD = re.compile(r'\$\{(?:(\w+)\.)?(\w+)\}')
@@ -108,7 +110,7 @@ def _derived_reads(sql: str, dialect: str | None) -> list[str] | None:
         return None
     try:
         tree = sqlglot.parse_one(sql, read=dialect)
-    except (sqlglot.errors.ParseError, sqlglot.errors.TokenError, ValueError):
+    except PARSE_ERRORS:
         return None
     ctes = {cte.alias_or_name.lower() for cte in tree.find_all(exp.CTE)}
     reads = set()

@@ -31,6 +31,7 @@ from sqlglot.dialects.dialect import Dialect
 
 from konstruct import jsonio
 from konstruct.graph import Graph, Node
+from konstruct.sql import PARSE_ERRORS
 
 _QUALIFIED_COLUMN = re.compile(r'[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*){1,3}')
 MAX_COMPOSED = 4000
@@ -176,7 +177,7 @@ class _Namer:
         try:
             tree: exp.Expr = sqlglot.parse_one(sql, read=self.sqlglot)
             return tree
-        except (sqlglot.errors.ParseError, sqlglot.errors.TokenError, ValueError):
+        except PARSE_ERRORS:
             return None
 
     def short(self, tree: exp.Expr) -> str:
