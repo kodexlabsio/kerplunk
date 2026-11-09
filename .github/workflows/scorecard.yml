@@ -9,7 +9,12 @@ on:
     - cron: '17 6 * * 1'
   workflow_dispatch:
 
-permissions: read-all
+permissions:
+  contents: read
+
+concurrency:
+  group: scorecard-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   analysis:
@@ -17,8 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      security-events: write
-      id-token: write
+      security-events: write # upload the results to code scanning
+      id-token: write # publish the results; the OpenSSF API verifies the workflow's OIDC token
+      contents: read # the checks read the repository
+      actions: read # and its workflow runs
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

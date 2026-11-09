@@ -7,6 +7,11 @@ on:
     branches: ['**']
   workflow_dispatch:
 
+# No job writes to the repository: each reads the code, and uploads artifacts with the runner's
+# own token.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -23,6 +28,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -50,6 +57,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Set up uv
@@ -61,10 +69,14 @@ jobs:
         run: uv sync
 
       - name: Conventional Commits
-        run: uv run cz check --rev-range "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+        env:
+          RANGE: ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+        run: uv run cz check --rev-range "$RANGE"
 
       - name: Kodex Labs commit rules
-        run: uv run python .kodex/scripts/check_commit_message.py --rev-range "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+        env:
+          RANGE: ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+        run: uv run python .kodex/scripts/check_commit_message.py --rev-range "$RANGE"
 
   release-preparation:
     name: Release preparation
@@ -75,6 +87,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       # A pull request that prepares a release must prepare exactly what main now calls for; one
@@ -121,6 +134,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -169,6 +184,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -190,6 +207,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -209,6 +228,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -255,6 +276,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -281,20 +304,22 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      SOURCE: git+https://github.com/${{ github.repository }}@${{ github.sha }}
     steps:
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: uv tool install from GitHub
         run: |
-          uv tool install "git+https://github.com/${{ github.repository }}@${{ github.sha }}"
+          uv tool install "$SOURCE"
           konstruct --version
 
       - name: uvx without installing
-        run: uvx --from "git+https://github.com/${{ github.repository }}@${{ github.sha }}" konstruct --help
+        run: uvx --from "$SOURCE" konstruct --help
 
       - name: An extra
-        run: uv tool install --force "konstruct[bigquery] @ git+https://github.com/${{ github.repository }}@${{ github.sha }}"
+        run: uv tool install --force "konstruct[bigquery] @ $SOURCE"
 
   action:
     name: GitHub Action and its gate on a breaking and a safe change
@@ -303,6 +328,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Make a SQL repository with a change to review
         run: |
@@ -374,6 +401,8 @@ jobs:
       - name: Checkout code
         if: env.KONSTRUCT_TEST_DATABRICKS_TOKEN != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up uv
         if: env.KONSTRUCT_TEST_DATABRICKS_TOKEN != ''
@@ -402,6 +431,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -428,6 +459,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up pnpm
         uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -467,6 +500,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -485,6 +520,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
