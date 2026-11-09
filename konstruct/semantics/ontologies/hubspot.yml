@@ -1,6 +1,7 @@
 # HubSpot, as Fivetran lands it.
 name: hubspot
-description: HubSpot contacts, companies and deals
+title: HubSpot
+description: HubSpot contacts, companies and deals, with deal amounts.
 schemas: ['*hubspot*']
 match:
   deal: [deal_id, property_amount]

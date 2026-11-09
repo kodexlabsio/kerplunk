@@ -1,0 +1,3423 @@
+[
+ {
+  "repository": "https://github.com/dlt-hub/verified-sources",
+  "path": "sources/asana_dlt",
+  "licence": "Apache-2.0",
+  "commit": "1ae1f65725af5daa3f1ce274db999d2ce662dd4e",
+  "loader": "dlt",
+  "packs": [
+   "asana"
+  ]
+ },
+ {
+  "repository": "https://github.com/dlt-hub/verified-sources",
+  "path": "sources/facebook_ads",
+  "licence": "Apache-2.0",
+  "commit": "1ae1f65725af5daa3f1ce274db999d2ce662dd4e",
+  "loader": "dlt",
+  "packs": [
+   "facebook_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/dlt-hub/verified-sources",
+  "path": "sources/github",
+  "licence": "Apache-2.0",
+  "commit": "1ae1f65725af5daa3f1ce274db999d2ce662dd4e",
+  "loader": "dlt",
+  "packs": [
+   "github"
+  ]
+ },
+ {
+  "repository": "https://github.com/dlt-hub/verified-sources",
+  "path": "sources/google_ads",
+  "licence": "Apache-2.0",
+  "commit": "1ae1f65725af5daa3f1ce274db999d2ce662dd4e",
+  "loader": "dlt",
+  "packs": [
+   "google_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/dlt-hub/verified-sources",
+  "path": "sources/hubspot",
+  "licence": "Apache-2.0",
+  "commit": "1ae1f65725af5daa3f1ce274db999d2ce662dd4e",
+  "loader": "dlt",
+  "packs": [
+   "hubspot"
+  ]
+ },
+ {
+  "repository": "https://github.com/dlt-hub/verified-sources",
+  "path": "sources/jira",
+  "licence": "Apache-2.0",
+  "commit": "1ae1f65725af5daa3f1ce274db999d2ce662dd4e",
+  "loader": "dlt",
+  "packs": [
+   "jira"
+  ]
+ },
+ {
+  "repository": "https://github.com/dlt-hub/verified-sources",
+  "path": "sources/personio",
+  "licence": "Apache-2.0",
+  "commit": "1ae1f65725af5daa3f1ce274db999d2ce662dd4e",
+  "loader": "dlt",
+  "packs": [
+   "personio"
+  ]
+ },
+ {
+  "repository": "https://github.com/dlt-hub/verified-sources",
+  "path": "sources/pipedrive",
+  "licence": "Apache-2.0",
+  "commit": "1ae1f65725af5daa3f1ce274db999d2ce662dd4e",
+  "loader": "dlt",
+  "packs": [
+   "pipedrive"
+  ]
+ },
+ {
+  "repository": "https://github.com/dlt-hub/verified-sources",
+  "path": "sources/shopify_dlt",
+  "licence": "Apache-2.0",
+  "commit": "1ae1f65725af5daa3f1ce274db999d2ce662dd4e",
+  "loader": "dlt",
+  "packs": [
+   "shopify"
+  ]
+ },
+ {
+  "repository": "https://github.com/dlt-hub/verified-sources",
+  "path": "sources/slack",
+  "licence": "Apache-2.0",
+  "commit": "1ae1f65725af5daa3f1ce274db999d2ce662dd4e",
+  "loader": "dlt",
+  "packs": [
+   "slack"
+  ]
+ },
+ {
+  "repository": "https://github.com/dlt-hub/verified-sources",
+  "path": "sources/zendesk",
+  "licence": "Apache-2.0",
+  "commit": "1ae1f65725af5daa3f1ce274db999d2ce662dd4e",
+  "loader": "dlt",
+  "packs": [
+   "zendesk"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_amazon_ads",
+  "licence": "Apache-2.0",
+  "commit": "73308c33d9c73ba7eef12ccb62d3d52bd8c9124c",
+  "loader": "fivetran",
+  "packs": [
+   "amazon_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_amazon_selling_partner",
+  "licence": "Apache-2.0",
+  "commit": "3a4c20f834b21f8266ba35066b992e6a2db889fc",
+  "loader": "fivetran",
+  "packs": [
+   "amazon_selling_partner"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_amplitude",
+  "licence": "Apache-2.0",
+  "commit": "efceddd29481e0682f081fc247a015d3db50c70f",
+  "loader": "fivetran",
+  "packs": [
+   "amplitude"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_apple_search_ads",
+  "licence": "Apache-2.0",
+  "commit": "95d998670937bd2812e034f1e95687ac274cb544",
+  "loader": "fivetran",
+  "packs": [
+   "apple_search_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_apple_store",
+  "licence": "Apache-2.0",
+  "commit": "4764e69287479d131233b6dbab932a99b55347bf",
+  "loader": "fivetran",
+  "packs": [
+   "apple_store"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_asana",
+  "licence": "Apache-2.0",
+  "commit": "965748a76a5cc70d0937919119f8ac67c38cad03",
+  "loader": "fivetran",
+  "packs": [
+   "asana"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_aws_cloud_cost",
+  "licence": "Apache-2.0",
+  "commit": "decc9d087ed036b7e87b6b7e9dd2b03c9f0b54f3",
+  "loader": "fivetran",
+  "packs": [
+   "aws_cloud_cost"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_claude",
+  "licence": "Apache-2.0",
+  "commit": "762f2b421f58e222e2fa7474c30233aed0b0bd24",
+  "loader": "fivetran",
+  "packs": [
+   "claude"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_facebook_ads",
+  "licence": "Apache-2.0",
+  "commit": "a8912a641d1ede976ef38a009563ba841b269601",
+  "loader": "fivetran",
+  "packs": [
+   "facebook_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_facebook_pages",
+  "licence": "Apache-2.0",
+  "commit": "be14024a55813919a67aeea6d651dcad2a014e53",
+  "loader": "fivetran",
+  "packs": [
+   "facebook_pages"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_fivetran_log",
+  "licence": "Apache-2.0",
+  "commit": "3404d23ab79f3078a4cd1c2bd85a23d07ceca770",
+  "loader": "fivetran",
+  "packs": [
+   "fivetran_platform"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_ga4_export",
+  "licence": "Apache-2.0",
+  "commit": "d03366472bfd63a964263015bae272b31b432b50",
+  "loader": "fivetran",
+  "packs": [
+   "ga4"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_github",
+  "licence": "Apache-2.0",
+  "commit": "677bbeb3aa9afe8ab65501fb9563ffaff700112f",
+  "loader": "fivetran",
+  "packs": [
+   "github"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_google_ads",
+  "licence": "Apache-2.0",
+  "commit": "68071cce19b87fb8cc2e27858626b364f63a2ac7",
+  "loader": "fivetran",
+  "packs": [
+   "google_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_google_play",
+  "licence": "Apache-2.0",
+  "commit": "54d8a1f24b81fd3da8f4ad36d08bc3c1bff9b766",
+  "loader": "fivetran",
+  "packs": [
+   "google_play"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_greenhouse",
+  "licence": "Apache-2.0",
+  "commit": "6cb47217e61d8417de52405319e5625fac13c862",
+  "loader": "fivetran",
+  "packs": [
+   "greenhouse"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_hubspot",
+  "licence": "Apache-2.0",
+  "commit": "5f0093547ded4c4a7d48ad6ceb32e94a641c1690",
+  "loader": "fivetran",
+  "packs": [
+   "hubspot"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_instagram_business",
+  "licence": "Apache-2.0",
+  "commit": "c21d3f2fbc6173e5495e10ba5b5aef195868392d",
+  "loader": "fivetran",
+  "packs": [
+   "instagram_business"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_intercom",
+  "licence": "Apache-2.0",
+  "commit": "e8fd82324c33e0a3ea343a4ca27564fbe4052531",
+  "loader": "fivetran",
+  "packs": [
+   "intercom"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_iterable",
+  "licence": "Apache-2.0",
+  "commit": "d2a3ed8bb7f823c8e0dd4711a4efe270d3c9b515",
+  "loader": "fivetran",
+  "packs": [
+   "iterable"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_jira",
+  "licence": "Apache-2.0",
+  "commit": "1a9f8b4a4fe76587679330e14fa0decab7fb551c",
+  "loader": "fivetran",
+  "packs": [
+   "jira"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_klaviyo",
+  "licence": "Apache-2.0",
+  "commit": "f063874de34fe2091f40924e755250c0c0fba91b",
+  "loader": "fivetran",
+  "packs": [
+   "klaviyo"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_lever_source",
+  "licence": "Apache-2.0",
+  "commit": "c88e08dea08e2796e44bd13f741c916fa793d2b1",
+  "loader": "fivetran",
+  "packs": [
+   "lever"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_linkedin",
+  "licence": "Apache-2.0",
+  "commit": "702cfefaa264c5a817c6a2aa2f541fd53ec33c72",
+  "loader": "fivetran",
+  "packs": [
+   "linkedin_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_linkedin_pages",
+  "licence": "Apache-2.0",
+  "commit": "8f8d4f6d5f0e3a20433c522863210bda2cee9ffa",
+  "loader": "fivetran",
+  "packs": [
+   "linkedin_pages"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_mailchimp",
+  "licence": "Apache-2.0",
+  "commit": "7de9fcb28faf5f5d89fb6e962857edfc68b93624",
+  "loader": "fivetran",
+  "packs": [
+   "mailchimp"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_marketo",
+  "licence": "Apache-2.0",
+  "commit": "9f51e90c8c3bd49976e1407b8af82bf3d0cdd90d",
+  "loader": "fivetran",
+  "packs": [
+   "marketo"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_microsoft_ads",
+  "licence": "Apache-2.0",
+  "commit": "587e57714b0894bf545ce526ee381d68dcaf440c",
+  "loader": "fivetran",
+  "packs": [
+   "microsoft_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_mntn",
+  "licence": "Apache-2.0",
+  "commit": "bee0f0eabd925237c235d930cf784cfffb698862",
+  "loader": "fivetran",
+  "packs": [
+   "mntn"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_netsuite",
+  "licence": "Apache-2.0",
+  "commit": "e3c026e8f337a880ccf4e5510dac4a6a80482f24",
+  "loader": "fivetran",
+  "packs": [
+   "netsuite",
+   "netsuite2"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_openai",
+  "licence": "Apache-2.0",
+  "commit": "95cdd08c6e5068b4216810c78d905789f529478b",
+  "loader": "fivetran",
+  "packs": [
+   "openai"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_pardot",
+  "licence": "Apache-2.0",
+  "commit": "b6548ebef37355475ddb4bf8b2d8509d0579e5c5",
+  "loader": "fivetran",
+  "packs": [
+   "pardot"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_pendo",
+  "licence": "Apache-2.0",
+  "commit": "52e80a2b274a1810fd24fd25f96459bdbdab7953",
+  "loader": "fivetran",
+  "packs": [
+   "pendo"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_pinterest",
+  "licence": "Apache-2.0",
+  "commit": "59b17fe9a0c1b2aa9ccc52eaf923d386744dee2d",
+  "loader": "fivetran",
+  "packs": [
+   "pinterest_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_qualtrics",
+  "licence": "Apache-2.0",
+  "commit": "f732e0f576838d6612fbda1442c2a4fd4daac9de",
+  "loader": "fivetran",
+  "packs": [
+   "qualtrics"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_quickbooks",
+  "licence": "Apache-2.0",
+  "commit": "0b9da0d889fd1e586ca4328734ea7e3c1911c87f",
+  "loader": "fivetran",
+  "packs": [
+   "quickbooks"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_recharge_source",
+  "licence": "Apache-2.0",
+  "commit": "8e9f3bdb9339055d227e307a3b56f4dbece9f289",
+  "loader": "fivetran",
+  "packs": [
+   "recharge"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_recurly",
+  "licence": "Apache-2.0",
+  "commit": "a7e928649a96e8d24fc5511e311f3768d7492b95",
+  "loader": "fivetran",
+  "packs": [
+   "recurly"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_reddit_ads_source",
+  "licence": "Apache-2.0",
+  "commit": "9c1ef215d15cfdd87ebd1e425eef9fcc02b417b6",
+  "loader": "fivetran",
+  "packs": [
+   "reddit_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_sage_intacct",
+  "licence": "Apache-2.0",
+  "commit": "f0c81db8a318f3ef96aa50d97d833d69a412d806",
+  "loader": "fivetran",
+  "packs": [
+   "sage_intacct"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_salesforce",
+  "licence": "Apache-2.0",
+  "commit": "8f9e9c0ae44f922283d238c2eef3f27d2f3e8d32",
+  "loader": "fivetran",
+  "packs": [
+   "salesforce"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_salesforce_marketing_cloud",
+  "licence": "Apache-2.0",
+  "commit": "6f5f166ea3cc264a06598d4e8d7bf3bd5ce9716f",
+  "loader": "fivetran",
+  "packs": [
+   "salesforce_marketing_cloud"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_servicenow",
+  "licence": "Apache-2.0",
+  "commit": "1ded03f5e1561fd402c42af85541205fb6c87e25",
+  "loader": "fivetran",
+  "packs": [
+   "servicenow"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_shopify",
+  "licence": "Apache-2.0",
+  "commit": "a033782ef90f0a009b534220bb0253fb2e3d3cb2",
+  "loader": "fivetran",
+  "packs": [
+   "shopify"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_snapchat_ads",
+  "licence": "Apache-2.0",
+  "commit": "2e84ae739d3f6f12e8fca70e583f7e6a7eebb315",
+  "loader": "fivetran",
+  "packs": [
+   "snapchat_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_stackadapt",
+  "licence": "Apache-2.0",
+  "commit": "3b29da0b42c0b6bc08034b58086c27d05563d685",
+  "loader": "fivetran",
+  "packs": [
+   "stackadapt"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_stripe",
+  "licence": "Apache-2.0",
+  "commit": "7f5d6ae0d474b72b10ed765b7062725f1e5771b1",
+  "loader": "fivetran",
+  "packs": [
+   "stripe"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_tiktok_ads",
+  "licence": "Apache-2.0",
+  "commit": "ab82102bf3bf798c0cd0575d5880dce5551bebc4",
+  "loader": "fivetran",
+  "packs": [
+   "tiktok_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_twilio",
+  "licence": "Apache-2.0",
+  "commit": "48b413267a6151d71ac43bf3e11ccf7862f77805",
+  "loader": "fivetran",
+  "packs": [
+   "twilio"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_twitter",
+  "licence": "Apache-2.0",
+  "commit": "84c60b721ff64594dabef71960e5a00e8058036a",
+  "loader": "fivetran",
+  "packs": [
+   "twitter_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_twitter_organic",
+  "licence": "Apache-2.0",
+  "commit": "a894aaca1a9bb13ab7c2955dfd473b8d5d72856e",
+  "loader": "fivetran",
+  "packs": [
+   "twitter"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_workday",
+  "licence": "Apache-2.0",
+  "commit": "84f33cbe9f4756deabd40c31cb49742409836673",
+  "loader": "fivetran",
+  "packs": [
+   "workday"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_workday_financial_management",
+  "licence": "Apache-2.0",
+  "commit": "86534920d7bb46abe5659953e64c26aeda3eede7",
+  "loader": "fivetran",
+  "packs": [
+   "workday_financial_management"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_xero",
+  "licence": "Apache-2.0",
+  "commit": "13646d23b6a3a908e0d839a9a40a1062bf38aa58",
+  "loader": "fivetran",
+  "packs": [
+   "xero"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_youtube_analytics",
+  "licence": "Apache-2.0",
+  "commit": "b61d04bbccd30932c7c5a835254ba5a676371e68",
+  "loader": "fivetran",
+  "packs": [
+   "youtube_analytics"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_zendesk",
+  "licence": "Apache-2.0",
+  "commit": "c5f2cfa03a1629a357a3ad2d06c8173f52eeff69",
+  "loader": "fivetran",
+  "packs": [
+   "zendesk"
+  ]
+ },
+ {
+  "repository": "https://github.com/fivetran/dbt_zuora",
+  "licence": "Apache-2.0",
+  "commit": "a3863fc5fc287aad9c1ccc4487a957a3b065b5db",
+  "loader": "fivetran",
+  "packs": [
+   "zuora"
+  ]
+ },
+ {
+  "repository": "https://github.com/meltano/hub",
+  "licence": "Apache-2.0",
+  "commit": "eb03107ea4bd556e65ef0a85e7acbb121ad30331",
+  "loader": "meltano hub",
+  "used for": "each tap's source system and label"
+ },
+ {
+  "repository": "https://github.com/0bserver07/tap-gmail-incremental",
+  "licence": "MIT",
+  "commit": "6d7cbe5a5aa55d4215d720b14c538f1a298d7653",
+  "loader": "singer",
+  "packs": [
+   "gmail"
+  ]
+ },
+ {
+  "repository": "https://github.com/a-bartoszek/tap-ruddr-ab-variant",
+  "licence": "Apache-2.0",
+  "commit": "be64d027b622d6ca3815cee315602eb4d3f0ad69",
+  "loader": "singer",
+  "packs": [
+   "ruddr"
+  ]
+ },
+ {
+  "repository": "https://github.com/a-rusi/tap-mercadopago",
+  "licence": "MIT",
+  "commit": "741dcffb17896fb4d968ec12d4dd566a016d9ab2",
+  "loader": "singer",
+  "packs": [
+   "mercadopago"
+  ]
+ },
+ {
+  "repository": "https://github.com/adpleach/tap-udemy-for-business",
+  "licence": "MIT",
+  "commit": "401bde465d2bc372f56ee7b696eaba09f55b9469",
+  "loader": "singer",
+  "packs": [
+   "udemy_for_business"
+  ]
+ },
+ {
+  "repository": "https://github.com/adswerve/singer-tap-amazon-mws",
+  "licence": "Apache-2.0",
+  "commit": "b1956cb07cc8d2a04944e63a2625af6ed71b713c",
+  "loader": "singer",
+  "packs": [
+   "amazon_mws"
+  ]
+ },
+ {
+  "repository": "https://github.com/ahaberling/tap-purecloud",
+  "licence": "Apache-2.0",
+  "commit": "bc7cc6a1813daac2f37b454b51ab3ff054fb3d89",
+  "loader": "singer",
+  "packs": [
+   "purecloud"
+  ]
+ },
+ {
+  "repository": "https://github.com/albert-marrero/tap-typeform",
+  "licence": "MIT",
+  "commit": "3cc93352ad344b0a7c57bcbd0505a9e436f1986b",
+  "loader": "singer",
+  "packs": [
+   "typeform"
+  ]
+ },
+ {
+  "repository": "https://github.com/andyoneal/tap-chorusai",
+  "licence": "MIT",
+  "commit": "6f83955e5441bffeec08daea53abb14f3bd5e323",
+  "loader": "singer",
+  "packs": [
+   "chorusai"
+  ]
+ },
+ {
+  "repository": "https://github.com/angelcam/tap-satismeter",
+  "licence": "Apache-2.0",
+  "commit": "7317b8f7380efc4678e6868a5d0982d803cf7e09",
+  "loader": "singer",
+  "packs": [
+   "satismeter"
+  ]
+ },
+ {
+  "repository": "https://github.com/asyntai/tap-asyntai-chatbot",
+  "licence": "Apache-2.0",
+  "commit": "72e45f85759a0038a605d422a1f01e39538a85fb",
+  "loader": "singer",
+  "packs": [
+   "asyntai_chatbot"
+  ]
+ },
+ {
+  "repository": "https://github.com/AutoIDM/autoidm-tap-bamboohr",
+  "licence": "MIT",
+  "commit": "10987bbbaa932a1cf05784432a5a733a4c575dcc",
+  "loader": "singer",
+  "packs": [
+   "bamboo_hr"
+  ]
+ },
+ {
+  "repository": "https://github.com/AutoIDM/tap-clickup",
+  "licence": "MIT",
+  "commit": "7b66362a19dad132cf4da350e600790a14af0d3a",
+  "loader": "singer",
+  "packs": [
+   "clickup"
+  ]
+ },
+ {
+  "repository": "https://github.com/automattic/tap-appstore-singer-sdk",
+  "licence": "Apache-2.0",
+  "commit": "4d1afc6b1ee0ffba5c2e3d60eb6eccc68ef83eb0",
+  "loader": "singer",
+  "packs": [
+   "apple_store"
+  ]
+ },
+ {
+  "repository": "https://github.com/automattic/tap-wordpress",
+  "licence": "Apache-2.0",
+  "commit": "68f94596c4a316d647220a0ca0db1894de7971d0",
+  "loader": "singer",
+  "packs": [
+   "wordpress"
+  ]
+ },
+ {
+  "repository": "https://github.com/Automattic/tap-wordpress-org",
+  "licence": "Apache-2.0",
+  "commit": "60f2dfe8ad633170f40a53f00899b76f9d99f2b8",
+  "loader": "singer",
+  "packs": [
+   "wordpress_org"
+  ]
+ },
+ {
+  "repository": "https://github.com/automattic/tap-zendesk-singer-sdk",
+  "licence": "Apache-2.0",
+  "commit": "2d84dfd5f85b3a20a02d53f5afc59147bc7d100e",
+  "loader": "singer",
+  "packs": [
+   "zendesk"
+  ]
+ },
+ {
+  "repository": "https://github.com/avinashkurup/tap-openproject",
+  "licence": "MIT",
+  "commit": "b45f7faaadb573a2e8ba654353a45da6dbbba702",
+  "loader": "singer",
+  "packs": [
+   "openproject"
+  ]
+ },
+ {
+  "repository": "https://github.com/bbwmc/prratek-tap-stripe",
+  "licence": "MIT",
+  "commit": "9470570221a10f46a5045970dea4219a761094de",
+  "loader": "singer",
+  "packs": [
+   "stripe"
+  ]
+ },
+ {
+  "repository": "https://github.com/bbwmc/tap-mews",
+  "licence": "MIT",
+  "commit": "9f548ab4169585d1746a973c69512065154970ba",
+  "loader": "singer",
+  "packs": [
+   "mews"
+  ]
+ },
+ {
+  "repository": "https://github.com/bicks-bapa-roob/tap-nhl",
+  "licence": "MIT",
+  "commit": "0dfe06a15dfe055ab9c2fcf7156f734547f4a035",
+  "loader": "singer",
+  "packs": [
+   "nhl"
+  ]
+ },
+ {
+  "repository": "https://github.com/blueprint-data/tap-persona",
+  "licence": "Apache-2.0",
+  "commit": "da1a33ff5138304983d71e7ccca3f18fb1caa274",
+  "loader": "singer",
+  "packs": [
+   "persona"
+  ]
+ },
+ {
+  "repository": "https://github.com/bratko1234/tap-amazonads",
+  "licence": "Apache-2.0",
+  "commit": "e5de5807bc89624c091089ffc2740c2eacbedf7c",
+  "loader": "singer",
+  "packs": [
+   "amazon_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/cabinet-health-inc/tap-amazon-mws",
+  "licence": "Apache-2.0",
+  "commit": "2b4f6f89ad6289f43f9878f2227353ee59f8dddf",
+  "loader": "singer",
+  "packs": [
+   "amazon_mws"
+  ]
+ },
+ {
+  "repository": "https://github.com/chadcampling-opteon/tap-captivateiq",
+  "licence": "Apache-2.0",
+  "commit": "043f8eba7d1d693d043d08c601c3c21b6fb5713d",
+  "loader": "singer",
+  "packs": [
+   "captivateiq"
+  ]
+ },
+ {
+  "repository": "https://github.com/chadcampling-opteon/tap-paychex",
+  "licence": "MIT",
+  "commit": "16fff40fe830b4510a3b4a520833ae30d00eb495",
+  "loader": "singer",
+  "packs": [
+   "paychex"
+  ]
+ },
+ {
+  "repository": "https://github.com/chandana-ini8labs/tap-visma-service",
+  "licence": "Apache-2.0",
+  "commit": "62afc7918c94e8edf17bfe89a18633d0fb449bdd",
+  "loader": "singer",
+  "packs": [
+   "visma_service"
+  ]
+ },
+ {
+  "repository": "https://github.com/chienazazaz/tap-kiotviet",
+  "licence": "Apache-2.0",
+  "commit": "866d139d4cd693e41c8b4d780a3500efd83c98de",
+  "loader": "singer",
+  "packs": [
+   "kiotviet"
+  ]
+ },
+ {
+  "repository": "https://github.com/codyss/tap-klaviyo",
+  "licence": "Apache-2.0",
+  "commit": "e477caa09071ec00ec2caa5d6566ddfc3ebf0ed6",
+  "loader": "singer",
+  "packs": [
+   "klaviyo"
+  ]
+ },
+ {
+  "repository": "https://github.com/codyss/tap-sendgrid",
+  "licence": "Apache-2.0",
+  "commit": "dd359ae300eb52646998d24bb77207e49a17e0d3",
+  "loader": "singer",
+  "packs": [
+   "sendgrid"
+  ]
+ },
+ {
+  "repository": "https://github.com/cohesyve/tap-razorpay",
+  "licence": "Apache-2.0",
+  "commit": "f1e4a5ade41cd399a748bf968cfd68e16d8b4d25",
+  "loader": "singer",
+  "packs": [
+   "razorpay"
+  ]
+ },
+ {
+  "repository": "https://github.com/datarts-tech/tap-saasoptics",
+  "licence": "MIT",
+  "commit": "e042e5b268cf14543a439db86d662bc83da20b3d",
+  "loader": "singer",
+  "packs": [
+   "saasoptics"
+  ]
+ },
+ {
+  "repository": "https://github.com/datateer/tap-freshservice",
+  "licence": "Apache-2.0",
+  "commit": "c8db948a559ac6836bed9003ad568f9e09ed7387",
+  "loader": "singer",
+  "packs": [
+   "freshservice"
+  ]
+ },
+ {
+  "repository": "https://github.com/dbt-labs/tap-amazon-advertising",
+  "licence": "Apache-2.0",
+  "commit": "5cd273536924cd4b121d72a924f017b40198f8c9",
+  "loader": "singer",
+  "packs": [
+   "amazon_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/dbt-labs/tap-amazon-mws",
+  "licence": "Apache-2.0",
+  "commit": "845b5d7d48001a5d620d53c8b147525c72328d55",
+  "loader": "singer",
+  "packs": [
+   "amazon_mws"
+  ]
+ },
+ {
+  "repository": "https://github.com/dbt-labs/tap-copper",
+  "licence": "Apache-2.0",
+  "commit": "c2a40192ad3c40ab32a844891509760002f0da1a",
+  "loader": "singer",
+  "packs": [
+   "copper"
+  ]
+ },
+ {
+  "repository": "https://github.com/dbt-labs/tap-lever",
+  "licence": "Apache-2.0",
+  "commit": "c6f371cbc6e45bd7c08abd4469e2293012859262",
+  "loader": "singer",
+  "packs": [
+   "lever"
+  ]
+ },
+ {
+  "repository": "https://github.com/dbt-labs/tap-liveperson",
+  "licence": "Apache-2.0",
+  "commit": "6bc2bda57f0c2bbc5da2e9cd53826060663d8df6",
+  "loader": "singer",
+  "packs": [
+   "liveperson"
+  ]
+ },
+ {
+  "repository": "https://github.com/dbt-labs/tap-mavenlink",
+  "licence": "Apache-2.0",
+  "commit": "78baf9258e504ff5b5f3f9837ee6c48201d4873f",
+  "loader": "singer",
+  "packs": [
+   "mavenlink"
+  ]
+ },
+ {
+  "repository": "https://github.com/dbt-labs/tap-rebound",
+  "licence": "Apache-2.0",
+  "commit": "6fc8bac5dc21f99e34c0a921fc28cf6ff1510096",
+  "loader": "singer",
+  "packs": [
+   "rebound"
+  ]
+ },
+ {
+  "repository": "https://github.com/dbt-labs/tap-ringcentral",
+  "licence": "Apache-2.0",
+  "commit": "4c1c4f708fec51bd8551de907d168ff0aace44c8",
+  "loader": "singer",
+  "packs": [
+   "ringcentral"
+  ]
+ },
+ {
+  "repository": "https://github.com/dbt-labs/tap-slack",
+  "licence": "Apache-2.0",
+  "commit": "84f539727a8abed5e00f48dec05ad73c0072a126",
+  "loader": "singer",
+  "packs": [
+   "slack"
+  ]
+ },
+ {
+  "repository": "https://github.com/dbt-labs/tap-tickettailor",
+  "licence": "Apache-2.0",
+  "commit": "1c056df16620e3b70dbb4c6ce2ee4bd249722263",
+  "loader": "singer",
+  "packs": [
+   "tickettailor"
+  ]
+ },
+ {
+  "repository": "https://github.com/dbt-labs/tap-yotpo",
+  "licence": "Apache-2.0",
+  "commit": "5685cb3018533965c741a956a0149e0fb5deca9f",
+  "loader": "singer",
+  "packs": [
+   "yotpo"
+  ],
+  "note": "Its stream schemas overlap those of singer-io/tap-yotpo (AGPL-3.0); this repository is licensed Apache-2.0 by its own LICENSE file, and its stream names, keys and property names and types are read from it."
+ },
+ {
+  "repository": "https://github.com/definite-app/tap-shiphero",
+  "licence": "Apache-2.0",
+  "commit": "3af1628837a4e303b065deb73a34856dc62bc83a",
+  "loader": "singer",
+  "packs": [
+   "shiphero"
+  ]
+ },
+ {
+  "repository": "https://github.com/degreed-data-engineering/tap-hubspot",
+  "licence": "Apache-2.0",
+  "commit": "a55f97493a182abeeb9c8aa84a59628e58c65355",
+  "loader": "singer",
+  "packs": [
+   "hubspot"
+  ]
+ },
+ {
+  "repository": "https://github.com/dejii/tap-openai",
+  "licence": "Apache-2.0",
+  "commit": "c9e152f55688cab98eb924422fdaca366b883b79",
+  "loader": "singer",
+  "packs": [
+   "openai"
+  ]
+ },
+ {
+  "repository": "https://github.com/dejii/tap-sentry",
+  "licence": "Apache-2.0",
+  "commit": "60b12fc412b3027cbdf38fa9b547a79998fed32d",
+  "loader": "singer",
+  "packs": [
+   "sentry"
+  ]
+ },
+ {
+  "repository": "https://github.com/dejii/tap-twitter",
+  "licence": "Apache-2.0",
+  "commit": "19983fc3f20a24dc8d5ec1f02f36e8cf6e460ff4",
+  "loader": "singer",
+  "packs": [
+   "twitter"
+  ]
+ },
+ {
+  "repository": "https://github.com/dluftspring/tap-strava",
+  "licence": "MIT",
+  "commit": "f4c0b3f3cb3e5749fa4d6d762f1b38c68922bfc9",
+  "loader": "singer",
+  "packs": [
+   "strava"
+  ]
+ },
+ {
+  "repository": "https://github.com/dmitreyzl/tap-instagram",
+  "licence": "Apache-2.0",
+  "commit": "40c35a4bb04599a9c2869716b85fcb9bc26c30ca",
+  "loader": "singer",
+  "packs": [
+   "instagram_business"
+  ]
+ },
+ {
+  "repository": "https://github.com/dmitreyzl/tap-telegram",
+  "licence": "Apache-2.0",
+  "commit": "3722f9ca7aca7226fd0fbc3232dcb667be39a69f",
+  "loader": "singer",
+  "packs": [
+   "telegram"
+  ]
+ },
+ {
+  "repository": "https://github.com/dmitreyzl/tap-vk",
+  "licence": "Apache-2.0",
+  "commit": "9804e7035d428a3b0f55880be2326957432af7da",
+  "loader": "singer",
+  "packs": [
+   "vk"
+  ]
+ },
+ {
+  "repository": "https://github.com/dmitreyzl/tap-vk-ads",
+  "licence": "Apache-2.0",
+  "commit": "22a70173a38f10e378d97c0f6cbd9bddd975403b",
+  "loader": "singer",
+  "packs": [
+   "vk_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/eduardosequeir4/tap-bunny",
+  "licence": "Apache-2.0",
+  "commit": "c3e9aa92e06e1ab133634c18e5a9c991dc8e986e",
+  "loader": "singer",
+  "packs": [
+   "bunny"
+  ]
+ },
+ {
+  "repository": "https://github.com/Ella6882/tap-redditads",
+  "licence": "Apache-2.0",
+  "commit": "9e6055307ef0e3754113b29bbb4cdd31a90f09cb",
+  "loader": "singer",
+  "packs": [
+   "reddit_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/ellisvalentiner/tap-azuredevops",
+  "licence": "MIT",
+  "commit": "7c33e2aab25a0eafefd94aa640dfd859ef822240",
+  "loader": "singer",
+  "packs": [
+   "azuredevops"
+  ]
+ },
+ {
+  "repository": "https://github.com/emilklindt/tap-formbricks",
+  "licence": "Apache-2.0",
+  "commit": "94247cfc27bcb19bec78c58aa8bdd778cf4e552b",
+  "loader": "singer",
+  "packs": [
+   "formbricks"
+  ]
+ },
+ {
+  "repository": "https://github.com/emreustundag1618/tap-amazon-ads",
+  "licence": "Apache-2.0",
+  "commit": "0deda246e870d70f6bc34d4231b5aa8da8beeaf9",
+  "loader": "singer",
+  "packs": [
+   "amazon_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/emreustundag1618/tap-entegra",
+  "licence": "Apache-2.0",
+  "commit": "d2a7a47d48e6ee0d2f58da46a24b61751824fded",
+  "loader": "singer",
+  "packs": [
+   "entegra"
+  ]
+ },
+ {
+  "repository": "https://github.com/enshittification/inevitable-tap-appstore-singer-sdk-backup",
+  "licence": "Apache-2.0",
+  "commit": "5c5c792ea5e83f5f9cbae9d6bf111a60156eec66",
+  "loader": "singer",
+  "packs": [
+   "apple_store"
+  ]
+ },
+ {
+  "repository": "https://github.com/epoch8/tap-customerio",
+  "licence": "Apache-2.0",
+  "commit": "a48be9b4085d5f3c8ef2ea1746bcf5d2154a2b87",
+  "loader": "singer",
+  "packs": [
+   "customerio"
+  ]
+ },
+ {
+  "repository": "https://github.com/epoch8/tap-takealot",
+  "licence": "Apache-2.0",
+  "commit": "e7a1ea4cc4a25bac6986d4c3f7fc8262e577987f",
+  "loader": "singer",
+  "packs": [
+   "takealot"
+  ]
+ },
+ {
+  "repository": "https://github.com/felixkoch/tap-apaleo",
+  "licence": "MIT",
+  "commit": "06916e85f54175f906345dd29356ccc40effeb2a",
+  "loader": "singer",
+  "packs": [
+   "apaleo"
+  ]
+ },
+ {
+  "repository": "https://github.com/fixdauto/tap-chargebacks",
+  "licence": "MIT",
+  "commit": "402d61bf24cf6a9bb16dbf288063fdb678ee822f",
+  "loader": "singer",
+  "packs": [
+   "chargebacks"
+  ]
+ },
+ {
+  "repository": "https://github.com/fixdauto/tap-newrelic",
+  "licence": "Apache-2.0",
+  "commit": "0ae878b31a6b8bb4145617664769bdd2f607ffc1",
+  "loader": "singer",
+  "packs": [
+   "newrelic"
+  ]
+ },
+ {
+  "repository": "https://github.com/fixdauto/tap-rokt",
+  "licence": "Apache-2.0",
+  "commit": "26779bf3e647389441045e69b4f6229db16d7ba6",
+  "loader": "singer",
+  "packs": [
+   "rokt"
+  ]
+ },
+ {
+  "repository": "https://github.com/fleetio/tap-fleetio",
+  "licence": "Apache-2.0",
+  "commit": "fb48ff05c6ed57952931acd8b743643482cd83b4",
+  "loader": "singer",
+  "packs": [
+   "fleetio"
+  ]
+ },
+ {
+  "repository": "https://github.com/fort-health/tap-healthie",
+  "licence": "MIT",
+  "commit": "1b85837a7d2ac3225b5b711a87843bc423d4fb56",
+  "loader": "singer",
+  "packs": [
+   "healthie"
+  ]
+ },
+ {
+  "repository": "https://github.com/frenchfounders/tap-leexi",
+  "licence": "Apache-2.0",
+  "commit": "2fdee53368573e0a99b2f90aceca83eec9fc684f",
+  "loader": "singer",
+  "packs": [
+   "leexi"
+  ]
+ },
+ {
+  "repository": "https://github.com/frenchfounders/tap-salesforce",
+  "licence": "Apache-2.0",
+  "commit": "a7ec80510ac73b2f8cdfb80b828c9f9ec506f6e0",
+  "loader": "singer",
+  "packs": [
+   "salesforce"
+  ]
+ },
+ {
+  "repository": "https://github.com/GendarmerieNationale/tap-atinternet",
+  "licence": "Apache-2.0",
+  "commit": "6b3df8de78c996a43c2b4eaccbdae186d39e2f2d",
+  "loader": "singer",
+  "packs": [
+   "atinternet"
+  ]
+ },
+ {
+  "repository": "https://github.com/GendarmerieNationale/tap-partoo",
+  "licence": "Apache-2.0",
+  "commit": "60b07008003b29aa07c803baac9db7a29b4d080d",
+  "loader": "singer",
+  "packs": [
+   "partoo"
+  ]
+ },
+ {
+  "repository": "https://github.com/georgiyolovski/tap-adwords",
+  "licence": "MIT",
+  "commit": "fcc45c397dceecad25635537e5e3ba940f312217",
+  "loader": "singer",
+  "packs": [
+   "google_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/georgiyolovski/tap-bing",
+  "licence": "MIT",
+  "commit": "a9465a9dde9949c18750394ffea42bac79a7b40f",
+  "loader": "singer",
+  "packs": [
+   "microsoft_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/georgiyolovski/tap-facebook",
+  "licence": "MIT",
+  "commit": "65d8ebcdf0f769b9ea292bdf39b1495ef799c5da",
+  "loader": "singer",
+  "packs": [
+   "facebook_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/georgiyolovski/tap-simplifi",
+  "licence": "MIT",
+  "commit": "95b2ddbcdfbf9909ce3aa87963209e999a437f6a",
+  "loader": "singer",
+  "packs": [
+   "simplifi"
+  ]
+ },
+ {
+  "repository": "https://github.com/gertjanspriensma/tap-typeform",
+  "licence": "MIT",
+  "commit": "9495dd35018ba2fb29122a3bfc67eafc27c816e1",
+  "loader": "singer",
+  "packs": [
+   "typeform"
+  ]
+ },
+ {
+  "repository": "https://github.com/get-dishio/tap-instagram",
+  "licence": "Apache-2.0",
+  "commit": "c79079d299a08ea86e9c0ef0902d3a026f076967",
+  "loader": "singer",
+  "packs": [
+   "instagram_business"
+  ]
+ },
+ {
+  "repository": "https://github.com/graet/tap-amplitude",
+  "licence": "MIT",
+  "commit": "950a7bb74fb4873b59e2011e2f892d3996aa7c5d",
+  "loader": "singer",
+  "packs": [
+   "amplitude"
+  ]
+ },
+ {
+  "repository": "https://github.com/grossjo/tap-blackbaud-v2",
+  "licence": "Apache-2.0",
+  "commit": "90a1a3e176354537a1df9be2faee8b371bf81fdd",
+  "loader": "singer",
+  "packs": [
+   "blackbaud"
+  ]
+ },
+ {
+  "repository": "https://github.com/growingdata/tap-nikabot",
+  "licence": "Apache-2.0",
+  "commit": "a91b9f6ce7d8d84c8264c6cd63e8cb3477f1950e",
+  "loader": "singer",
+  "packs": [
+   "nikabot"
+  ]
+ },
+ {
+  "repository": "https://github.com/growth-nirvana/tap-amazon-ads",
+  "licence": "Apache-2.0",
+  "commit": "e8d74be70cfc9973d5d722b587da74b52cf32aaa",
+  "loader": "singer",
+  "packs": [
+   "amazon_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/growth-nirvana/tap-callrail",
+  "licence": "Apache-2.0",
+  "commit": "60ba5cce40f4133de3d1197552b840219741fd33",
+  "loader": "singer",
+  "packs": [
+   "callrail"
+  ]
+ },
+ {
+  "repository": "https://github.com/growth-nirvana/tap-chatgpt-ads",
+  "licence": "Apache-2.0",
+  "commit": "0380ab96ebbdaf7a695e471784c710c1c46b8839",
+  "loader": "singer",
+  "packs": [
+   "chatgpt_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/growth-nirvana/tap-eltoro",
+  "licence": "Apache-2.0",
+  "commit": "6ce0e67bf423f624a12d2f3d2afacd6bb2bf354e",
+  "loader": "singer",
+  "packs": [
+   "eltoro"
+  ]
+ },
+ {
+  "repository": "https://github.com/growth-nirvana/tap-foursquare",
+  "licence": "Apache-2.0",
+  "commit": "8cdc8f120fd76c3a93f6f019ca4202193927ab63",
+  "loader": "singer",
+  "packs": [
+   "foursquare"
+  ]
+ },
+ {
+  "repository": "https://github.com/growth-nirvana/tap-groundtruth",
+  "licence": "Apache-2.0",
+  "commit": "ae2ec2ec181d28ffa1a02ace8465fcfeaa40fb83",
+  "loader": "singer",
+  "packs": [
+   "groundtruth"
+  ]
+ },
+ {
+  "repository": "https://github.com/growth-nirvana/tap-stackadapt",
+  "licence": "Apache-2.0",
+  "commit": "a32e34902282e88928e6631181dbff73d13ac8aa",
+  "loader": "singer",
+  "packs": [
+   "stackadapt"
+  ]
+ },
+ {
+  "repository": "https://github.com/growth-nirvana/tap-thetradedesk",
+  "licence": "Apache-2.0",
+  "commit": "93d1cff0a0649cd59a4e0e1a445c74c3b09dbeaa",
+  "loader": "singer",
+  "packs": [
+   "thetradedesk"
+  ]
+ },
+ {
+  "repository": "https://github.com/growth-nirvana/tap-whatconverts",
+  "licence": "Apache-2.0",
+  "commit": "bf4828443f352ee5a91da1232aacfd4f6fcfbf46",
+  "loader": "singer",
+  "packs": [
+   "whatconverts"
+  ]
+ },
+ {
+  "repository": "https://github.com/grv2003/tap-greythr",
+  "licence": "Apache-2.0",
+  "commit": "da3c05d8d16927ee49bfe3a691455bbb741414df",
+  "loader": "singer",
+  "packs": [
+   "greythr"
+  ]
+ },
+ {
+  "repository": "https://github.com/gthesheep/tap-chargebee",
+  "licence": "Apache-2.0",
+  "commit": "0c945fee9c0e8700455134e699f2f01727183a96",
+  "loader": "singer",
+  "packs": [
+   "chargebee"
+  ]
+ },
+ {
+  "repository": "https://github.com/GtheSheep/tap-contentful",
+  "licence": "Apache-2.0",
+  "commit": "0d731c591b46faa24e7b746428dd3a33a81c334b",
+  "loader": "singer",
+  "packs": [
+   "contentful"
+  ]
+ },
+ {
+  "repository": "https://github.com/gupy-io/tap-superset",
+  "licence": "Apache-2.0",
+  "commit": "8d2e195cbf02d29d25d3bd8bdd27877683bb9fdd",
+  "loader": "singer",
+  "packs": [
+   "superset"
+  ]
+ },
+ {
+  "repository": "https://github.com/haleemur/tap-playstore",
+  "licence": "Apache-2.0",
+  "commit": "1fff4b41300dd228c26e04aaba2c096c8cd52bc6",
+  "loader": "singer",
+  "packs": [
+   "playstore"
+  ]
+ },
+ {
+  "repository": "https://github.com/hkuffel/tap-awin",
+  "licence": "Apache-2.0",
+  "commit": "d764baafc3d975a25c84fb175e78a785c3316a93",
+  "loader": "singer",
+  "packs": [
+   "awin"
+  ]
+ },
+ {
+  "repository": "https://github.com/hkuffel/tap-tiktok-business",
+  "licence": "Apache-2.0",
+  "commit": "c912d91fa29b8d98d6eca5ff1f905fe0ce9a099e",
+  "loader": "singer",
+  "packs": [
+   "tiktok_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-acumatica",
+  "licence": "Apache-2.0",
+  "commit": "adaa577c944f3615f210aacd389557a8f9389e90",
+  "loader": "singer",
+  "packs": [
+   "acumatica"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-bill",
+  "licence": "MIT",
+  "commit": "2ec6f3c3a7f44e867f589da5a2f5c1ef77cd8443",
+  "loader": "singer",
+  "packs": [
+   "bill"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-blackboard",
+  "licence": "MIT",
+  "commit": "2572608540b123c334ccafcc92e74a873cf1eb0d",
+  "loader": "singer",
+  "packs": [
+   "blackboard"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-cvent",
+  "licence": "MIT",
+  "commit": "b1d1691cd21929f51690fd04bb4614c50bf8d017",
+  "loader": "singer",
+  "packs": [
+   "cvent"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-easyecom",
+  "licence": "Apache-2.0",
+  "commit": "0894acace1e893f059cd271ab87d1e2c41fb5c32",
+  "loader": "singer",
+  "packs": [
+   "easyecom"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-etsy",
+  "licence": "Apache-2.0",
+  "commit": "1e2307b5d2bb91cd42b7873499bdbea5113bee8e",
+  "loader": "singer",
+  "packs": [
+   "etsy"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-google-ads",
+  "licence": "Apache-2.0",
+  "commit": "21e0a0604debe2108af26ac3abc548652c68592e",
+  "loader": "singer",
+  "packs": [
+   "google_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-klaviyo",
+  "licence": "Apache-2.0",
+  "commit": "57726ad2d4aa01b708eaaec8e2eed99784343671",
+  "loader": "singer",
+  "packs": [
+   "klaviyo"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-loop",
+  "licence": "MIT",
+  "commit": "ec03aee81ba6d7af09bc836d973a97ccb9957c1a",
+  "loader": "singer",
+  "packs": [
+   "loop"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-mambu",
+  "licence": "MIT",
+  "commit": "4ee6941c0dc41bdb7ed65d03e15907e3e790c73e",
+  "loader": "singer",
+  "packs": [
+   "mambu"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-mercury",
+  "licence": "MIT",
+  "commit": "f7134254a732e4ccbbe391c0851a353546ab6093",
+  "loader": "singer",
+  "packs": [
+   "mercury"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-navan",
+  "licence": "MIT",
+  "commit": "2cebb3a28013280bc353a8ee6cc6bde67219a866",
+  "loader": "singer",
+  "packs": [
+   "navan"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-newmode",
+  "licence": "Apache-2.0",
+  "commit": "cfe33b14a55fc2fb0503c61754ff78e59a933452",
+  "loader": "singer",
+  "packs": [
+   "newmode"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-plytix",
+  "licence": "Apache-2.0",
+  "commit": "0bc376c8e021c5dce39b902c6f1c2bd2a59993a0",
+  "loader": "singer",
+  "packs": [
+   "plytix"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-recharge",
+  "licence": "MIT",
+  "commit": "986ac6104ccfa886f3f2292f6888eace632d230e",
+  "loader": "singer",
+  "packs": [
+   "recharge"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-released",
+  "licence": "MIT",
+  "commit": "155b06fd42db22e1cc1d8a0738eb98a21ecaa984",
+  "loader": "singer",
+  "packs": [
+   "released"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-restaurant365",
+  "licence": "Apache-2.0",
+  "commit": "abd9d884846bf32e2ab3df2f8fb17d8ea73a1aea",
+  "loader": "singer",
+  "packs": [
+   "restaurant365"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-rillet",
+  "licence": "MIT",
+  "commit": "85693d620a98bcbdedec0dc3cbbafb415b7350e5",
+  "loader": "singer",
+  "packs": [
+   "rillet"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-shipbob",
+  "licence": "MIT",
+  "commit": "7a81e1348e1df2b159336ce75c01d21142c138d0",
+  "loader": "singer",
+  "packs": [
+   "shipbob"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-spendesk",
+  "licence": "MIT",
+  "commit": "eaace5bc08f339811e7b45821ab22b17c474c286",
+  "loader": "singer",
+  "packs": [
+   "spendesk"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-tiktok-shop",
+  "licence": "MIT",
+  "commit": "590d8b36e4ff58d0d24faac229393eaca05a7edc",
+  "loader": "singer",
+  "packs": [
+   "tiktok_shop"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-virtuous",
+  "licence": "MIT",
+  "commit": "ca592dc3ab6f7d296daab411936424fceebc790e",
+  "loader": "singer",
+  "packs": [
+   "virtuous"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-younium",
+  "licence": "MIT",
+  "commit": "a16adc7ce973b87a147bb204a3e7c9cdfcfa5c4e",
+  "loader": "singer",
+  "packs": [
+   "younium"
+  ]
+ },
+ {
+  "repository": "https://github.com/hotgluexyz/tap-zoho-inventory",
+  "licence": "Apache-2.0",
+  "commit": "999f31d513a89d046328625f6ab0e9822b9a9457",
+  "loader": "singer",
+  "packs": [
+   "zoho_inventory"
+  ]
+ },
+ {
+  "repository": "https://github.com/ideavateltd/tap-awin",
+  "licence": "Apache-2.0",
+  "commit": "f494a80af6b33cf6f5b5b1dd2adabd22333a5f0b",
+  "loader": "singer",
+  "packs": [
+   "awin"
+  ]
+ },
+ {
+  "repository": "https://github.com/ideavateltd/tap-impactradius",
+  "licence": "Apache-2.0",
+  "commit": "0180ae0f811f3fd6ada25864349b9c22c9c5227e",
+  "loader": "singer",
+  "packs": [
+   "impactradius"
+  ]
+ },
+ {
+  "repository": "https://github.com/imcallister/singer-tap-amazon-mws",
+  "licence": "Apache-2.0",
+  "commit": "a3b727098f9c00ae00e01623e74f1be2b8400170",
+  "loader": "singer",
+  "packs": [
+   "amazon_mws"
+  ]
+ },
+ {
+  "repository": "https://github.com/immuta/tap-lever",
+  "licence": "MIT",
+  "commit": "6714797f9e3eb1e565e7bbf27bfab29edafc53e9",
+  "loader": "singer",
+  "packs": [
+   "lever"
+  ]
+ },
+ {
+  "repository": "https://github.com/jlloyd-widen/tap-clari",
+  "licence": "Apache-2.0",
+  "commit": "8bc1621e3cfd503132c9c31d4b1b253d4c9916a0",
+  "loader": "singer",
+  "packs": [
+   "clari"
+  ]
+ },
+ {
+  "repository": "https://github.com/keragonhq/tap-clerk",
+  "licence": "Apache-2.0",
+  "commit": "592dd9122c029d072a42838344a7620850507e3f",
+  "loader": "singer",
+  "packs": [
+   "clerk"
+  ]
+ },
+ {
+  "repository": "https://github.com/keragonhq/tap-stripe",
+  "licence": "Apache-2.0",
+  "commit": "b417610410845f7780c1c6c886667387c49731df",
+  "loader": "singer",
+  "packs": [
+   "stripe"
+  ]
+ },
+ {
+  "repository": "https://github.com/kevsampson/tap-sigma",
+  "licence": "Apache-2.0",
+  "commit": "3880e3da3f0f8e0eb196c37a1071dbcb220792fb",
+  "loader": "singer",
+  "packs": [
+   "sigma"
+  ]
+ },
+ {
+  "repository": "https://github.com/kingalban/tap-userflow",
+  "licence": "Apache-2.0",
+  "commit": "0e3704a9fad0047aed731aa6696bd7055146e0f7",
+  "loader": "singer",
+  "packs": [
+   "userflow"
+  ]
+ },
+ {
+  "repository": "https://github.com/leag/tap-pipedrive",
+  "licence": "Apache-2.0",
+  "commit": "3806ad405b09b74db5a147c547ba08e39fcda781",
+  "loader": "singer",
+  "packs": [
+   "pipedrive"
+  ]
+ },
+ {
+  "repository": "https://github.com/leag/tap-simplesat",
+  "licence": "Apache-2.0",
+  "commit": "0409e7cb7d1b547044244a6f7dd3c02ac6faba69",
+  "loader": "singer",
+  "packs": [
+   "simplesat"
+  ]
+ },
+ {
+  "repository": "https://github.com/leag/tap-zendesk-sell",
+  "licence": "Apache-2.0",
+  "commit": "1469048e714e75957e83aa597ce9d257e7f96d61",
+  "loader": "singer",
+  "packs": [
+   "zendesk_sell"
+  ]
+ },
+ {
+  "repository": "https://github.com/leukeleu/tap-jira",
+  "licence": "Apache-2.0",
+  "commit": "10ec5fa1140c5786e0e3aa13b0ef3bd64d4a5b6b",
+  "loader": "singer",
+  "packs": [
+   "jira"
+  ]
+ },
+ {
+  "repository": "https://github.com/leukeleu/tap-linear",
+  "licence": "Apache-2.0",
+  "commit": "6f9efcb2d4f7e7392abc71444a92d409f316d5b0",
+  "loader": "singer",
+  "packs": [
+   "linear"
+  ]
+ },
+ {
+  "repository": "https://github.com/lgrosjean/tap-getresponse",
+  "licence": "Apache-2.0",
+  "commit": "6d469ef122f3047197bd3d26060b4d921c3824c0",
+  "loader": "singer",
+  "packs": [
+   "getresponse"
+  ]
+ },
+ {
+  "repository": "https://github.com/lightjay/tap-pipedrive",
+  "licence": "Apache-2.0",
+  "commit": "8ccd8e76741c4607f0e90289f79775f0bf11de10",
+  "loader": "singer",
+  "packs": [
+   "pipedrive"
+  ]
+ },
+ {
+  "repository": "https://github.com/livetennisapi/tap-livetennisapi",
+  "licence": "MIT",
+  "commit": "741ee4314afde5c954bc1c98d7be507c08bef5e7",
+  "loader": "singer",
+  "packs": [
+   "livetennisapi"
+  ]
+ },
+ {
+  "repository": "https://github.com/lucaszanov/tap-mailerlite",
+  "licence": "MIT",
+  "commit": "0c49c5914f4de797ae7d048d932a5c7bec5ad8db",
+  "loader": "singer",
+  "packs": [
+   "mailerlite"
+  ]
+ },
+ {
+  "repository": "https://github.com/lumapps/tap-github",
+  "licence": "Apache-2.0",
+  "commit": "cbc01404242e182876a9e47c0a44fab4593a9fa8",
+  "loader": "singer",
+  "packs": [
+   "github"
+  ]
+ },
+ {
+  "repository": "https://github.com/lumapps/tap-lucca",
+  "licence": "Apache-2.0",
+  "commit": "6d04067b322aa0445e8e3ee16eeb57e383bd85fb",
+  "loader": "singer",
+  "packs": [
+   "lucca"
+  ]
+ },
+ {
+  "repository": "https://github.com/lumapps/tap-lucca-legacy",
+  "licence": "Apache-2.0",
+  "commit": "2f03f8e32da81b5327196e9ad78b51a518fc8c1a",
+  "loader": "singer",
+  "packs": [
+   "lucca"
+  ]
+ },
+ {
+  "repository": "https://github.com/lumapps/tap-qoben-comeen",
+  "licence": "Apache-2.0",
+  "commit": "b65928ecace35de23f44a61604f9ecbd1735c40f",
+  "loader": "singer",
+  "packs": [
+   "qoben_comeen"
+  ]
+ },
+ {
+  "repository": "https://github.com/lumapps/tap-travel-perk",
+  "licence": "Apache-2.0",
+  "commit": "e26341824a9e83e4dca04c0811632682b74d07b0",
+  "loader": "singer",
+  "packs": [
+   "travel_perk"
+  ]
+ },
+ {
+  "repository": "https://github.com/malvore/tap-nhl",
+  "licence": "Apache-2.0",
+  "commit": "38e6dded60a71e92c6aa98e7e22955094faa14b2",
+  "loader": "singer",
+  "packs": [
+   "nhl"
+  ]
+ },
+ {
+  "repository": "https://github.com/manuphatak/tap-codatio",
+  "licence": "MIT",
+  "commit": "8ed54a1eae05ad2a94be189800e2bc1e9c8a16ed",
+  "loader": "singer",
+  "packs": [
+   "codat"
+  ]
+ },
+ {
+  "repository": "https://github.com/MarkEstey/firehose-tap-salesloft",
+  "licence": "Apache-2.0",
+  "commit": "dd7dff66dc798b00289cae0f222a5c1a082ff01a",
+  "loader": "singer",
+  "packs": [
+   "salesloft"
+  ]
+ },
+ {
+  "repository": "https://github.com/MarkEstey/tap-churnzero",
+  "licence": "Apache-2.0",
+  "commit": "93cbfef30af38d2fa19544a249c03bde93e51015",
+  "loader": "singer",
+  "packs": [
+   "churnzero"
+  ]
+ },
+ {
+  "repository": "https://github.com/markestey/tap-datadog",
+  "licence": "Apache-2.0",
+  "commit": "b4bfa6299e97410ed5620d07241d63f41d7d3060",
+  "loader": "singer",
+  "packs": [
+   "datadog"
+  ]
+ },
+ {
+  "repository": "https://github.com/markestey/tap-zendesk",
+  "licence": "Apache-2.0",
+  "commit": "a1a8581b874fc623c9518cd043f92e00b0283e8c",
+  "loader": "singer",
+  "packs": [
+   "zendesk"
+  ]
+ },
+ {
+  "repository": "https://github.com/Mashey/tap-ask-nicely",
+  "licence": "MIT",
+  "commit": "afcc773be314d6157fc59de8924d0ecd235ac0db",
+  "loader": "singer",
+  "packs": [
+   "ask_nicely"
+  ]
+ },
+ {
+  "repository": "https://github.com/Mashey/tap-ireckonu",
+  "licence": "MIT",
+  "commit": "83a68fa12651f1cc6dd2784cf7b211ff686ef456",
+  "loader": "singer",
+  "packs": [
+   "ireckonu"
+  ]
+ },
+ {
+  "repository": "https://github.com/mashey/tap-xactly",
+  "licence": "MIT",
+  "commit": "e8160d18c8f080cc7264fa0c84af79078de56d40",
+  "loader": "singer",
+  "packs": [
+   "xactly"
+  ]
+ },
+ {
+  "repository": "https://github.com/matatika/tap-quickbooks",
+  "licence": "Apache-2.0",
+  "commit": "344598d06570f396e22a8d718c7722de3b746b58",
+  "loader": "singer",
+  "packs": [
+   "quickbooks"
+  ]
+ },
+ {
+  "repository": "https://github.com/matatika/tap-xero",
+  "licence": "Apache-2.0",
+  "commit": "9a2d03cd02914392e92ee6e462d1a811ff65f7f0",
+  "loader": "singer",
+  "packs": [
+   "xero"
+  ]
+ },
+ {
+  "repository": "https://github.com/melgazar9/tap-coingecko",
+  "licence": "Apache-2.0",
+  "commit": "32188f040edff3c2bcdef0c1bbcf1a8e827b905f",
+  "loader": "singer",
+  "packs": [
+   "coingecko"
+  ]
+ },
+ {
+  "repository": "https://github.com/melgazar9/tap-eia",
+  "licence": "MIT",
+  "commit": "39d9c1fa798c0279fd260a1e663deccfb843b044",
+  "loader": "singer",
+  "packs": [
+   "eia"
+  ]
+ },
+ {
+  "repository": "https://github.com/melgazar9/tap-fmp",
+  "licence": "Apache-2.0",
+  "commit": "7470bef751f3d13effd7ec85de47675731ce5b68",
+  "loader": "singer",
+  "packs": [
+   "fmp"
+  ]
+ },
+ {
+  "repository": "https://github.com/melgazar9/tap-fred",
+  "licence": "Apache-2.0",
+  "commit": "b9882e9dadc06f27b05f212d753c1cd44d656e9b",
+  "loader": "singer",
+  "packs": [
+   "fred"
+  ]
+ },
+ {
+  "repository": "https://github.com/melgazar9/tap-massive",
+  "licence": "Apache-2.0",
+  "commit": "e645fa7737ff4b84ef2064aa56d017793299bd41",
+  "loader": "singer",
+  "packs": [
+   "massive"
+  ]
+ },
+ {
+  "repository": "https://github.com/melgazar9/tap-noaa-ghcn",
+  "licence": "MIT",
+  "commit": "453d6d2c0f217d0c504eaab4cbc8d1d9e3596491",
+  "loader": "singer",
+  "packs": [
+   "noaa_ghcn"
+  ]
+ },
+ {
+  "repository": "https://github.com/melgazar9/tap-open-meteo",
+  "licence": "MIT",
+  "commit": "f24e22f58389bdca09297294a9db64f2e1ac5892",
+  "loader": "singer",
+  "packs": [
+   "open_meteo"
+  ]
+ },
+ {
+  "repository": "https://github.com/melgazar9/tap-yahooquery",
+  "licence": "Apache-2.0",
+  "commit": "5262e3c690f94384c712780a2e36efbd5cabd265",
+  "loader": "singer",
+  "packs": [
+   "yahooquery"
+  ]
+ },
+ {
+  "repository": "https://github.com/melgazar9/tap-yfinance",
+  "licence": "Apache-2.0",
+  "commit": "48496735378b62201fc043e4b22a1f20160c2d8b",
+  "loader": "singer",
+  "packs": [
+   "yfinance"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-activeprospect",
+  "licence": "Apache-2.0",
+  "commit": "f69d577951e4b67ab917e37c247b18df8b3219d7",
+  "loader": "singer",
+  "packs": [
+   "activeprospect"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-apollo",
+  "licence": "Apache-2.0",
+  "commit": "545eab216458f3a7f5ef4e8d13c5f3c813367573",
+  "loader": "singer",
+  "packs": [
+   "apollo"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-arch",
+  "licence": "Apache-2.0",
+  "commit": "2d5b84d42f346f44a042fd578e866e3ce8465a11",
+  "loader": "singer",
+  "packs": [
+   "arch"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-calltrackingmetrics",
+  "licence": "Apache-2.0",
+  "commit": "c1f71036380868bd258961175f468504f306a74d",
+  "loader": "singer",
+  "packs": [
+   "calltrackingmetrics"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-circle-ci",
+  "licence": "MIT",
+  "commit": "1d7b52efccdbf7c0d7bb3c7664dc9daaf54ab773",
+  "loader": "singer",
+  "packs": [
+   "circleci"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-clerk",
+  "licence": "Apache-2.0",
+  "commit": "586110de6fa72c2284dff2bf3e58f41b4714c8ca",
+  "loader": "singer",
+  "packs": [
+   "clerk"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-github",
+  "licence": "Apache-2.0",
+  "commit": "525d29e8ca96c106c18c8da9ae65a86a7e2efeec",
+  "loader": "singer",
+  "packs": [
+   "github"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-gmail",
+  "licence": "MIT",
+  "commit": "845c6a1d7247aaedff1faae47572c69edf770b28",
+  "loader": "singer",
+  "packs": [
+   "gmail"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-gohighlevel",
+  "licence": "MIT",
+  "commit": "b5d395c7485416341a80261c106698643b3a8100",
+  "loader": "singer",
+  "packs": [
+   "gohighlevel"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-greenhouse",
+  "licence": "Apache-2.0",
+  "commit": "d66519bf4c2b3e48fb7ca0b8b89ec9339240153a",
+  "loader": "singer",
+  "packs": [
+   "greenhouse"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-messagebird",
+  "licence": "MIT",
+  "commit": "37a64a4b178e7c1e511ac4481bd69b2e145c6df6",
+  "loader": "singer",
+  "packs": [
+   "messagebird"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-navan",
+  "licence": "Apache-2.0",
+  "commit": "2208b4bddc46d2f22e8d5746b001e16f5066f56b",
+  "loader": "singer",
+  "packs": [
+   "navan"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-nextdoor",
+  "licence": "Apache-2.0",
+  "commit": "b96968165930403c2f5c6fb913c12c67df02d428",
+  "loader": "singer",
+  "packs": [
+   "nextdoor"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-pinterest",
+  "licence": "Apache-2.0",
+  "commit": "1528e4f751f00b3a4bb99083553a7f8cbb8b9310",
+  "loader": "singer",
+  "packs": [
+   "pinterest_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-powerbi",
+  "licence": "Apache-2.0",
+  "commit": "c3d0e3805a754c4b42529c8d19b6f81f665291af",
+  "loader": "singer",
+  "packs": [
+   "powerbi"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-pulumi-cloud",
+  "licence": "Apache-2.0",
+  "commit": "76598be06cdf10a74179073f85df2732312115df",
+  "loader": "singer",
+  "packs": [
+   "pulumi_cloud"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-rilla",
+  "licence": "Apache-2.0",
+  "commit": "29cda06e4db576af122496e6fc5ee7ea193a11c0",
+  "loader": "singer",
+  "packs": [
+   "rilla"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-service-titan",
+  "licence": "Apache-2.0",
+  "commit": "44050d5528626cd3e54358828778fef7f816c026",
+  "loader": "singer",
+  "packs": [
+   "service_titan"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-slack",
+  "licence": "Apache-2.0",
+  "commit": "ae010cf26e970a964f9bdaef1894a9beb0b51ab0",
+  "loader": "singer",
+  "packs": [
+   "slack"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-stackexchange",
+  "licence": "Apache-2.0",
+  "commit": "a6260295c4cdde6a84fe76f62e029f8b38eb6150",
+  "loader": "singer",
+  "packs": [
+   "stackexchange"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-sunwave",
+  "licence": "Apache-2.0",
+  "commit": "1e16dd15aa41cbcd2279f2d10d23eba24a767132",
+  "loader": "singer",
+  "packs": [
+   "sunwave"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-surveymonkey",
+  "licence": "Apache-2.0",
+  "commit": "a203cbd85ff4cb6835f8e48621cb2c2e320926b6",
+  "loader": "singer",
+  "packs": [
+   "survey_monkey"
+  ]
+ },
+ {
+  "repository": "https://github.com/MeltanoLabs/tap-zendesk",
+  "licence": "Apache-2.0",
+  "commit": "432213465f5211111d40492263bb78090a62dc96",
+  "loader": "singer",
+  "packs": [
+   "zendesk"
+  ]
+ },
+ {
+  "repository": "https://github.com/meshcloud/tap-clickup-forked",
+  "licence": "MIT",
+  "commit": "f77a3db6a0d5bd3dbd45b5e82c98d5975d389bb7",
+  "loader": "singer",
+  "packs": [
+   "clickup"
+  ]
+ },
+ {
+  "repository": "https://github.com/meshcloud/tap-personio",
+  "licence": "Apache-2.0",
+  "commit": "c28036d295250484d8445414ac7215f53b8058fc",
+  "loader": "singer",
+  "packs": [
+   "personio"
+  ]
+ },
+ {
+  "repository": "https://github.com/meshcloud/tap-younium",
+  "licence": "Apache-2.0",
+  "commit": "74cf1b6622cd972e16e14b4f322ba3685b8fbc19",
+  "loader": "singer",
+  "packs": [
+   "younium"
+  ]
+ },
+ {
+  "repository": "https://github.com/mighty-digital/tap-apple-search-ads",
+  "licence": "MIT",
+  "commit": "234767ff164bb39bf26fb22be5ebcdcfc5f3685e",
+  "loader": "singer",
+  "packs": [
+   "apple_search_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/mmichie/singer-tap-amazon-mws",
+  "licence": "Apache-2.0",
+  "commit": "b1956cb07cc8d2a04944e63a2625af6ed71b713c",
+  "loader": "singer",
+  "packs": [
+   "amazon_mws"
+  ]
+ },
+ {
+  "repository": "https://github.com/mohith26/tap-campfire",
+  "licence": "Apache-2.0",
+  "commit": "42acd27a8e88159ed2eff18e45b71e74914ebd5d",
+  "loader": "singer",
+  "packs": [
+   "campfire"
+  ]
+ },
+ {
+  "repository": "https://github.com/mrjefflewis/tap-ruddr",
+  "licence": "Apache-2.0",
+  "commit": "54ae791d751365aa5bb84e5b1e3851fdcbd22f03",
+  "loader": "singer",
+  "packs": [
+   "ruddr"
+  ]
+ },
+ {
+  "repository": "https://github.com/netspective-labs/tap-openproject",
+  "licence": "MIT",
+  "commit": "4a268ddb379a808e0b50d5363900ddff8cd6babd",
+  "loader": "singer",
+  "packs": [
+   "openproject"
+  ]
+ },
+ {
+  "repository": "https://github.com/NickLeoMartin/tap-quaderno",
+  "licence": "Apache-2.0",
+  "commit": "4e9cba59f4ae5b18c5706a56f9dbe3c28d029b9f",
+  "loader": "singer",
+  "packs": [
+   "quaderno"
+  ]
+ },
+ {
+  "repository": "https://github.com/optiply/tap-bunny",
+  "licence": "Apache-2.0",
+  "commit": "ca5894aada4f2580ba398d74d2e1c438c67eee53",
+  "loader": "singer",
+  "packs": [
+   "bunny"
+  ]
+ },
+ {
+  "repository": "https://github.com/pathlight/tap-gladly",
+  "licence": "MIT",
+  "commit": "d9c8656c2b39b10867d5556f7f54e3dc9d985172",
+  "loader": "singer",
+  "packs": [
+   "gladly"
+  ]
+ },
+ {
+  "repository": "https://github.com/Pathlight/tap-gorgias",
+  "licence": "MIT",
+  "commit": "a424c3c5b7e17c1037524aa85b8372bd075f970f",
+  "loader": "singer",
+  "packs": [
+   "gorgias"
+  ]
+ },
+ {
+  "repository": "https://github.com/pathlight/tap-qualtrics",
+  "licence": "MIT",
+  "commit": "ebe1d6bc04a1075ee08fc06da70a77bb3cb1d76d",
+  "loader": "singer",
+  "packs": [
+   "qualtrics"
+  ]
+ },
+ {
+  "repository": "https://github.com/prratek/tap-instagram",
+  "licence": "Apache-2.0",
+  "commit": "71305e5f0979576ddf4cca66ed2bb0acc963b224",
+  "loader": "singer",
+  "packs": [
+   "instagram_business"
+  ]
+ },
+ {
+  "repository": "https://github.com/prratek/tap-stripe",
+  "licence": "MIT",
+  "commit": "c24e88e9d2d3d43f8a1265355683850219a032f4",
+  "loader": "singer",
+  "packs": [
+   "stripe"
+  ]
+ },
+ {
+  "repository": "https://github.com/pulumi/tap-attention",
+  "licence": "Apache-2.0",
+  "commit": "801e3f7ad02cfe6552bad1721943b7d0aa486447",
+  "loader": "singer",
+  "packs": [
+   "attention"
+  ]
+ },
+ {
+  "repository": "https://github.com/pulumi/tap-clari",
+  "licence": "MIT",
+  "commit": "da01bcfebd8361a89f945d326205d77215bfef09",
+  "loader": "singer",
+  "packs": [
+   "clari"
+  ]
+ },
+ {
+  "repository": "https://github.com/pulumi/tap-claricopilot",
+  "licence": "Apache-2.0",
+  "commit": "884d79371e4f6f20178109d533e2e19b8ad4315c",
+  "loader": "singer",
+  "packs": [
+   "claricopilot"
+  ]
+ },
+ {
+  "repository": "https://github.com/pulumi/tap-luma",
+  "licence": "Apache-2.0",
+  "commit": "648d87087d9a49b8b1d86bacd132da9c641aaf78",
+  "loader": "singer",
+  "packs": [
+   "luma"
+  ]
+ },
+ {
+  "repository": "https://github.com/pulumi/tap-mandrill",
+  "licence": "Apache-2.0",
+  "commit": "a05cb583598d6df36665f058c79f327101f6bff8",
+  "loader": "singer",
+  "packs": [
+   "mandrill"
+  ]
+ },
+ {
+  "repository": "https://github.com/pulumi/tap-notion",
+  "licence": "Apache-2.0",
+  "commit": "6a87d80155f1d86955bcadd1629f097807d0495f",
+  "loader": "singer",
+  "packs": [
+   "notion"
+  ]
+ },
+ {
+  "repository": "https://github.com/pulumi/tap-suger",
+  "licence": "Apache-2.0",
+  "commit": "ad2b131aa61232a253e994d7842a30455d66dae0",
+  "loader": "singer",
+  "packs": [
+   "suger"
+  ]
+ },
+ {
+  "repository": "https://github.com/pys933/singer-tap-amazon-mws",
+  "licence": "Apache-2.0",
+  "commit": "f36649ee0127c41ebde3cb3797469a736c59680f",
+  "loader": "singer",
+  "packs": [
+   "amazon_mws"
+  ]
+ },
+ {
+  "repository": "https://github.com/quantile-taps/tap-tixly",
+  "licence": "Apache-2.0",
+  "commit": "51ccb47ac6b67de28c1438bcc8e11c25927ce7a0",
+  "loader": "singer",
+  "packs": [
+   "tixly"
+  ]
+ },
+ {
+  "repository": "https://github.com/radico/tap-opera",
+  "licence": "Apache-2.0",
+  "commit": "9478ac413bfcf0dc953c53aa868de057715b5f7d",
+  "loader": "singer",
+  "packs": [
+   "opera"
+  ]
+ },
+ {
+  "repository": "https://github.com/raman-batra/tap-instagram",
+  "licence": "Apache-2.0",
+  "commit": "c79079d299a08ea86e9c0ef0902d3a026f076967",
+  "loader": "singer",
+  "packs": [
+   "instagram_business"
+  ]
+ },
+ {
+  "repository": "https://github.com/rawwar/tap-greenhouse",
+  "licence": "MIT",
+  "commit": "dca8c6fb0bf6fe3fce5a37b5523c530e9de6dadd",
+  "loader": "singer",
+  "packs": [
+   "greenhouse"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-belvo",
+  "licence": "MIT",
+  "commit": "2e787c7e38229e78c05482187b647d62d1e34afc",
+  "loader": "singer",
+  "packs": [
+   "belvo"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-betterstack",
+  "licence": "Apache-2.0",
+  "commit": "5cffb0cdd6222175d6627848a0536f0378a4f8af",
+  "loader": "singer",
+  "packs": [
+   "betterstack"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-bitly",
+  "licence": "Apache-2.0",
+  "commit": "bb17de1116dbbdf88a7a0c18b4e700c2be02e25b",
+  "loader": "singer",
+  "packs": [
+   "bitly"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-canny",
+  "licence": "Apache-2.0",
+  "commit": "4c2e79c8eab0bb53c6327c5079a8bac0400f7e26",
+  "loader": "singer",
+  "packs": [
+   "canny"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-checkly",
+  "licence": "Apache-2.0",
+  "commit": "d0778c424f84286d4715f8b13434e44b07ce88a4",
+  "loader": "singer",
+  "packs": [
+   "checkly"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-crowd-dev",
+  "licence": "Apache-2.0",
+  "commit": "9974d0376242c5d421032db3f8429a2440ead5de",
+  "loader": "singer",
+  "packs": [
+   "crowd_dev"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-eventbrite",
+  "licence": "Apache-2.0",
+  "commit": "b9fa43d329a51cb79ab4a5131a737531678d2cc4",
+  "loader": "singer",
+  "packs": [
+   "eventbrite"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-fedidb",
+  "licence": "Apache-2.0",
+  "commit": "a3807f96873b94da36f18842b1b8c64a873dd818",
+  "loader": "singer",
+  "packs": [
+   "fedidb"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-forem",
+  "licence": "Apache-2.0",
+  "commit": "dab701521474f3c455651f322afc632e5400077f",
+  "loader": "singer",
+  "packs": [
+   "forem"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-geekbot",
+  "licence": "Apache-2.0",
+  "commit": "e34c1f5c25eb3bf7dee4124b74f29fc1863ab7b8",
+  "loader": "singer",
+  "packs": [
+   "geekbot"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-google-play",
+  "licence": "Apache-2.0",
+  "commit": "a213f8b1c7b365d5416585d67881f8c631a94bc0",
+  "loader": "singer",
+  "packs": [
+   "google_play"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-honeybadger",
+  "licence": "Apache-2.0",
+  "commit": "17df293f79b3f1577d466bffb4d0507fe4ed6586",
+  "loader": "singer",
+  "packs": [
+   "honeybadger"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-hookdeck",
+  "licence": "Apache-2.0",
+  "commit": "a824387a63a278e0e5874076018ec1fc18784364",
+  "loader": "singer",
+  "packs": [
+   "hookdeck"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-jotform",
+  "licence": "Apache-2.0",
+  "commit": "dda0c6ccdaf09282362bd5856fe07e462ca0d0a4",
+  "loader": "singer",
+  "packs": [
+   "jotform"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-leaflink",
+  "licence": "Apache-2.0",
+  "commit": "6cf9fd1672e446af39f28b61ac753e60541fa045",
+  "loader": "singer",
+  "packs": [
+   "leaflink"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-mailchimp",
+  "licence": "Apache-2.0",
+  "commit": "92cca508245b709ab34fcc7832b2504705a14bc3",
+  "loader": "singer",
+  "packs": [
+   "mailchimp"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-neon",
+  "licence": "Apache-2.0",
+  "commit": "84bd780f0e4ca7c3e703e65dff969a85cc138662",
+  "loader": "singer",
+  "packs": [
+   "neon"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-pingdom",
+  "licence": "Apache-2.0",
+  "commit": "46ffd800d64096f7e1b771fca41a74a1959cf4e9",
+  "loader": "singer",
+  "packs": [
+   "pingdom"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-pipedream",
+  "licence": "Apache-2.0",
+  "commit": "e834739ac7c1606e26374c28341c9b65545a2dfc",
+  "loader": "singer",
+  "packs": [
+   "pipedream"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-planetscaleapi",
+  "licence": "Apache-2.0",
+  "commit": "cec9a94ed9c1319537302db6a749a24da5f02de7",
+  "loader": "singer",
+  "packs": [
+   "planetscaleapi"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-polarsh",
+  "licence": "Apache-2.0",
+  "commit": "4da949591ce491d8620670c555e951c6d15474ae",
+  "loader": "singer",
+  "packs": [
+   "polarsh"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-pomelo",
+  "licence": "Apache-2.0",
+  "commit": "ea40682880df8b7020316dff9b53fb8aaad58460",
+  "loader": "singer",
+  "packs": [
+   "pomelo"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-readthedocs",
+  "licence": "Apache-2.0",
+  "commit": "14623660e04806d0e9a590101e8c3b37757ee1a9",
+  "loader": "singer",
+  "packs": [
+   "readthedocs"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-shortcut",
+  "licence": "Apache-2.0",
+  "commit": "567712036a213f1d24ea255ca036da8606ecdec3",
+  "loader": "singer",
+  "packs": [
+   "shortcut"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-socketdev",
+  "licence": "Apache-2.0",
+  "commit": "c16e3abc65016c2356c870c1281001d92bdf507c",
+  "loader": "singer",
+  "packs": [
+   "socketdev"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-superhuman",
+  "licence": "MIT",
+  "commit": "84a3b21463469f4f5eba0f4c77d5c63e55114d6d",
+  "loader": "singer",
+  "packs": [
+   "superhuman"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-tally",
+  "licence": "Apache-2.0",
+  "commit": "a2745f518cfe38c0c48647bd183e0a6d16317f77",
+  "loader": "singer",
+  "packs": [
+   "tally"
+  ]
+ },
+ {
+  "repository": "https://github.com/reservoir-data/tap-toggl",
+  "licence": "Apache-2.0",
+  "commit": "3977a4d1420ffeb5ae090ee53249f9940fd712d5",
+  "loader": "singer",
+  "packs": [
+   "toggl"
+  ]
+ },
+ {
+  "repository": "https://github.com/ReubenFrankel/tap-f1",
+  "licence": "Apache-2.0",
+  "commit": "a14ac47522b1d53a911ece6df1a301ec9f805d6f",
+  "loader": "singer",
+  "packs": [
+   "f1"
+  ]
+ },
+ {
+  "repository": "https://github.com/rowanv/tap-facebook-posts",
+  "licence": "Apache-2.0",
+  "commit": "fa521e6f81be95e7a99feedef8d0fad94c52e71f",
+  "loader": "singer",
+  "packs": [
+   "facebook_posts"
+  ]
+ },
+ {
+  "repository": "https://github.com/sachasmart/tap-zoho-inventory",
+  "licence": "MIT",
+  "commit": "aa578c6277e8f4d399f33cf243e61f89369bb40e",
+  "loader": "singer",
+  "packs": [
+   "zoho_inventory"
+  ]
+ },
+ {
+  "repository": "https://github.com/sagedata-ood/tap-apple-search-ads",
+  "licence": "MIT",
+  "commit": "ff90ce56dea96cf80328a741d96daef955f37213",
+  "loader": "singer",
+  "packs": [
+   "apple_search_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/sagedata-ood/tap-discord",
+  "licence": "MIT",
+  "commit": "8b17e6efc220ec0ff3aad01ad2b839be1e902b31",
+  "loader": "singer",
+  "packs": [
+   "discord"
+  ]
+ },
+ {
+  "repository": "https://github.com/sagedata-ood/tap-easybill",
+  "licence": "MIT",
+  "commit": "e386a81f895c3c058560b74fef1b7554a37bd88b",
+  "loader": "singer",
+  "packs": [
+   "easybill"
+  ]
+ },
+ {
+  "repository": "https://github.com/sagedata-ood/tap-exact",
+  "licence": "MIT",
+  "commit": "96f40d65f3e07ce000dd0bbc89894480c2fe0b61",
+  "loader": "singer",
+  "packs": [
+   "exact"
+  ]
+ },
+ {
+  "repository": "https://github.com/sagedata-ood/tap-facebook-page-insights",
+  "licence": "MIT",
+  "commit": "d962fc60e5c9de643b26cb379951091a75dff6c1",
+  "loader": "singer",
+  "packs": [
+   "facebook_page_insights"
+  ]
+ },
+ {
+  "repository": "https://github.com/sagedata-ood/tap-freshcaller",
+  "licence": "MIT",
+  "commit": "10ecd9b3c0e8b1ff3d331ffef90ce91b4ea840ba",
+  "loader": "singer",
+  "packs": [
+   "freshcaller"
+  ]
+ },
+ {
+  "repository": "https://github.com/sagedata-ood/tap-indeed",
+  "licence": "MIT",
+  "commit": "055cfe2faccaab9343419bc79ba18f1cb69fba72",
+  "loader": "singer",
+  "packs": [
+   "indeed"
+  ]
+ },
+ {
+  "repository": "https://github.com/sagedata-ood/tap-instagram-insights",
+  "licence": "MIT",
+  "commit": "8b85003d61e4d237224ebba7c2fa5d57f0bf7839",
+  "loader": "singer",
+  "packs": [
+   "instagram_insights"
+  ]
+ },
+ {
+  "repository": "https://github.com/sagedata-ood/tap-qualtrics",
+  "licence": "MIT",
+  "commit": "7562e25f514b52e6d1aac26b2efcb46ccf695599",
+  "loader": "singer",
+  "packs": [
+   "qualtrics"
+  ]
+ },
+ {
+  "repository": "https://github.com/sagedata-ood/tap-revolut",
+  "licence": "MIT",
+  "commit": "07f6097318dab62fd832d6c9d6185314ee2c8715",
+  "loader": "singer",
+  "packs": [
+   "revolut"
+  ]
+ },
+ {
+  "repository": "https://github.com/sagedata-ood/tap-satismeter",
+  "licence": "MIT",
+  "commit": "4f8c8ef930b153bfac315bb7e4b8e35a122f66cb",
+  "loader": "singer",
+  "packs": [
+   "satismeter"
+  ]
+ },
+ {
+  "repository": "https://github.com/sagedata-ood/tap-tiktok-social",
+  "licence": "MIT",
+  "commit": "0fc3698dd0b6fff9d660dba61755b3daf97bd897",
+  "loader": "singer",
+  "packs": [
+   "tiktok_social"
+  ]
+ },
+ {
+  "repository": "https://github.com/sanctionskit/tap-sanctionskit",
+  "licence": "MIT",
+  "commit": "e0dfcfca07d5cf691bb4d2790c1d9c3e50e20408",
+  "loader": "singer",
+  "packs": [
+   "sanctionskit"
+  ]
+ },
+ {
+  "repository": "https://github.com/silvioangels/tap_pipefy",
+  "licence": "Apache-2.0",
+  "commit": "0509c1e260251eefe34c29e583681c92700d15ab",
+  "loader": "singer",
+  "packs": [
+   "pipefy"
+  ]
+ },
+ {
+  "repository": "https://github.com/slalom-consulting/tap-adobe-umapi",
+  "licence": "Apache-2.0",
+  "commit": "d046cdc6935417b0f04f66e35d8288fb209b4a34",
+  "loader": "singer",
+  "packs": [
+   "adobe_umapi"
+  ]
+ },
+ {
+  "repository": "https://github.com/slalom-consulting/tap-atlassian-scim",
+  "licence": "Apache-2.0",
+  "commit": "352eba6ca6ff523ec5c00f548ab4917abc5057ea",
+  "loader": "singer",
+  "packs": [
+   "atlassian_scim"
+  ]
+ },
+ {
+  "repository": "https://github.com/slalom-consulting/tap-lucid-scim",
+  "licence": "Apache-2.0",
+  "commit": "f88d26fada8b43ace2e37cdee0e333152a6ed709",
+  "loader": "singer",
+  "packs": [
+   "lucid_scim"
+  ]
+ },
+ {
+  "repository": "https://github.com/Slalom-Consulting/tap-podbean",
+  "licence": "Apache-2.0",
+  "commit": "25facbd36454ff4f30fe8f70b3b82623fadc362e",
+  "loader": "singer",
+  "packs": [
+   "podbean"
+  ]
+ },
+ {
+  "repository": "https://github.com/slalom-consulting/tap-qualtrics",
+  "licence": "Apache-2.0",
+  "commit": "9a76f572e09f2bf75b050abbeb506f3897acf650",
+  "loader": "singer",
+  "packs": [
+   "qualtrics"
+  ]
+ },
+ {
+  "repository": "https://github.com/slalom-consulting/tap-servicenow",
+  "licence": "Apache-2.0",
+  "commit": "fbc1e963020b4781a5a2641f6ac61e8a245d4c1a",
+  "loader": "singer",
+  "packs": [
+   "servicenow"
+  ]
+ },
+ {
+  "repository": "https://github.com/Somtom/tap-mailjet",
+  "licence": "MIT",
+  "commit": "f7e8adb43deabadf5a21c35d2071a451e076e3b2",
+  "loader": "singer",
+  "packs": [
+   "mailjet"
+  ]
+ },
+ {
+  "repository": "https://github.com/splitio/tap-datadog",
+  "licence": "MIT",
+  "commit": "2265e88b88e9d1a95b3d1e2bc5ba5e37424255d9",
+  "loader": "singer",
+  "packs": [
+   "datadog"
+  ]
+ },
+ {
+  "repository": "https://github.com/stn/tap-jquants",
+  "licence": "Apache-2.0",
+  "commit": "93b7eda5509cabba9b577dc8f8c709557106539c",
+  "loader": "singer",
+  "packs": [
+   "jquants"
+  ]
+ },
+ {
+  "repository": "https://github.com/stvhanna/tap-liveperson",
+  "licence": "Apache-2.0",
+  "commit": "e1a478d0683d966d95fadb32c5ad3ee9ebb78e25",
+  "loader": "singer",
+  "packs": [
+   "liveperson"
+  ]
+ },
+ {
+  "repository": "https://github.com/stvhanna/tap-yotpo",
+  "licence": "Apache-2.0",
+  "commit": "5c08fec7285e79bedd083f7304dedfc12e4f2171",
+  "loader": "singer",
+  "packs": [
+   "yotpo"
+  ]
+ },
+ {
+  "repository": "https://github.com/team-sight/tap-gitlab",
+  "licence": "Apache-2.0",
+  "commit": "65e9c042277d0aaad420c3de94252cb214822d34",
+  "loader": "singer",
+  "packs": [
+   "gitlab"
+  ]
+ },
+ {
+  "repository": "https://github.com/the-data-base/tap-nhl",
+  "licence": "MIT",
+  "commit": "0dfe06a15dfe055ab9c2fcf7156f734547f4a035",
+  "loader": "singer",
+  "packs": [
+   "nhl"
+  ]
+ },
+ {
+  "repository": "https://github.com/TicketSwap/tap-aircall",
+  "licence": "Apache-2.0",
+  "commit": "40b905174ec7fe02778cd4735af2a67a157cf91f",
+  "loader": "singer",
+  "packs": [
+   "aircall"
+  ]
+ },
+ {
+  "repository": "https://github.com/TicketSwap/tap-apple-search-ads",
+  "licence": "Apache-2.0",
+  "commit": "38d9529714f8299fc14272639b0927190f29909a",
+  "loader": "singer",
+  "packs": [
+   "apple_search_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/ticketswap/tap-branch",
+  "licence": "Apache-2.0",
+  "commit": "e183b1daca31970941f8e0ead7ce3498907a065c",
+  "loader": "singer",
+  "packs": [
+   "branch"
+  ]
+ },
+ {
+  "repository": "https://github.com/TicketSwap/tap-exact",
+  "licence": "Apache-2.0",
+  "commit": "ddf29b9973aec1ebcc95ace33986a1bcf95b64b6",
+  "loader": "singer",
+  "packs": [
+   "exact"
+  ]
+ },
+ {
+  "repository": "https://github.com/TicketSwap/tap-intercom",
+  "licence": "Apache-2.0",
+  "commit": "39cad4dbf51860da53ad77ffe94a8cd26e650612",
+  "loader": "singer",
+  "packs": [
+   "intercom"
+  ]
+ },
+ {
+  "repository": "https://github.com/ticketswap/tap-looker",
+  "licence": "Apache-2.0",
+  "commit": "dbd87b705aaa42338da9112f0e5f75b51ae0c3e1",
+  "loader": "singer",
+  "packs": [
+   "looker"
+  ]
+ },
+ {
+  "repository": "https://github.com/ticketswap/tap-personio",
+  "licence": "Apache-2.0",
+  "commit": "4151ecbd83b295b7c3ab11b83479e912f79eaa65",
+  "loader": "singer",
+  "packs": [
+   "personio"
+  ]
+ },
+ {
+  "repository": "https://github.com/TicketSwap/tap-stripe",
+  "licence": "Apache-2.0",
+  "commit": "a830ee84f06edf13a4e6b2c64c1568b3e80bad2c",
+  "loader": "singer",
+  "packs": [
+   "stripe"
+  ]
+ },
+ {
+  "repository": "https://github.com/ticketswap/tap-survicate",
+  "licence": "Apache-2.0",
+  "commit": "9670aa4d9c908d2ce7b59f7f308742cba6263561",
+  "loader": "singer",
+  "packs": [
+   "survicate"
+  ]
+ },
+ {
+  "repository": "https://github.com/ticketswap/tap-ticketswap-bing-ads",
+  "licence": "Apache-2.0",
+  "commit": "8e08a89f0ad8b24e2667591aa4832adfd72948cf",
+  "loader": "singer",
+  "packs": [
+   "microsoft_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/together-nz/tap-cm360",
+  "licence": "Apache-2.0",
+  "commit": "6ca2b7fd98db27cd24211c4bcac80b74123f1edb",
+  "loader": "singer",
+  "packs": [
+   "cm360"
+  ]
+ },
+ {
+  "repository": "https://github.com/tripleaceme/tap-substack",
+  "licence": "MIT",
+  "commit": "8786f4eee88afaa597a51ebb5ded29b0aead7cab",
+  "loader": "singer",
+  "packs": [
+   "substack"
+  ]
+ },
+ {
+  "repository": "https://github.com/trunkrs/tap-geotab",
+  "licence": "Apache-2.0",
+  "commit": "0b974b32f466298f261adb533b1e2b1fd301830f",
+  "loader": "singer",
+  "packs": [
+   "geotab"
+  ]
+ },
+ {
+  "repository": "https://github.com/trunkrs/tap-stackerhq",
+  "licence": "Apache-2.0",
+  "commit": "4b77d40e6323de552662c1cacaf23d10c8ff0422",
+  "loader": "singer",
+  "packs": [
+   "stackerhq"
+  ]
+ },
+ {
+  "repository": "https://github.com/valulucchesi/tap-datadog",
+  "licence": "MIT",
+  "commit": "8232c75a8e5442f2ba6b1bbee6f33fe337386b98",
+  "loader": "singer",
+  "packs": [
+   "datadog"
+  ]
+ },
+ {
+  "repository": "https://github.com/vertex-service-partners/tap-leadgurus",
+  "licence": "Apache-2.0",
+  "commit": "9a64675acc9bb2ae265136a566a92985f8e14900",
+  "loader": "singer",
+  "packs": [
+   "leadgurus"
+  ]
+ },
+ {
+  "repository": "https://github.com/vghellere/tap-acumatica",
+  "licence": "Apache-2.0",
+  "commit": "011c292e95c1cb27fd540f8722a0bb9e92b41688",
+  "loader": "singer",
+  "packs": [
+   "acumatica"
+  ]
+ },
+ {
+  "repository": "https://github.com/vibeus/tap-amazon-advertising-v3",
+  "licence": "Apache-2.0",
+  "commit": "8154cf9692c1fa26eee2e977df0257a3c340086b",
+  "loader": "singer",
+  "packs": [
+   "amazon_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/vibeus/tap-google-ads",
+  "licence": "Apache-2.0",
+  "commit": "3a880983105caceed1b2fd6e35de74caef435ac7",
+  "loader": "singer",
+  "packs": [
+   "google_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/vishalp-dev/tap-mailchimp",
+  "licence": "Apache-2.0",
+  "commit": "1520dc74d4c4a7972ef20b467d1672a935313989",
+  "loader": "singer",
+  "packs": [
+   "mailchimp"
+  ]
+ },
+ {
+  "repository": "https://github.com/voxmedia/tap-avantlink",
+  "licence": "Apache-2.0",
+  "commit": "856c83398fa4d3f8e66af85f68f78d97e32d51f6",
+  "loader": "singer",
+  "packs": [
+   "avantlink"
+  ]
+ },
+ {
+  "repository": "https://github.com/voxmedia/tap-instagram",
+  "licence": "Apache-2.0",
+  "commit": "71305e5f0979576ddf4cca66ed2bb0acc963b224",
+  "loader": "singer",
+  "packs": [
+   "instagram_business"
+  ]
+ },
+ {
+  "repository": "https://github.com/voxmedia/tap-partnerize",
+  "licence": "Apache-2.0",
+  "commit": "e039b973af8001fa05e8f5bf9f48a62cdcba5e02",
+  "loader": "singer",
+  "packs": [
+   "partnerize"
+  ]
+ },
+ {
+  "repository": "https://github.com/voxmedia/tap-pepperjam",
+  "licence": "Apache-2.0",
+  "commit": "b25d60ca5f09651ca3b57c2acc131c7f75f7ae24",
+  "loader": "singer",
+  "packs": [
+   "pepperjam"
+  ]
+ },
+ {
+  "repository": "https://github.com/voxmedia/tap-rakuten-sdk",
+  "licence": "Apache-2.0",
+  "commit": "01c818e159aebb2d73c8a81728316bfb32e81852",
+  "loader": "singer",
+  "packs": [
+   "rakuten"
+  ]
+ },
+ {
+  "repository": "https://github.com/voxmedia/tap-twitter",
+  "licence": "Apache-2.0",
+  "commit": "abea1932f9d85d93146332e597af5c16cde641d4",
+  "loader": "singer",
+  "packs": [
+   "twitter"
+  ]
+ },
+ {
+  "repository": "https://github.com/widen/tap-clari",
+  "licence": "Apache-2.0",
+  "commit": "8bc1621e3cfd503132c9c31d4b1b253d4c9916a0",
+  "loader": "singer",
+  "packs": [
+   "clari"
+  ]
+ },
+ {
+  "repository": "https://github.com/Widen/tap-gainsightpx",
+  "licence": "Apache-2.0",
+  "commit": "327236a1c6127f0103cd1dbdb8497f9f30130914",
+  "loader": "singer",
+  "packs": [
+   "gainsightpx"
+  ]
+ },
+ {
+  "repository": "https://github.com/widen/tap-salesforce-connect",
+  "licence": "Apache-2.0",
+  "commit": "cdaa562042aaa61d23b5eebef8d7a94307dbfd26",
+  "loader": "singer",
+  "packs": [
+   "salesforce_connect"
+  ]
+ },
+ {
+  "repository": "https://github.com/widen/tap-toggl",
+  "licence": "Apache-2.0",
+  "commit": "6054ee3e266975c71b5d470b6b8dcfc699c62a68",
+  "loader": "singer",
+  "packs": [
+   "toggl"
+  ]
+ },
+ {
+  "repository": "https://github.com/widen/tap-workato",
+  "licence": "Apache-2.0",
+  "commit": "ccfb3fc909c399e117c937d144098026eb41b124",
+  "loader": "singer",
+  "packs": [
+   "workato"
+  ]
+ },
+ {
+  "repository": "https://github.com/yashdabhi078/tap-reddit-ads",
+  "licence": "MIT",
+  "commit": "0233f0f6eeda78437452ed53f8e95a2722705b7e",
+  "loader": "singer",
+  "packs": [
+   "reddit_ads"
+  ]
+ },
+ {
+  "repository": "https://github.com/yujoy/tap-megaphone",
+  "licence": "Apache-2.0",
+  "commit": "c95b1673de240a95d4520a820c6926b1af15564e",
+  "loader": "singer",
+  "packs": [
+   "megaphone"
+  ]
+ },
+ {
+  "repository": "https://github.com/z3z1ma/tap-qualified",
+  "licence": "MIT",
+  "commit": "7a7a8604f59b865ed1b77c310ebec64da6c972e4",
+  "loader": "singer",
+  "packs": [
+   "qualified"
+  ]
+ },
+ {
+  "repository": "https://gitlab.com/danladd/tap-surveymonkey",
+  "licence": "Apache-2.0",
+  "commit": "bd185d235673345b992c5aaa3e74a70fae998f7c",
+  "loader": "singer",
+  "packs": [
+   "survey_monkey"
+  ]
+ },
+ {
+  "repository": "https://gitlab.com/meltano/tap-carbon-intensity",
+  "licence": "MIT",
+  "commit": "7e786ffc6606036e00163d1a13fa55eab7604490",
+  "loader": "singer",
+  "packs": [
+   "carbon_intensity"
+  ]
+ },
+ {
+  "repository": "https://gitlab.com/meltano/tap-marketo",
+  "licence": "MIT",
+  "commit": "2a7ab85437db4a120199cea193b7e445386b3e3d",
+  "loader": "singer",
+  "packs": [
+   "marketo"
+  ]
+ },
+ {
+  "repository": "https://github.com/dwyl/english-words",
+  "path": "words_alpha.txt",
+  "licence": "Unlicense",
+  "commit": "20f5cc9b3f0ccc8ce45d814c532b7c2031bba31c",
+  "loader": "word list",
+  "used for": "telling apart the words of a name run together, such as transactionline"
+ }
+]

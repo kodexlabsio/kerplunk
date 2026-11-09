@@ -1,14 +1,17 @@
 # Google Analytics 4, as its BigQuery export writes it: one events_YYYYMMDD table a day.
 name: ga4
-description: Google Analytics 4 events in BigQuery
+title: Google Analytics 4
+description: Google Analytics 4 events as the BigQuery export writes them, with each event's name and pseudonymous user.
 schemas: ['analytics_*']
 match:
   'events_[0-9]*': [event_name, event_timestamp, user_pseudo_id]
 terms:
   - name: GA4 event name
+    kind: term
     definition: What happened, such as page_view, purchase or a custom event.
     columns: ['events_[0-9]*.event_name']
   - name: GA4 pseudonymous user
+    kind: term
     definition: >-
       The device or browser an event came from, as a pseudonymous identifier; not a person, and
       not stable across devices.

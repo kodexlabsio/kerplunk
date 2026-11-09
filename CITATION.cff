@@ -9,7 +9,10 @@ authors:
   - name: Kodex Labs Ltd.
 repository-code: https://github.com/kodexlabsio/konstruct
 url: https://kodexlabsio.github.io/konstruct/
-license: MIT
+license:
+  - MIT
+  - Apache-2.0
+  - OFL-1.1
 keywords:
   - lineage
   - column-level lineage

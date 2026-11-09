@@ -207,7 +207,7 @@ Composed formulas are evaluated on the data and must match the final model row f
 | **Warehouses** | DuckDB, Postgres, Snowflake, BigQuery, Databricks, Trino, and Iceberg through any PyIceberg catalogue |
 | **Dashboards** | dbt exposures, Looker views field by field from LookML, and Power BI semantic models from TMDL |
 | **Ingestion** | The tables Fivetran and Airbyte land, and column lineage from each Fivetran source system |
-| **Meaning** | Business terms in `definitions.yml` and SKOS or OWL vocabularies, with a concept hierarchy, ontology packs for Stripe, Shopify, Salesforce, HubSpot and GA4 bound automatically, and column usage from Snowflake, BigQuery and Databricks query history |
+| **Meaning** | Business terms in `definitions.yml` and SKOS or OWL vocabularies, with a concept hierarchy, 274 ontology packs for the source systems teams land (Stripe, Shopify, Salesforce, HubSpot, Zendesk, Jira, Google Ads and hundreds more) bound automatically, and column usage from Snowflake, BigQuery and Databricks query history |
 
 ## Features
 
@@ -243,7 +243,7 @@ Try the [live demo](https://kodexlabsio.github.io/konstruct/demo/): the viewer f
 - SKOS and OWL vocabularies read as terms, with a concept hierarchy.
 - `konstruct ontology`: the entities and their keys, the measures with their composed formulas, and the relationships between entities, with cardinality where a key is tested, checked against rules that `--strict` turns into a failing build ([the ontology](https://kodexlabsio.github.io/konstruct/guide/ontology.html)).
 - `konstruct conflicts`: the same measure computed in different ways, and exactly what differs ([conflicts](https://kodexlabsio.github.io/konstruct/guide/conflicts.html)).
-- Ontology packs for Stripe, Shopify, Salesforce, HubSpot and GA4, bound automatically when their tables are in the warehouse.
+- 274 ontology packs for the source systems teams land, from Stripe, Shopify, Salesforce, HubSpot and GA4 to Zendesk, Jira and Google Ads, bound automatically when their tables are in the warehouse ([ontology packs](https://kodexlabsio.github.io/konstruct/guide/ontology.html#ontology-packs)).
 - Apache Ossie semantic models read as an input and written as an export, with each metric's lineage and trust added ([Ossie](https://kodexlabsio.github.io/konstruct/guide/ossie.html)).
 
 **Where to use it**
@@ -282,4 +282,4 @@ Bug reports with a small failing case are the most useful contribution; [CONTRIB
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE). The jaffle_shop example keeps its own Apache-2.0 licence, and the Manrope and JetBrains Mono fonts in the viewer are under the SIL Open Font License ([licenses/](licenses/)).
+MIT. See [LICENSE](LICENSE). The generated ontology packs are made from connector schemas under the Apache-2.0 and MIT licences, which [SOURCES.json](konstruct/semantics/ontologies/SOURCES.json) lists repository by repository, and the viewer embeds the Manrope and JetBrains Mono fonts under the SIL Open Font License, so the package's licence expression is MIT AND Apache-2.0 AND OFL-1.1. The jaffle_shop example keeps its own Apache-2.0 licence. The licence texts are in [licenses/](licenses/).

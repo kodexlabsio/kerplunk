@@ -1,6 +1,7 @@
 # Shopify, as Fivetran (singular table names) and Airbyte (plural) land it.
 name: shopify
-description: Shopify orders, customers and products
+title: Shopify
+description: Shopify orders, customers and products, with order totals and subtotals.
 schemas: ['*shopify*']
 match:
   order|orders: [id, total_price, subtotal_price, financial_status, fulfillment_status, taxes_included]

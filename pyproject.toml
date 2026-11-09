@@ -3,8 +3,8 @@ name = "konstruct"
 version = "0.12.5"
 description = "Turn a data stack (dbt, SQL, Airflow, warehouse and Iceberg metadata) into a queryable graph with column-level lineage for coding agents."
 readme = "README.md"
-license = "MIT"
-license-files = ["LICENSE", "licenses/*"]
+license = "MIT AND Apache-2.0 AND OFL-1.1"
+license-files = ["LICENSE", "licenses/*", "konstruct/semantics/ontologies/NOTICE"]
 authors = [{ name = "Kodex Labs Ltd." }]
 requires-python = ">=3.11"
 keywords = ["lineage", "column-level lineage", "dbt", "airflow", "iceberg", "mcp", "claude-code", "data-catalog"]
@@ -94,6 +94,12 @@ python-source = "."
 python-packages = ["konstruct"]
 features = ["python"]
 locked = true
+# A build reads the ontology packs from their index alone; the YAML they are made from stays in
+# the repository and the sdist.
+exclude = [
+    { path = "konstruct/semantics/ontologies/*.yml", format = "wheel" },
+    { path = "konstruct/semantics/ontologies/generated/**/*", format = "wheel" },
+]
 
 # uv reinstalls the project when these change, so an editable install rebuilds the extension
 # after a change to the Rust sources.

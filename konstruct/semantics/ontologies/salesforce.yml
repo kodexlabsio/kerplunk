@@ -1,6 +1,7 @@
 # Salesforce, as Fivetran lands its standard objects (snake_case field names).
 name: salesforce
-description: Salesforce accounts, contacts, leads and opportunities
+title: Salesforce
+description: Salesforce accounts, contacts, leads and opportunities, with opportunity amounts.
 schemas: ['*salesforce*', '*sfdc*']
 match:
   account: [id, name]

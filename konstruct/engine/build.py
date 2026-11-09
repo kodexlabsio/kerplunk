@@ -1371,7 +1371,12 @@ class Builder:
         matches = registry.find(registry.load_packs(self.config.ontology_packs), schemas, loaded)
         suffixes = registry.suffixes(matches)
         found: list[definitions.Term] = []
+        joins: list[dict[str, str]] = []
         for match in matches:
+            for many_ref, one_ref in registry.relationships(match, schemas):
+                many, one = _bind(self.graph, many_ref)[0], _bind(self.graph, one_ref)[0]
+                if many is not None and one is not None:
+                    joins.append({'from': many.id, 'to': one.id, 'name': match.pack.name})
             parsed = registry.terms(match, schemas, suffixes.get(match.schema))
             for problem in parsed.errors:
                 self.graph.warn(f'ontologies: {problem}')
@@ -1396,6 +1401,8 @@ class Builder:
         if found:
             self.add_terms(found)
             self.inputs['ontology_pack_terms'] = len(found)
+        if joins:
+            self.graph.meta['pack_relationships'] = joins
 
     def vocabulary_terms(self, terms: list[definitions.Term]) -> list[definitions.Term]:
         """The terms of the configured SKOS and OWL vocabularies that the project does not define,

@@ -136,13 +136,16 @@ def test_the_readme_lists_every_command_and_format() -> None:
     usage = _bullet(features, 'Column usage')
     missing += [f'usage from {w}' for w in SUPPORTED if titles.get(w, w.capitalize()) not in usage]
     assert not missing
-    packs = _bullet(features, 'Ontology packs for ')
-    named = packs.removeprefix('- Ontology packs for ').split(', bound')[0].replace(' and ', ', ').split(', ')
     from konstruct.semantics.registry import PACKS
 
-    # Every pack the README names exists, and it names every hand-written pack.
-    assert {n.lower() for n in named} <= {p.name for p in load_packs()}, named
-    assert {path.stem for path in PACKS.glob('*.yml')} <= {n.lower() for n in named}, named
+    every = {p.name for p in load_packs()}
+    packs = _bullet(features, f'{len(every)} ontology packs')
+    listed = packs.split(', from ', 1)[1].split(', bound')[0].replace(' to ', ', ').replace(' and ', ', ')
+    named = [n.lower().replace(' ', '_') for n in listed.split(', ')]
+    # The README gives the number of packs, every pack it names exists, and it names every
+    # hand-written pack.
+    assert set(named) <= every, named
+    assert {path.stem for path in PACKS.glob('*.yml')} <= set(named), named
 
 
 @pytest.mark.dbt
@@ -170,7 +173,8 @@ def test_the_citation_agrees_with_the_package_metadata() -> None:
     assert citation['title'].lower() == project['name']
     assert ' '.join(citation['abstract'].split()) == project['description']
     assert citation['authors'] == [{'name': author['name']} for author in project['authors']]
-    assert citation['license'] == project['license']
+    # CFF takes the licences as a list of SPDX identifiers; the package joins the same ones with AND.
+    assert citation['license'] == project['license'].split(' AND ')
     assert citation['repository-code'] == project['urls']['Homepage']
     assert citation['keywords'] == project['keywords']
     assert 'version' not in citation and 'date-released' not in citation

@@ -1,6 +1,7 @@
 # Stripe, as Fivetran (singular table names) and Airbyte (plural) land it.
 name: stripe
-description: Stripe payments
+title: Stripe
+description: Stripe's customers, charges, invoices and subscriptions, with charge amounts in the currency's smallest unit.
 schemas: ['*stripe*']
 match:
   charge|charges: [id, amount, amount_refunded, captured, paid, currency, livemode]

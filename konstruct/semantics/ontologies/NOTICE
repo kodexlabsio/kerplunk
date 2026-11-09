@@ -1,0 +1,28 @@
+The generated packs in generated/ are made by .kodex/scripts/generate_packs.py from published,
+permissively licensed connector schemas. SOURCES.json lists every repository they are made from,
+with its URL, licence, commit and the packs it contributes to; the licence texts are in the
+repository's licenses/ directory (Apache-2.0.txt, and ontology-pack-sources.txt for each repository
+under the MIT licence, with its copyright notice). No Airbyte connector is read: Airbyte's
+repository is under the Elastic License 2.0.
+
+- Fivetran's dbt packages (https://github.com/fivetran, the dbt_* repositories), Copyright Fivetran
+  Inc., licensed under the Apache License, Version 2.0. Table and column names, the tables their
+  staging models read, the columns and values of their test seeds, and the table and column
+  descriptions used as entity and measure definitions (from models/**/src_*.yml and the doc blocks
+  in models/**/*.md), edited for spelling and punctuation.
+
+- dlt's verified sources (https://github.com/dlt-hub/verified-sources), by dltHub, licensed under
+  the Apache License, Version 2.0. Resource names, primary keys and declared columns.
+
+- Singer and Meltano taps whose repositories are licensed under the MIT or Apache-2.0 licences, as
+  SOURCES.json lists them with each repository's own licence. Stream names, primary keys, property
+  names and types, and property descriptions, edited for spelling and punctuation.
+
+- meltano/hub (https://github.com/meltano/hub), licensed under the Apache License, Version 2.0:
+  which source system each tap reads, and its label.
+
+- The word list of dwyl/english-words (https://github.com/dwyl/english-words), released into the
+  public domain (the Unlicense): only to tell apart the words of a name run together, such as
+  transactionline. No text of it is in the packs beyond those words.
+
+The hand-written packs in this directory are part of Konstruct (MIT).

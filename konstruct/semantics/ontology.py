@@ -676,6 +676,10 @@ class _Deriver:
             many, one = graph.nodes.get(item.get('from', '')), graph.nodes.get(item.get('to', ''))
             if many is not None and one is not None:
                 add(many, one, f'Ossie relationship {item.get("name")} ({item.get("path")})', False)
+        for item in graph.meta.get('pack_relationships', []) or []:
+            many, one = graph.nodes.get(item.get('from', '')), graph.nodes.get(item.get('to', ''))
+            if many is not None and one is not None:
+                add(many, one, f'ontology pack {item.get("name")}', False)
         result = []
         for (source_entity, target_entity, _), (candidates, evidences) in found.items():
             # The columns a relationships test vouches for come first, then the shortest join.
