@@ -135,8 +135,8 @@ Lineage tools usually assert their lineage. Konstruct measures it, and every num
 
 | Generated dbt project | Column edges | Cold build | Update, one model edited | Query |
 |----------------------:|-------------:|-----------:|-------------------------:|------:|
-| 500 models | 12,940 | 6.1 s | 0.6 s | 1 ms |
-| 2,000 models | 51,940 | 26.4 s | 3.1 s | 4 ms |
+| 500 models | 12,940 | 8.1 s | 1.3 s | 3 ms |
+| 2,000 models | 51,940 | 37.2 s | 6.4 s | 9 ms |
 
 Composed formulas are evaluated on the data and must match the final model row for row; the static Airflow and Dagster parsers are compared with Airflow's and Dagster's own graphs; and OpenLineage exports are validated against the specification. [Performance](https://kodexlabsio.github.io/konstruct/performance.html) and [verification](https://kodexlabsio.github.io/konstruct/guide/verify.html) give the details.
 

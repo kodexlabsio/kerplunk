@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import os
 import time
@@ -13,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from konstruct import __version__, airflow, dagster, dbt, definitions
+from konstruct import __version__, airflow, dagster, dbt, definitions, jsonio
 from konstruct.config import (
     Config,
     ConfigError,
@@ -43,7 +42,7 @@ class Cache:
         self.misses = 0
         if enabled and path.is_file():
             try:
-                data = json.loads(path.read_text(encoding='utf-8'))
+                data = jsonio.loads(path.read_bytes())
             except (OSError, ValueError):
                 data = {}
             if data.get('version') == CACHE_VERSION and data.get('konstruct') == __version__:
@@ -51,7 +50,7 @@ class Cache:
 
     @staticmethod
     def key(*parts: Any) -> str:
-        blob = json.dumps(parts, sort_keys=True, default=str).encode('utf-8')
+        blob = jsonio.dumps(parts, sort_keys=True, default=str).encode('utf-8')
         return hashlib.sha256(blob).hexdigest()
 
     def get_or_compute(self, key: str, compute: Callable[[], Any], *, count: bool = True) -> Any:
@@ -72,7 +71,7 @@ class Cache:
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {'version': CACHE_VERSION, 'konstruct': __version__, 'entries': self.used}
-        self.path.write_text(json.dumps(payload, separators=(',', ':')), encoding='utf-8')
+        self.path.write_text(jsonio.dumps(payload), encoding='utf-8')
 
 
 @dataclass

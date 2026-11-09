@@ -20,16 +20,19 @@ from __future__ import annotations
 
 import functools
 import hashlib
-import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.dialects.dialect import Dialect
 
+from konstruct import jsonio
 from konstruct.graph import Graph, Node
 
+_QUALIFIED_COLUMN = re.compile(r'[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*){1,3}')
 MAX_COMPOSED = 4000
 """Stop substituting once the composed formula is longer than this many characters."""
 
@@ -126,7 +129,10 @@ class _Namer:
     def __init__(self, graph: Graph, dialect: str | None) -> None:
         self.graph = graph
         self.dialect = dialect
+        # Resolved once: sqlglot builds a new dialect object for every call given only its name.
+        self.sqlglot = Dialect.get_or_raise(dialect)
         self.cache: dict[str, Node | None] = {}
+        self.texts: dict[str, str] = {}
 
     def relation(self, key: str) -> Node | None:
         if key not in self.cache:
@@ -144,8 +150,14 @@ class _Namer:
         return None
 
     def parse(self, sql: str) -> exp.Expr | None:
+        # A plain qualified column, the commonest expression in a graph (every column a model passes
+        # through), is built directly rather than parsed. A single name goes through the parser,
+        # which knows the words that are functions or literals rather than columns.
+        if _QUALIFIED_COLUMN.fullmatch(sql):
+            *prefix, name = sql.split('.')
+            return exp.column(name, *reversed(prefix), quoted=False)
         try:
-            tree: exp.Expr = sqlglot.parse_one(sql, read=self.dialect)
+            tree: exp.Expr = sqlglot.parse_one(sql, read=self.sqlglot)
             return tree
         except (sqlglot.errors.ParseError, sqlglot.errors.TokenError, ValueError):
             return None
@@ -159,11 +171,16 @@ class _Namer:
                     return exp.column(name, table=self.graph.label(relation), quoted=False)
             return node
 
-        return _unparen(tree.transform(rename)).sql(dialect=self.dialect)
+        return _unparen(tree.transform(rename)).sql(dialect=self.sqlglot, copy=False)
 
     def text(self, sql: str) -> str:
-        tree = self.parse(sql)
-        return self.short(tree) if tree is not None else sql
+        """``sql`` with short relation names, worked out once per distinct text."""
+        found = self.texts.get(sql)
+        if found is None:
+            tree = self.parse(sql)
+            found = self.short(tree) if tree is not None else sql
+            self.texts[sql] = found
+        return found
 
     def condition(self, text: str) -> str:
         prefix, sep, rest = text.partition(': ')
@@ -231,7 +248,7 @@ class Explainer:
         if node.id not in self.short_memo:
             composed = self.compose(node)
             self.short_memo[node.id] = (
-                _unparen(composed.tree.copy()).sql(dialect=self.namer.dialect)
+                _unparen(composed.tree.copy()).sql(dialect=self.namer.sqlglot, copy=False)
                 if composed.tree is not None
                 else None
             )
@@ -300,9 +317,12 @@ class Explainer:
                 return inner.tree.copy()
             return exp.Paren(this=inner.tree.copy())
 
-        composed = tree.transform(substitute)
+        # The column's own expression is named before substitution, so the parsed tree, which
+        # nothing else holds, can then be rewritten in place.
+        original = self.namer.text(expression)
+        composed = tree.transform(substitute, copy=False)
         self.active.discard(node.id)
-        result = _Composed(composed, frozenset(sources), complete, size, self.namer.short(tree))
+        result = _Composed(composed, frozenset(sources), complete, size, original)
         self.memo[node.id] = result
         return result
 
@@ -446,7 +466,7 @@ class Explainer:
 
 
 def _cache_key(*parts: Any) -> str:
-    return hashlib.sha256(json.dumps(parts, sort_keys=True).encode('utf-8')).hexdigest()
+    return hashlib.sha256(jsonio.dumps(parts, sort_keys=True).encode('utf-8')).hexdigest()
 
 
 class _Cache(Protocol):

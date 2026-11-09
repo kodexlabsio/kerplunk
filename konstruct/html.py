@@ -10,12 +10,12 @@ inlined. Konstruct fills its two placeholders with
 
 from __future__ import annotations
 
-import json
 from functools import cache
 from importlib import resources
 from pathlib import Path
 from typing import Any
 
+from konstruct import jsonio
 from konstruct.graph import Graph
 
 _DATA_PLACEHOLDER = '__KONSTRUCT_DATA__'
@@ -40,7 +40,7 @@ def template() -> str:
 
 
 def _embed_json(data: Any) -> str:
-    return json.dumps(data, ensure_ascii=False, separators=(',', ':')).translate(_JSON_ESCAPES)
+    return jsonio.dumps(data).translate(_JSON_ESCAPES)
 
 
 def explanations(graph: Graph, cache: Any = None) -> dict[str, Any]:

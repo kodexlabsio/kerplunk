@@ -20,12 +20,13 @@ Every edge is stored as ``source -> target`` with these meanings:
 
 from __future__ import annotations
 
-import json
 from collections import deque
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
+
+from konstruct import jsonio
 
 NodeKind = Literal[
     'source', 'table', 'column', 'model', 'seed', 'snapshot', 'dag', 'task', 'test', 'exposure', 'term'
@@ -527,12 +528,12 @@ class Graph:
     def write(self, path: Path) -> None:
         """Write the graph to ``path`` as JSON (``graph.json``)."""
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.to_dict(), indent=1, sort_keys=False) + '\n', encoding='utf-8')
+        path.write_text(jsonio.dumps(self.to_dict(), indent=True) + '\n', encoding='utf-8')
 
     @classmethod
     def read(cls, path: Path) -> Graph:
         """Load a graph from a ``graph.json`` file."""
-        return cls.from_dict(json.loads(path.read_text(encoding='utf-8')))
+        return cls.from_dict(jsonio.loads(path.read_bytes()))
 
     def stats(self) -> dict[str, int]:
         counts: dict[str, int] = {}

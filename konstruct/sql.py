@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.dialects.dialect import Dialect, DialectType
 from sqlglot.errors import SqlglotError
 from sqlglot.lineage import Node as LineageNode
 from sqlglot.lineage import lineage, to_node
@@ -134,7 +135,7 @@ def strip_templating(sql: str) -> str:
     return _JINJA_BLOCK.sub('', _JINJA_EXPR.sub(replace, sql))
 
 
-def build_schema(columns: SchemaColumns, dialect: str | None) -> MappingSchema:
+def build_schema(columns: SchemaColumns, dialect: DialectType) -> MappingSchema:
     """A sqlglot schema with every relation at catalog.db.table depth."""
     nested: dict[str, Any] = {}
     for key, cols in columns.items():
@@ -152,7 +153,7 @@ def build_schema(columns: SchemaColumns, dialect: str | None) -> MappingSchema:
     return MappingSchema(nested, dialect=dialect, normalize=False)
 
 
-def _safe_type(dtype: str | None, dialect: str | None) -> str:
+def _safe_type(dtype: str | None, dialect: DialectType) -> str:
     if not dtype:
         return 'UNKNOWN'
     try:
@@ -185,14 +186,17 @@ def analyse(
     created by earlier statements become part of the schema for later ones.
     """
     known: dict[str, dict[str, str]] = {k: dict(v) for k, v in (schema or {}).items()}
+    # One dialect object for the whole analysis: sqlglot otherwise builds a new one for every parse
+    # and every expression it prints.
+    resolved = Dialect.get_or_raise(dialect)
     try:
-        statements = [s for s in sqlglot.parse(sql, dialect=dialect) if s is not None]
+        statements = [s for s in sqlglot.parse(sql, dialect=resolved) if s is not None]
     except SqlglotError as error:
         return [StatementLineage(kind='unparsed', target=target, errors=[_first_line(error)])]
 
     results: list[StatementLineage] = []
     for statement in statements:
-        result = _analyse_statement(statement, dialect, known, default_catalog, default_db, target)
+        result = _analyse_statement(statement, resolved, known, default_catalog, default_db, target)
         if result is None:
             continue
         if result.target and result.columns and result.target not in known:
@@ -208,7 +212,7 @@ def _first_line(error: Exception) -> str:
 
 def _analyse_statement(
     statement: exp.Expr,
-    dialect: str | None,
+    dialect: DialectType,
     known: SchemaColumns,
     default_catalog: str | None,
     default_db: str | None,
@@ -271,7 +275,7 @@ def _analyse_statement(
 
 def _column_lineage(
     query: exp.Expr,
-    dialect: str | None,
+    dialect: DialectType,
     known: SchemaColumns,
     default_catalog: str | None,
     default_db: str | None,
@@ -289,7 +293,9 @@ def _column_lineage(
         qualify_kwargs['db'] = default_db
         if default_catalog:
             qualify_kwargs['catalog'] = default_catalog
-    qualified = qualify(query.copy(), **qualify_kwargs)
+    # The statement was parsed for this analysis alone and is not read again, so it is qualified in
+    # place rather than copied first.
+    qualified = qualify(query, **qualify_kwargs)
     scope = build_scope(qualified)
     if scope is None:
         result.errors.append('column lineage failed: not a query')
@@ -493,7 +499,7 @@ def _unbracket(text: str) -> str:
 class _Canonical:
     """Column expressions and conditions in terms of physical columns only."""
 
-    def __init__(self, dialect: str | None, default_catalog: str | None, default_db: str | None) -> None:
+    def __init__(self, dialect: DialectType, default_catalog: str | None, default_db: str | None) -> None:
         self.dialect = dialect
         self.default_catalog = default_catalog
         self.default_db = default_db
@@ -539,7 +545,8 @@ class _Canonical:
                 return exp.Var(this=f'{relation}.{item.name.lower()}')
             return item
 
-        return expression.copy().transform(replace).sql(dialect=self.dialect)
+        # transform() copies the tree, so the copy it returns can be printed without another one.
+        return expression.transform(replace).sql(dialect=self.dialect, copy=False)
 
     def conditions(self, root: Scope, schema: MappingSchema) -> list[str]:
         found: set[str] = set()
@@ -591,14 +598,14 @@ class _Canonical:
             if part.args.get('all') or not part.expressions:
                 return 'ALL'
             return ', '.join(
-                sorted(e.copy().transform(replace).sql(dialect=self.dialect) for e in part.expressions)
+                sorted(e.transform(replace).sql(dialect=self.dialect, copy=False) for e in part.expressions)
             )
-        return part.copy().transform(replace).sql(dialect=self.dialect)
+        return part.transform(replace).sql(dialect=self.dialect, copy=False)
 
 
 def _references(
     root: Scope,
-    dialect: str | None,
+    dialect: DialectType,
     schema: MappingSchema,
     default_catalog: str | None,
     default_db: str | None,

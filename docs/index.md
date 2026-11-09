@@ -11,7 +11,7 @@ What it does that lineage tools usually leave out:
 - **It checks its lineage against the data.** `konstruct verify` perturbs each input column, reruns each model and records which outputs change. On dbt Labs' jaffle-shop all 87 claimed column edges are confirmed, and nothing changed that the graph did not predict. [How Much to Trust the Lineage](guide/verify.md)
 - **It reviews pull requests column by column.** `uses: kodexlabsio/konstruct@v0` comments with what a change does to each column, ignoring formatting and renamed CTEs, and fails the check when a removed column is still read downstream. It also prints a `dbt build --select` for only what the change affects. [Reviewing Changes](guide/reviewing-changes.md)
 - **One chain across tools.** A column computed in dbt, copied by an Airflow SQL task, written by a Dagster asset and shown on a dashboard is one lineage chain, through DuckDB, Postgres, Snowflake, BigQuery, Databricks and Iceberg.
-- **It handles large projects.** 2,000 models and 52,000 column edges build in 26 seconds and update in 4; queries answer in milliseconds. [Performance](performance.md)
+- **It handles large projects.** 2,000 models and 52,000 column edges build in 37 seconds on a four-core cloud machine and update in 7; queries answer in milliseconds. [Performance](performance.md)
 - **It exports open formats.** OpenLineage events validated against the specification, Mermaid, Graphviz and CSV. [Exporting](guide/exporting.md)
 
 ![graph.html showing the lineage of customer_ltv.lifetime_value: four columns across an Airflow SQL table, two dbt models and a seed, each verified, with the formula SUM(raw_payments.amount / 100)](images/graph-html.png)
