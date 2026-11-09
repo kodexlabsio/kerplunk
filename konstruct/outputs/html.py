@@ -14,6 +14,7 @@ The page loads nothing from the network.
 from __future__ import annotations
 
 import functools
+import hashlib
 import os
 import stat
 from dataclasses import asdict
@@ -233,14 +234,27 @@ def ontology_data(graph: Graph, ontology: Ontology | None = None) -> dict[str, A
     }
 
 
-def conflicts_data(graph: Graph) -> dict[str, Any]:
-    """The most consequential conflicting definitions, as ``konstruct conflicts --json`` gives them."""
+def conflicts_data(graph: Graph, cache: Any = None) -> dict[str, Any]:
+    """The most consequential conflicting definitions, as ``konstruct conflicts --json`` gives them.
+    With the build cache, an unchanged graph reuses the last build's answer."""
     from konstruct.analysis.conflicts import find_conflicts
 
-    try:
-        return find_conflicts(graph, VIEWER_CONFLICT_LIMIT).to_dict()
-    except RecursionError:
-        return {}
+    def compute() -> dict[str, Any]:
+        try:
+            return find_conflicts(graph, VIEWER_CONFLICT_LIMIT).to_dict()
+        except RecursionError:
+            return {}
+
+    if cache is None:
+        return compute()
+    # The nodes and edges, not meta: meta records when and how fast the build ran.
+    data = graph.to_dict()
+    content = {'nodes': data['nodes'], 'edges': data['edges'], 'dialect': graph.meta.get('dialect')}
+    fingerprint = hashlib.sha256(jsonio.dumps(content, sort_keys=True).encode('utf-8')).hexdigest()
+    result: dict[str, Any] = cache.get_or_compute(
+        f'viewer-conflicts:{VIEWER_CONFLICT_LIMIT}:{fingerprint}', compute
+    )
+    return result
 
 
 def viewer_data(graph: Graph, cache: Any = None, ontology: Ontology | None = None) -> dict[str, Any]:
@@ -248,7 +262,7 @@ def viewer_data(graph: Graph, cache: Any = None, ontology: Ontology | None = Non
     data = explanations(graph, cache)
     data['sql'] = code(graph, cache)
     data['ontology'] = ontology_data(graph, ontology)
-    data['conflicts'] = conflicts_data(graph)
+    data['conflicts'] = conflicts_data(graph, cache)
     return data
 
 

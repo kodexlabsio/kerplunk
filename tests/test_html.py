@@ -262,3 +262,21 @@ def test_the_ontology_and_conflicts_are_embedded(jaffle_built_graph: Path) -> No
     assert {r['name'] for r in data['ontology']['rules']} >= {'one-formula-per-measure'}
     assert data['conflicts']['candidates'] > 0 and 'conflicts' in data['conflicts']
     assert 'model.jaffle_shop.orders' in data['sql']
+
+
+def test_conflicts_are_reused_while_the_graph_is_unchanged(tmp_path: Path) -> None:
+    from konstruct.engine.build import Cache
+    from konstruct.outputs.html import conflicts_data
+
+    graph = sample_graph()
+    cache = Cache(tmp_path / 'cache.json', enabled=True)
+    first = conflicts_data(graph, cache)
+    cache.save()
+    # The next build: a new build time is not a change to the graph.
+    graph.meta['generated_at'] = '2026-11-07T10:00:00+00:00'
+    cache = Cache(tmp_path / 'cache.json', enabled=True)
+    assert conflicts_data(graph, cache) == first
+    assert (cache.hits, cache.misses) == (1, 0)
+    graph.add_node(Node('model.shop.more', 'model', 'more'))
+    conflicts_data(graph, cache)
+    assert cache.misses == 1

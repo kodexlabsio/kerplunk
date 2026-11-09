@@ -305,6 +305,9 @@ class _Finder:
         self.ancestors: dict[str, set[str]] = {}
         self.formulas: Formulas | None = None
         self.joinless: Formulas | None = None
+        self._conditions: dict[
+            str, tuple[list[tuple[str, str, str | None]], list[tuple[str, str, str | None]]]
+        ] = {}
 
     def upstream(self, column_id: str) -> set[str]:
         if column_id not in self.ancestors:
@@ -356,6 +359,26 @@ class _Finder:
                 return source.path
         return None
 
+    def conditions(
+        self, relation: Node
+    ) -> tuple[list[tuple[str, str, str | None]], list[tuple[str, str, str | None]]]:
+        """A relation's filters and joins as (relation, condition, file). Many columns share the
+        relations on their routes back to source, so each relation's conditions are read once."""
+        found = self._conditions.get(relation.id)
+        if found is None:
+            filters: list[tuple[str, str, str | None]] = []
+            joins: list[tuple[str, str, str | None]] = []
+            for condition in relation.attrs.get('conditions', []):
+                text = short_sql(self.graph, str(condition), condition=True)
+                head = text.split(':', 1)[0].upper()
+                entry = (self.graph.label(relation), text, self.where(relation))
+                if head.startswith(FILTER_HEADS):
+                    filters.append(entry)
+                elif 'JOIN' in head:
+                    joins.append(entry)
+            found = self._conditions[relation.id] = (filters, joins)
+        return found
+
     def side(self, column: Node) -> Side:
         graph = self.graph
         owner = graph.parent_of(column)
@@ -369,14 +392,9 @@ class _Finder:
             if parent is not None:
                 relations[parent.id] = parent
         for relation in relations.values():
-            for condition in relation.attrs.get('conditions', []):
-                text = short_sql(graph, str(condition), condition=True)
-                head = text.split(':', 1)[0].upper()
-                entry = (graph.label(relation), text, self.where(relation))
-                if head.startswith(FILTER_HEADS):
-                    filters.append(entry)
-                elif 'JOIN' in head:
-                    joins.append(entry)
+            relation_filters, relation_joins = self.conditions(relation)
+            filters.extend(relation_filters)
+            joins.extend(relation_joins)
         walk = graph.impact(column)
         reach = {
             'exposures': sum(1 for s in walk if s.node.kind == 'exposure'),
