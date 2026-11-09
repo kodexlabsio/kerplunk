@@ -76,10 +76,12 @@ a change.
   subjects, lines of at most 100 characters and no AI attribution of any kind. Hooks check this.
 - Commits are signed through 1Password. If signing fails with "failed to fill whole buffer",
   1Password is locked: ask for it to be unlocked. Never bypass signing.
-- main is protected: changes arrive through squash-merged pull requests, and nothing pushes to
-  main. A pull request with a `feat`, `fix`, `perf` or `refactor` change runs
-  `.kodex/scripts/prepare_release.py --title "<its title>"` to set the next version and changelog;
-  once it is merged and CI passes, `.github/workflows/release.yml` tags and publishes that version.
+- main is protected: changes arrive through pull requests, and nothing pushes to main. Changes
+  accumulate on a branch as separate commits and merge in batches, about once an hour, by rebase,
+  so each commit stays on main. The batch's last commit runs `.kodex/scripts/prepare_release.py`
+  (after rebasing on main), which sets the next version and changelog from every releasable commit
+  since the last tag; once it is merged and CI passes, `.github/workflows/release.yml` tags and
+  publishes that version.
   Releasable changes merged without it are released by the workflow from a commit above main.
   While the version is 0.x a release is a patch; only a breaking change (`feat!:` or a
   `BREAKING CHANGE:` footer) gives the next minor. Do not write a body line that starts with
@@ -102,8 +104,8 @@ a change.
 
 Check each when updating packages, and remove it once it is no longer needed.
 
-- **sqlglot `<31`**: a major release changes AST shapes and lineage; raise the bound deliberately, with
-  the golden files and `.kodex/scripts/benchmark.py` before and after.
+- **sqlglot `<31`**: a major release changes AST shapes and lineage; raise the bound deliberately,
+  with the golden files and `.kodex/scripts/benchmark.py` before and after.
 - **mcp `<3`**: the protocol SDK's majors change the server API; raise it with `tests/test_mcp.py`.
 - **TypeScript 6** in `viewer/`: svelte-check supports `<7`.
 - **fakesnow** is not a dev dependency: it pins an old sqlglot. The Snowflake test runs in its own

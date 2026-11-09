@@ -3,10 +3,12 @@
 main is protected, so nothing pushes a version bump to it. A release's version arrives one of two
 ways, and both use this script:
 
-- A pull request that releases runs it with its own title. It reads the releasable commits on main
-  since the last tag, adds the title, and sets the next version in pyproject.toml, uv.lock and
-  konstruct/__init__.py, with its section at the top of CHANGELOG.md. Once the pull request is
-  squash-merged and CI passes, the release workflow tags that version.
+- A branch that releases runs it as its last commit, after rebasing on main. It reads the releasable
+  commits on the branch since the last tag (main's and its own), and sets the next version in
+  pyproject.toml, uv.lock and konstruct/__init__.py, with its section at the top of CHANGELOG.md.
+  Once the pull request is merged (rebased, so each commit stays on main) and CI passes, the
+  release workflow tags that version. With --title, a squash-merged pull request's title is
+  counted too, when it is not already one of the commits.
 - A releasable change that reaches main without it (a Dependabot fix, say) is released by the
   workflow, which runs this script on a detached commit above main and tags that commit.
 
@@ -16,9 +18,9 @@ version to 1.0: that is the owner's decision, made by hand. The changelog sectio
 commitizen's layout: BREAKING CHANGE (from the footers' text), Feat, Fix, Refactor and Perf.
 
 Usage:
-    uv run python .kodex/scripts/prepare_release.py --title "fix(sql): Handle an empty catalog"
-    uv run python .kodex/scripts/prepare_release.py --title "..." --dry-run
-    uv run python .kodex/scripts/prepare_release.py --title "..." --check   # in CI
+    uv run python .kodex/scripts/prepare_release.py
+    uv run python .kodex/scripts/prepare_release.py --dry-run
+    uv run python .kodex/scripts/prepare_release.py --title "<pull request title>" --check   # in CI
 """
 
 from __future__ import annotations
@@ -126,8 +128,11 @@ def plan(title: str | None, body: str, base: str) -> tuple[str, str] | None:
             f'{base} carries v{on_base}, which is not tagged yet: wait for its release to finish, '
             'then run this again'
         )
-    commits = commits_since(tag, base)
-    if title:
+    # The commits the release will contain: everything on this branch since the tag, which includes
+    # the base it was rebased on (and, in CI, the pull request's own commits). A squash-merged pull
+    # request's title stands for its commits when it is not one of them.
+    commits = commits_since(tag, 'HEAD')
+    if title and all(subject != title for subject, _ in commits):
         commits.insert(0, (title, body))
     changes = releasable(commits)
     if not changes:

@@ -6,13 +6,14 @@ description: Understand or change how Konstruct is versioned and released (prepa
 # Releases
 
 - main is protected: nothing pushes to it, and a release is a tag plus a GitHub release.
-- A pull request with a `feat`, `fix`, `perf` or `refactor` change prepares its release: run
-  `uv run python .kodex/scripts/prepare_release.py --title "<the pull request's title>"`. It fetches
-  main and the tags, reads the releasable commits on main since the last tag, adds the title, and
-  sets the next version in `pyproject.toml`, `uv.lock` (konstruct's own line only) and
+- Changes accumulate on a branch as separate commits and merge in batches, about once an hour, by
+  rebase, so each commit stays on main and in the changelog. The batch's last commit prepares the
+  release: rebase on main, then run `uv run python .kodex/scripts/prepare_release.py`. It fetches
+  main and the tags, reads every releasable commit on the branch since the last tag, and sets the
+  next version in `pyproject.toml`, `uv.lock` (konstruct's own line only) and
   `konstruct/__init__.py`, with its section at the top of `CHANGELOG.md`. Running it again replaces
-  that section. `--dry-run` prints the version and section. The pull request is squash-merged, so
-  its title is the commit the changelog names.
+  that section. `--dry-run` prints the version and section. For a squash-merged pull request,
+  `--title` counts its title when it is not one of the commits.
 - The Release preparation job in Build and Test runs `--check` on every pull request: it passes when
   the pull request prepares no release, or prepares exactly what main now calls for, and fails when
   main has moved on (run the script again).

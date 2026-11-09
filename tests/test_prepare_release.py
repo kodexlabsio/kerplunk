@@ -289,3 +289,32 @@ def test_edits_to_sections_of_releases_on_main_stand(repo: Path) -> None:
     )
     assert _prepare('--title', 'fix: More') == 0
     assert (repo / 'CHANGELOG.md').read_text().endswith('- Older fix, reworded\n')
+
+
+def test_a_branch_counts_its_own_commits(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    subprocess.run(['git', 'checkout', '-qb', 'batch'], cwd=repo, check=True)
+    for message in ('feat(cli): Add ontology', 'docs: Explain it', 'fix(dbt): Read contracts'):
+        (repo / f'{len(message)}.txt').write_text(message)
+        subprocess.run(['git', 'add', '-A'], cwd=repo, check=True)
+        subprocess.run(
+            [
+                'git',
+                '-c',
+                'user.name=t',
+                '-c',
+                'user.email=t@e',
+                '-c',
+                'commit.gpgsign=false',
+                'commit',
+                '-qm',
+                message,
+            ],
+            cwd=repo,
+            check=True,
+        )
+    assert _prepare('--dry-run') == 0
+    out = capsys.readouterr().out
+    assert out.startswith('0.11.2\n')
+    assert '### Feat\n\n- **cli**: Add ontology' in out
+    assert '### Fix\n\n- **dbt**: Read contracts\n- **sql**: Order sources' in out
+    assert 'Explain it' not in out
