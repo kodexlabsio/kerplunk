@@ -1,3 +1,9 @@
+## v0.11.4 (2026-11-09)
+
+### Perf
+
+- **build**: Build about twice as fast with compiled sqlglot and fewer tree copies
+
 ## v0.11.3 (2026-11-09)
 
 ### Fix
