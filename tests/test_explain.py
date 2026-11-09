@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pytest
@@ -249,3 +250,196 @@ def test_an_or_composed_into_an_and_keeps_its_brackets(tmp_path: Path) -> None:
     project = Project(tmp_path)
     project.build()
     assert project.explain('v2.both_').composed == '(t.a > 0 OR t.b > 0) AND t.c > 0'
+
+
+def _tree_text(explainer: Any, node: Any) -> str | None:
+    from konstruct.analysis.explain import _unparen
+
+    composed = explainer.compose(node)
+    if composed.tree is None:
+        return None
+    text: str = _unparen(composed.tree.copy()).sql(dialect=explainer.namer.sqlglot, copy=False)
+    return text
+
+
+def test_composed_text_is_the_composed_tree_printed(tmp_path: Path) -> None:
+    from konstruct.analysis.explain import Explainer
+    from tests.test_scale import make_project
+
+    con = duckdb.connect(str(tmp_path / 'w.duckdb'))
+    for statement in (
+        'create schema raw',
+        'create schema mart',
+        'create table raw.t (id int, a int, b int, c int, s struct(city varchar))',
+        'create view mart.v1 as select id, (a + b) as total, a > 0 or b > 0 as flag, (s) as s, '
+        'coalesce((a / 100), 0) + 1 as g, -(a - b) as neg, ((a)) as a, c from raw.t',
+        'create view mart.v2 as select id, total * 2 as twice, flag and c > 0 as both_, (s).city as city, '
+        '(g) * (total) as product, neg + 1 as n1, a - neg as diff, (((total))) as again from mart.v1',
+        'create view mart.v3 as select twice / product as ratio, not both_ as neither, '
+        'case when (diff > 0) then (again) else (twice) end as pick from mart.v2',
+    ):
+        con.execute(statement)
+    con.close()
+    (tmp_path / 'big').mkdir()
+    make_project(tmp_path / 'big', 60, 6)
+    for root in (tmp_path, tmp_path / 'big'):
+        project = Project(root)
+        project.build(run_dbt=False)
+        explainer = Explainer(project.graph)
+        columns = [n for n in project.graph.nodes.values() if n.kind == 'column']
+        assert columns
+        for column in columns:
+            assert explainer.composed_text(column) == _tree_text(Explainer(project.graph), column), column.id
+
+
+TEXT_INPUTS = {
+    'col': 'db.s.r0.a',
+    'lit': '1',
+    'add': 'db.s.r0.a + db.s.r0.b',
+    'fn': 'UPPER(db.s.r0.a)',
+    'cmp': 'db.s.r0.a > 0',
+    'or': 'db.s.r0.a > 0 OR db.s.r0.b > 0',
+    'cast': 'CAST(db.s.r0.a AS INT)',
+    'mod': 'db.s.r0.a % 7',
+}
+TEXT_CONTEXTS = [
+    'x + y',
+    'x * (y - 1)',
+    'MOD(x, 7)',
+    'x % y',
+    'COALESCE(x, y)',
+    'CASE WHEN x > 0 THEN y ELSE 0 END',
+    'CASE WHEN x THEN y END',
+    'COUNTIF(x)',
+    'UPPER(x)',
+    'x = ANY(ARRAY[y])',
+    'x + INTERVAL x DAY',
+    'NOT x',
+    'x AND y',
+    'SUM(x) OVER (PARTITION BY y)',
+    'x IN (y)',
+    'x BETWEEN y AND 1',
+    'ROUND(x / y, 2)',
+]
+
+
+@pytest.mark.parametrize(
+    'dialect', ['duckdb', 'bigquery', 'snowflake', 'databricks', 'postgres', 'tsql', 'oracle']
+)
+def test_composed_text_matches_the_tree_in_every_context(dialect: str) -> None:
+    """Each input shape in each context gives the text the composed tree prints, in dialects
+    whose printers look at an operand's kind (BigQuery's MOD, T-SQL's conditions)."""
+    import re
+
+    import sqlglot
+
+    from konstruct.analysis.explain import Explainer
+    from konstruct.core.graph import Graph, Node
+    from konstruct.core.sql import _unbracket
+
+    graph = Graph()
+    graph.meta['dialect'] = dialect
+    r0 = graph.add_node(Node(id='table.db.s.r0', kind='table', name='r0', relation='db.s.r0'))
+    r1 = graph.add_node(Node(id='table.db.s.r1', kind='table', name='r1', relation='db.s.r1'))
+    r2 = graph.add_node(Node(id='table.db.s.r2', kind='table', name='r2', relation='db.s.r2'))
+    graph.add_column(r0, 'a')
+    graph.add_column(r0, 'b')
+
+    def written(sql: str) -> str | None:
+        try:
+            return _unbracket(sqlglot.parse_one(sql, read=dialect).sql(dialect=dialect))
+        except Exception:  # a form this dialect does not have
+            return None
+
+    for name, sql in TEXT_INPUTS.items():
+        expression = written(sql)
+        if expression is not None:
+            column = graph.add_column(r1, name, attrs={'expression': expression})
+            graph.add_edge(column.id, 'table.db.s.r0#a', 'derived_from')
+            graph.add_edge(column.id, 'table.db.s.r0#b', 'derived_from')
+    count = 0
+    for context in TEXT_CONTEXTS:
+        for x in TEXT_INPUTS:
+            sql = re.sub(r'\by\b', 'db.s.r1.col', re.sub(r'\bx\b', f'db.s.r1.{x}', context))
+            expression = written(sql)
+            if expression is None or f'table.db.s.r1#{x}' not in graph.nodes:
+                continue
+            count += 1
+            column = graph.add_column(r2, f'z{count}', attrs={'expression': expression})
+            graph.add_edge(column.id, f'table.db.s.r1#{x}', 'derived_from')
+            if 'table.db.s.r1#col' in graph.nodes:
+                graph.add_edge(column.id, 'table.db.s.r1#col', 'derived_from')
+    assert count > 50
+    for column in [n for n in graph.nodes.values() if n.kind == 'column']:
+        assert Explainer(graph).composed_text(column) == _tree_text(Explainer(graph), column), (
+            column.attrs.get('expression')
+        )
+
+
+def test_a_placeholder_in_the_sql_text_is_not_mistaken_for_one(tmp_path: Path) -> None:
+    from konstruct.analysis.explain import Explainer
+
+    con = duckdb.connect(str(tmp_path / 'w.duckdb'))
+    con.execute('create table t (s varchar, a int, b int)')
+    con.execute('create view v1 as select upper(s) as su, a + b as total from t')
+    con.execute("create view v2 as select case when su = 'KSLOT1KSLOT' then total end as pick from v1")
+    con.close()
+    project = Project(tmp_path)
+    project.build(run_dbt=False)
+    graph = project.graph
+    [pick] = [n for n in graph.nodes.values() if n.kind == 'column' and n.name == 'pick']
+    text = Explainer(graph).composed_text(pick)
+    assert text == _tree_text(Explainer(graph), pick)
+    assert text is not None and "'KSLOT1KSLOT'" in text
+
+
+def test_conflicts_see_one_formula_written_two_ways_in_bigquery(tmp_path: Path) -> None:
+    # MOD over a derived input prints as the composed tree does, so the two are one formula.
+    (tmp_path / 'konstruct.toml').write_text('dialect = "bigquery"\n')
+    (tmp_path / 'a.sql').write_text('create table p.s.base as select gross, refunds from p.s.raw')
+    (tmp_path / 'b.sql').write_text(
+        'create table p.s.net as select gross - refunds as net_cents from p.s.base'
+    )
+    (tmp_path / 'c.sql').write_text(
+        'create table p.s.finance as select mod(gross - refunds, 100) as revenue_remainder from p.s.base'
+    )
+    (tmp_path / 'd.sql').write_text(
+        'create table p.s.marketing as select mod(net_cents, 100) as revenue_remainder from p.s.net'
+    )
+    project = Project(tmp_path)
+    project.build(run_dbt=False, warehouses=False)
+    assert project.conflicts().conflicts == []
+
+
+@pytest.mark.parametrize('dialect', ['bigquery', 'tsql'])
+def test_a_cycle_through_a_context_composed_as_a_tree_stops_where_the_text_does(dialect: str) -> None:
+    from konstruct.analysis.explain import Explainer
+    from konstruct.core.graph import Graph, Node
+
+    graph = Graph()
+    graph.meta['dialect'] = dialect
+    tables = {
+        n: graph.add_node(Node(id=f'table.db.s.{n}', kind='table', name=n, relation=f'db.s.{n}'))
+        for n in ('r0', 'r1', 'r2', 'r3')
+    }
+    graph.add_column(tables['r0'], 'x')
+    graph.add_column(tables['r0'], 'k')
+    inner = 'MOD(db.s.r1.a, db.s.r3.k)' if dialect == 'bigquery' else 'IIF(db.s.r1.a, 1, db.s.r3.k)'
+    columns = {
+        'r1.a': ('db.s.r2.b + db.s.r0.x', ['r2.b', 'r0.x']),
+        'r2.b': (inner, ['r1.a', 'r3.k']),
+        'r3.k': ('db.s.r0.k', ['r0.k']),
+    }
+    for ref, (expression, _) in columns.items():
+        table, name = ref.split('.')
+        graph.add_column(tables[table], name, attrs={'expression': expression})
+    for ref, (_, inputs) in columns.items():
+        for source in inputs:
+            graph.add_edge(
+                f'table.db.s.{ref.replace(".", "#")}',
+                f'table.db.s.{source.replace(".", "#")}',
+                'derived_from',
+            )
+    for ref in columns:
+        node = graph.nodes[f'table.db.s.{ref.replace(".", "#")}']
+        assert Explainer(graph).composed_text(node) == _tree_text(Explainer(graph), node), ref
