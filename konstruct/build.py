@@ -400,6 +400,9 @@ class Builder:
 
     def _merge_into(self, node: Node | None, meta: RelationMeta, origin: str) -> None:
         attrs = {'table_type': meta.kind, **meta.attrs}
+        if '.'.join(meta.parts) != meta.key:
+            # The key is lower case; a sampled verify needs the names as the warehouse spells them.
+            attrs['parts'] = '.'.join(meta.parts)
         if node is None:
             node = self.graph.add_node(
                 Node(

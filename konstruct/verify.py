@@ -1,7 +1,7 @@
 """`konstruct verify`: test the static lineage against the data, by perturbation.
 
 Static column lineage is a claim about SQL. This module checks the claim empirically, the way
-perturbation-based provenance does: for every model built in a local DuckDB warehouse it copies the
+perturbation-based provenance does: for every model built in the warehouse it copies the
 model's inputs, perturbs one input column at a time (shifting values, nulling them, shuffling them
 between rows with a seeded permutation), reruns the model's SQL, and records which output columns
 change. Comparing what changed with what the graph claims gives, per model and overall:
@@ -14,21 +14,28 @@ change. Comparing what changed with what the graph claims gives, per model and o
   analysis.
 
 Everything is seeded, so a run can be reproduced exactly.
+
+A model built in DuckDB is checked in the warehouse file, one in Postgres in a transaction that is
+rolled back. A model in Snowflake, BigQuery or Databricks is checked on a sample: up to a number
+of rows of each input are read once per run (with a ``SELECT``, or BigQuery's table listing),
+copied into an in-memory DuckDB database in types that hold their values, and the model's SQL is
+translated to DuckDB to be rerun there. Nothing is written to the warehouse.
 """
 
 from __future__ import annotations
 
 import json
 import random
+import re
 import time
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import sqlglot
 from sqlglot import exp
-from sqlglot.errors import SqlglotError
+from sqlglot.errors import ErrorLevel, SqlglotError
 
 from konstruct.graph import Graph, Node
 from konstruct.sql import strip_templating, table_key
@@ -328,9 +335,15 @@ def _quote(name: str) -> str:
 
 
 def _rewrite(
-    sql: str, mapping: dict[str, str], catalog: str | None, schema: str | None, dialect: str = 'duckdb'
+    sql: str,
+    mapping: dict[str, str],
+    catalog: str | None,
+    schema: str | None,
+    dialect: str = 'duckdb',
+    write: str | None = None,
 ) -> tuple[str, set[str]]:
-    """Point every input table at a scratch copy; return the SQL and the relations it reads."""
+    """Point every input table at a scratch copy; return the SQL, in ``write`` (by default the
+    dialect it is read in), and the relations it reads."""
     tree = sqlglot.parse_one(sql, dialect=dialect)
     ctes = {cte.alias_or_name.lower() for cte in tree.find_all(exp.CTE)}
     seen: set[str] = set()
@@ -345,7 +358,11 @@ def _rewrite(
         alias = node.alias or node.name
         return exp.alias_(exp.to_table(mapping[key]), alias, table=True)
 
-    return tree.transform(replace).sql(dialect=dialect), seen
+    result = tree.transform(replace)
+    if write and write != dialect:
+        # A model whose translation sqlglot marks unsupported is skipped, not run with other semantics.
+        return result.sql(dialect=write, unsupported_level=ErrorLevel.RAISE), seen
+    return result.sql(dialect=dialect), seen
 
 
 def _run(con: Any, sql: str) -> tuple[list[str], list[tuple[Any, ...]]]:
@@ -439,6 +456,11 @@ class Engine:
 
     dialect = 'duckdb'
     label = ''
+
+    @property
+    def read_dialect(self) -> str:
+        """The dialect the models' SQL is written in; it is translated to ``dialect`` to run."""
+        return self.dialect
 
     def start(self) -> None:
         """Clear scratch tables before the next model."""
@@ -633,8 +655,327 @@ class PostgresEngine(Engine):
         self.con.close()
 
 
-def engine_for(warehouse: str | Path) -> Engine:
-    """A Postgres connection string or URL, or a DuckDB file."""
+class SampleSource(Protocol):
+    """Read access to a remote warehouse for :class:`SampledEngine`."""
+
+    dialect: str
+    """The warehouse's sqlglot dialect, which the models' SQL is written in."""
+
+    def sample(
+        self, parts: tuple[str, ...], limit: int
+    ) -> tuple[list[str], list[str | None], list[tuple[Any, ...]]]:
+        """Up to ``limit`` rows of the relation ``parts``: column names, their types as the
+        warehouse names them (None when unknown) and the rows."""
+        ...
+
+    def close(self) -> None: ...
+
+
+class DbApiSource:
+    """A sample read with ``SELECT * FROM ... LIMIT n`` through a DB-API connection (Snowflake,
+    Databricks, or a BigQuery view)."""
+
+    def __init__(self, connection: Any, dialect: str, closing: Any = None) -> None:
+        self.connection = connection
+        self.dialect = dialect
+        self.closing = closing  # something else to close with the connection, such as a client
+
+    def table(self, parts: tuple[str, ...]) -> str:
+        # Relation keys are lower case. Snowflake folds unquoted names to upper case, so each part
+        # is quoted in upper case; elsewhere each part is quoted as it is, so reserved words work.
+        quoted = [p.upper() if self.dialect == 'snowflake' else p for p in parts]
+        table = exp.table_(
+            exp.to_identifier(quoted[-1], quoted=True),
+            db=exp.to_identifier(quoted[-2], quoted=True),
+            catalog=exp.to_identifier(quoted[0], quoted=True) if len(quoted) == 3 else None,
+        )
+        return table.sql(dialect=self.dialect)
+
+    def sample(
+        self, parts: tuple[str, ...], limit: int
+    ) -> tuple[list[str], list[str | None], list[tuple[Any, ...]]]:
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute(f'SELECT * FROM {self.table(parts)} LIMIT {int(limit)}')
+            description = cursor.description
+            rows = [tuple(row) for row in cursor.fetchall()]
+        finally:
+            cursor.close()
+        names = [str(d[0]).lower() for d in description]
+        types: list[str | None] = []
+        for d in description:
+            # DB-API gives precision and scale as the fifth and sixth fields, when it knows them.
+            precision, scale = (d[4], d[5]) if len(d) > 5 else (None, None)
+            types.append(
+                f'DECIMAL({precision}, {scale})'
+                if isinstance(precision, int) and isinstance(scale, int) and precision > 0
+                else None
+            )
+        return names, types, rows
+
+    def close(self) -> None:
+        try:
+            self.connection.close()
+        finally:
+            if self.closing is not None:
+                self.closing.close()
+
+
+class BigQuerySource:
+    """A sample of a BigQuery table read with ``tabledata.list`` (``Client.list_rows``), which is
+    not billed as a query; a view or an external table, which have no rows to list, are read
+    with a query."""
+
+    dialect = 'bigquery'
+
+    def __init__(self, client: Any) -> None:
+        self.client = client
+
+    def sample(
+        self, parts: tuple[str, ...], limit: int
+    ) -> tuple[list[str], list[str | None], list[tuple[Any, ...]]]:
+        table = self.client.get_table('.'.join(parts))
+        if table.table_type in ('VIEW', 'MATERIALIZED_VIEW', 'EXTERNAL'):
+            rows_iter = self.client.query(f'SELECT * FROM `{".".join(parts)}` LIMIT {int(limit)}').result()
+        else:
+            rows_iter = self.client.list_rows(table, max_results=int(limit))
+        schema = list(rows_iter.schema)
+        names = [field.name.lower() for field in schema]
+        types: list[str | None] = [
+            'JSON'
+            if field.field_type in ('RECORD', 'STRUCT') or field.mode == 'REPEATED'
+            else field.field_type
+            for field in schema
+        ]
+        return names, types, [tuple(row.values()) for row in rows_iter]
+
+    def close(self) -> None:
+        self.client.close()
+
+
+# Remote type names (without their precision) and the DuckDB type a sample of them is kept in.
+_REMOTE_TYPES = {
+    **dict.fromkeys(('INT', 'INTEGER', 'INT64', 'BIGINT', 'SMALLINT', 'TINYINT', 'BYTEINT'), 'BIGINT'),
+    **dict.fromkeys(('FLOAT', 'FLOAT4', 'FLOAT8', 'FLOAT64', 'DOUBLE', 'DOUBLE PRECISION', 'REAL'), 'DOUBLE'),
+    **dict.fromkeys(('STRING', 'TEXT', 'VARCHAR', 'CHAR', 'CHARACTER', 'NVARCHAR'), 'VARCHAR'),
+    **dict.fromkeys(('BOOL', 'BOOLEAN'), 'BOOLEAN'),
+    'DATE': 'DATE',
+    'TIME': 'TIME',
+    **dict.fromkeys(('TIMESTAMP_NTZ', 'DATETIME', 'TIMESTAMP_NTZ'), 'TIMESTAMP'),
+    **dict.fromkeys(('TIMESTAMP_TZ', 'TIMESTAMP_LTZ', 'TIMESTAMPTZ'), 'TIMESTAMPTZ'),
+    **dict.fromkeys(('VARIANT', 'OBJECT', 'ARRAY', 'JSON', 'STRUCT', 'RECORD', 'MAP'), 'JSON'),
+    **dict.fromkeys(('GEOGRAPHY', 'GEOMETRY'), 'VARCHAR'),
+    **dict.fromkeys(('BINARY', 'VARBINARY', 'BYTES'), 'BLOB'),
+}
+
+
+def _sample_type(remote: str | None, dialect: str, values: list[Any]) -> str:
+    """The DuckDB type to keep a sampled column in. A type with its precision is kept; a bare
+    NUMBER, DECIMAL or NUMERIC, or a type not known here, is taken from the values, so a sample
+    is never rounded or narrowed."""
+    text = (remote or '').strip().upper()
+    base = re.sub(r'\s*\(.*$', '', text)
+    if base in ('NUMBER', 'NUMERIC', 'DECIMAL', 'BIGNUMERIC', 'BIGDECIMAL'):
+        match = re.match(r'^\w+\s*\(\s*(\d+)\s*(?:,\s*(\d+))?\s*\)$', text)
+        if match and int(match[1]) <= 38:
+            return f'DECIMAL({match[1]}, {match[2] or 0})'
+        return _value_type(values)
+    if base.startswith('ARRAY<') or base.startswith('STRUCT<') or base.startswith('MAP<'):
+        return 'JSON'
+    if base == 'TIMESTAMP':
+        # BigQuery's TIMESTAMP is an instant; Databricks' and Snowflake's default is local time.
+        return 'TIMESTAMPTZ' if dialect == 'bigquery' else _value_type(values)
+    return _REMOTE_TYPES.get(base) or _value_type(values)
+
+
+def _value_type(values: Any) -> str:
+    """The DuckDB type for a column from its first non-null value."""
+    import datetime
+    import decimal
+
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            return 'BOOLEAN'
+        if isinstance(value, int):
+            return 'BIGINT' if -(2**63) <= value < 2**63 else 'HUGEINT'
+        if isinstance(value, float):
+            return 'DOUBLE'
+        if isinstance(value, decimal.Decimal):
+            exponents = [v.as_tuple().exponent for v in values if isinstance(v, decimal.Decimal)]
+            scale = max([0, *(-e for e in exponents if isinstance(e, int))])
+            return f'DECIMAL(38, {min(scale, 37)})'
+        if isinstance(value, datetime.datetime):
+            return 'TIMESTAMPTZ' if value.tzinfo else 'TIMESTAMP'
+        if isinstance(value, datetime.date):
+            return 'DATE'
+        if isinstance(value, datetime.time):
+            return 'TIME'
+        if isinstance(value, (bytes, bytearray)):
+            return 'BLOB'
+        if isinstance(value, (dict, list, tuple)) or hasattr(value, 'tolist'):
+            return 'JSON'
+        return 'VARCHAR'
+    return 'VARCHAR'
+
+
+def _plain(value: Any) -> Any:
+    """A value json cannot write as it is: an array a driver returns as numpy (Databricks), or
+    anything else as its text."""
+    return value.tolist() if hasattr(value, 'tolist') else str(value)
+
+
+def _for_duckdb(value: Any, dtype: str) -> Any:
+    if value is None:
+        return None
+    if dtype == 'JSON':
+        return value if isinstance(value, str) else json.dumps(value, default=_plain)
+    if dtype == 'VARCHAR' and not isinstance(value, str):
+        return str(value)
+    return value
+
+
+class SampledEngine(DuckDBEngine):
+    """A sample of each input, read once per run from a remote warehouse and kept in an in-memory
+    DuckDB database, where the models' SQL runs translated to DuckDB."""
+
+    def __init__(self, source: SampleSource, label: str, graph: Graph | None = None) -> None:
+        import duckdb
+
+        self.source = source
+        self.remote = source.dialect
+        self.label = label
+        self.graph = graph
+        self.con = duckdb.connect()
+        self.con.execute('CREATE SCHEMA kp_cache')
+        self.cached: dict[tuple[str, int], str | Exception] = {}
+        self.database = ''
+
+    @property
+    def read_dialect(self) -> str:
+        return self.remote
+
+    def copy(self, key: str, index: int, max_rows: int) -> tuple[str, list[tuple[str, str]]]:
+        parts = tuple(key.split('.'))
+        if len(parts) not in (2, 3):
+            raise LookupError(f'input {key} is not a schema.table or catalog.schema.table name')
+        cached = self.cached.get((key, max_rows))
+        if cached is None:
+            try:
+                cached = self._load(key, parts, max_rows)
+            except Exception as error:
+                # Remember the failure: every model reading this input fails the same way, and
+                # the warehouse is not asked (or billed) again.
+                cached = self.cached[(key, max_rows)] = error
+        if isinstance(cached, Exception):
+            raise cached
+        scratch = f'kp.in{index}'
+        self.con.execute(f'CREATE TABLE {scratch} AS SELECT * FROM {cached}')
+        return scratch, [(r[0], r[1]) for r in self.con.execute(f'DESCRIBE {scratch}').fetchall()]
+
+    def _load(self, key: str, parts: tuple[str, ...], max_rows: int) -> str:
+        """Read the input's sample from the warehouse, once for every model that reads it."""
+        names, remote_types, rows = self.source.sample(self._case(key, parts), max_rows)
+        graph_types = self._types(key)
+        columns = []
+        for i, name in enumerate(names):
+            values = [row[i] for row in rows]
+            remote = remote_types[i] if i < len(remote_types) and remote_types[i] else graph_types.get(name)
+            columns.append((name, _sample_type(remote, self.remote, values)))
+        table = f'kp_cache.t{len(self.cached)}'
+        # A column whose values DuckDB will not take in its type is kept as text, on its own.
+        for i, (name, dtype) in enumerate(columns):
+            if dtype != 'VARCHAR' and not self._fits(dtype, [row[i] for row in rows]):
+                columns[i] = (name, 'VARCHAR')
+        listed = ', '.join(f'{_quote(name)} {dtype}' for name, dtype in columns)
+        converted = [tuple(_for_duckdb(v, columns[i][1]) for i, v in enumerate(row)) for row in rows]
+        try:
+            self.con.execute(f'CREATE TABLE {table} ({listed})')
+            self._insert(table, len(columns), converted)
+        except Exception:
+            self.con.execute(f'DROP TABLE IF EXISTS {table}')
+            raise
+        self.cached[(key, max_rows)] = table
+        return table
+
+    def _case(self, key: str, parts: tuple[str, ...]) -> tuple[str, ...]:
+        """The relation's name as the warehouse spells it (a BigQuery dataset or table is
+        case-sensitive), where the build recorded it; the relation key is lower case."""
+        relation = self.graph.node_for_relation(key) if self.graph is not None else None
+        if relation is None:
+            return parts
+        original = [p for p in str(relation.attrs.get('parts') or '').split('.') if p]
+        if len(original) == len(parts) and [p.lower() for p in original] == list(parts):
+            return tuple(original)
+        if relation.name.lower() == parts[-1]:
+            return (*parts[:-1], relation.name)
+        return parts
+
+    def _fits(self, dtype: str, values: list[Any]) -> bool:
+        sample = [_for_duckdb(v, dtype) for v in values if v is not None]
+        if not sample:
+            return True
+        try:
+            self.con.execute(f'CREATE OR REPLACE TEMP TABLE kp_fit (v {dtype})')
+            self._insert('kp_fit', 1, [(v,) for v in sample])
+            return True
+        except Exception:  # duckdb raises its own error types for values a type cannot hold
+            return False
+
+    def _insert(self, table: str, width: int, rows: list[tuple[Any, ...]]) -> None:
+        # Many rows per statement: executemany inserts one row at a time and is far slower.
+        batch = max(1, 2000 // max(width, 1))
+        row_marks = '(' + ', '.join('?' for _ in range(width)) + ')'
+        for start in range(0, len(rows), batch):
+            chunk = rows[start : start + batch]
+            values = [v for row in chunk for v in row]
+            self.con.execute(f'INSERT INTO {table} VALUES {", ".join(row_marks for _ in chunk)}', values)
+
+    def _types(self, key: str) -> dict[str, str]:
+        """The types the build read from the warehouse for the input's columns."""
+        relation = self.graph.node_for_relation(key) if self.graph is not None else None
+        if relation is None or self.graph is None:
+            return {}
+        return {
+            c.name.lower(): c.data_type
+            for c in self.graph.columns_of(relation.id)
+            if c.data_type and '.' not in c.name
+        }
+
+    def close(self) -> None:
+        try:
+            self.con.close()
+        finally:
+            self.source.close()
+
+
+REMOTE = ('snowflake', 'bigquery', 'databricks')
+
+
+def sampled_engine(connector: Any, graph: Graph | None = None) -> SampledEngine:
+    """A :class:`SampledEngine` reading through a Snowflake, BigQuery or Databricks connector from
+    :mod:`konstruct.warehouse`, with its connection options."""
+    from konstruct import warehouse
+
+    source: SampleSource
+    if isinstance(connector, warehouse.SnowflakeConnector):
+        connection = warehouse._driver('snowflake.connector', 'snowflake').connect(**connector.options)
+        source = DbApiSource(connection, 'snowflake')
+    elif isinstance(connector, warehouse.DatabricksConnector):
+        connection = warehouse._driver('databricks.sql', 'databricks').connect(**connector.options)
+        source = DbApiSource(connection, 'databricks')
+    elif isinstance(connector, warehouse.BigQueryConnector):
+        source = BigQuerySource(connector.client())
+    else:
+        raise ValueError(f'{type(connector).__name__} is not a Snowflake, BigQuery or Databricks connector')
+    return SampledEngine(source, f'{source.dialect} (sampled)', graph)
+
+
+def engine_for(warehouse: str | Path | Engine) -> Engine:
+    """A Postgres connection string or URL, a DuckDB file, or an engine already made."""
+    if isinstance(warehouse, Engine):
+        return warehouse
     text = str(warehouse)
     if text.startswith(('postgres://', 'postgresql://')) or 'host=' in text or 'dbname=' in text:
         return PostgresEngine(text)
@@ -644,7 +985,7 @@ def engine_for(warehouse: str | Path) -> Engine:
 def verify(
     graph: Graph,
     root: Path,
-    warehouse: str | Path,
+    warehouse: str | Path | Engine,
     *,
     seed: int = 1729,
     max_rows: int = 10000,
@@ -688,14 +1029,18 @@ def _verify_one(
 ) -> None:
     node = candidate.node
     claimed, references = claims(graph, node)
-    dialect = engine.dialect
-    _, inputs = _rewrite(candidate.sql, {}, candidate.default_catalog, candidate.default_schema, dialect)
+    dialect, write = engine.read_dialect, engine.dialect
+    _, inputs = _rewrite(
+        candidate.sql, {}, candidate.default_catalog, candidate.default_schema, dialect, write
+    )
     mapping: dict[str, str] = {}
     columns: dict[str, list[tuple[str, str]]] = {}
     engine.start()
     for index, key in enumerate(sorted(inputs)):
         mapping[key], columns[key] = engine.copy(key, index, max_rows)
-    query, _ = _rewrite(candidate.sql, mapping, candidate.default_catalog, candidate.default_schema, dialect)
+    query, _ = _rewrite(
+        candidate.sql, mapping, candidate.default_catalog, candidate.default_schema, dialect, write
+    )
     names, baseline = engine.run(query)
     _, again = engine.run(query)
     if Counter(map(repr, baseline)) != Counter(map(repr, again)):
@@ -725,6 +1070,7 @@ def _verify_one(
                         candidate.default_catalog,
                         candidate.default_schema,
                         dialect,
+                        write,
                     )
                     try:
                         _, rows = engine.run(perturbed)

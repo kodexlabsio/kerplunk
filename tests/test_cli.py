@@ -248,4 +248,8 @@ def test_version_and_help() -> None:
 def test_verify_needs_a_duckdb_warehouse(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     (tmp_path / 'x.sql').write_text('create table t2 as select a from t1')
     code, _, err = run(capsys, 'verify', '-C', str(tmp_path))
-    assert code == 1 and 'needs the models built in a local DuckDB file or a Postgres database' in err
+    assert (
+        code == 1
+        and 'needs the models built in a DuckDB file or a Postgres database' in err
+        and '--warehouse snowflake, bigquery or databricks' in err
+    )

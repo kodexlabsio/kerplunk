@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from konstruct.diff import Diff
     from konstruct.explain import Explanation
     from konstruct.ontology import Ontology
-    from konstruct.verify import Verification
+    from konstruct.verify import Engine, Verification
 
 OUT_DIR = 'konstruct-out'
 
@@ -477,15 +477,17 @@ class Project:
     ) -> Verification:
         """Check the graph's column lineage against the data.
 
-        For every dbt model and SQL-built table, copies its inputs (DuckDB) or works inside a
-        transaction that is rolled back (Postgres), perturbs one input column at a time by
-        shifting, nulling and shuffling it, reruns the model's SQL and records which outputs
-        change. A claimed edge is confirmed when its output changes; an observed influence the
+        For every dbt model and SQL-built table, copies its inputs (DuckDB), works inside a
+        transaction that is rolled back (Postgres), or copies a sample of each input into an
+        in-memory DuckDB database (Snowflake, BigQuery, Databricks), perturbs one input column at
+        a time by shifting, nulling and shuffling it, reruns the model's SQL and records which
+        outputs change. A claimed edge is confirmed when its output changes; an observed influence the
         graph does not claim is reported as unexplained.
 
         Args:
-            warehouse: A DuckDB file or a ``postgresql://`` URL. By default, the warehouse the
-                build read.
+            warehouse: A DuckDB file, a ``postgresql://`` URL, or ``snowflake``, ``bigquery`` or
+                ``databricks`` for the configured warehouse of that type, sampled. By default,
+                the DuckDB or Postgres warehouse the build read.
             seed: The random seed, so a run can be repeated exactly.
             max_rows: The most rows sampled from any input.
             models: Only these models or tables.
@@ -496,7 +498,7 @@ class Project:
             One result per model, with ``totals()`` across them.
 
         Raises:
-            konstruct.QueryError: No DuckDB or Postgres warehouse was found.
+            konstruct.QueryError: No warehouse was found.
 
         Example::
 
@@ -505,16 +507,25 @@ class Project:
         """
         from konstruct.html import write_html
         from konstruct.ontology import derive as derive_ontology
-        from konstruct.verify import annotate, verify
+        from konstruct.verify import REMOTE, annotate, verify
 
         graph = self.graph
-        target = str(warehouse) if warehouse else self._verification_warehouse()
+        target: str | Engine
+        if warehouse is not None and str(warehouse).lower() in REMOTE:
+            target = self._remote_engine(str(warehouse).lower())
+        elif warehouse:
+            target = str(warehouse)
+        else:
+            target = self._verification_warehouse()
         result = verify(
             graph, self.root, target, seed=seed, max_rows=max_rows, only=list(models) if models else None
         )
-        path = Path(target)
-        if not result.warehouse.startswith('postgres') and path.resolve().is_relative_to(self.root.resolve()):
-            result.warehouse = str(path.resolve().relative_to(self.root.resolve()))
+        if isinstance(target, str):
+            path = Path(target)
+            if not result.warehouse.startswith('postgres') and path.resolve().is_relative_to(
+                self.root.resolve()
+            ):
+                result.warehouse = str(path.resolve().relative_to(self.root.resolve()))
         if write:
             annotate(graph, result)
             graph.write(self.graph_path)
@@ -528,6 +539,21 @@ class Project:
                 json.dumps(result.to_dict(), indent=1) + '\n', encoding='utf-8'
             )
         return result
+
+    def _remote_engine(self, kind: str) -> Engine:
+        """A sampled engine for the configured Snowflake, BigQuery or Databricks warehouse."""
+        from konstruct.config import discover_warehouses
+        from konstruct.dbt import find_projects
+        from konstruct.verify import sampled_engine
+
+        config = self.config()
+        for warehouse in discover_warehouses(config, find_projects(config.root)):
+            if warehouse.type == kind:
+                try:
+                    return sampled_engine(warehouse.connector(config.root), self.graph)
+                except Exception as error:  # a missing extra or a refused connection
+                    raise query.QueryError(f'cannot connect to {kind}: {error}') from error
+        raise query.QueryError(f'no {kind} warehouse is configured')
 
     def _verification_warehouse(self) -> str:
         """The DuckDB file the build read, or else the Postgres warehouse it connected to."""
@@ -546,8 +572,9 @@ class Project:
                 if isinstance(connector, PostgresConnector):
                     return connector.dsn
         raise query.QueryError(
-            'verification needs the models built in a local DuckDB file or a Postgres database; '
-            'none was found (pass --warehouse PATH or a postgresql:// URL)'
+            'verification needs the models built in a DuckDB file or a Postgres database; none was '
+            'found (pass --warehouse PATH or a postgresql:// URL, or --warehouse snowflake, bigquery '
+            'or databricks to check a sample of that warehouse)'
         )
 
     def diff(self, base: str | None = None, head: str | None = None) -> Diff:

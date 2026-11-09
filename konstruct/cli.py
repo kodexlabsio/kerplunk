@@ -429,7 +429,7 @@ examples:
   konstruct search lifetime value
   konstruct list models
   konstruct diff --base origin/main        what this branch changes and breaks, column by column
-  konstruct verify                         check the lineage against the data (DuckDB)
+  konstruct verify                         check the lineage against the data
   konstruct install                        add /konstruct to Claude Code and Cursor
 
 Names can be a table (orders, main.orders), a column (orders.amount), a dbt unique id or a
@@ -600,7 +600,9 @@ def parser() -> argparse.ArgumentParser:
     diff.set_defaults(func=cmd_diff, json=False)
 
     verify = add(
-        'verify', 'test the column lineage against the data by perturbing inputs (DuckDB or Postgres)'
+        'verify',
+        'test the column lineage against the data by perturbing inputs (DuckDB, Postgres, or a sample '
+        'of Snowflake, BigQuery or Databricks)',
     )
     verify.add_argument('-m', '--model', action='append', metavar='NAME', help='only this model (repeatable)')
     verify.add_argument(
@@ -611,8 +613,9 @@ def parser() -> argparse.ArgumentParser:
     )
     verify.add_argument(
         '--warehouse',
-        metavar='FILE',
-        help='DuckDB file or postgresql:// URL with the built models (default: discovered)',
+        metavar='WAREHOUSE',
+        help='DuckDB file, postgresql:// URL, or snowflake, bigquery or databricks for the configured one, '
+        'sampled (default: discovered)',
     )
     verify.add_argument(
         '--strict', action='store_true', help='exit with status 1 if any influence is unexplained'

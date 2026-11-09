@@ -8,7 +8,7 @@
 - Identifiers are matched case-insensitively. Two relations whose names differ only by case are treated as one.
 - `query` ranks by words, not meaning. It finds `customer_lifetime_value` from "lifetime value" but not from "how much a customer is worth"; the agent is expected to follow up with `search` or `describe`.
 - Map keys are read at run time, so `attrs['colour']` on a map traces to the `attrs` column, not to a key. Positional `UNNEST ... AS t(a, b)` over rows, without field names, traces to the list column.
-- `verify` runs against a local DuckDB file or a Postgres database (in a transaction that is rolled back); other warehouses are not supported yet. It perturbs columns one at a time, so influences that need two inputs to change together are not observed.
+- `verify` runs against a DuckDB file, a Postgres database (in a transaction that is rolled back), or a sample of Snowflake, BigQuery or Databricks copied into DuckDB, where models whose SQL DuckDB cannot run are skipped, and so are models that unnest or index into a nested column (an array or record), which a sample keeps as JSON; Iceberg catalogues are not supported. It perturbs columns one at a time, so influences that need two inputs to change together are not observed.
 - The ontology names entities from their key columns and relations by convention (`customer_id`, `stg_customers.id`, `stg_stripe__payments.id`); a term of kind `entity` names one that convention gets wrong. A relationship from an entity to itself, such as a customer's referrer, is not recorded, and a relationship's evidence lists every test and join between columns of the same names.
 - With several repositories, `SELECT *` over a relation another repository builds is not expanded, since each repository's SQL is analysed on its own; name the columns, or let the warehouse supply them, to get their lineage.
 - `diff` reads dbt YAML for tests, descriptions, sources and exposures, but not for other configuration (materialisation, contracts, meta).
@@ -16,5 +16,4 @@
 ## Not Yet (v1)
 
 - Column-level lineage for dbt Python models and through UDFs.
-- `verify` against sampled remote warehouses (Snowflake, BigQuery, Databricks).
 - Incremental warehouse metadata (it is re-read on every build; it is fast for local warehouses but not for large remote ones).

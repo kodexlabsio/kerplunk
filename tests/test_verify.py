@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import duckdb
@@ -10,9 +12,19 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from konstruct import Project
+from konstruct import Project, warehouse
 from konstruct.graph import Graph, column_id
-from konstruct.verify import Verification, annotate, claims, verify
+from konstruct.query import QueryError
+from konstruct.verify import (
+    BigQuerySource,
+    DbApiSource,
+    SampledEngine,
+    Verification,
+    _sample_type,
+    annotate,
+    claims,
+    verify,
+)
 
 REPORT_SQL = """
 create table main.report as
@@ -267,3 +279,358 @@ def test_verify_on_postgres_with_dbt(tmp_path: Path) -> None:
     finally:
         with psycopg.connect(dsn, autocommit=True) as con:
             con.execute(f'drop schema if exists {schema} cascade')
+
+
+class _Driver:
+    """A stand-in for a warehouse driver module: ``connect()`` opens the project's DuckDB file
+    read only, so a sample comes from real tables through a DB-API connection."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.queries: list[str] = []
+
+    def connect(self, **options: object) -> object:
+        driver = self
+
+        class Cursor:
+            def __init__(self, con: duckdb.DuckDBPyConnection) -> None:
+                self.con = con
+                self.description: object = None
+                self.rows: list[tuple[object, ...]] = []
+
+            def execute(self, sql: str) -> None:
+                driver.queries.append(sql)
+                result = self.con.execute(sql.replace('`', '"'))
+                self.description = result.description
+                self.rows = result.fetchall()
+
+            def fetchall(self) -> list[tuple[object, ...]]:
+                return self.rows
+
+            def close(self) -> None:
+                pass
+
+        class Connection:
+            def __init__(self) -> None:
+                self.con = duckdb.connect(str(driver.path), read_only=True)
+
+            def cursor(self) -> Cursor:
+                return Cursor(self.con)
+
+            def close(self) -> None:
+                self.con.close()
+
+        return Connection()
+
+
+def _sampled(project: Project, dialect: str = 'databricks') -> SampledEngine:
+    """A sampled engine whose remote warehouse is the project's DuckDB file, read only."""
+    source = DbApiSource(duckdb.connect(str(project.root / 'shop.duckdb'), read_only=True), dialect)
+    return SampledEngine(source, f'{dialect} (sampled)', project.graph)
+
+
+def test_a_sampled_remote_warehouse_confirms_the_same_lineage(project: Project) -> None:
+    local = run(project).totals()
+    result = verify(project.graph, project.root, _sampled(project))
+    assert result.warehouse == 'databricks (sampled)'
+    [model] = result.models
+    assert model.skipped is None and model.rows == 178
+    assert result.totals() == local
+    # A sample is at most the row limit of each input.
+    smaller = verify(project.graph, project.root, _sampled(project), max_rows=50)
+    assert smaller.models[0].rows < 178
+
+
+def test_each_input_is_read_once_per_run(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+    (project.root / 'second.sql').write_text(
+        'create table main.second as select id, amount + 1 as more from raw.orders'
+    )
+    project.build()
+    driver = _Driver(project.root / 'shop.duckdb')
+    monkeypatch.setattr(warehouse, '_driver', lambda module, extra: driver)
+    (project.root / 'konstruct.toml').write_text(
+        '[[warehouse]]\ntype = "databricks"\nserver_hostname = "x"\nhttp_path = "y"\n'
+    )
+    result = project.verify(warehouse='databricks', write=False)
+    assert {m.label for m in result.models} == {'report', 'second'}
+    assert all(m.skipped is None for m in result.models)
+    reads = [q for q in driver.queries if 'orders' in q]
+    assert len(reads) == 1 and reads[0].startswith('SELECT * FROM `shop`.`raw`.`orders` LIMIT ')
+
+
+@pytest.mark.parametrize(
+    ('remote', 'values', 'expected'),
+    [
+        ('NUMBER', [Decimal('1.37'), Decimal('2.5')], 'DECIMAL(38, 2)'),
+        ('NUMBER(10,2)', [Decimal('1.37')], 'DECIMAL(10, 2)'),
+        ('NUMERIC', [Decimal('123456789012345678.123456')], 'DECIMAL(38, 6)'),
+        ('NUMBER', [2**40], 'BIGINT'),
+        ('INTEGER', [2**40], 'BIGINT'),
+        ('FLOAT', [0.1], 'DOUBLE'),
+        ('TIMESTAMP', [datetime(2026, 1, 1, tzinfo=UTC)], 'TIMESTAMPTZ'),
+        ('TIMESTAMP_NTZ', [datetime(2026, 1, 1)], 'TIMESTAMP'),
+        ('RECORD', [{'k': 1}], 'JSON'),
+        ('VARIANT', ['{"k": 1}'], 'JSON'),
+        ('GEOGRAPHY', ['POINT(1 2)'], 'VARCHAR'),
+        (None, [None, 2**70], 'HUGEINT'),
+    ],
+)
+def test_sampled_types_keep_their_values(remote: str | None, values: list[object], expected: str) -> None:
+    assert _sample_type(remote, 'bigquery', values) == expected
+
+
+class _Rows:
+    dialect = 'snowflake'
+
+    def sample(
+        self, parts: tuple[str, ...], limit: int
+    ) -> tuple[list[str], list[str | None], list[tuple[object, ...]]]:
+        rows = [(Decimal('1.37'), 2**40, {'k': [1, 2]}, datetime(2026, 1, 1, 9, tzinfo=UTC), 'POINT(1 2)')]
+        names = ['amount', 'id', 'payload', 'at', 'place']
+        return names, ['NUMBER', 'NUMBER', 'VARIANT', 'TIMESTAMP_TZ', 'GEOGRAPHY'], list(rows)
+
+    def close(self) -> None:
+        pass
+
+
+def test_a_sampled_value_is_kept_exactly() -> None:
+    engine = SampledEngine(_Rows(), 'snowflake (sampled)')
+    engine.start()
+    scratch, columns = engine.copy('db.raw.events', 0, 10)
+    assert [t for _, t in columns] == [
+        'DECIMAL(38,2)',
+        'BIGINT',
+        'JSON',
+        'TIMESTAMP WITH TIME ZONE',
+        'VARCHAR',
+    ]
+    [row] = engine.con.execute(f"SELECT amount, id, payload ->> '$.k[1]' FROM {scratch}").fetchall()
+    assert row == (Decimal('1.37'), 2**40, '2')
+    engine.close()
+
+
+def test_sampled_columns_without_known_types_take_their_values_types(tmp_path: Path) -> None:
+    make_project(tmp_path)
+    project = Project(tmp_path)
+    project.build(warehouses=False, dialect='duckdb')
+    result = verify(project.graph, project.root, _sampled(project, 'bigquery'))
+    [model] = result.models
+    assert model.skipped is None
+    assert ('doubled', 'raw.orders.amount') in set(model.confirmed)
+
+
+def test_remote_names_are_quoted() -> None:
+    assert DbApiSource(None, 'snowflake').table(('analytics', 'raw', 'order')) == '"ANALYTICS"."RAW"."ORDER"'
+    assert DbApiSource(None, 'databricks').table(('raw', 'select')) == '`raw`.`select`'
+
+
+def test_a_remote_warehouse_that_is_not_configured_or_has_no_driver(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(QueryError, match='no databricks warehouse is configured'):
+        project.verify(warehouse='databricks')
+    (project.root / 'konstruct.toml').write_text('[[warehouse]]\ntype = "snowflake"\naccount = "x"\n')
+
+    def missing(module: str, extra: str) -> object:
+        raise warehouse.MissingDriver(f"install the {extra} extra: uv tool install 'konstruct[{extra}]'")
+
+    monkeypatch.setattr(warehouse, '_driver', missing)
+    with pytest.raises(QueryError, match=r'cannot connect to snowflake: install the snowflake extra'):
+        project.verify(warehouse='snowflake')
+
+
+def test_bigquery_tables_are_listed_and_views_queried() -> None:
+    class Field:
+        def __init__(self, name: str, field_type: str, mode: str = 'NULLABLE') -> None:
+            self.name, self.field_type, self.mode = name, field_type, mode
+
+    class Row:
+        def __init__(self, values: tuple[object, ...]) -> None:
+            self._values = values
+
+        def values(self) -> tuple[object, ...]:
+            return self._values
+
+    class Rows(list[Row]):
+        schema = (Field('Id', 'INTEGER'), Field('Tags', 'STRING', 'REPEATED'))
+
+    class Table:
+        def __init__(self, table_type: str) -> None:
+            self.table_type = table_type
+
+    class Client:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def get_table(self, name: str) -> Table:
+            return Table('VIEW' if name.endswith('_view') else 'TABLE')
+
+        def list_rows(self, table: Table, max_results: int) -> Rows:
+            self.calls.append(f'list {max_results}')
+            return Rows([Row((1, ['a']))])
+
+        def query(self, sql: str) -> object:
+            self.calls.append(sql)
+            return type('Job', (), {'result': lambda self: Rows([Row((2, ['b']))])})()
+
+        def close(self) -> None:
+            self.calls.append('closed')
+
+    client = Client()
+    source = BigQuerySource(client)
+    assert source.sample(('my-proj', 'ds', 'orders'), 5) == (
+        ['id', 'tags'],
+        ['INTEGER', 'JSON'],
+        [(1, ['a'])],
+    )
+    _, _, rows = source.sample(('my-proj', 'ds', 'orders_view'), 5)
+    assert rows == [(2, ['b'])]
+    source.close()
+    assert client.calls == ['list 5', 'SELECT * FROM `my-proj.ds.orders_view` LIMIT 5', 'closed']
+
+
+class _Late:
+    """A source whose one column fits BIGINT until its last value; it counts its reads."""
+
+    dialect = 'databricks'
+
+    def __init__(self, last: object) -> None:
+        self.reads = 0
+        self.last = last
+
+    def sample(
+        self, parts: tuple[str, ...], limit: int
+    ) -> tuple[list[str], list[str | None], list[tuple[object, ...]]]:
+        self.reads += 1
+        return ['n'], [None], [*[(i,) for i in range(1500)], (self.last,)]
+
+    def close(self) -> None:
+        pass
+
+
+def test_a_value_that_only_fails_late_keeps_its_column_as_text() -> None:
+    engine = SampledEngine(_Late(2**130), 'databricks (sampled)')
+    engine.start()
+    scratch, columns = engine.copy('db.raw.numbers', 0, 2000)
+    assert columns == [('n', 'VARCHAR')]
+    assert engine.con.execute(f'SELECT count(*) FROM {scratch}').fetchone() == (1501,)
+    engine.close()
+
+
+def test_an_input_that_cannot_be_read_is_read_once(project: Project) -> None:
+    class Failing(_Late):
+        def sample(
+            self, parts: tuple[str, ...], limit: int
+        ) -> tuple[list[str], list[str | None], list[tuple[object, ...]]]:
+            self.reads += 1
+            raise RuntimeError('access denied')
+
+    source = Failing(0)
+    engine = SampledEngine(source, 'databricks (sampled)', project.graph)
+    for index in range(2):
+        engine.start()
+        with pytest.raises(RuntimeError, match='access denied'):
+            engine.copy('shop.raw.orders', index, 100)
+    assert source.reads == 1
+    engine.close()
+
+
+def test_arrays_from_a_driver_become_json() -> None:
+    class Array:
+        def __init__(self, *items: object) -> None:
+            self.items = list(items)
+
+        def tolist(self) -> list[object]:
+            return self.items
+
+    class Source(_Late):
+        def sample(
+            self, parts: tuple[str, ...], limit: int
+        ) -> tuple[list[str], list[str | None], list[tuple[object, ...]]]:
+            return ['tags', 'detail'], [None, 'STRUCT'], [(Array('x', 'y'), {'a': 1, 'b': Array(1, 2)})]
+
+    engine = SampledEngine(Source(0), 'databricks (sampled)')
+    engine.start()
+    scratch, columns = engine.copy('db.raw.events', 0, 10)
+    assert [t for _, t in columns] == ['JSON', 'JSON']
+    assert engine.con.execute(f"SELECT tags ->> '$[1]', detail -> '$.b' FROM {scratch}").fetchone() == (
+        'y',
+        '[1,2]',
+    )
+    engine.close()
+
+
+def test_db_api_precision_and_scale_are_kept() -> None:
+    class Cursor:
+        description = (('amount', 0, None, None, 10, 2, True), ('at', 8, None, None, 0, 9, True))
+
+        def execute(self, sql: str) -> None:
+            pass
+
+        def fetchall(self) -> list[tuple[object, ...]]:
+            return [(Decimal('1.37'), datetime(2026, 1, 1))]
+
+        def close(self) -> None:
+            pass
+
+    class Connection:
+        def cursor(self) -> Cursor:
+            return Cursor()
+
+        def close(self) -> None:
+            pass
+
+    names, types, _ = DbApiSource(Connection(), 'snowflake').sample(('db', 'raw', 'orders'), 5)
+    assert (names, types) == (['amount', 'at'], ['DECIMAL(10, 2)', None])
+
+
+def test_each_remote_warehouse_type_makes_its_engine(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from konstruct.verify import sampled_engine
+
+    driver = _Driver(project.root / 'shop.duckdb')
+    monkeypatch.setattr(warehouse, '_driver', lambda module, extra: driver)
+    snowflake = sampled_engine(warehouse.SnowflakeConnector(options={'account': 'x'}), project.graph)
+    assert (snowflake.label, snowflake.read_dialect) == ('snowflake (sampled)', 'snowflake')
+    snowflake.close()
+
+    class Client:
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(warehouse.BigQueryConnector, 'client', lambda self: Client())
+    bigquery = sampled_engine(warehouse.BigQueryConnector(project='p'), project.graph)
+    assert isinstance(bigquery.source, BigQuerySource) and bigquery.label == 'bigquery (sampled)'
+    bigquery.close()
+    with pytest.raises(ValueError, match='is not a Snowflake, BigQuery or Databricks connector'):
+        sampled_engine(object())
+
+
+def test_the_warehouse_spelling_of_a_name_is_kept(tmp_path: Path) -> None:
+    con = duckdb.connect(str(tmp_path / 'shop.duckdb'))
+    con.execute('create schema "MyData"')
+    con.execute('create table "MyData"."Orders" (id int)')
+    con.execute('create table main.lower_case (id int)')
+    con.close()
+    graph = Project(tmp_path).build(run_dbt=False).graph
+    orders = graph.node_for_relation('shop.mydata.orders')
+    lower = graph.node_for_relation('shop.main.lower_case')
+    assert orders is not None and orders.attrs['parts'] == 'shop.MyData.Orders'
+    assert lower is not None and 'parts' not in lower.attrs
+
+    asked: list[tuple[str, ...]] = []
+
+    class Source(_Late):
+        def sample(
+            self, parts: tuple[str, ...], limit: int
+        ) -> tuple[list[str], list[str | None], list[tuple[object, ...]]]:
+            asked.append(parts)
+            return ['id'], ['INTEGER'], [(1,)]
+
+    engine = SampledEngine(Source(0), 'bigquery (sampled)', graph)
+    engine.start()
+    engine.copy('shop.mydata.orders', 0, 10)
+    engine.copy('shop.main.lower_case', 1, 10)
+    assert asked == [('shop', 'MyData', 'Orders'), ('shop', 'main', 'lower_case')]
+    engine.close()
