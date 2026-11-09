@@ -1,3 +1,17 @@
+## v0.12.1 (2026-11-09)
+
+### Feat
+
+- **cli**: Show every input and the bound ontology packs in konstruct status
+
+### Fix
+
+- **config**: Refuse a repositories table instead of reading its keys as paths
+
+### Perf
+
+- **lineage**: Compose the viewer's formulas as text instead of as trees
+
 ## v0.12.0 (2026-11-09)
 
 ### BREAKING CHANGE
