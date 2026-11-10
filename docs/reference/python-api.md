@@ -32,7 +32,7 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 | `konstruct.inputs` | `dbt`, `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `warehouse`, `usage` |
 | `konstruct.engine` | `build`, `config`, `worker` |
 | `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `ossie`, `registry` |
-| `konstruct.analysis` | `query`, `explain`, `conflicts`, `diff`, `gate`, `verify`, `mutation`, `why`, `history` |
+| `konstruct.analysis` | `query`, `explain`, `conflicts`, `diff`, `gate`, `verify`, `mutation`, `why`, `laws`, `history` |
 | `konstruct.outputs` | `report`, `html`, `export` |
 | `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
 | `konstruct.plugins` | `api` (the plugin API: protocols and types), `registry` (finding, enabling and loading plugins) |
@@ -360,6 +360,33 @@ print(rows.value, [c.values for c in rows.contributions])
    :members:
 
 .. autoclass:: konstruct.analysis.why.Aggregate
+   :members:
+```
+
+### Data Laws
+
+```{eval-rst}
+.. autofunction:: konstruct.analysis.laws.propose
+
+.. autofunction:: konstruct.analysis.laws.confirm
+
+.. autofunction:: konstruct.analysis.laws.violations
+
+.. autofunction:: konstruct.analysis.laws.load
+
+.. autoclass:: konstruct.analysis.laws.Laws
+   :members:
+
+.. autoclass:: konstruct.analysis.laws.Law
+   :members:
+
+.. autoclass:: konstruct.analysis.laws.Term
+   :members:
+
+.. autoclass:: konstruct.analysis.laws.Step
+   :members:
+
+.. autoclass:: konstruct.analysis.laws.Violation
    :members:
 ```
 

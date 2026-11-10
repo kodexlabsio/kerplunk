@@ -68,15 +68,16 @@ def shown(version: ApiVersion) -> str:
 # a name assigned it, or from ``dict(...)``, ``{**...}``, ``getattr`` or ``... or {}`` of it.
 _KONSTRUCT_ATTRS = frozenset(
     {
-        'also_via', 'approved', 'broader', 'checksum', 'columns', 'command', 'conditions', 'connection',
-        'currency', 'dag', 'dbt_name', 'documented_only', 'entities', 'exceptions', 'expression',
-        'filters', 'formula', 'formula_dialect', 'fqn', 'grain', 'identifier_fields', 'in_warehouse',
-        'inferred', 'iri', 'kind', 'line', 'loaded', 'loaded_by', 'loader', 'materialized', 'model',
-        'nested', 'ossie_authored', 'ossie_columns', 'ossie_dataset', 'ossie_expression', 'ossie_key',
-        'ossie_metric', 'ossie_reads', 'operator', 'orchestrator', 'outside_warehouse', 'owner',
-        'package', 'parts', 'primary_key', 'registry', 'related', 'repository', 'role', 'same_relation',
+        'also_via', 'approved', 'broader', 'checksum', 'column', 'columns', 'command', 'conditions',
+        'connection', 'currency', 'dag', 'dbt_name', 'documented_only', 'entities', 'exceptions',
+        'expression', 'filters', 'formula', 'formula_dialect', 'fqn', 'grain', 'identifier_fields',
+        'in_warehouse', 'inferred', 'iri', 'kind', 'line', 'loaded', 'loaded_by', 'loader',
+        'materialized', 'model', 'nested', 'operator', 'orchestrator', 'ossie_authored',
+        'ossie_columns', 'ossie_dataset', 'ossie_expression', 'ossie_key', 'ossie_metric',
+        'ossie_reads', 'outside_warehouse', 'owner', 'package', 'parts', 'primary_key',
+        'primary_key_enforced', 'registry', 'related', 'repository', 'role', 'same_relation',
         'schedule', 'sensors', 'source_name', 'sql_path', 'status', 'synonyms', 'table_type', 'tags',
-        'test', 'transform', 'unit', 'usage', 'verified', 'via', 'view_sql',
+        'test', 'transform', 'unit', 'usage', 'verified', 'via', 'view_sql', 'where',
     }
 )  # fmt: skip
 

@@ -511,6 +511,11 @@ class Engine:
     def run(self, sql: str) -> tuple[list[str], list[tuple[Any, ...]]]:
         raise NotImplementedError
 
+    def read(self, sql: str) -> tuple[list[str], list[tuple[Any, ...]]]:
+        """Run a query over the warehouse's own tables, which only reads: in a read-only
+        transaction where the warehouse has one."""
+        return self.run(sql)
+
     def close(self) -> None:
         """Release the connection."""
 
@@ -701,6 +706,20 @@ class PostgresEngine(Engine):
         cursor = self._savepoint(sql)
         names = [d.name.lower() for d in cursor.description or []]
         return names, list(cursor.fetchall())
+
+    def read(self, sql: str) -> tuple[list[str], list[tuple[Any, ...]]]:
+        # A read-only subtransaction: Postgres refuses any write in it, and rolling it back leaves
+        # the transaction free to make the temporary copies verify reads.
+        self.con.execute('SAVEPOINT kp_read')
+        try:
+            self.con.execute('SET LOCAL transaction_read_only = on')
+            cursor = self.con.execute(sql)
+            names = [d.name.lower() for d in cursor.description or []]
+            rows = list(cursor.fetchall())
+        finally:
+            self.con.execute('ROLLBACK TO SAVEPOINT kp_read')
+            self.con.execute('RELEASE SAVEPOINT kp_read')
+        return names, rows
 
     def close(self) -> None:
         self.con.rollback()
