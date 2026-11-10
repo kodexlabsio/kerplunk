@@ -1,3 +1,36 @@
+## v0.13.1 (2026-11-10)
+
+### Feat
+
+- **cli**: Search by meaning from the command line, the MCP server and Project
+- **query**: Search by meaning, making the index on first use
+- **query**: Embed nodes by words, lineage, formula and structure, and save the index
+- **query**: Add a deterministic HNSW index over quantised vectors
+- **query**: Read identifiers, synonyms and formulas as hashed features
+- **viewer**: Add the map page to the navigation
+- **viewer**: Draw a map of the whole project with WebGPU
+- **viewer**: Order the lineage graph's layers with fewer crossings
+- **viewer**: Render descriptions as Markdown, with the dbt project overview
+- **viewer**: Load a served graph and reload it in place, under a strict CSP
+- **viewer**: Translate the viewer into thirteen more languages
+- **viewer**: Rebuild graph.html as a documentation site for the data stack
+- **html**: Embed the SQL, the ontology and conflicts for the graph viewer
+
+### Fix
+
+- **build**: Build the compatibility corpus trusted, as CI does
+- **viewer**: Fit narrow and zoomed windows, translate selector errors, and smaller fixes
+
+### Refactor
+
+- **query**: Read names in conflicts with the core's splitter and concept table
+
+### Perf
+
+- **query**: Add an int8 dot-product kernel in assembly for each architecture
+- **html**: Find conflicts on demand instead of in every build
+- **html**: Reuse the viewer's conflicts while the graph is unchanged
+
 ## v0.13.0 (2026-11-10)
 
 ### BREAKING CHANGE
