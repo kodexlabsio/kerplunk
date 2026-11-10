@@ -149,6 +149,7 @@ const messages: Catalogue = {
     'overview.health': 'Gezondheid',
     'overview.conflicts':
         '{count, plural, =0 {Geen tegenstrijdige definities} one {# tegenstrijdige definitie} other {# tegenstrijdige definities}}',
+    'overview.conflictsNotRun': 'Voer konstruct conflicts uit om tegenstrijdige definities te vinden',
     'overview.warnings':
         '{count, plural, =0 {Geen buildwaarschuwingen} one {# buildwaarschuwing} other {# buildwaarschuwingen}}',
     'overview.terms':
@@ -357,6 +358,10 @@ const messages: Catalogue = {
     'lineage.nothingSelected': 'De selectie levert niets op.',
     'lineage.nothingShown': 'Niets te tonen met deze filters.',
     'lineage.empty': 'Geen tabellen of modellen in deze graaf.',
+    'lineage.error.empty': '"{text}" selecteert niets',
+    'lineage.error.atWithPlus': '"{text}" kan @ niet met + combineren',
+    'lineage.error.unknownMethod': 'Onbekende selectiemethode "{method}:" in "{text}"',
+    'lineage.error.noValue': '"{method}:" heeft een waarde nodig',
 
     'inspector.label': 'De graaf als lijst',
     'inspector.title': 'Als lijst',
@@ -420,6 +425,8 @@ const messages: Catalogue = {
     'conflicts.lead':
         '{count, plural, one {# kolompaar lijkt} other {# kolomparen lijken}} hetzelfde begrip anders te berekenen, van {candidates, number} berekende kolommen. Die met de meeste gevolgen eerst.',
     'conflicts.none': 'Geen tegenstrijdige definities onder {candidates, number} berekende kolommen.',
+    'conflicts.notRun':
+        'Tegenstrijdige definities vindt konstruct conflicts; voer het uit om ze hier te tonen.',
     'conflicts.weight': 'gewicht stroomafwaarts {score, number}',
     'conflicts.why': 'Vergeleken omdat ze {reason}.',
     'conflicts.versus': 'tegenover',

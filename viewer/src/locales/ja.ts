@@ -148,6 +148,7 @@ const messages: Catalogue = {
     'overview.notVerified': 'konstruct verify を実行すると、カラムリネージをデータで検証できます。',
     'overview.health': '健全性',
     'overview.conflicts': '{count, plural, =0 {競合する定義はありません} other {競合する定義 # 件}}',
+    'overview.conflictsNotRun': 'konstruct conflicts を実行すると競合する定義が見つかります',
     'overview.warnings': '{count, plural, =0 {ビルド警告はありません} other {ビルド警告 # 件}}',
     'overview.terms':
         'ビジネス用語 {count, number} 件、承認済み {approved, number} 件、カラムに紐付け {bound, number} 件',
@@ -352,6 +353,10 @@ const messages: Catalogue = {
     'lineage.nothingSelected': '選択に一致するものはありません。',
     'lineage.nothingShown': 'この絞り込みでは表示するものがありません。',
     'lineage.empty': 'このグラフにはテーブルもモデルもありません。',
+    'lineage.error.empty': '「{text}」は何も選択しません',
+    'lineage.error.atWithPlus': '「{text}」では @ と + を組み合わせられません',
+    'lineage.error.unknownMethod': '「{text}」のセレクターメソッド「{method}:」は不明です',
+    'lineage.error.noValue': '「{method}:」には値が必要です',
 
     'inspector.label': 'リスト形式のグラフ',
     'inspector.title': 'リスト表示',
@@ -415,6 +420,7 @@ const messages: Catalogue = {
     'conflicts.lead':
         '{candidates, number} 個の計算カラムのうち、同じ概念を異なる方法で計算しているように見えるカラムの組が {count, number} 組あります。影響の大きいものから表示します。',
     'conflicts.none': '{candidates, number} 個の計算カラムに競合する定義はありません。',
+    'conflicts.notRun': '競合する定義は konstruct conflicts で見つかります。実行するとここに表示されます。',
     'conflicts.weight': '下流の重み {score, number}',
     'conflicts.why': '比較した理由: {reason}。',
     'conflicts.versus': '対',

@@ -148,6 +148,7 @@ const messages: Catalogue = {
     'overview.notVerified': 'konstruct verify를 실행하면 열 리니지를 데이터로 검증합니다.',
     'overview.health': '상태',
     'overview.conflicts': '{count, plural, =0 {충돌하는 정의 없음} other {충돌하는 정의 #개}}',
+    'overview.conflictsNotRun': 'konstruct conflicts를 실행해 충돌하는 정의를 찾으세요',
     'overview.warnings': '{count, plural, =0 {빌드 경고 없음} other {빌드 경고 #개}}',
     'overview.terms':
         '비즈니스 용어 {count, number}개, 승인 {approved, number}개, 열에 연결 {bound, number}개',
@@ -352,6 +353,10 @@ const messages: Catalogue = {
     'lineage.nothingSelected': '선택과 일치하는 항목이 없습니다.',
     'lineage.nothingShown': '이 필터로 표시할 항목이 없습니다.',
     'lineage.empty': '이 그래프에는 테이블이나 모델이 없습니다.',
+    'lineage.error.empty': '"{text}"은(는) 아무것도 선택하지 않습니다',
+    'lineage.error.atWithPlus': '"{text}"에서 @와 +를 함께 쓸 수 없습니다',
+    'lineage.error.unknownMethod': '"{text}"의 선택자 방법 "{method}:"을(를) 알 수 없습니다',
+    'lineage.error.noValue': '"{method}:"에는 값이 필요합니다',
 
     'inspector.label': '목록으로 본 그래프',
     'inspector.title': '목록 보기',
@@ -413,6 +418,7 @@ const messages: Catalogue = {
     'conflicts.lead':
         '계산 열 {candidates, number}개 중 같은 개념을 다르게 계산하는 것으로 보이는 열 쌍이 {count, number}개 있습니다. 영향이 큰 것부터 표시합니다.',
     'conflicts.none': '계산 열 {candidates, number}개 중 충돌하는 정의가 없습니다.',
+    'conflicts.notRun': '충돌하는 정의는 konstruct conflicts가 찾습니다. 실행하면 여기에 표시됩니다.',
     'conflicts.weight': '다운스트림 가중치 {score, number}',
     'conflicts.why': '비교 이유: {reason}.',
     'conflicts.versus': '대',

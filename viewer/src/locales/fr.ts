@@ -150,6 +150,7 @@ const messages: Catalogue = {
     'overview.health': 'État',
     'overview.conflicts':
         '{count, plural, =0 {Aucune définition en conflit} one {# définition en conflit} other {# définitions en conflit}}',
+    'overview.conflictsNotRun': 'Lancez konstruct conflicts pour trouver les définitions en conflit',
     'overview.warnings':
         '{count, plural, =0 {Aucun avertissement de construction} one {# avertissement de construction} other {# avertissements de construction}}',
     'overview.terms':
@@ -359,6 +360,10 @@ const messages: Catalogue = {
     'lineage.nothingSelected': 'La sélection ne correspond à rien.',
     'lineage.nothingShown': 'Rien à afficher avec ces filtres.',
     'lineage.empty': 'Aucune table ni aucun modèle dans ce graphe.',
+    'lineage.error.empty': '« {text} » ne sélectionne rien',
+    'lineage.error.atWithPlus': '« {text} » ne peut pas combiner @ et +',
+    'lineage.error.unknownMethod': 'Méthode de sélection inconnue « {method}: » dans « {text} »',
+    'lineage.error.noValue': '« {method}: » demande une valeur',
 
     'inspector.label': 'Le graphe sous forme de liste',
     'inspector.title': 'En liste',
@@ -423,6 +428,8 @@ const messages: Catalogue = {
     'conflicts.lead':
         '{count, plural, one {# paire de colonnes semble} other {# paires de colonnes semblent}} calculer la même notion différemment, parmi {candidates, number} colonnes calculées. Les plus lourdes de conséquences d’abord.',
     'conflicts.none': 'Aucune définition en conflit parmi {candidates, number} colonnes calculées.',
+    'conflicts.notRun':
+        'Les définitions en conflit sont trouvées par konstruct conflicts ; lancez-le pour les afficher ici.',
     'conflicts.weight': 'poids en aval {score, number}',
     'conflicts.why': 'Comparées parce qu’elles {reason}.',
     'conflicts.versus': 'contre',

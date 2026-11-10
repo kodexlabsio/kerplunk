@@ -56,7 +56,9 @@ def open_page(browser: Any) -> Iterator[Any]:
         page.on(
             'request',
             lambda r: (
-                page.problems.append(f'request {r.url}') if not r.url.startswith(('file:', 'data:')) else None
+                page.problems.append(f'request {r.url}')
+                if not r.url.startswith(('file:', 'data:', 'blob:'))
+                else None
             ),
         )
         page.goto(path.as_uri() + fragment)
@@ -191,10 +193,11 @@ def test_links_selectors_and_full_screen(jaffle_built_graph: Path, open_page: An
     # A node page goes full screen with its selection, and comes back.
     node = open_page(graph, '#/node/model.jaffle_shop.customers')
     node.click('#fullscreen')
-    node.wait_for_function("location.hash.startsWith('#/lineage?select=+customers+')")
+    # Functions, not expressions: the page's policy refuses eval, which expressions need.
+    node.wait_for_function("() => location.hash.startsWith('#/lineage?select=+customers+')")
     node.wait_for_selector('#page', state='detached')
     node.click("[data-direction='upstream']")
-    node.wait_for_function("document.getElementById('select').value === '+customers'")
+    node.wait_for_function("() => document.getElementById('select').value === '+customers'")
     node.keyboard.press('Shift+L')
     node.wait_for_selector('#page h1:text-is("customers")')
 
@@ -428,6 +431,43 @@ def test_deep_quotes_and_long_descriptions(tmp_path: Path, open_page: Any) -> No
     page.wait_for_selector('#page h1:text-is("long")')
     assert 'The description is long, so only its start is shown.' in page.inner_text('#page')
     assert len(page.inner_text('#page .markdown')) < 101_000
+
+
+@pytest.mark.dbt
+def test_selector_errors_and_unknown_addresses(jaffle_built_graph: Path, open_page: Any) -> None:
+    graph = jaffle_built_graph / 'konstruct-out' / 'graph.html'
+    page = open_page(graph, '#/lineage')
+    # Selector mistakes are reported one by one, in the reader's language.
+    page.fill('#select', 'colour:red tag:')
+    page.press('#select', 'Enter')
+    errors = page.locator('.selector-error')
+    errors.first.wait_for()
+    assert errors.all_inner_texts() == [
+        'Unknown selector method "colour:" in "colour:red"',
+        '"tag:" needs a value',
+    ]
+    page.goto(graph.as_uri() + '#/bogus')
+    page.wait_for_selector('#page h1:text-is("Not found")')
+
+
+@pytest.mark.dbt
+def test_narrow_and_zoomed_windows(jaffle_built_graph: Path, open_page: Any) -> None:
+    graph = jaffle_built_graph / 'konstruct-out' / 'graph.html'
+    # Full screen lineage uses the whole width, even where the navigation folds away.
+    for width, height in ((960, 540), (640, 450)):
+        page = open_page(graph, '#/lineage?select=+orders+', viewport={'width': width, 'height': height})
+        box = page.locator('#select').bounding_box()
+        assert box is not None and box['width'] > 100, (width, box)
+        graph_box = page.locator('#graph-box').bounding_box()
+        assert graph_box is not None and graph_box['width'] > width / 2
+    # At 320 pixels (a phone, or 640 at 200% zoom) every top bar control is on screen.
+    page = open_page(graph, '#/node/model.jaffle_shop.orders', viewport={'width': 320, 'height': 640})
+    for control in page.locator('#topbar button:visible, #topbar a:visible, #topbar select:visible').all():
+        box = control.bounding_box()
+        assert box is not None and box['x'] >= 0 and box['x'] + box['width'] <= 320, control.evaluate(
+            'e => e.outerHTML.slice(0, 80)'
+        )
+    assert page.evaluate('document.documentElement.scrollWidth') <= 320
 
 
 def test_hostile_text_is_shown_as_text(tmp_path: Path, open_page: Any) -> None:

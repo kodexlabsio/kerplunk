@@ -149,6 +149,7 @@ const messages: Catalogue = {
     'overview.health': 'Health',
     'overview.conflicts':
         '{count, plural, =0 {No conflicting definitions} one {# conflicting definition} other {# conflicting definitions}}',
+    'overview.conflictsNotRun': 'Run konstruct conflicts to find conflicting definitions',
     'overview.warnings':
         '{count, plural, =0 {No build warnings} one {# build warning} other {# build warnings}}',
     'overview.terms':
@@ -357,6 +358,10 @@ const messages: Catalogue = {
     'lineage.nothingSelected': 'The selection matches nothing.',
     'lineage.nothingShown': 'Nothing to show with these filters.',
     'lineage.empty': 'No tables or models in this graph.',
+    'lineage.error.empty': '"{text}" selects nothing',
+    'lineage.error.atWithPlus': '"{text}" cannot combine @ with +',
+    'lineage.error.unknownMethod': 'Unknown selector method "{method}:" in "{text}"',
+    'lineage.error.noValue': '"{method}:" needs a value',
 
     'inspector.label': 'The graph as a list',
     'inspector.title': 'As a list',
@@ -420,6 +425,7 @@ const messages: Catalogue = {
     'conflicts.lead':
         '{count, plural, one {# pair of columns appears} other {# pairs of columns appear}} to compute the same idea differently, among {candidates, number} computed columns. The most consequential come first.',
     'conflicts.none': 'No conflicting definitions among {candidates, number} computed columns.',
+    'conflicts.notRun': 'Conflicting definitions are found by konstruct conflicts; run it to show them here.',
     'conflicts.weight': 'downstream weight {score, number}',
     'conflicts.why': 'Compared because they {reason}.',
     'conflicts.versus': 'against',

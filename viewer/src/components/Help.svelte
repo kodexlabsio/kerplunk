@@ -14,7 +14,10 @@
         [
             'help.everywhere',
             [
-                ['Ctrl K, /', 'help.search'],
+                [
+                    `${/Mac|iPhone|iPad/.test(navigator.platform ?? '') ? '\u2318 K' : 'Ctrl K'}, /`,
+                    'help.search',
+                ],
                 ['L', 'help.dock'],
                 ['Shift L', 'help.fullScreen'],
                 ['?', 'help.shortcuts'],

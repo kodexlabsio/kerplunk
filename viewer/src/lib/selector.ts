@@ -34,10 +34,17 @@ export interface Atom {
     text: string;
 }
 
+/** What is wrong with a part of a selector, as a message code and its arguments, for translation. */
+export interface SelectorError {
+    code: 'empty' | 'atWithPlus' | 'unknownMethod' | 'noValue';
+    text: string;
+    method?: string;
+}
+
 /** A union of intersections. */
 export interface Selector {
     terms: Atom[][];
-    errors: string[];
+    errors: SelectorError[];
 }
 
 export interface Selection {
@@ -74,32 +81,37 @@ function depth(text: string | undefined): number {
     return digits ? Number(digits) : Infinity;
 }
 
-export function parseAtom(text: string): Atom | string {
+export function isError(atom: Atom | SelectorError): atom is SelectorError {
+    return 'code' in atom;
+}
+
+export function parseAtom(text: string): Atom | SelectorError {
     const match = /^(@)?(\d*\+)?(.*?)(\+\d*)?$/s.exec(text);
-    if (!match || !match[3]) return `"${text}" names nothing`;
+    if (!match || !match[3]) return { code: 'empty', text };
     const at = !!match[1];
-    if (at && match[2]) return `"${text}" cannot combine @ with +`;
+    // "@" goes before any "+": "+@orders" is as much a mistake as "@+orders".
+    if ((at && match[2]) || (match[2] && match[3].startsWith('@'))) return { code: 'atWithPlus', text };
     let method: string | null = null;
     let value = match[3];
     const colon = value.indexOf(':');
     if (colon > 0 && /^[a-z_.]+$/.test(value.slice(0, colon))) {
         method = value.slice(0, colon);
         value = value.slice(colon + 1);
-        if (!(METHODS as readonly string[]).includes(method)) return `unknown method "${method}:"`;
-        if (!value) return `"${method}:" needs a value`;
+        if (!(METHODS as readonly string[]).includes(method)) return { code: 'unknownMethod', text, method };
+        if (!value) return { code: 'noValue', text, method };
     }
     return { method, value, up: depth(match[2]), down: depth(match[4]), at, text };
 }
 
 export function parseSelector(text: string): Selector {
     const terms: Atom[][] = [];
-    const errors: string[] = [];
+    const errors: SelectorError[] = [];
     // A quoted value keeps its spaces and commas: term:"Order amount".
     for (const term of splitTerms(text)) {
         const atoms: Atom[] = [];
         for (const part of term) {
             const atom = parseAtom(part);
-            if (typeof atom === 'string') errors.push(atom);
+            if (isError(atom)) errors.push(atom);
             else atoms.push(atom);
         }
         if (atoms.length) terms.push(atoms);
@@ -347,7 +359,7 @@ export function reference(model: GraphModel, id: string): string {
     const quoted = /^[\w.#-]+$/.test(text) ? text : JSON.stringify(text);
     if (n.kind === 'column') {
         const atom = parseAtom(text);
-        if (typeof atom !== 'string') {
+        if (!isError(atom)) {
             const found = match(model, atom);
             if (found.columns.size === 1 && !found.relations.size) return quoted;
         }
@@ -355,7 +367,7 @@ export function reference(model: GraphModel, id: string): string {
     }
     if (n.kind === 'term') return `term:${JSON.stringify(n.name)}`;
     const atom = parseAtom(text);
-    if (typeof atom !== 'string' && atom.method === null) {
+    if (!isError(atom) && atom.method === null) {
         const found = match(model, atom);
         if (found.relations.size === 1) return quoted;
     }

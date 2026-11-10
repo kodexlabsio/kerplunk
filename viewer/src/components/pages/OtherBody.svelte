@@ -2,6 +2,7 @@
     import { untrack } from 'svelte';
     import { i18n, t } from '../../lib/i18n.svelte';
     import { kindName } from '../../lib/labels';
+    import { safeHref } from '../../lib/markdown';
     import { attr, display } from '../../lib/model';
     import type { GraphNode } from '../../lib/types';
     import type { Viewer } from '../../lib/viewer.svelte';
@@ -27,7 +28,6 @@
         ['type', t('detail.type')],
         ['maturity', t('detail.maturity')],
         ['label', t('detail.label')],
-        ['url', t('detail.url')],
         ['test', t('detail.testType')],
         ['severity', t('detail.severity')],
         ['column', t('detail.column')],
@@ -68,6 +68,8 @@
     const downs = (model.downAdj.get(id) ?? []).filter(x => model.node(x)?.kind !== 'task');
     const targets = n.kind === 'test' ? model.testTargets(id) : [];
     const command = attr<string>(n, 'bash_command');
+    // An exposure's address, as a link only when it is a web or mail address.
+    const url = safeHref(String(attr(n, 'url') ?? ''));
 
     function order(ids: string[]): string[] {
         // Tasks in the order "precedes" gives, ties by name.
@@ -98,10 +100,12 @@
     const quoted = /^[\w.]+$/.test(label) ? label : JSON.stringify(label);
 </script>
 
-{#if details.length}
+{#if details.length || url}
     <dl class="details">
         {#each details as [k, v] (k)}<dt>{k}</dt>
             <dd class="mono">{v}</dd>{/each}
+        {#if url}<dt>{t('detail.url')}</dt>
+            <dd><a href={url} target="_blank" rel="noopener noreferrer">{url}</a></dd>{/if}
     </dl>
 {/if}
 

@@ -149,6 +149,7 @@ const messages: Catalogue = {
     'overview.health': 'Estado',
     'overview.conflicts':
         '{count, plural, =0 {Ninguna definición en conflicto} one {# definición en conflicto} other {# definiciones en conflicto}}',
+    'overview.conflictsNotRun': 'Ejecuta konstruct conflicts para encontrar definiciones en conflicto',
     'overview.warnings':
         '{count, plural, =0 {Ningún aviso de compilación} one {# aviso de compilación} other {# avisos de compilación}}',
     'overview.terms':
@@ -357,6 +358,10 @@ const messages: Catalogue = {
     'lineage.nothingSelected': 'La selección no coincide con nada.',
     'lineage.nothingShown': 'Nada que mostrar con estos filtros.',
     'lineage.empty': 'No hay tablas ni modelos en este grafo.',
+    'lineage.error.empty': '«{text}» no selecciona nada',
+    'lineage.error.atWithPlus': '«{text}» no puede combinar @ con +',
+    'lineage.error.unknownMethod': 'Método de selector desconocido «{method}:» en «{text}»',
+    'lineage.error.noValue': '«{method}:» necesita un valor',
 
     'inspector.label': 'El grafo como lista',
     'inspector.title': 'Como lista',
@@ -422,6 +427,8 @@ const messages: Catalogue = {
     'conflicts.lead':
         '{count, plural, one {# par de columnas parece} other {# pares de columnas parecen}} calcular la misma idea de forma distinta, entre {candidates, number} columnas calculadas. Primero las de mayor alcance.',
     'conflicts.none': 'Ninguna definición en conflicto entre {candidates, number} columnas calculadas.',
+    'conflicts.notRun':
+        'Las definiciones en conflicto las encuentra konstruct conflicts; ejecútalo para verlas aquí.',
     'conflicts.weight': 'peso aguas abajo {score, number}',
     'conflicts.why': 'Comparadas porque {reason}.',
     'conflicts.versus': 'frente a',

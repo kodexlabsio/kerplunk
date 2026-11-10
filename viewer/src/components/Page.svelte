@@ -43,4 +43,6 @@
     <Tests {viewer} />
 {:else if r.page === 'warnings'}
     <Warnings {viewer} />
+{:else}
+    <NotFound {viewer} what={r.id ?? ''} />
 {/if}

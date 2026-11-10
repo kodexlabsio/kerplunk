@@ -43,6 +43,8 @@
     const generated = meta.generated_at ? String(meta.generated_at) : '';
     // The dbt projects' {% docs __overview__ %} blocks, which dbt's site opens on.
     const overviews = Object.entries((meta.overviews ?? {}) as Record<string, string>);
+    // svelte-ignore state_referenced_locally
+    const conflictsRun = viewer.conflicts.candidates !== undefined;
 </script>
 
 <article class="page overview">
@@ -160,7 +162,11 @@
             <ul class="facts-list">
                 <li>
                     <Icon kind="conflicts" />
-                    <a href="#/conflicts">{t('overview.conflicts', { count: conflicts.length })}</a>
+                    {#if conflictsRun}
+                        <a href="#/conflicts">{t('overview.conflicts', { count: conflicts.length })}</a>
+                    {:else}
+                        <span>{t('overview.conflictsNotRun')}</span>
+                    {/if}
                 </li>
                 <li>
                     <Icon kind="warnings" />

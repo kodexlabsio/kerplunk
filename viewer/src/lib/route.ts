@@ -16,7 +16,8 @@ export const PAGES = [
     'warnings',
 ] as const;
 
-export type Page = (typeof PAGES)[number];
+/** A page the address names, or 'notfound' for an address the viewer does not know. */
+export type Page = (typeof PAGES)[number] | 'notfound';
 
 export interface Route {
     page: Page;
@@ -35,7 +36,7 @@ export interface Route {
 }
 
 const PARAMS = ['select', 'exclude', 'focus', 'kind', 'tag', 'package', 'q'] as const;
-const WITH_ID: ReadonlySet<Page> = new Set(['node', 'entity']);
+const WITH_ID: ReadonlySet<Page> = new Set(['node', 'entity', 'notfound']);
 
 function decode(text: string): string {
     try {
@@ -65,10 +66,10 @@ export function parseRoute(hash: string): Route {
     const head = decode(slash < 0 ? path : path.slice(0, slash));
     const rest = slash < 0 ? '' : decode(path.slice(slash + 1));
     const page = (PAGES as readonly string[]).includes(head) ? (head as Page) : null;
-    if (!page) return { page: 'overview' };
+    if (!page) return { page: 'notfound', id: path };
     const route: Route = { page };
     if (WITH_ID.has(page)) {
-        if (!rest) return { page: 'overview' };
+        if (!rest) return { page: 'notfound', id: path };
         route.id = rest;
     }
     for (const pair of query.split('&')) {

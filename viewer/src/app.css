@@ -468,6 +468,10 @@ mark {
     background: var(--field);
     color: var(--text-3);
 }
+.tree-filter:focus-within {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+}
 .tree-filter input {
     flex: 1;
     min-inline-size: 0;
@@ -2040,10 +2044,11 @@ table.data .clip {
     dominant-baseline: central;
     text-anchor: end;
 }
-.node .toggle rect {
+.node .toggle rect,
+.handle .hit {
     fill: transparent;
 }
-.node .toggle:hover rect {
+.node .toggle:hover rect:not(.hit) {
     fill: var(--accent-soft);
 }
 .node .chev {
@@ -2113,7 +2118,7 @@ table.data .clip {
 .node.dim {
     opacity: 0.3;
 }
-.handle circle {
+.handle circle:not(.hit) {
     fill: var(--accent);
 }
 .handle text {
@@ -2211,7 +2216,8 @@ table.data .clip {
 /* Narrow windows and zoomed-in pages: the navigation becomes a drawer. */
 
 @media (max-width: 1000px) {
-    #app {
+    #app,
+    #app.full {
         grid-template-columns: minmax(0, 1fr);
         grid-template-areas:
             'top'
@@ -2327,6 +2333,49 @@ table.data .clip {
     }
     .docked #dock {
         block-size: max(360px, 85vh);
+    }
+}
+@media (max-width: 480px) {
+    /* Phones and 200% zoom on small screens: every top bar control stays on screen. The home
+       link is in the navigation, so the brand gives way. */
+    #topbar {
+        gap: 4px;
+        padding-inline: 6px;
+    }
+    .brand {
+        display: none;
+    }
+    .search-button {
+        flex: none;
+        inline-size: 36px;
+        padding: 0;
+        justify-content: center;
+        block-size: 36px;
+    }
+    .search-button kbd {
+        display: none;
+    }
+    .search-button .placeholder {
+        position: absolute;
+        inline-size: 1px;
+        block-size: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+    .tools {
+        gap: 4px;
+        margin-inline-start: auto;
+    }
+    .icon-button {
+        inline-size: 36px;
+        block-size: 36px;
+    }
+    .language {
+        padding-inline-start: 6px;
+    }
+    .language select {
+        max-inline-size: 58px;
     }
 }
 @media (prefers-reduced-motion: reduce) {

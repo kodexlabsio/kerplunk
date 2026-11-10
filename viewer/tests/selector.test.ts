@@ -23,10 +23,17 @@ describe('selector parsing', () => {
     });
 
     it('reports unknown methods, empty values and @ with +', () => {
-        expect(parseAtom('colour:red')).toBe('unknown method "colour:"');
-        expect(parseAtom('tag:')).toBe('"tag:" needs a value');
-        expect(parseAtom('@+orders')).toContain('cannot combine');
-        expect(parseSelector('orders colour:red').errors).toEqual(['unknown method "colour:"']);
+        expect(parseAtom('colour:red')).toEqual({
+            code: 'unknownMethod',
+            text: 'colour:red',
+            method: 'colour',
+        });
+        expect(parseAtom('tag:')).toEqual({ code: 'noValue', text: 'tag:', method: 'tag' });
+        expect(parseAtom('@+orders')).toEqual({ code: 'atWithPlus', text: '@+orders' });
+        expect(parseAtom('+@orders')).toEqual({ code: 'atWithPlus', text: '+@orders' });
+        expect(parseAtom('2+@orders')).toEqual({ code: 'atWithPlus', text: '2+@orders' });
+        expect(parseAtom('+')).toEqual({ code: 'empty', text: '+' });
+        expect(parseSelector('orders colour:red ,').errors.map(e => e.code)).toEqual(['unknownMethod']);
     });
 
     it('splits unions on spaces and intersections on commas, keeping quoted values whole', () => {

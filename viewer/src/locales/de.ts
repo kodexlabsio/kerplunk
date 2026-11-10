@@ -150,6 +150,8 @@ const messages: Catalogue = {
     'overview.health': 'Zustand',
     'overview.conflicts':
         '{count, plural, =0 {Keine widersprüchlichen Definitionen} one {# widersprüchliche Definition} other {# widersprüchliche Definitionen}}',
+    'overview.conflictsNotRun':
+        'Führen Sie konstruct conflicts aus, um widersprüchliche Definitionen zu finden',
     'overview.warnings':
         '{count, plural, =0 {Keine Build-Warnungen} one {# Build-Warnung} other {# Build-Warnungen}}',
     'overview.terms':
@@ -358,6 +360,10 @@ const messages: Catalogue = {
     'lineage.nothingSelected': 'Die Auswahl trifft nichts.',
     'lineage.nothingShown': 'Mit diesen Filtern gibt es nichts zu zeigen.',
     'lineage.empty': 'Keine Tabellen oder Modelle in diesem Graphen.',
+    'lineage.error.empty': '„{text}“ wählt nichts aus',
+    'lineage.error.atWithPlus': '„{text}“ kann @ nicht mit + verbinden',
+    'lineage.error.unknownMethod': 'Unbekannte Selektormethode „{method}:“ in „{text}“',
+    'lineage.error.noValue': '„{method}:“ braucht einen Wert',
 
     'inspector.label': 'Der Graph als Liste',
     'inspector.title': 'Als Liste',
@@ -422,6 +428,8 @@ const messages: Catalogue = {
     'conflicts.lead':
         '{count, plural, one {# Spaltenpaar scheint} other {# Spaltenpaare scheinen}} dieselbe Idee unterschiedlich zu berechnen, unter {candidates, number} berechneten Spalten. Die folgenreichsten zuerst.',
     'conflicts.none': 'Keine widersprüchlichen Definitionen unter {candidates, number} berechneten Spalten.',
+    'conflicts.notRun':
+        'Widersprüchliche Definitionen findet konstruct conflicts; führen Sie es aus, um sie hier zu zeigen.',
     'conflicts.weight': 'Gewicht stromabwärts {score, number}',
     'conflicts.why': 'Verglichen, weil sie {reason}.',
     'conflicts.versus': 'gegen',

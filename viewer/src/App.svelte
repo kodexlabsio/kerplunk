@@ -36,7 +36,7 @@
         const r = viewer.route;
         const subject =
             r.page === 'node' && r.id ? viewer.model.label(r.id) : r.page === 'entity' ? r.id : null;
-        const page = subject ?? t(`page.${r.page}`);
+        const page = subject ?? (r.page === 'notfound' ? t('notFound.title') : t(`page.${r.page}`));
         document.title =
             r.page === 'overview' ? t('app.title', { project }) : t('app.titleOf', { page, project });
     });

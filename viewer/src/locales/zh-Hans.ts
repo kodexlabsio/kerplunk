@@ -148,6 +148,7 @@ const messages: Catalogue = {
     'overview.notVerified': '运行 konstruct verify 可用数据检查列级血缘。',
     'overview.health': '健康状况',
     'overview.conflicts': '{count, plural, =0 {没有冲突的定义} other {# 个冲突的定义}}',
+    'overview.conflictsNotRun': '运行 konstruct conflicts 查找冲突的定义',
     'overview.warnings': '{count, plural, =0 {没有构建警告} other {# 条构建警告}}',
     'overview.terms': '{count, number} 个业务术语，{approved, number} 个已批准，{bound, number} 个已绑定到列',
     'overview.entities': '{count, number} 个实体和 {relationships, number} 个关系',
@@ -349,6 +350,10 @@ const messages: Catalogue = {
     'lineage.nothingSelected': '选择未匹配任何内容。',
     'lineage.nothingShown': '在这些筛选条件下没有可显示的内容。',
     'lineage.empty': '此图中没有表或模型。',
+    'lineage.error.empty': '“{text}”未选择任何内容',
+    'lineage.error.atWithPlus': '“{text}”不能同时使用 @ 和 +',
+    'lineage.error.unknownMethod': '“{text}”中的选择器方法“{method}:”未知',
+    'lineage.error.noValue': '“{method}:”需要一个值',
 
     'inspector.label': '以列表形式显示的图',
     'inspector.title': '列表',
@@ -409,6 +414,7 @@ const messages: Catalogue = {
     'conflicts.lead':
         '在 {candidates, number} 个计算列中，有 {count, number} 对列似乎以不同方式计算同一概念。影响最大的排在前面。',
     'conflicts.none': '{candidates, number} 个计算列中没有冲突的定义。',
+    'conflicts.notRun': '冲突的定义由 konstruct conflicts 查找；运行它即可在此显示。',
     'conflicts.weight': '下游权重 {score, number}',
     'conflicts.why': '比较原因：{reason}。',
     'conflicts.versus': '对比',

@@ -153,6 +153,7 @@ const messages: Catalogue = {
     'overview.health': 'Kondycja',
     'overview.conflicts':
         '{count, plural, =0 {Brak sprzecznych definicji} one {# sprzeczna definicja} few {# sprzeczne definicje} many {# sprzecznych definicji} other {# sprzecznej definicji}}',
+    'overview.conflictsNotRun': 'Uruchom konstruct conflicts, aby znaleźć sprzeczne definicje',
     'overview.warnings':
         '{count, plural, =0 {Brak ostrzeżeń budowania} one {# ostrzeżenie budowania} few {# ostrzeżenia budowania} many {# ostrzeżeń budowania} other {# ostrzeżenia budowania}}',
     'overview.terms':
@@ -359,6 +360,10 @@ const messages: Catalogue = {
     'lineage.nothingSelected': 'Wybór niczego nie obejmuje.',
     'lineage.nothingShown': 'Z tymi filtrami nie ma nic do pokazania.',
     'lineage.empty': 'W tym grafie nie ma tabel ani modeli.',
+    'lineage.error.empty': '„{text}” niczego nie wybiera',
+    'lineage.error.atWithPlus': '„{text}” nie może łączyć @ z +',
+    'lineage.error.unknownMethod': 'Nieznana metoda selektora „{method}:” w „{text}”',
+    'lineage.error.noValue': '„{method}:” wymaga wartości',
 
     'inspector.label': 'Graf jako lista',
     'inspector.title': 'Jako lista',
@@ -423,6 +428,7 @@ const messages: Catalogue = {
     'conflicts.lead':
         'Pary kolumn, które zdają się liczyć to samo pojęcie inaczej: {count, number}, spośród {candidates, number} kolumn obliczanych. Najpierw te o największych skutkach.',
     'conflicts.none': 'Brak sprzecznych definicji wśród {candidates, number} kolumn obliczanych.',
+    'conflicts.notRun': 'Sprzeczne definicje znajduje konstruct conflicts; uruchom je, aby pokazać je tutaj.',
     'conflicts.weight': 'waga poniżej {score, number}',
     'conflicts.why': 'Porównane, ponieważ {reason}.',
     'conflicts.versus': 'kontra',

@@ -156,6 +156,7 @@ const messages: Catalogue = {
     'overview.notVerified': 'شغّل konstruct verify للتحقق من نسب الأعمدة على البيانات.',
     'overview.health': 'الحالة',
     'overview.conflicts': '{count, plural, =0 {لا تعريفات متعارضة} other {تعريفات متعارضة: #}}',
+    'overview.conflictsNotRun': 'شغّل konstruct conflicts للعثور على التعريفات المتعارضة',
     'overview.warnings': '{count, plural, =0 {لا تحذيرات بناء} other {تحذيرات البناء: #}}',
     'overview.terms':
         'مصطلحات الأعمال: {count, number}، المعتمدة: {approved, number}، المرتبطة بأعمدة: {bound, number}',
@@ -358,6 +359,10 @@ const messages: Catalogue = {
     'lineage.nothingSelected': 'التحديد لا يطابق شيئًا.',
     'lineage.nothingShown': 'لا شيء للعرض بهذه المرشحات.',
     'lineage.empty': 'لا جداول ولا نماذج في هذا الرسم.',
+    'lineage.error.empty': '«{text}» لا يحدد شيئًا',
+    'lineage.error.atWithPlus': 'لا يمكن الجمع بين @ و+ في «{text}»',
+    'lineage.error.unknownMethod': 'طريقة تحديد غير معروفة «{method}:» في «{text}»',
+    'lineage.error.noValue': '«{method}:» يحتاج إلى قيمة',
 
     'inspector.label': 'الرسم في صورة قائمة',
     'inspector.title': 'في صورة قائمة',
@@ -419,6 +424,7 @@ const messages: Catalogue = {
     'conflicts.lead':
         'أزواج الأعمدة التي يبدو أنها تحسب الفكرة نفسها بطرق مختلفة: {count, number}، من بين {candidates, number} عمودًا محسوبًا. الأشد أثرًا أولًا.',
     'conflicts.none': 'لا تعريفات متعارضة بين {candidates, number} عمودًا محسوبًا.',
+    'conflicts.notRun': 'يجد الأمر konstruct conflicts التعريفات المتعارضة؛ شغّله لعرضها هنا.',
     'conflicts.weight': 'الوزن في المصب {score, number}',
     'conflicts.why': 'قورنت لأنها {reason}.',
     'conflicts.versus': 'مقابل',

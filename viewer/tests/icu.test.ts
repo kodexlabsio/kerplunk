@@ -32,6 +32,11 @@ describe('ICU messages', () => {
         expect(f('{a, plural, one {{b} and # more} other {{b} and # others}}', { a: 3, b: 'x' })).toBe(
             'x and 3 others',
         );
+        // A select inside a plural still counts with #; a select alone shows # as it is.
+        expect(f('{n, plural, other {{s, select, a {# apples} other {# things}}}}', { n: 4, s: 'a' })).toBe(
+            '4 apples',
+        );
+        expect(f('{s, select, other {# sign}}', { s: 'x' })).toBe('# sign');
     });
 
     it('rejects broken messages', () => {

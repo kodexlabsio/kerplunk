@@ -12,9 +12,10 @@
     import {
         collectStyles,
         fileName,
-        pngDataUrl,
+        pngBlob,
         pngScale,
         save,
+        saveBlob,
         svgDataUrl,
         svgDocument,
     } from '../lib/export';
@@ -23,7 +24,8 @@
     import { kindName, transformName } from '../lib/labels';
     import { bounds, curve, HEAD, PAD, ROW, W } from '../lib/layout';
     import { attr, VIEW_KINDS } from '../lib/model';
-    import { reference } from '../lib/selector';
+    import type { MessageKey } from '../locales/en-GB';
+    import { reference, type SelectorError } from '../lib/selector';
     import { fitText, FONT_MONO, FONT_NAME, FONT_ROW, textWidth } from '../lib/text';
     import { DASH, TRANSFORMS, type Transform } from '../lib/transform';
     import type { Point } from '../lib/types';
@@ -32,6 +34,13 @@
     import Inspector from './Inspector.svelte';
 
     // The viewer is made once and never replaced.
+    const ERROR_KEYS: Record<SelectorError['code'], MessageKey> = {
+        empty: 'lineage.error.empty',
+        atWithPlus: 'lineage.error.atWithPlus',
+        unknownMethod: 'lineage.error.unknownMethod',
+        noValue: 'lineage.error.noValue',
+    };
+
     const props: { viewer: Viewer } = $props();
     const viewer = untrack(() => props.viewer);
     // svelte-ignore state_referenced_locally
@@ -510,6 +519,11 @@
         if (card && !target.closest('[data-col]')) viewer.toggleColumns(card.getAttribute('data-id')!);
     }
 
+    /** A size in graph units that is at least 24 screen pixels at the current zoom. */
+    function hit(size: number): number {
+        return Math.max(size, 24 / view.k);
+    }
+
     function zoomButton(factor: number): void {
         zoomAt(size.w / 2, size.h / 2, factor);
     }
@@ -619,7 +633,7 @@
             else {
                 const w = b.w + 80;
                 const h = b.h + 80;
-                save(await pngDataUrl(doc, w, h, pngScale(w, h)), name);
+                saveBlob(await pngBlob(doc, w, h, pngScale(w, h)), name);
             }
             announcement = t('lineage.exported', { name });
         } catch {
@@ -822,8 +836,10 @@
     </form>
     <p class="selector-status" id="selector-status" role="status" aria-live="polite">
         <span>{t('lineage.showing', { count: viewer.target.size, total: model.viewNodes.length })}</span>
-        {#each viewer.selector.errors.concat(viewer.excluded.errors) as error (error)}<span class="warn"
-                >{error}</span
+        <!-- Spaces between the messages, so they read as separate sentences. -->
+        {#each viewer.selector.errors.concat(viewer.excluded.errors) as error, i (i)}{' '}<span
+                class="warn selector-error"
+                >{t(ERROR_KEYS[error.code], { text: error.text, method: error.method ?? '' })}</span
             >{/each}
         {#if viewer.selection.unmatched.length}<span class="warn"
                 >{t('lineage.unmatched', { atoms: viewer.selection.unmatched.join(', ') })}</span
@@ -937,6 +953,14 @@
                                     >
                                     {#if card.all.length}
                                         <g class="toggle" data-toggle={card.id}>
+                                            <!-- At least 24 by 24 screen pixels to hit, however far out (WCAG 2.5.8). -->
+                                            <rect
+                                                class="hit"
+                                                x={W - 36 - hit(56) / 2}
+                                                y={HEAD / 2 - hit(HEAD - 16) / 2}
+                                                width={hit(56)}
+                                                height={hit(HEAD - 16)}
+                                            />
                                             <rect x={W - 64} y="8" width="56" height={HEAD - 16} rx="10" />
                                             <title
                                                 >{open
@@ -1006,7 +1030,9 @@
                                             transform="translate(-14,{HEAD / 2})"
                                         >
                                             <title>{t('lineage.expandUp', { count: hiddenUp })}</title>
-                                            <circle r="11" /><text>+{hiddenUp}</text>
+                                            <circle class="hit" r={hit(24) / 2} /><circle r="11" /><text
+                                                >+{hiddenUp}</text
+                                            >
                                         </g>
                                     {/if}
                                     {#if hiddenDown}
@@ -1017,7 +1043,9 @@
                                             transform="translate({W + 14},{HEAD / 2})"
                                         >
                                             <title>{t('lineage.expandDown', { count: hiddenDown })}</title>
-                                            <circle r="11" /><text>+{hiddenDown}</text>
+                                            <circle class="hit" r={hit(24) / 2} /><circle r="11" /><text
+                                                >+{hiddenDown}</text
+                                            >
                                         </g>
                                     {/if}
                                 {/if}

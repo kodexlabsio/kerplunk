@@ -73,7 +73,7 @@ class Parser {
             } else if (c === '{') {
                 flush();
                 this.i++;
-                parts.push(this.argument());
+                parts.push(this.argument(plural));
             } else if (c === '}') {
                 if (!nested) this.fail('unmatched "}"');
                 flush();
@@ -92,7 +92,8 @@ class Parser {
         return parts;
     }
 
-    argument(): Part {
+    /** An argument; ``inPlural`` because a select inside a plural still uses # for the count. */
+    argument(inPlural: boolean): Part {
         const arg = this.word();
         this.skip();
         if (this.text[this.i] === '}') {
@@ -128,7 +129,7 @@ class Parser {
                 continue;
             }
             this.expect('{');
-            options[key] = this.message(true, type !== 'select');
+            options[key] = this.message(true, type !== 'select' || inPlural);
             this.i++;
         }
         if (!options.other) this.fail(`${type} needs an "other" option`);

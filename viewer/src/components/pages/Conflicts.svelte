@@ -48,9 +48,13 @@
     <header class="page-head">
         <h1 tabindex="-1">{t('page.conflicts')}</h1>
         <p class="lead">
-            {conflicts.length
-                ? t('conflicts.lead', { count: conflicts.length, candidates: data.candidates ?? 0 })
-                : t('conflicts.none', { candidates: data.candidates ?? 0 })}
+            {#if data.candidates === undefined}
+                {t('conflicts.notRun')}
+            {:else if conflicts.length}
+                {t('conflicts.lead', { count: conflicts.length, candidates: data.candidates })}
+            {:else}
+                {t('conflicts.none', { candidates: data.candidates })}
+            {/if}
         </p>
     </header>
     {#each conflicts as c, i (i)}

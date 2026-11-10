@@ -1,14 +1,28 @@
-// Where the graph comes from. The page works two ways:
+// Where the graph comes from. The page works two ways.
 //
-// - Static (graph.html): Konstruct fills the two JSON placeholders when it writes the file, and
-//   nothing is fetched.
-// - Served (`konstruct serve`): the server marks the page with <meta name="konstruct-serve"
-//   content="BASE">, where BASE is the address the files are under ("" or "/" for the page's
-//   own origin). The page then fetches BASE/graph.json (and BASE/explain.json, which may be
-//   missing), and listens to server-sent events on BASE/events, loading the graph again when one
-//   arrives.
+// Static (graph.html): Konstruct fills the two JSON placeholders, konstruct-data (the graph) and
+// konstruct-explain (formulas, SQL, ontology, conflicts), when it writes the file. Nothing is
+// fetched.
 //
-// Everything about loading the graph is in this module, so that the server can change only this.
+// Served: a server sends the built viewer.html unchanged except for one element in <head>,
+//
+//     <meta name="konstruct-serve" content="BASE">
+//
+// where BASE is the path the server's files are under, with no trailing slash ("" for the
+// root). It must be on the page's own origin: the page's Content-Security-Policy allows
+// connections only there. The page then
+//
+// - fetches GET BASE/graph.json: Graph.to_dict(), the same JSON as konstruct-out/graph.json;
+// - fetches GET BASE/explain.json: the same object Konstruct puts in konstruct-explain. It is
+//   optional: a missing or failing response shows the pages without formulas, SQL, the ontology
+//   and conflicts;
+// - opens GET BASE/events as server-sent events (text/event-stream). Any message, whatever its
+//   data, means the graph changed: the page fetches both files again (once for a burst of
+//   messages within 150 ms) and redraws in place, keeping the page, the selection, the zoom and
+//   pan, the scroll position and the open columns. Unnamed events only: the page listens with
+//   onmessage.
+//
+// Everything about loading the graph is in this module, so that a server needs nothing else.
 
 import type { Explanations, GraphData } from './types';
 

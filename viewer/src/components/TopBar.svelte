@@ -16,6 +16,14 @@
         href?: string;
     }
 
+    // macOS shows the Command key, which the palette also answers to.
+    const mac = /Mac|iPhone|iPad/.test(
+        (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ??
+            navigator.platform ??
+            '',
+    );
+    const shortcut = mac ? '\u2318 K' : 'Ctrl K';
+
     const crumbs: Crumb[] = $derived.by(() => {
         const r = viewer.route;
         const list: Crumb[] = [];
@@ -49,6 +57,7 @@
             }
         } else if (r.page === 'entity' && r.id)
             list.push({ text: t('page.ontology'), href: '#/ontology' }, { text: r.id });
+        else if (r.page === 'notfound') list.push({ text: t('notFound.title') });
         else if (r.page !== 'overview') list.push({ text: t(`page.${r.page}`) });
         return list;
     });
@@ -89,11 +98,11 @@
         class="search-button"
         onclick={() => (viewer.paletteOpen = true)}
         aria-haspopup="dialog"
-        aria-keyshortcuts="Control+K /"
+        aria-keyshortcuts={mac ? 'Meta+K /' : 'Control+K /'}
     >
         <Icon kind="search" />
         <span class="placeholder">{t('search.button')}</span>
-        <kbd aria-hidden="true">Ctrl K</kbd>
+        <kbd aria-hidden="true">{shortcut}</kbd>
     </button>
     <div class="tools">
         <a

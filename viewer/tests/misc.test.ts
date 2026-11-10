@@ -111,6 +111,9 @@ describe('export', () => {
         expect(fileName('jaffle shop', 'png')).toBe('jaffle-shop-lineage.png');
         expect(pngScale(1000, 1000)).toBe(2);
         expect(pngScale(40000, 1000)).toBeLessThan(1);
+        // About 32 megapixels at most.
+        const scale = pngScale(6000, 6000);
+        expect(6000 * scale * 6000 * scale).toBeLessThan(32_000_001);
     });
 });
 

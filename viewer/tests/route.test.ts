@@ -38,8 +38,8 @@ describe('routes', () => {
         });
         expect(parseRoute('#term.order_amount')).toEqual({ page: 'node', id: 'term.order_amount' });
         expect(parseRoute('')).toEqual({ page: 'overview' });
-        expect(parseRoute('#/nowhere')).toEqual({ page: 'overview' });
-        expect(parseRoute('#/node')).toEqual({ page: 'overview' });
+        expect(parseRoute('#/nowhere')).toEqual({ page: 'notfound', id: 'nowhere' });
+        expect(parseRoute('#/node')).toEqual({ page: 'notfound', id: 'node' });
         expect(parseRoute('#/browse?kind=model&unknown=1&tag=')).toEqual({ page: 'browse', kind: 'model' });
         expect(parseRoute('#/node/%E0%A4%A')).toEqual({ page: 'node', id: '%E0%A4%A' });
     });

@@ -70,8 +70,9 @@ export function svgDocument(
     );
 }
 
-/** The scale for a PNG of ``w`` by ``h``: 2x, smaller when a browser canvas could not hold it. */
-export function pngScale(w: number, h: number, wanted = 2, maxSide = 16000, maxArea = 120_000_000): number {
+/** The scale for a PNG of ``w`` by ``h``: 2x, smaller beyond about 32 megapixels, which every
+ * browser's canvas can hold and encode. */
+export function pngScale(w: number, h: number, wanted = 2, maxSide = 16000, maxArea = 32_000_000): number {
     return Math.max(0.05, Math.min(wanted, maxSide / w, maxSide / h, Math.sqrt(maxArea / (w * h))));
 }
 
@@ -95,8 +96,8 @@ export function svgDataUrl(svg: string): string {
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-/** Draw the SVG on a canvas and return it as a PNG data URL. */
-export async function pngDataUrl(svg: string, width: number, height: number, scale: number): Promise<string> {
+/** Draw the SVG on a canvas and return it as a PNG file. */
+export async function pngBlob(svg: string, width: number, height: number, scale: number): Promise<Blob> {
     const image = new Image();
     image.decoding = 'async';
     const loaded = new Promise<void>((resolve, reject) => {
@@ -112,5 +113,15 @@ export async function pngDataUrl(svg: string, width: number, height: number, sca
     if (!context) throw new Error('no canvas');
     context.scale(scale, scale);
     context.drawImage(image, 0, 0, width, height);
-    return canvas.toDataURL('image/png');
+    // toBlob encodes without building a data URL several times the size of the image.
+    return new Promise((resolve, reject) =>
+        canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('no PNG'))), 'image/png'),
+    );
+}
+
+/** Save a file made in the page, without leaving it. */
+export function saveBlob(blob: Blob, name: string): void {
+    const url = URL.createObjectURL(blob);
+    save(url, name);
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }

@@ -149,6 +149,7 @@ const messages: Catalogue = {
     'overview.health': 'स्थिति',
     'overview.conflicts':
         '{count, plural, =0 {कोई टकराती परिभाषा नहीं} one {# टकराती परिभाषा} other {# टकराती परिभाषाएँ}}',
+    'overview.conflictsNotRun': 'टकराती परिभाषाएँ ढूँढने के लिए konstruct conflicts चलाएँ',
     'overview.warnings':
         '{count, plural, =0 {कोई बिल्ड चेतावनी नहीं} one {# बिल्ड चेतावनी} other {# बिल्ड चेतावनियाँ}}',
     'overview.terms':
@@ -353,6 +354,10 @@ const messages: Catalogue = {
     'lineage.nothingSelected': 'चयन किसी से मेल नहीं खाता।',
     'lineage.nothingShown': 'इन फ़िल्टर के साथ दिखाने को कुछ नहीं।',
     'lineage.empty': 'इस ग्राफ़ में कोई टेबल या मॉडल नहीं है।',
+    'lineage.error.empty': '"{text}" कुछ नहीं चुनता',
+    'lineage.error.atWithPlus': '"{text}" में @ और + एक साथ नहीं हो सकते',
+    'lineage.error.unknownMethod': '"{text}" में अज्ञात सेलेक्टर विधि "{method}:"',
+    'lineage.error.noValue': '"{method}:" को एक मान चाहिए',
 
     'inspector.label': 'सूची के रूप में ग्राफ़',
     'inspector.title': 'सूची के रूप में',
@@ -415,6 +420,8 @@ const messages: Catalogue = {
     'conflicts.lead':
         '{candidates, number} गणना किए गए कॉलम में से {count, number} कॉलम-जोड़े एक ही विचार को अलग ढंग से गिनते लगते हैं। सबसे प्रभावशाली पहले।',
     'conflicts.none': '{candidates, number} गणना किए गए कॉलम में कोई टकराती परिभाषा नहीं।',
+    'conflicts.notRun':
+        'टकराती परिभाषाएँ konstruct conflicts ढूँढता है; उन्हें यहाँ दिखाने के लिए इसे चलाएँ।',
     'conflicts.weight': 'डाउनस्ट्रीम भार {score, number}',
     'conflicts.why': 'तुलना का कारण: {reason}।',
     'conflicts.versus': 'बनाम',
