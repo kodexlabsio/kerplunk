@@ -556,6 +556,7 @@ def parser() -> argparse.ArgumentParser:
     historical.add_argument('ref', metavar='COLUMN', help='e.g. customers.lifetime_value')
     historical.add_argument(
         '-n',
+        '-n',
         '--limit',
         type=int,
         default=50,
@@ -612,6 +613,7 @@ def parser() -> argparse.ArgumentParser:
         default='text',
         help='markdown suits a pull request comment; selector prints only the dbt --select',
     )
+    diff.add_argument('--json', action='store_true', help='print JSON instead of text')
     diff.add_argument('--json-file', metavar='FILE', help='also write the result as JSON to FILE (for CI)')
     diff.add_argument(
         '--fail-on-breaking', action='store_true', help='exit with status 1 on a breaking change'
@@ -619,13 +621,14 @@ def parser() -> argparse.ArgumentParser:
     diff.add_argument('--graph', metavar='FILE', help='use this graph.json instead of finding konstruct-out')
     diff.add_argument('--refresh', action='store_true', help='update the graph first if its inputs changed')
     diff.add_argument('--no-build', action='store_true', help='fail rather than build a missing graph')
-    diff.set_defaults(func=cmd_diff, json=False)
+    diff.set_defaults(func=cmd_diff)
 
     gate_ = add('gate', 'the check a change must pass before it is proposed (exits 1 when it fails)')
     gate_.add_argument(
         '--base', metavar='REF', help='commit or date to compare with (default: the merge base with main)'
     )
     gate_.add_argument('--format', choices=['text', 'markdown', 'json'], default='text')
+    gate_.add_argument('--json', action='store_true', help='print JSON instead of text')
     gate_.add_argument('--json-file', metavar='FILE', help='also write the result as JSON to FILE (for CI)')
     gate_.add_argument('--graph', metavar='FILE', help='use this graph.json instead of finding konstruct-out')
     gate_.add_argument('--no-update', action='store_true', help='use the graph as it is (just built, say)')
@@ -633,7 +636,7 @@ def parser() -> argparse.ArgumentParser:
     gate_.add_argument(
         '--no-warehouse', action='store_true', help='connect to no warehouse when updating the graph'
     )
-    gate_.set_defaults(func=cmd_gate, json=False, refresh=False, no_build=False)
+    gate_.set_defaults(func=cmd_gate, refresh=False, no_build=False)
 
     verify = add(
         'verify',

@@ -320,3 +320,13 @@ def test_status_shows_what_the_last_build_read_from_the_warehouse(
         {'input': 'fivetran', 'name': 'stripe', 'detail': '12 tables'},
         {'input': 'usage', 'name': 'snowflake', 'detail': '12 columns queried in the last 90 days'},
     ]
+
+
+def test_diff_and_gate_take_json_and_history_takes_n() -> None:
+    from konstruct.interfaces.cli import parser
+
+    root = parser()
+    assert root.parse_args(['diff', '--json']).json
+    assert root.parse_args(['gate', '--json']).json
+    assert root.parse_args(['history', 'orders.amount', '-n', '5']).limit == 5
+    assert not root.parse_args(['diff']).json
