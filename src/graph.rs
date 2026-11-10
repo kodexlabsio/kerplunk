@@ -13,6 +13,16 @@ use std::sync::OnceLock;
 
 use crate::fnv::FnvHashMap;
 
+/// `index` as an ordinal: nodes, edges and words are numbered in `u32`, which keeps the indexes
+/// small.
+///
+/// # Panics
+///
+/// When `index` does not fit in a `u32`.
+pub(crate) fn ordinal(index: usize) -> u32 {
+    u32::try_from(index).expect("fewer than 2^32 nodes, edges and words")
+}
+
 /// The kind of an edge. The variants are in the alphabetical order of their names, so comparing
 /// kinds compares the names, as Python does when it sorts by them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -133,9 +143,9 @@ impl Adjacency {
         let mut next: Vec<u32> = offsets[..count].to_vec();
         let mut list = vec![0u32; edges.len()];
         // Edges are placed in ordinal order, so each node's slice keeps insertion order.
-        for (ordinal, edge) in edges.iter().enumerate() {
+        for (edge_ordinal, edge) in edges.iter().enumerate() {
             let slot = &mut next[endpoint(edge) as usize];
-            list[*slot as usize] = ordinal as u32;
+            list[*slot as usize] = ordinal(edge_ordinal);
             *slot += 1;
         }
         Self {
@@ -177,10 +187,10 @@ impl Interner {
         if let Some(&ordinal) = self.ordinals.get(id) {
             return ordinal;
         }
-        let ordinal = self.ids.len() as u32;
+        let next = ordinal(self.ids.len());
         self.ids.push(id.into());
-        self.ordinals.insert(id.into(), ordinal);
-        ordinal
+        self.ordinals.insert(id.into(), next);
+        next
     }
 }
 
@@ -528,12 +538,12 @@ impl GraphIndex {
 
     fn rank(&self) -> &[u32] {
         self.rank.get_or_init(|| {
-            let mut order: Vec<u32> = (0..self.ids.len() as u32).collect();
+            let mut order: Vec<u32> = (0..ordinal(self.ids.len())).collect();
             // UTF-8 byte order is code point order, which is how Python compares strings.
             order.sort_unstable_by(|&a, &b| self.ids[a as usize].cmp(&self.ids[b as usize]));
             let mut rank = vec![0u32; order.len()];
-            for (position, &ordinal) in order.iter().enumerate() {
-                rank[ordinal as usize] = position as u32;
+            for (position, &node) in order.iter().enumerate() {
+                rank[node as usize] = ordinal(position);
             }
             rank
         })
@@ -602,6 +612,17 @@ impl GraphIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ordinals_fit_in_32_bits() {
+        assert_eq!(ordinal(u32::MAX as usize), u32::MAX);
+    }
+
+    #[test]
+    #[should_panic(expected = "fewer than 2^32")]
+    fn an_ordinal_beyond_32_bits_is_refused() {
+        ordinal(u32::MAX as usize + 1);
+    }
 
     fn index(nodes: &[&str], edges: &[(&str, &str, &str)]) -> GraphIndex {
         let mut builder = GraphIndex::builder();

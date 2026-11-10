@@ -6,6 +6,7 @@
 //! names keep meaning the warehouse table it lands as.
 
 use crate::fnv::FnvHashMap;
+use crate::graph;
 
 /// One relation as the index is built from it. Names and ids are already in lower case.
 #[derive(Clone, Copy, Debug)]
@@ -36,7 +37,7 @@ impl RelationNames {
     pub fn new<'a>(relations: impl IntoIterator<Item = Relation<'a>>) -> Self {
         let mut index = Self::default();
         for (ordinal, relation) in relations.into_iter().enumerate() {
-            let ordinal = ordinal as u32;
+            let ordinal = graph::ordinal(ordinal);
             let mut add = |key: &str| {
                 let found = index.keys.entry(key.into()).or_default();
                 if found.last() != Some(&ordinal) {

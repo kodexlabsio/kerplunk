@@ -12,6 +12,7 @@
 use std::cmp::Ordering;
 
 use crate::fnv::FnvHashMap;
+use crate::graph;
 
 /// Words a question is made of that say nothing about what it is asking for.
 const STOPWORDS: &[&str] = &[
@@ -132,7 +133,7 @@ impl SearchIndex {
     fn word_numbers(&mut self, text: &str) -> Vec<u32> {
         let mut numbers: Vec<u32> = words(text)
             .map(|word| {
-                let next = self.vocabulary.len() as u32;
+                let next = graph::ordinal(self.vocabulary.len());
                 *self.vocabulary.entry(word.into()).or_insert_with(|| {
                     self.frequency.push(0);
                     next
@@ -207,7 +208,7 @@ impl SearchIndex {
             if &*entry.label == needle || &*entry.name == needle || synonym {
                 score += 10.0;
             }
-            scored.push((ordinal as u32, entry.standing.weigh(score)));
+            scored.push((graph::ordinal(ordinal), entry.standing.weigh(score)));
         }
         let order = |a: &(u32, f64), b: &(u32, f64)| -> Ordering {
             let (left, right) = (&self.entries[a.0 as usize], &self.entries[b.0 as usize]);

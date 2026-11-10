@@ -94,7 +94,10 @@ impl GraphIndex {
         }
         for (ordinal, parent) in parents.iter().enumerate() {
             if !parent.is_none() {
-                builder.parent(ordinal as u32, parent.cast_into::<PyString>()?.to_str()?);
+                builder.parent(
+                    graph::ordinal(ordinal),
+                    parent.cast_into::<PyString>()?.to_str()?,
+                );
             }
         }
         for (edge, task) in &through {
