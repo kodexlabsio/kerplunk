@@ -1,7 +1,7 @@
 // Layered layout: layers by longest path over feeds (cycles broken by depth-first search), order
-// within layers by barycentre sweeps, then cards stacked by their heights.
+// within layers by barycentre sweeps and then two-sided rounds, then cards stacked by their heights.
 
-import { byName, type GraphModel, type LayoutEdge } from './model';
+import { byName, codePoints, type GraphModel, type LayoutEdge } from './model';
 import type { Point } from './types';
 
 export const W = 268;
@@ -11,9 +11,8 @@ export const PAD = 6;
 export const COL_GAP = 104;
 export const ROW_GAP = 22;
 export const WRAP_GAP = 36;
-const SWEEPS = 8;
-/** Fewer sweeps in big graphs: each costs a sort of every layer, and the order settles early. */
-const BIG = 1500;
+/** Rounds of each kind of crossing reduction; few graphs gain anything after about a dozen. */
+const ROUNDS = 16;
 
 function push<K, V>(map: Map<K, V[]>, key: K, value: V): void {
     const list = map.get(key);
@@ -100,44 +99,134 @@ export function computeOrder(model: GraphModel, visible: Set<string>): string[][
     for (const targets of runsFrom.values()) if (Math.min(...targets) === 0) shift = 1;
     if (shift) for (const id of ids) layer.set(id, at(id) + shift);
     for (const [id, targets] of runsFrom) layer.set(id, Math.min(...targets) + shift - 1);
+    return reduceCrossings(model, ids, links, at).map(row => row.map(i => ids[i]!));
+}
+
+/**
+ * Each layer's order, as indices into ``ids``. Barycentre sweeps, downwards and upwards in turn,
+ * then two-sided rounds from the best order they found: the odd layers move to the mean position
+ * of their neighbours on both sides, then the even ones. Sweeps settle layered projects well, and
+ * the rounds then undo much of what sweeps leave in graphs whose edges span many layers. Each layer
+ * starts by package, then name, and the order with the fewest crossings is kept.
+ */
+function reduceCrossings(
+    model: GraphModel,
+    ids: string[],
+    links: LayoutEdge[],
+    at: (id: string) => number,
+): number[][] {
+    const n = ids.length;
+    const index = new Map(ids.map((id, i) => [id, i]));
+    const layerOf = new Int32Array(n);
     let depth = 0;
-    for (const id of ids) depth = Math.max(depth, at(id));
-    const layers: string[][] = Array.from({ length: depth + 1 }, () => []);
-    for (const id of ids) layers[at(id)]!.push(id);
-    const before = new Map(ids.map(id => [id, [] as string[]]));
-    const after = new Map(ids.map(id => [id, [] as string[]]));
+    ids.forEach((id, i) => {
+        layerOf[i] = at(id);
+        depth = Math.max(depth, layerOf[i]!);
+    });
+    const packages = ids.map(id => model.packageOf(model.node(id)!) ?? '');
+    const seeded = ids.map((_, i) => i);
+    seeded.sort((a, b) => codePoints(packages[a]!, packages[b]!) || a - b);
+    const start: number[][] = Array.from({ length: depth + 1 }, () => []);
+    for (const i of seeded) start[layerOf[i]!]!.push(i);
+    // Neighbours in earlier and later layers, each pair once.
+    const up: number[][] = ids.map(() => []);
+    const down: number[][] = ids.map(() => []);
+    const pairs = new Set<number>();
     for (const e of links) {
-        const ls = at(e.source);
-        const lt = at(e.target);
-        if (ls < lt) {
-            after.get(e.source)?.push(e.target);
-            before.get(e.target)?.push(e.source);
-        } else if (ls > lt) {
-            after.get(e.target)?.push(e.source);
-            before.get(e.source)?.push(e.target);
-        }
+        let s = index.get(e.source)!;
+        let t = index.get(e.target)!;
+        if (layerOf[s] === layerOf[t]) continue;
+        if (layerOf[s]! > layerOf[t]!) [s, t] = [t, s];
+        if (pairs.has(s * n + t)) continue;
+        pairs.add(s * n + t);
+        down[s]!.push(t);
+        up[t]!.push(s);
     }
-    const pos = new Map<string, number>();
-    const place = (row: string[]): void => row.forEach((id, i) => pos.set(id, i - (row.length - 1) / 2));
-    layers.forEach(place);
-    const sweeps = ids.length > BIG ? 4 : SWEEPS;
-    for (let sweep = 0; sweep < sweeps; sweep++) {
-        const down = sweep % 2 === 0;
-        const order = down ? layers : layers.slice().reverse();
-        const neighbours = down ? before : after;
-        for (const row of order) {
-            const centre = new Map<string, number>();
-            for (const id of row) {
-                const list = neighbours.get(id) ?? [];
-                let sum = 0;
-                for (const other of list) sum += pos.get(other) ?? 0;
-                centre.set(id, list.length ? sum / list.length : (pos.get(id) ?? 0));
+    const both = ids.map((_, i) => up[i]!.concat(down[i]!));
+    // Positions are centred, so layers of different sizes line up on their middles.
+    const pos = new Float64Array(n);
+    const rank = new Int32Array(n);
+    /** Positions from a row's order; true when any card moved. */
+    const settle = (row: number[]): boolean => {
+        const middle = (row.length - 1) / 2;
+        let moved = false;
+        row.forEach((i, r) => {
+            if (rank[i] !== r) moved = true;
+            pos[i] = r - middle;
+            rank[i] = r;
+        });
+        return moved;
+    };
+    const centre = new Float64Array(n);
+    const sortRow = (row: number[], neighbours: number[][]): void => {
+        for (const i of row) {
+            const list = neighbours[i]!;
+            let sum = 0;
+            for (const j of list) sum += pos[j]!;
+            centre[i] = list.length ? sum / list.length : pos[i]!;
+        }
+        // A stable sort: ties keep their order, so the result is the same on every run.
+        row.sort((a, b) => centre[a]! - centre[b]!);
+    };
+    let widest = 0;
+    for (const row of start) widest = Math.max(widest, row.length);
+    const tree = new Int32Array(widest + 1);
+    const ends: number[] = [];
+    // Crossings between adjacent layers: inversions among each pair's edge ends, by a Fenwick tree.
+    const crossings = (rows: number[][]): number => {
+        let total = 0;
+        for (let l = 0; l + 1 < rows.length; l++) {
+            const size = rows[l + 1]!.length;
+            ends.length = 0;
+            for (const i of rows[l]!)
+                for (const j of down[i]!) if (layerOf[j] === l + 1) ends.push(rank[i]! * size + rank[j]!);
+            ends.sort((a, b) => a - b);
+            tree.fill(0, 0, size + 1);
+            let seen = 0;
+            for (const end of ends) {
+                const r = end % size;
+                let atMost = 0;
+                for (let x = r + 1; x > 0; x -= x & -x) atMost += tree[x]!;
+                total += seen - atMost;
+                for (let x = r + 1; x <= size; x += x & -x) tree[x]!++;
+                seen++;
             }
-            row.sort((a, b) => (centre.get(a) ?? 0) - (centre.get(b) ?? 0));
-            place(row);
         }
-    }
-    return layers.filter(row => row.length);
+        return total;
+    };
+    const improve = (from: number[][], fewest: number, twoSided: boolean): [number[][], number] => {
+        const rows = from.map(row => row.slice());
+        rows.forEach(settle);
+        let best = from;
+        // Rounds stop once the order no longer changes: a two-sided round, or a sweep each way.
+        let still = 0;
+        for (let round = 0; round < ROUNDS && fewest > 0 && still < (twoSided ? 1 : 2); round++) {
+            let moved = false;
+            if (twoSided)
+                for (const parity of [1, 0]) {
+                    for (let l = parity; l < rows.length; l += 2) sortRow(rows[l]!, both);
+                    for (let l = parity; l < rows.length; l += 2) if (settle(rows[l]!)) moved = true;
+                }
+            else {
+                const downwards = round % 2 === 0;
+                for (let k = 0; k < rows.length; k++) {
+                    const row = rows[downwards ? k : rows.length - 1 - k]!;
+                    sortRow(row, downwards ? up : down);
+                    if (settle(row)) moved = true;
+                }
+            }
+            still = moved ? 0 : still + 1;
+            const count = crossings(rows);
+            if (count < fewest) {
+                fewest = count;
+                best = rows.map(row => row.slice());
+            }
+        }
+        return [best, fewest];
+    };
+    start.forEach(settle);
+    const [swept, fewest] = improve(start, crossings(start), false);
+    return improve(swept, fewest, true)[0].filter(row => row.length);
 }
 
 /**

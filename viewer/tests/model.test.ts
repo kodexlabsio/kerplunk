@@ -2,10 +2,61 @@ import { describe, expect, it } from 'vitest';
 import { computeFocus, NO_FOCUS } from '../src/lib/focus';
 import { bounds, computeLayers, computeOrder, curve, place, W, wrapHeight } from '../src/lib/layout';
 import { byName, GraphModel } from '../src/lib/model';
-import type { GraphNode } from '../src/lib/types';
+import type { GraphData, GraphNode } from '../src/lib/types';
 import { graph } from './fixture';
 
 const model = new GraphModel(graph);
+
+/** Models m0..m(n-1) in package p, with feeds edges between them. */
+function models(n: number, edges: [number, number][], packageOf = (_: number) => 'p'): GraphModel {
+    const nodes: GraphNode[] = Array.from({ length: n }, (_, i) => ({
+        id: `model.m${i}`,
+        kind: 'model',
+        name: `m${i}`,
+        attrs: { package: packageOf(i) },
+    }));
+    const data: GraphData = {
+        nodes,
+        edges: edges.map(([s, t]) => ({ source: `model.m${s}`, target: `model.m${t}`, kind: 'feeds' })),
+    };
+    return new GraphModel(data);
+}
+
+/** Crossings between edges of adjacent layers, by checking every pair. */
+function crossings(m: GraphModel, order: string[][]): number {
+    const layer = new Map<string, number>();
+    const rank = new Map<string, number>();
+    order.forEach((row, l) => row.forEach((id, r) => (layer.set(id, l), rank.set(id, r))));
+    // Each edge between adjacent layers as its upper layer and the ranks of its two ends.
+    const ends = m.layoutEdges
+        .map(e => (layer.get(e.source)! < layer.get(e.target)! ? [e.source, e.target] : [e.target, e.source]))
+        .filter(([a, b]) => layer.get(b!)! - layer.get(a!)! === 1)
+        .map(([a, b]) => [layer.get(a!)!, rank.get(a!)!, rank.get(b!)!] as const);
+    let count = 0;
+    for (let i = 0; i < ends.length; i++)
+        for (let j = i + 1; j < ends.length; j++) {
+            const [l, a0, a1] = ends[i]!;
+            const [k, b0, b1] = ends[j]!;
+            if (l === k && (a0 - b0) * (a1 - b1) < 0) count++;
+        }
+    return count;
+}
+
+function random(seed: number): () => number {
+    let s = seed;
+    return () => (s = (Math.imul(s, 1103515245) + 12345) >>> 0) / 2 ** 32;
+}
+
+/** A seeded random DAG: each model after the first reads one to three of the 60 before it. */
+function randomDag(n: number, seed: number): GraphModel {
+    const next = random(seed);
+    const edges: [number, number][] = [];
+    for (let i = 1; i < n; i++) {
+        const parents = 1 + Math.floor(next() * 3);
+        for (let k = 0; k < parents; k++) edges.push([i - 1 - Math.floor(next() * Math.min(i, 60)), i]);
+    }
+    return models(n, edges, i => `p${i % 5}`);
+}
 
 describe('the graph model', () => {
     it('draws relations and tasks, not columns or terms', () => {
@@ -80,6 +131,58 @@ describe('layout', () => {
         expect(layerOf('source.raw.orders')).toBeLessThan(layerOf('model.stg_orders'));
         expect(layerOf('model.stg_orders')).toBeLessThan(layerOf('model.orders'));
         expect(layerOf('task.nightly.run')).toBe(layerOf('model.orders') - 1);
+    });
+
+    it('keeps the order with the fewest crossings, not the last sweep’s', () => {
+        // m2 leads to m3 and m4..m6 lead nowhere: an upward sweep last put m4 before m2, under m1.
+        const m = models(7, [
+            [0, 2],
+            [2, 3],
+            [1, 4],
+            [1, 5],
+            [1, 6],
+        ]);
+        const order = computeOrder(m, m.inView);
+        expect(order[1]).toEqual(['model.m2', 'model.m4', 'model.m5', 'model.m6']);
+        expect(crossings(m, order)).toBe(0);
+    });
+
+    it('starts each layer by package, so a package’s nodes stay together', () => {
+        const m = models(6, [], i => (i % 2 ? 'b' : 'a'));
+        expect(computeOrder(m, m.inView)).toEqual([
+            ['model.m0', 'model.m2', 'model.m4', 'model.m1', 'model.m3', 'model.m5'],
+        ]);
+    });
+
+    it('orders random graphs the same way every time, with no more crossings than at the start', () => {
+        const next = random(11);
+        for (let graphs = 0; graphs < 40; graphs++) {
+            const n = 5 + Math.floor(next() * 40);
+            const edges: [number, number][] = [];
+            for (let i = 0; i < n; i++)
+                for (let j = i + 1; j < n; j++) if (next() < 3 / n) edges.push([i, j]);
+            const packages = (i: number): string => `p${(i * 7) % 3}`;
+            const m = models(n, edges, packages);
+            const order = computeOrder(m, m.inView);
+            expect(computeOrder(m, m.inView)).toEqual(order);
+            // Each row holds its layer's nodes; the start is each layer by package, then name.
+            const start = order.map(row =>
+                row.slice().sort((a, b) => {
+                    const [x, y] = [Number(a.slice(7)), Number(b.slice(7))];
+                    return packages(x).localeCompare(packages(y)) || `m${x}`.localeCompare(`m${y}`);
+                }),
+            );
+            expect(order.flat().sort()).toEqual(m.viewNodes.map(v => v.id).sort());
+            expect(crossings(m, order)).toBeLessThanOrEqual(crossings(m, start));
+        }
+    });
+
+    it('orders seeded random DAGs with these many crossings', () => {
+        // Pinned, so that a change to the order shows what it does to them.
+        const small = randomDag(500, 1);
+        expect(crossings(small, computeOrder(small, small.inView))).toBe(546);
+        const large = randomDag(2000, 2);
+        expect(crossings(large, computeOrder(large, large.inView))).toBe(2635);
     });
 
     it('stacks cards by height and measures bounds', () => {
