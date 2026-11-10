@@ -69,6 +69,9 @@ def test_names_reduce_to_the_idea() -> None:
     assert core('number_of_orders') == core('order_count') == frozenset({'count', 'order'})
     assert core('customer_lifetime_value') == frozenset({'customer', 'lifetime', 'value'})
     assert core('total') == frozenset()
+    # An amount names a measure only when nothing else does; amt is short for it.
+    assert core('amount') == core('total_amt') == frozenset({'value'})
+    assert core('refund_amount') == core('refunds') == frozenset({'refund'})
 
 
 def test_two_revenue_definitions_that_differ_by_one_filter(tmp_path: Path) -> None:

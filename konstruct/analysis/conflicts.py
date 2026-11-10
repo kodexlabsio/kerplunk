@@ -18,7 +18,6 @@ approved terms), so the most consequential disagreements come first.
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from itertools import combinations
@@ -27,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 import sqlglot
 from sqlglot import exp
 
+from konstruct import _core
 from konstruct.analysis.explain import Explainer, short_sql
 from konstruct.analysis.identity import Formulas, Verdict, Witness
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
@@ -53,41 +53,24 @@ MODIFIERS = frozenset(
         'kpi',
     }
 )
-# Words that name the same idea. Each set maps to its first word.
-SYNONYMS = (
-    ('revenue', 'sales', 'turnover', 'income', 'takings', 'amount', 'amt'),
-    ('count', 'cnt', 'number', 'num', 'qty', 'quantity'),
-    ('customer', 'client', 'cust', 'shopper', 'buyer'),
-    ('order', 'purchase', 'transaction', 'txn'),
-    ('margin', 'profit'),
-    ('cost', 'expense', 'spend'),
-    ('price', 'unit_price'),
-    ('discount', 'rebate'),
+# Words that name a measure only when nothing else does: sales_amount is sales, but amount is
+# an amount.
+GENERIC = frozenset({'amount'})
+# As :func:`core` folds them, since it turns ``id`` into its concept.
+KEY_WORDS = frozenset(
+    {w for k in ('id', 'key', 'uuid', 'pk', 'fk', 'sk', 'hash') for w in (k, _core.concept(k) or k)}
 )
-KEY_WORDS = frozenset({'id', 'key', 'uuid', 'pk', 'fk', 'sk', 'hash'})
 FILTER_HEADS = ('WHERE', 'HAVING', 'QUALIFY')
 SAME_UNLESS_NULL = 'the same unless a source value is NULL or there are no rows'
-_CANONICAL = {word: group[0] for group in SYNONYMS for word in group}
-
-
-def _words(name: str) -> list[str]:
-    spaced = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', name)
-    return [w for w in re.split(r'[^a-z0-9]+', spaced.lower()) if w]
-
-
-def _singular(word: str) -> str:
-    if len(word) > 3 and word.endswith('ies'):
-        return word[:-3] + 'y'
-    if len(word) > 3 and word.endswith('s') and not word.endswith('ss'):
-        return word[:-1]
-    return word
 
 
 def core(name: str) -> frozenset[str]:
-    """The idea a column name stands for: its words, singular, without qualifiers, with synonyms
-    folded together. ``total_revenue``, ``revenue`` and ``sales_amount`` all give {revenue}."""
-    words = {_CANONICAL.get(w) or _CANONICAL.get(_singular(w), _singular(w)) for w in _words(name)}
-    return frozenset(words - MODIFIERS)
+    """The idea a column name stands for: its words, as search by meaning reads them
+    (:func:`konstruct._core.terms`), without qualifiers, each folded to its concept.
+    ``total_revenue``, ``revenue`` and ``sales_amount`` all give {revenue}."""
+    words = [w for w in _core.terms(name) if w not in MODIFIERS]
+    named = [w for w in words if w not in GENERIC] or words
+    return frozenset(_core.concept(w) or w for w in named)
 
 
 @dataclass
@@ -329,7 +312,7 @@ class _Finder:
             owner = self.graph.parent_of(node)
             if owner is None or owner.kind not in RELATION_KINDS:
                 continue
-            words = {_singular(w) for w in _words(node.name)}
+            words = set(_core.terms(node.name))
             if words & KEY_WORDS or not core(node.name):
                 continue
             # A column copied as it is (a dimension, a key, a date) is lineage, not a definition.

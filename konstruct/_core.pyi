@@ -138,3 +138,12 @@ class VectorIndex:
         """True when every node's blocks were read from the saved index, made from the same
         graph, rather than computed."""
     def __len__(self) -> int: ...
+
+def terms(text: str) -> list[str]:
+    """The words of ``text`` as search by meaning reads them: split where a person reads a word
+    boundary (``netSalesAmt``, ``net_sales_amt``), in lower case, abbreviations expanded
+    (``amt`` is amount), singular, and stopwords left out."""
+
+def concept(word: str) -> str | None:
+    """The concept a word from :func:`terms` belongs to (``sale`` and ``turnover`` to
+    ``revenue``), or None."""

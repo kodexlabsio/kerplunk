@@ -223,6 +223,19 @@ impl VectorIndex {
     }
 }
 
+/// The words of `text` as search by meaning reads them: split where a person reads a word
+/// boundary, in lower case, abbreviations expanded, singular, stopwords left out.
+#[pyfunction]
+pub fn terms(text: Key) -> Vec<String> {
+    super::text::terms(&text)
+}
+
+/// The concept a word from [`terms`] belongs to (`sale` and `turnover` to revenue), if any.
+#[pyfunction]
+pub fn concept(word: Key) -> Option<&'static str> {
+    super::text::concept(&word)
+}
+
 fn tuples(hits: Vec<super::Hit>) -> Vec<HitTuple> {
     hits.into_iter()
         .map(|hit| (hit.ordinal, hit.score, hit.basis.name()))
