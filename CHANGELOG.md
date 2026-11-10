@@ -1,3 +1,9 @@
+## v0.13.3 (2026-11-10)
+
+### Fix
+
+- **mcp**: Declare all four tool annotations on every tool
+
 ## v0.13.2 (2026-11-10)
 
 ### Refactor

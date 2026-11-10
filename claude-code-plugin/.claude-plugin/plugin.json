@@ -1,7 +1,7 @@
 {
   "name": "konstruct",
   "displayName": "Konstruct",
-  "version": "0.13.2",
+  "version": "0.13.3",
   "description": "Column-level lineage, business definitions and an ontology for dbt, SQL, Airflow and Dagster: skills for safe changes, data reviews, reconciling numbers, writing correct queries and semantic layer exports, slash commands, a data-reviewer subagent, the Konstruct MCP server and a hook that runs konstruct gate after SQL and dbt YAML edits.",
   "author": {
     "name": "Kodex Labs",
