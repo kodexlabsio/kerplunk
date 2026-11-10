@@ -110,3 +110,10 @@ def test_rendering_without_dbt_matches_compiled_lineage(
 
     assert edges(rendered.graph) == edges(project.graph)
     assert rendered.graph.warnings == []
+
+
+def test_every_claimed_edge_is_confirmed_on_the_data(project: Project, jaffle_shop: Path) -> None:
+    # The README and the paper quote this result: every column edge the build claims is confirmed
+    # by running the models, and nothing changes that the graph does not explain.
+    totals = project.verify(warehouse=jaffle_shop / 'jaffle.duckdb', seed=1729).totals()
+    assert totals['confirmed'] == totals['claimed'] and totals['unexplained'] == 0
