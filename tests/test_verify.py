@@ -17,11 +17,14 @@ from konstruct.analysis.query import QueryError
 from konstruct.analysis.verify import (
     BigQuerySource,
     DbApiSource,
+    PostgresEngine,
     SampledEngine,
     Verification,
+    _rewrite,
     _sample_type,
     annotate,
     claims,
+    read_only_query,
     verify,
 )
 from konstruct.core.graph import Graph, column_id
@@ -144,6 +147,54 @@ def test_nondeterministic_and_failing_models_are_skipped(tmp_path: Path) -> None
     project = make_project(tmp_path, 'create table main.noisy as select id, random() as r from raw.orders')
     [model] = run(project).models
     assert model.skipped and 'not deterministic' in model.skipped
+
+
+@pytest.mark.parametrize(
+    ('sql', 'dialect'),
+    [
+        ("select 1 as x; copy (select 42) to 'out.csv'", 'duckdb'),
+        ("select 1 as x; commit; do $$ begin execute 'create table t(x int)'; end $$", 'postgres'),
+        ('with gone as (delete from raw.orders returning *) select * from gone', 'postgres'),
+        ('select * into public.copied from raw.orders', 'postgres'),
+        ('create table t as select 1 as x', 'duckdb'),
+        ('insert into t select 1', 'duckdb'),
+        ('drop table raw.orders', 'duckdb'),
+    ],
+)
+def test_only_a_single_query_that_reads_is_run(sql: str, dialect: str) -> None:
+    with pytest.raises(ValueError, match='only'):
+        read_only_query(sql, dialect)
+
+
+@pytest.mark.parametrize(
+    'sql',
+    [
+        'select 1 as x',
+        'with a as (select 1 as x) select x from a',
+        'select 1 as x union all select 2',
+        'select x from (select 1 as x) as s where x in (select 1)',
+    ],
+)
+def test_queries_that_only_read_are_run(sql: str) -> None:
+    assert read_only_query(sql).sql()
+
+
+def test_every_run_goes_through_the_read_only_check() -> None:
+    # Every statement verify runs is printed by _rewrite, so a second statement never reaches an engine.
+    with pytest.raises(ValueError, match='2 statements'):
+        _rewrite("select id from raw.orders; copy (select 42) to 'out.csv'", {}, None, None)
+
+
+@pytest.mark.postgres
+def test_postgres_statements_are_bounded_in_time() -> None:
+    from .test_warehouse import require
+
+    engine = PostgresEngine(require('KONSTRUCT_TEST_PG_DSN'))
+    try:
+        _, rows = engine.run('SHOW statement_timeout')
+        assert rows == [('5min',)]
+    finally:
+        engine.close()
 
 
 def test_annotate_marks_edges(project: Project) -> None:

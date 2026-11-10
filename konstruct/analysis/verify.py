@@ -334,6 +334,35 @@ def _quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+# A model's SQL is run only when it is one statement that reads: no second statement after a
+# semicolon, no data-changing CTE, no SELECT INTO and no DDL, so verify can never write to a warehouse.
+_WRITES = (
+    exp.Insert,
+    exp.Update,
+    exp.Delete,
+    exp.Merge,
+    exp.Create,
+    exp.Drop,
+    exp.Alter,
+    exp.Command,
+    exp.Into,
+)
+
+
+def read_only_query(sql: str, dialect: str = 'duckdb') -> exp.Query:
+    """Parse ``sql`` as exactly one query that only reads, or raise ``ValueError``."""
+    statements = [s for s in sqlglot.parse(sql, dialect=dialect) if s is not None]
+    if len(statements) != 1:
+        raise ValueError(f'the model is {len(statements)} statements, and only a single query is run')
+    tree = statements[0]
+    if not isinstance(tree, exp.Query):
+        raise ValueError(f'the model is a {tree.key.upper()} statement, and only a query is run')
+    written = next(tree.find_all(*_WRITES), None)
+    if written is not None:
+        raise ValueError(f'the model contains {written.key.upper()}, and only a query that reads is run')
+    return tree
+
+
 def _rewrite(
     sql: str,
     mapping: dict[str, str],
@@ -344,7 +373,7 @@ def _rewrite(
 ) -> tuple[str, set[str]]:
     """Point every input table at a scratch copy; return the SQL, in ``write`` (by default the
     dialect it is read in), and the relations it reads."""
-    tree = sqlglot.parse_one(sql, dialect=dialect)
+    tree = read_only_query(sql, dialect)
     ctes = {cte.alias_or_name.lower() for cte in tree.find_all(exp.CTE)}
     seen: set[str] = set()
 
@@ -555,6 +584,10 @@ class DuckDBEngine(Engine):
         self.con.close()
 
 
+STATEMENT_TIMEOUT_MS = 300_000
+"""How long one statement may run on Postgres before verify gives up on the model."""
+
+
 class PostgresEngine(Engine):
     """Temporary tables in one transaction that is always rolled back, so nothing persists."""
 
@@ -565,6 +598,8 @@ class PostgresEngine(Engine):
 
         self.label = 'postgres'
         self.con = psycopg.connect(dsn)
+        # Bounds a model that sleeps or loops; the copies verify reads are capped at max_rows.
+        self.con.execute(f'SET statement_timeout = {int(STATEMENT_TIMEOUT_MS)}')
         row = self.con.execute('SELECT current_database()').fetchone()
         self.database = str(row[0]).lower() if row else ''
         self.label = f'postgres database {self.database}'
