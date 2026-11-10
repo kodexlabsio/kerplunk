@@ -1,3 +1,10 @@
+## v0.12.3 (2026-11-10)
+
+### Fix
+
+- **dbt**: Turn off dbt's anonymous usage statistics when Konstruct runs dbt
+- **lineage**: Run a model only when its SQL is a single query that reads
+
 ## v0.12.2 (2026-11-09)
 
 ### Fix
