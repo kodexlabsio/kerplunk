@@ -1,3 +1,56 @@
+## v0.13.0 (2026-11-10)
+
+### BREAKING CHANGE
+
+- **config**: Until a project is trusted, warehouses named in its own konstruct.toml or profiles.yml, other than a DuckDB file inside the project, are skipped, dbt is not run, [usage] reads no query history, path settings that lead outside the project are refused, and input files that a symbolic link leads outside it are not read. Run `konstruct trust` once per project after reviewing it; from Python, call Project.trust() or pass trusted=True to load_config. For one command, pass --trust-config; in CI on trusted branches set KONSTRUCT_TRUST_CONFIG=1, never for pull requests from forks.
+
+### Feat
+
+- **query**: Add the analysis behind a lineage lockfile for consumers of upstream data
+- **lineage**: Propose and confirm data laws from each model's SQL
+- **dbt**: Keep a test's where, its columns and enforced keys in the graph
+- **lineage**: Count columns whose formulas compute the same thing as one definition
+- **lineage**: Compare and fingerprint formulas from Python
+- **lineage**: Decide in the Rust core whether two formulas compute the same thing
+- **cli**: Show the source rows behind a value with verify --why, an MCP tool and the API
+- **lineage**: Show the source rows behind one value, with each row's share
+- **lineage**: Let a verify engine copy only the rows a condition picks
+- **cli**: Mutation test the dbt tests with verify --mutate, an MCP tool and the API
+- **mcp**: Add --no-prompts to serve the tools and resources alone
+- **mcp**: Offer the workflows as prompts and the report and ontology as resources
+- **skill**: Add a Claude Code plugin and marketplace to the repository
+- **cli**: Add konstruct hook to run the gate after an agent edits SQL
+- **skill**: Install workflow skills and native instructions for six coding agents
+- **mcp**: Update the graph from files alone in the gate tool
+- **config**: Use a repository's own connections only once they are trusted
+- **graph**: Give every machine-readable output a format version
+
+### Fix
+
+- **sql**: Record where each condition applies, and every clause that decides a query's rows
+- **lineage**: Compose formulas through a relation another repository builds
+- **build**: Link the table one repository's SQL reads to the dbt model another builds
+- **build**: Keep the defining repository's formulas for a relation another reads
+- **lineage**: Compose a column the same whatever was composed before it
+- **dbt**: Shift a date literal only when the whole literal is a date
+- **build**: Require Rust 1.95, the first that builds the core on powerpc64le
+- **build**: Refuse to load the core on an s390x older than z13
+- **build**: Keep a rewritten file's mode and retry a rename a reader blocks
+
+### Refactor
+
+- **lineage**: Let the Explainer compose a free expression and stop at given columns
+- **lineage**: Make the git, history and composition helpers other modules use public
+- **lineage**: Share how the columns in an expression resolve to its inputs
+- **graph**: Share the macro that assembles a routine
+
+### Perf
+
+- **graph**: Look for the key escape with the substring routine
+- **query**: Test labels for a search word in assembly
+- **query**: Find the words of names and descriptions in assembly
+- **query**: Copy a word into the search vocabulary only when it is new
+
 ## v0.12.8 (2026-11-10)
 
 ### Feat
