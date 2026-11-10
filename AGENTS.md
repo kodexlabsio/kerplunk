@@ -117,6 +117,9 @@ change.
   a prediction, keeps the source's meaning, and is never presented as a Konstruct result or
   saving. No business or funding material, as above. The documentation stays neutral and
   technical.
+- `MANIFESTO.md` may state beliefs and commitments; every factual claim and every commitment in it
+  must be true of the code and checkable. The paper stays neutral and technical, and its
+  third-party figures follow the rules above.
 - Comments explain why, not what. Docstrings describe intent and appear in the API reference.
 
 ## Formatting

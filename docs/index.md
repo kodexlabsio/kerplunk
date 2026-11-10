@@ -24,6 +24,7 @@ What it does that lineage tools usually leave out:
 - [The GitHub Action](guide/github-action.md): review pull requests column by column.
 - [Command Line](reference/cli.md) and [Python API](reference/python-api.md): every command and class.
 - [The paper](https://kodexlabsio.github.io/konstruct/paper/konstruct.pdf): the design, verification by perturbation and its soundness, and the evaluation, rebuilt from the code with these pages.
+- [The manifesto](https://github.com/kodexlabsio/konstruct/blob/main/MANIFESTO.md): what Konstruct believes about truth in data, and the commitments it makes to its users.
 
 ```{toctree}
 :hidden:

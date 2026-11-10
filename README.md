@@ -29,6 +29,8 @@ Open source, local first, one command.
 <a href="CHANGELOG.md">Changelog</a>
 &nbsp;&middot;&nbsp;
 <a href="https://kodexlabsio.github.io/konstruct/paper/konstruct.pdf">Paper</a>
+&nbsp;&middot;&nbsp;
+<a href="MANIFESTO.md">Manifesto</a>
 </p>
 
 <p align="center">
@@ -260,6 +262,7 @@ The full documentation is at **[kodexlabsio.github.io/konstruct](https://kodexla
 - **Reference:** [commands](https://kodexlabsio.github.io/konstruct/reference/cli.html), [Python API](https://kodexlabsio.github.io/konstruct/reference/python-api.html), [MCP server](https://kodexlabsio.github.io/konstruct/reference/mcp.html), [configuration](https://kodexlabsio.github.io/konstruct/reference/configuration.html), [outputs](https://kodexlabsio.github.io/konstruct/reference/outputs.html), [limitations](https://kodexlabsio.github.io/konstruct/reference/limitations.html)
 - **Project:** [development](https://kodexlabsio.github.io/konstruct/development.html), [contributing](CONTRIBUTING.md), [security](SECURITY.md), [changelog](CHANGELOG.md)
 - **Paper:** [Konstruct: Column-Level Lineage Checked Against the Data](https://kodexlabsio.github.io/konstruct/paper/konstruct.pdf), the design, the verification method and its soundness, and the evaluation, with every measurement of Konstruct regenerated from the code
+- **Manifesto:** [truth in data](MANIFESTO.md), what Konstruct believes and the commitments it makes to its users
 
 ## Star History
 
