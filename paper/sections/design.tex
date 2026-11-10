@@ -302,8 +302,8 @@ formula and when it changed; \cmd{konstruct verify} checks lineage against data;
 \cmd{konstruct export} writes OpenLineage events (\cmd{openlineage}), Mermaid (\cmd{mermaid}),
 Graphviz (\cmd{dot}), CSV (\cmd{csv}) and Apache Ossie (\cmd{ossie}); \cmd{konstruct plugins}
 lists the installed plugins, which add inputs, export formats, gate checks, ontology packs and
-MCP tools, and whether each runs; and \cmd{konstruct install} and \cmd{konstruct mcp} connect
-coding agents. The Python API, \cmd{konstruct.Project}, returns
+MCP tools, and whether each runs; and \cmd{konstruct install}, \cmd{konstruct mcp} and
+\cmd{konstruct hook} connect coding agents. The Python API, \cmd{konstruct.Project}, returns
 typed results for each question, and \cmd{graph.html} is one offline file with the lineage,
 formulas, terms, verification results and usage.
 
@@ -325,5 +325,7 @@ changes what an approved term means, by changing its wording, columns, filters o
 canonical expression or row conditions of a column it names or of any column upstream of one; or
 (c) adds a column that computes the same business idea as an existing one in a different way, as
 \cmd{conflicts} finds, unless the two are bound to different terms. Each finding says what to do,
-so an agent can fix the change and run the gate again. The GitHub Action runs the same check on a
+so an agent can fix the change and run the gate again. \cmd{konstruct hook} runs the gate as a
+Claude Code hook after an agent edits SQL or dbt YAML, from files alone, so the findings arrive
+next to the edit. The GitHub Action runs the same check on a
 pull request when it is configured with \cmd{gate: true}.

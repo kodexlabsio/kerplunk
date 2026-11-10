@@ -415,6 +415,12 @@ def cmd_install(args: argparse.Namespace, console: Console) -> int:
     return 0
 
 
+def cmd_hook(args: argparse.Namespace, console: Console) -> int:
+    from konstruct.interfaces import hook
+
+    return hook.main(args.event, remind=args.remind)
+
+
 def cmd_mcp(args: argparse.Namespace, console: Console) -> int:
     from konstruct.interfaces.mcp_server import serve
 
@@ -452,7 +458,7 @@ GROUPS = (
     ('Explore', ('search', 'describe', 'list', 'query', 'export')),
     ('Business meaning', ('define', 'ontology', 'conflicts')),
     ('Changes', ('diff', 'gate', 'verify')),
-    ('Agents', ('install', 'mcp')),
+    ('Agents', ('install', 'mcp', 'hook')),
     ('Plugins', ('plugins',)),
 )
 """The commands in ``konstruct --help``, grouped by what they are for."""
@@ -565,6 +571,7 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ('konstruct plugins', 'installed plugins, and whether each runs for this project'),
         ('konstruct plugins --json', 'the same as JSON'),
     ),
+    'hook': (('konstruct hook post-edit', "run by a Claude Code hook, with the hook's event on stdin"),),
 }
 
 NAMES = """\
@@ -1072,6 +1079,16 @@ def parser() -> argparse.ArgumentParser:
         '--force', action='store_true', help='replace files and sections that were edited by hand'
     )
     install.set_defaults(func=cmd_install)
+
+    hooking = add(
+        'hook',
+        'check a data file a coding agent just edited, from its hook event on stdin (for agent hooks)',
+    )
+    hooking.add_argument('event', choices=['post-edit'], help='the hook event: post-edit, after a file edit')
+    hooking.add_argument(
+        '--remind', action='store_true', help='only remind the agent to run the gate, without running it'
+    )
+    hooking.set_defaults(func=cmd_hook)
 
     mcp = add('mcp', 'run the MCP server on stdio (for agent configuration, not interactive use)')
     mcp.set_defaults(func=cmd_mcp)

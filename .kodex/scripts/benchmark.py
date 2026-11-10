@@ -8,6 +8,8 @@ models through CTEs, with a manifest, a catalog and Airflow DAGs. For each size 
 * --update with nothing changed, and --update after editing one model in the middle;
 * the median time of an impact, a trace and an explain on the deepest model;
 * the median time to render a large impact as text (``str()``, as a pipe gets it);
+* the coding agent hook (`konstruct hook post-edit`) after an edit that changes nothing and after
+  one that changes a model's filter, in a git repository of the project;
 * the size of graph.json and graph.html;
 * the questions the Rust core answers, on the graph as a command loads it: loading graph.json,
   the first impact and the first search (each also builds its index), then the median time of a
@@ -43,6 +45,7 @@ sys.path.insert(0, str(ROOT))
 from konstruct import Project, __version__  # noqa: E402
 from konstruct.analysis.query import search  # noqa: E402
 from konstruct.core.graph import Graph  # noqa: E402
+from konstruct.interfaces import hook  # noqa: E402
 from tests.test_scale import make_project  # noqa: E402
 
 COLUMNS = 20
@@ -81,6 +84,7 @@ def measure(models: int) -> dict[str, Any]:
         node['checksum']['checksum'] = 'edited'
         manifest.write_text(json.dumps(data))
         one_edit, _ = timed(project.build, update=True, run_dbt=False, warehouses=False)
+        hook_unchanged, hook_edit = hook_latency(root, middle)
         deepest = f'm{models - 1:03}'
         load, loaded = timed(Graph.read, project.graph_path)
         first_impact, _ = timed(loaded.impact, loaded.resolve('m010.c01')[0])
@@ -96,6 +100,8 @@ def measure(models: int) -> dict[str, Any]:
             'cold_build_s': round(cold, 2),
             'update_unchanged_s': round(unchanged, 2),
             'update_one_model_s': round(one_edit, 2),
+            'hook_unchanged_s': round(hook_unchanged, 2),
+            'hook_one_model_s': round(hook_edit, 2),
             'impact_ms': round(1000 * median_time(project.impact, 'm010.c01'), 1),
             'trace_ms': round(1000 * median_time(project.trace, f'{deepest}.c00'), 1),
             'explain_ms': round(1000 * median_time(project.explain, f'{deepest}.c01'), 1),
@@ -140,18 +146,47 @@ def measure_startup(root: Path) -> dict[str, float]:
     return {'help_cpu_ms': cpu_ms(['--help'], root), 'status_cpu_ms': cpu_ms(['status'], root)}
 
 
+def hook_latency(root: Path, middle: Path) -> tuple[float, float]:
+    """The hook's time, after a first run, for an edit that changes no column (a blank line added)
+    and for one that changes a model's filter: the time an agent waits for the gate's answer,
+    less the interpreter's start."""
+    git = [
+        'git',
+        '-C',
+        str(root),
+        '-c',
+        'user.name=b',
+        '-c',
+        'user.email=b@example.com',
+        '-c',
+        'commit.gpgsign=false',
+    ]
+    (root / '.gitignore').write_text('konstruct-out/\n')
+    for command in (['init', '-q', '-b', 'main'], ['add', '-A'], ['commit', '-q', '-m', 'benchmark']):
+        subprocess.run([*git, *command], check=True, capture_output=True)
+    event = {'cwd': str(root), 'tool_input': {'file_path': str(middle)}}
+    # The first run copies the build cache into .hook and builds there once; time what follows.
+    hook.post_edit(event)
+    middle.write_text(middle.read_text() + '\n')
+    unchanged, _ = timed(hook.post_edit, event)
+    middle.write_text(middle.read_text().replace('where b.c01 > 1', 'where b.c01 > 2'))
+    edited, _ = timed(hook.post_edit, event)
+    return unchanged, edited
+
+
 def markdown(rows: list[dict[str, Any]]) -> str:
     lines = [
         '| Models | Columns | Column edges | Cold build | `--update`, no change | `--update`, one model edited '
-        '| impact | trace | explain | text of a large impact | graph.html |',
-        '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
+        '| impact | trace | explain | text of a large impact | graph.html | Hook, no change '
+        '| Hook, one model edited |',
+        '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
     ]
     for r in rows:
         lines.append(
             f'| {r["models"]:,} | {r["columns"]:,} | {r["column_edges"]:,} | {r["cold_build_s"]} s '
             f'| {r["update_unchanged_s"]} s | {r["update_one_model_s"]} s | {r["impact_ms"]} ms '
             f'| {r["trace_ms"]} ms | {r["explain_ms"]} ms | {r["render_ms"]} ms ({r["render_lines"]:,} lines) '
-            f'| {r["graph_html_mb"]} MB |'
+            f'| {r["graph_html_mb"]} MB | {r["hook_unchanged_s"]} s | {r["hook_one_model_s"]} s |'
         )
     lines += [
         '',

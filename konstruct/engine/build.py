@@ -2477,12 +2477,10 @@ def build(config: Config, *, update: bool = False) -> BuildResult:
     graph.meta['build_seconds'] = round(time.perf_counter() - started, 2)
     log.info('writing graph.json, REPORT.md, graph.html and ontology.yml')
     graph.write(graph_path)
-    outputs = [
-        graph_path,
-        write_report(graph, config.out_dir / 'REPORT.md'),
-        write_html(graph, config.out_dir / 'graph.html', cache=builder.cache.quiet()),
-        ontology.write(config.out_dir / 'ontology.yml'),
-    ]
+    outputs = [graph_path, write_report(graph, config.out_dir / 'REPORT.md')]
+    if config.html:
+        outputs.append(write_html(graph, config.out_dir / 'graph.html', cache=builder.cache.quiet()))
+    outputs.append(ontology.write(config.out_dir / 'ontology.yml'))
     builder.cache.save()
     return BuildResult(
         graph=graph,

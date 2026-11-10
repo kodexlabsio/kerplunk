@@ -287,6 +287,8 @@ class Config:
     sections: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Every table of the configuration file as written, such as ``[looker]``, so an input finds
     its own settings by its name."""
+    html: bool = True
+    """Write graph.html. A build only another tool reads, such as the coding agent hook's, skips it."""
     options: dict[str, Any] = field(default_factory=dict)
     """Build options given on the command line or to :meth:`konstruct.Project.build`, which apply
     to every repository built into the graph, not only this one."""
