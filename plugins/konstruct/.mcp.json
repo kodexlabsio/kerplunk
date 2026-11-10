@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "konstruct": {
+      "command": "konstruct",
+      "args": [
+        "mcp",
+        "--path",
+        "${CLAUDE_PROJECT_DIR}"
+      ]
+    }
+  }
+}

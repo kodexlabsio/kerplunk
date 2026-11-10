@@ -1,0 +1,41 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Edit(**/*.sql)",
+            "command": "konstruct",
+            "args": [
+              "hook",
+              "post-edit"
+            ],
+            "timeout": 120
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.yml)",
+            "command": "konstruct",
+            "args": [
+              "hook",
+              "post-edit"
+            ],
+            "timeout": 120
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.yaml)",
+            "command": "konstruct",
+            "args": [
+              "hook",
+              "post-edit"
+            ],
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -5,7 +5,8 @@ ways, and both use this script:
 
 - A branch that releases runs it as its last commit, after rebasing on main. It reads the releasable
   commits on the branch since the last tag (main's and its own), and sets the next version in
-  pyproject.toml, uv.lock and konstruct/__init__.py, with its section at the top of CHANGELOG.md.
+  pyproject.toml, uv.lock, konstruct/__init__.py and the Claude Code plugin's plugin.json, with its
+  section at the top of CHANGELOG.md.
   Once the pull request is merged (rebased, so each commit stays on main) and CI passes, the
   release workflow tags that version. With --title, a squash-merged pull request's title is
   counted too, when it is not already one of the commits.
@@ -239,6 +240,18 @@ def write(version: str, changes: str) -> None:
         re.sub(r"^__version__ = '[^']*'$", f"__version__ = '{version}'", init.read_text(), flags=re.M),
         encoding='utf-8',
     )
+    # The Claude Code plugin carries the package's version, so a release keeps it current.
+    plugin = ROOT / 'plugins' / 'konstruct' / '.claude-plugin' / 'plugin.json'
+    if plugin.is_file():
+        plugin.write_text(
+            re.sub(
+                r'("version": ")[^"]*(")',
+                rf'\g<1>{version}\g<2>',
+                plugin.read_text(encoding='utf-8'),
+                count=1,
+            ),
+            encoding='utf-8',
+        )
     changelog = ROOT / 'CHANGELOG.md'
     released = history(without_section(changelog.read_text(encoding='utf-8'), version))
     changelog.write_text(changes + ('\n' + released if released else ''), encoding='utf-8')

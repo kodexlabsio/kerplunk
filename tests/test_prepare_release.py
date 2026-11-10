@@ -80,6 +80,11 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         '[[package]]\nname = "konstruct"\nversion = "0.11.1"\nsource = { editable = "." }\n'
     )
     (tmp_path / 'konstruct' / '__init__.py').write_text("__version__ = '0.11.1'\n")
+    plugin = tmp_path / 'plugins' / 'konstruct' / '.claude-plugin'
+    plugin.mkdir(parents=True)
+    (plugin / 'plugin.json').write_text(
+        '{\n  "name": "konstruct",\n  "version": "0.11.1",\n  "license": "MIT"\n}\n'
+    )
     (tmp_path / 'CHANGELOG.md').write_text('## v0.11.1 (2026-11-08)\n\n### Fix\n\n- Older fix\n')
     (tmp_path / 'tests' / 'compat').mkdir(parents=True)
     (tmp_path / 'tests' / 'compat' / 'releases.json').write_text('{"v0.11.1": "v0.11.1"}\n')
@@ -134,6 +139,8 @@ def test_prepares_the_next_version_once(repo: Path, capsys: pytest.CaptureFixtur
     assert 'revision = 5' in lock and 'name = "konstruct"\nversion = "0.11.2"' in lock
     assert 'name = "duckdb"\nversion = "2.0.0"' in lock
     assert (repo / 'konstruct' / '__init__.py').read_text() == "__version__ = '0.11.2'\n"
+    plugin = (repo / 'plugins' / 'konstruct' / '.claude-plugin' / 'plugin.json').read_text()
+    assert plugin == '{\n  "name": "konstruct",\n  "version": "0.11.2",\n  "license": "MIT"\n}\n'
     changelog = (repo / 'CHANGELOG.md').read_text()
     assert changelog.startswith('## v0.11.2 (')
     assert '### Feat\n\n- **cli**: Add ontology\n\n### Fix\n\n- **sql**: Order sources\n' in changelog

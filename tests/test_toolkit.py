@@ -4,15 +4,20 @@ the claims each skill makes about Konstruct's output, checked on a real build of
 from __future__ import annotations
 
 import argparse
+import importlib.util
+import json
 import re
 import shlex
 import shutil
 import subprocess
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
+from konstruct import __version__
 from konstruct.analysis.gate import RULES
+from konstruct.interfaces import hook as hook_module
 from konstruct.interfaces import toolkit
 from konstruct.interfaces.cli import main, parser
 from konstruct.interfaces.skill import render_rule, render_skill
@@ -114,6 +119,58 @@ def test_gate_rules_in_the_texts_are_the_gates_own() -> None:
         text = toolkit.skill(name)
         assert all(f'`{rule}`' in text for rule in RULES)
     assert all(rule in toolkit.reviewer() for rule in RULES)
+
+
+def build_plugin() -> ModuleType:
+    spec = importlib.util.spec_from_file_location(
+        'build_plugin', REPO / '.kodex' / 'scripts' / 'build_plugin.py'
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_plugin_in_the_repository_is_current() -> None:
+    assert build_plugin().stale() == [], 'run .kodex/scripts/build_plugin.py'
+
+
+def test_build_plugin_writes_and_prunes(tmp_path: Path) -> None:
+    module = build_plugin()
+    (tmp_path / 'skills' / 'old').mkdir(parents=True)
+    (tmp_path / 'skills' / 'old' / 'SKILL.md').write_text('retired')
+    module.write(tmp_path)
+    assert module.stale(tmp_path) == []
+    assert not (tmp_path / 'skills' / 'old' / 'SKILL.md').exists()
+    assert (tmp_path / 'skills' / 'safe-change' / 'SKILL.md').is_file()
+
+
+def test_the_marketplace_lists_the_plugin() -> None:
+    marketplace = json.loads((REPO / '.claude-plugin' / 'marketplace.json').read_text())
+    assert marketplace['name'] == 'konstruct' and marketplace['owner']['name']
+    [entry] = marketplace['plugins']
+    assert entry['name'] == 'konstruct' and entry['source'] == './plugins/konstruct'
+    manifest = json.loads((REPO / 'plugins' / 'konstruct' / '.claude-plugin' / 'plugin.json').read_text())
+    assert manifest['name'] == 'konstruct' and manifest['license'] == 'MIT'
+    # The plugin's version is the package's, which the release script sets in both.
+    assert manifest['version'] == __version__
+
+
+def test_the_plugin_hook_and_server_run_konstruct_only() -> None:
+    files = toolkit.plugin_files()
+    [entry] = json.loads(files['hooks/hooks.json'])['hooks']['PostToolUse']
+    assert set(entry['matcher'].split('|')) == {'Write', 'Edit', 'MultiEdit'}
+    hooks = entry['hooks']
+    # Claude Code starts the hook only for the files it checks, so other edits cost nothing.
+    assert [h['if'] for h in hooks] == ['Edit(**/*.sql)', 'Edit(**/*.yml)', 'Edit(**/*.yaml)']
+    for hook in hooks:
+        assert hook['command'] == 'konstruct' and hook['args'] == ['hook', 'post-edit']
+        assert hook['timeout'] == hook_module.TIMEOUT
+    parser().parse_args(hooks[0]['args'])
+    server = json.loads(files['.mcp.json'])['mcpServers']['konstruct']
+    assert server == {'command': 'konstruct', 'args': ['mcp', '--path', '${CLAUDE_PROJECT_DIR}']}
+    assert set(files) >= {f'commands/{n}.md' for n in toolkit.COMMANDS}
+    assert toolkit.split(files['agents/data-reviewer.md']).meta['tools'] == 'Bash, Read, Grep, Glob'
 
 
 def test_installed_skills_end_with_a_marker() -> None:

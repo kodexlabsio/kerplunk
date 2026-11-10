@@ -125,6 +125,18 @@ cargo test --target riscv64gc-unknown-linux-gnu
 
 To add a function, write it in the crate with its tests, export it in `src/python.rs`, describe it in `konstruct/_core.pyi`, delete the Python it replaces, and measure with `.kodex/scripts/benchmark.py` before and after. `uv build` makes the sdist and a wheel for the machine it runs on.
 
+## The Agent Toolkit
+
+The skills, slash commands, subagent and instructions are Markdown files in `konstruct/interfaces/toolkit/`, package data that ships in the wheel. A reference to another skill is written `[[name]]` and rendered for where it goes: `konstruct-name` when installed, `/konstruct:name` in the plugin. `konstruct install` renders them for each agent, and the Claude Code plugin in `plugins/konstruct/` (listed by `.claude-plugin/marketplace.json`) is built from the same files:
+
+```bash
+uv run .kodex/scripts/build_plugin.py        # after changing a toolkit file; commit plugins/konstruct with it
+uv run .kodex/scripts/build_plugin.py --check
+claude plugin validate .                      # the marketplace and the plugin, with Claude Code installed
+```
+
+`test_toolkit` fails while the plugin is out of date, when a text names a command or option that does not exist, and when a skill quotes output that a build of the example does not print.
+
 ## The Graph Viewer
 
 graph.html is a Svelte 5 and TypeScript app in `viewer/`, built with Vite into one self-contained file, `konstruct/outputs/viewer.html`, with its script, styles and fonts inlined (the font licences are in `licenses/`). That file is committed, so installing Konstruct needs no Node.js; Konstruct fills its two data placeholders when it writes graph.html.

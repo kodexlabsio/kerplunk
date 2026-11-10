@@ -1,0 +1,17 @@
+{
+  "name": "konstruct",
+  "owner": {
+    "name": "Kodex Labs",
+    "url": "https://kodexlabs.io"
+  },
+  "description": "Konstruct for Claude Code: column-level lineage, business definitions and an ontology for dbt, SQL, Airflow and Dagster.",
+  "plugins": [
+    {
+      "name": "konstruct",
+      "source": "./plugins/konstruct",
+      "description": "Skills for safe data changes, reviews, reconciling numbers, correct queries, definitions, onboarding and semantic layer exports; slash commands; a data-reviewer subagent; the Konstruct MCP server; and a hook that runs konstruct gate after SQL and dbt YAML edits.",
+      "category": "data",
+      "tags": ["dbt", "sql", "lineage", "data", "ontology"]
+    }
+  ]
+}
