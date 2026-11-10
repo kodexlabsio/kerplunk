@@ -76,7 +76,9 @@ class _Cursor:
 
     def execute(self, sql: str) -> None:
         self.log.append(sql)
-        if 'access_history' in sql or 'column_lineage' in sql:
+        if any(
+            view in sql for view in ('access_history', 'column_lineage', 'query_history', 'query.history')
+        ):
             if isinstance(self.usage, Exception):
                 raise self.usage
             self.rows = list(self.usage)
@@ -267,3 +269,52 @@ def test_bigquery_usage_parses_query_text(monkeypatch: pytest.MonkeyPatch, tmp_p
     # Filter columns count as read.
     assert graph.nodes['table.acme.shop.orders#status'].attrs['usage']['queries'] == 35
     assert 'usage' not in graph.nodes['table.acme.shop.orders#id'].attrs
+
+
+# Query texts from history, for check-sql
+
+
+def test_query_history_reads_each_warehouse_s_documented_view() -> None:
+    from konstruct.inputs.usage import databricks_history_sql, snowflake_history_sql
+
+    settings = UsageSettings(days=30, exclude_users=['dbt_svc', "O'Brien"], max_queries=100)
+    snowflake = snowflake_history_sql(settings)
+    assert 'from snowflake.account_usage.query_history' in snowflake
+    assert "query_type = 'SELECT' and upper(execution_status) = 'SUCCESS'" in snowflake
+    assert "upper(user_name) not in ('DBT_SVC', 'O''BRIEN')" in snowflake and 'limit 100' in snowflake
+    databricks = databricks_history_sql(UsageSettings(days=7, exclude_users=['svc'], max_queries=10))
+    assert 'from system.query.history' in databricks and "executed_by not in ('svc')" in databricks
+    assert "execution_status = 'FINISHED'" in databricks and 'date_sub(current_date(), 7)' in databricks
+
+
+def test_query_history_counts_texts_databricks_withholds(monkeypatch: pytest.MonkeyPatch) -> None:
+    from konstruct.inputs.usage import HistoryQuery, fetch_history
+    from konstruct.inputs.warehouse import DatabricksConnector
+
+    rows = [('select 1', 'ann', 2), ('<REDACTED>', 'bob', 5), ('<REDACTED>', 'cat', 1), (None, 'ann', 1)]
+    _stub(monkeypatch, 'databricks.sql', _Cursor([], [], rows, []))
+    history = fetch_history(DatabricksConnector({'server_hostname': 'x'}), UsageSettings())
+    assert history.queries == [HistoryQuery('select 1', 'ann', 2)] and history.redacted == 6
+    assert history.notes == [
+        "Databricks shows a statement's text only to account admins and members of the account-level "
+        'databricks_pii_access group; 6 runs were redacted and not checked.'
+    ]
+    assert fetch_history(object(), UsageSettings()).queries == []
+
+
+def test_query_history_of_every_warehouse_the_project_configures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from konstruct.engine.config import load_config
+    from konstruct.inputs.usage import HistoryQuery, project_history
+
+    (tmp_path / 'konstruct.toml').write_text(
+        '[[warehouse]]\ntype = "snowflake"\ndatabase = "SHOP"\n\n'
+        '[[warehouse]]\ntype = "duckdb"\npath = "shop.duckdb"\n\n'
+        '[usage]\ndays = 14\nexclude_users = ["dbt"]\n'
+    )
+    log: list[str] = []
+    _stub(monkeypatch, 'snowflake.connector', _Cursor([], [], [('select 1', 'ANN', 3)], log))
+    history = project_history(load_config(tmp_path), max_queries=7)
+    assert history.queries == [HistoryQuery('select 1', 'ANN', 3)]
+    assert 'dateadd(day, -14,' in log[-1] and "not in ('DBT')" in log[-1] and 'limit 7' in log[-1]
