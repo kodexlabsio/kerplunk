@@ -573,7 +573,7 @@ class DuckDBEngine(Engine):
                     FROM (SELECT {_reference(path)} AS __kp_v, row_number() OVER () AS __kp_i FROM {scratch})
                 )
                 SELECT base.* EXCLUDE (__kp_rn) REPLACE ({_rebuild(path, 'perm.__kp_v', prefix='base.')} AS {quoted})
-                FROM base JOIN perm USING (__kp_rn)
+                FROM base JOIN perm USING (__kp_rn) ORDER BY base.__kp_rn
                 """
             )
             return 'kp.mut'
@@ -672,7 +672,7 @@ class PostgresEngine(Engine):
                 f'CREATE TEMP TABLE kp_mut AS WITH base AS (SELECT *, row_number() OVER () AS __kp_rn FROM {scratch}), '
                 f"perm AS (SELECT __kp_v, row_number() OVER (ORDER BY md5(__kp_i::text || '{salt}')) AS __kp_rn "
                 f'FROM (SELECT {_quote(column)} AS __kp_v, row_number() OVER () AS __kp_i FROM {scratch}) AS x) '
-                f'SELECT {listed} FROM base JOIN perm USING (__kp_rn)'
+                f'SELECT {listed} FROM base JOIN perm USING (__kp_rn) ORDER BY base.__kp_rn'
             )
         else:
             expression = _mutation(_quote(column), dtype, strategy, rng, cast='CAST')
