@@ -75,6 +75,8 @@ change.
   `!` after the type and a `BREAKING CHANGE:` footer. A JSON document's `format_version` changes
   only then, and readers accept every earlier format. `tests/test_interfaces.py` and the corpus in
   `tests/compat/` check this, and the commit check refuses an unmarked removal.
+- **Good taste.** Prefer the data structure that makes a special case disappear to the code that
+  handles it, and deleting code to adding it.
 - **Every claim about lineage is tested.** A lineage fix comes with a small failing case (usually
   in `tests/test_sql.py`). Changes to what Konstruct claims should hold under `konstruct verify`.
 - **The README and the docs say what a user would notice**: a new command, option, input,
