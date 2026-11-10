@@ -18,7 +18,7 @@ use crate::substring;
 use crate::words::Words;
 
 /// Words a question is made of that say nothing about what it is asking for.
-const STOPWORDS: &[&str] = &[
+pub const STOPWORDS: &[&str] = &[
     "a", "about", "all", "an", "and", "any", "are", "as", "at", "be", "by", "can", "could", "do",
     "does", "find", "for", "from", "get", "give", "how", "i", "if", "in", "into", "is", "it",
     "list", "me", "my", "of", "on", "or", "our", "should", "show", "tell", "that", "the", "their",
