@@ -21,7 +21,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -361,8 +361,17 @@ class _Composed:
 class Explainer:
     """Explains columns of one graph, composing each column once however many ask for it."""
 
-    def __init__(self, graph: Graph, max_composed: int = MAX_COMPOSED, *, qualified: bool = False) -> None:
+    def __init__(
+        self,
+        graph: Graph,
+        max_composed: int = MAX_COMPOSED,
+        *,
+        qualified: bool = False,
+        boundary: Iterable[str] = (),
+    ) -> None:
         self.graph = graph
+        self.boundary = frozenset(boundary)
+        """Columns composed as sources whatever their formula: where another build's view stopped."""
         self.max_composed = max_composed
         dialect = graph.meta.get('dialect')
         self.namer = _Namer(graph, dialect if isinstance(dialect, str) else None)
@@ -405,6 +414,8 @@ class Explainer:
         if node.id in self.writing or depth > MAX_DEPTH:
             return _Text(None, frozenset(), False, deep=depth > MAX_DEPTH)
         graph = self.graph
+        if node.id in self.boundary:
+            return self._keep_text(node, depth, _Text(None, frozenset({node.id}), True))
         builder = same_relation(graph, node)
         if builder is not None:
             self.writing.add(node.id)
@@ -572,6 +583,8 @@ class Explainer:
         if node.id in self.active or depth > MAX_DEPTH:
             return _Composed(None, frozenset(), False, deep=depth > MAX_DEPTH)
         graph = self.graph
+        if node.id in self.boundary:
+            return self._keep(node, depth, _Composed(None, frozenset({node.id}), True))
         builder = same_relation(graph, node)
         if builder is not None:
             self.active.add(node.id)
@@ -589,15 +602,39 @@ class Explainer:
             failed = _Composed(None, frozenset(), False)
             self.memo[node.id] = failed
             return failed
-        tree: exp.Expr = parsed
+        # The column's own expression is named before substitution, so the parsed tree, which
+        # nothing else holds, can then be rewritten in place.
+        original = self.namer.text(expression)
         self.active.add(node.id)
-        resolve = self.inputs(node, upstream)
+        result = self._substituted(parsed, self.inputs(node, upstream), depth, len(expression))
+        self.active.discard(node.id)
+        result.original = original
+        return self._keep(node, depth, result)
+
+    def compose_sql(self, tree: exp.Expr, reads: Callable[[Node], None] | None = None) -> exp.Expr:
+        """A free expression, such as one of a relation's conditions, with every column in it
+        replaced by that column's composed formula, as :meth:`compose` replaces a column's
+        inputs, with brackets tidied. ``tree`` is rewritten in place; ``reads`` is called with
+        each column of the graph it refers to."""
+        size = len(tree.sql(dialect=self.namer.sqlglot))
+        composed = self._substituted(tree, self._resolver([]), -1, size, reads)
+        return _unparen(composed.tree) if composed.tree is not None else tree
+
+    def _substituted(
+        self,
+        tree: exp.Expr,
+        resolve: Callable[[exp.Column], tuple[Node, str, Node | None] | None],
+        depth: int,
+        size: int,
+        reads: Callable[[Node], None] | None = None,
+    ) -> _Composed:
+        """``tree``, the expression of a column at ``depth``, with each column ``resolve`` finds
+        in the graph replaced by its composed formula. ``size`` is the expression's length:
+        formulas roughly double at each join, so the budget is checked before substituting, not
+        after, and an input too large to inline stays a column reference."""
         sources: set[str] = set()
         complete = True
         deep = False
-        # Formulas roughly double at each join, so the budget is checked before substituting,
-        # not after: an input too large to inline stays a column reference.
-        size = len(expression)
 
         def substitute(item: exp.Expr) -> exp.Expr:
             nonlocal complete, deep, size
@@ -611,6 +648,8 @@ class Explainer:
             short = self.namer.column(name, relation)
             if target is None:
                 return short
+            if reads is not None:
+                reads(target)
             inner = self.compose(target, depth + 1)
             sources.update(inner.sources)
             complete = complete and inner.complete
@@ -625,21 +664,20 @@ class Explainer:
                 return inner.tree.copy()
             return exp.Paren(this=inner.tree.copy())
 
-        # The column's own expression is named before substitution, so the parsed tree, which
-        # nothing else holds, can then be rewritten in place.
-        original = self.namer.text(expression)
         composed = tree.transform(substitute, copy=False)
-        self.active.discard(node.id)
-        result = _Composed(composed, frozenset(sources), complete, size, original, deep)
-        return self._keep(node, depth, result)
+        return _Composed(composed, frozenset(sources), complete, size, deep=deep)
 
     def inputs(
         self, node: Node, upstream: list[Node] | None = None
     ) -> Callable[[exp.Column], tuple[Node, str, Node | None] | None]:
         """How the columns in ``node``'s expression resolve: for each, the relation and column
         name it names, and the column node it reads when the graph has one."""
+        return self._resolver(composed_from(self.graph, node) if upstream is None else upstream)
+
+    def _resolver(self, upstream: list[Node]) -> Callable[[exp.Column], tuple[Node, str, Node | None] | None]:
+        """How columns resolve given the input columns ``upstream``: first among them, by
+        relation or by relation name, and then to any column of the graph."""
         graph = self.graph
-        upstream = _composed_from(graph, node) if upstream is None else upstream
         by_name = {(u.parent or '', u.name.lower()): u for u in upstream}
         # Needed only when a name does not match an input directly, so built on first use.
         by_relation: dict[tuple[str, str], Node] | None = None

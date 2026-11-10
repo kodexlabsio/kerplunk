@@ -228,6 +228,28 @@ def test_a_formula_cut_short_by_depth_is_not_reused_where_it_could_go_deeper(tmp
     assert explainer.composed_text(middle) == expected[1]
 
 
+def test_a_free_expression_composes_as_a_column_would(tmp_path: Path) -> None:
+    """A condition is composed as a column's expression is, and says which columns it reads; a
+    boundary column is composed as a source, as the build that stopped there saw it."""
+    from konstruct.analysis.explain import Explainer
+    from konstruct.core.graph import Node
+
+    (tmp_path / 'a.sql').write_text('create table main.a as select v - 1 as w from raw.t')
+    (tmp_path / 'b.sql').write_text('create table main.b as select w * 2 as x from main.a')
+    graph = Project(tmp_path).build(dialect='duckdb', warehouses=False, run_dbt=False).graph
+    explainer = Explainer(graph, qualified=True)
+    tree = explainer.namer.parse('main.b.x > 0 AND raw.t.v IS NOT NULL')
+    assert tree is not None
+    read: list[Node] = []
+    composed = explainer.compose_sql(tree, read.append)
+    assert composed.sql(dialect='duckdb') == '((raw.t.v - 1) * 2) > 0 AND NOT raw.t.v IS NULL'
+    assert read == [graph.nodes['table.main.b#x'], graph.nodes['table.raw.t#v']]
+    stopped = Explainer(graph, qualified=True, boundary=['table.main.a#w'])
+    x = graph.nodes['table.main.b#x']
+    assert stopped.composed_text(x) == 'main.a.w * 2'
+    assert (stopped.compose(x).sources, stopped.compose(x).complete) == (frozenset({'table.main.a#w'}), True)
+
+
 def test_tidying_brackets_keeps_meaning_and_is_the_same_alone_or_inside() -> None:
     import sqlglot
     from sqlglot import exp
