@@ -2249,25 +2249,64 @@ def _topological(models: list[dbt.ModelSql]) -> list[dbt.ModelSql]:
 
 def link_shared_relations(graph: Graph) -> None:
     """Connect nodes that describe one physical relation, such as a seed and the dbt source
-    that reads the table it loads: the producer feeds the reader, column by column."""
-    for _, nodes in graph.shared_relations():
-        reader = nodes[0]
-        for producer in nodes[1:]:
-            if producer.kind not in ('model', 'snapshot', 'seed') or reader.kind != 'source':
-                continue
-            graph.add_edge(producer.id, reader.id, 'feeds', same_relation=True)
-            for column in graph.columns_of(producer.id):
-                mirror = graph.column(reader.id, column.name)
-                if mirror is None:
-                    mirror = graph.add_column(
-                        reader,
-                        column.name,
-                        data_type=column.data_type,
-                        description=column.description,
-                        origin='dbt',
-                        attrs={'from_relation': producer.id},
-                    )
-                graph.add_edge(mirror.id, column.id, 'derived_from', transform='direct', same_relation=True)
+    that reads the table it loads, or a dbt model another repository builds and the table this
+    one's SQL reads: the producer feeds the reader, column by column. A table read under a
+    shorter name than the one it is built under (``analytics.ltv`` for ``warehouse.analytics.ltv``)
+    is that relation when no other relation in the graph, built or not, has a name ending so too.
+    Two repositories that build one relation are warned of."""
+    for key, nodes in graph.shared_relations():
+        readers = [n for n in nodes if n.kind == 'source' or (n.kind == 'table' and not graph.built(n))]
+        for reader in readers:
+            for producer in nodes:
+                if producer.kind in ('model', 'snapshot', 'seed'):
+                    _link(graph, producer, reader)
+        builders = sorted(
+            {
+                str(n.attrs.get('repository') or 'this project')
+                for n in nodes
+                if n not in readers and graph.built(n)
+            }
+        )
+        if len(builders) > 1:
+            graph.warn(f'repositories: {key} is built by {" and ".join(builders)}')
+    ending: dict[str, set[str]] = {}
+    unlinked: list[Node] = []
+    for relation in list(graph.relations()):
+        if not relation.relation:
+            continue
+        parts = relation.relation.split('.')
+        for start in range(1, len(parts)):
+            ending.setdefault('.'.join(parts[start:]), set()).add(relation.relation)
+        if (
+            relation.kind == 'table'
+            and not graph.built(relation)
+            and not any(
+                n.kind in ('model', 'snapshot', 'seed') for n in graph.nodes_for_relation(relation.relation)
+            )
+        ):
+            unlinked.append(relation)
+    for reader in unlinked:
+        matches = ending.get(reader.relation or '', set()) - {reader.relation}
+        if len(matches) == 1:
+            for producer in graph.nodes_for_relation(matches.pop()):
+                if producer.kind != 'source' and graph.built(producer):
+                    _link(graph, producer, reader)
+
+
+def _link(graph: Graph, producer: Node, reader: Node) -> None:
+    graph.add_edge(producer.id, reader.id, 'feeds', same_relation=True)
+    for column in graph.columns_of(producer.id):
+        mirror = graph.column(reader.id, column.name)
+        if mirror is None:
+            mirror = graph.add_column(
+                reader,
+                column.name,
+                data_type=column.data_type,
+                description=column.description,
+                origin=column.origins[0] if column.origins else None,
+                attrs={'from_relation': producer.id},
+            )
+        graph.add_edge(mirror.id, column.id, 'derived_from', transform='direct', same_relation=True)
 
 
 def repository_name(config: Config, path: Path, taken: Iterable[str]) -> str:
@@ -2357,6 +2396,14 @@ def merge_repository(
     ]
     defined = {n.id for n in shared_relations if n.path and not graph.nodes[n.id].path}
     read = {n.id for n in shared_relations if not n.path and graph.nodes[n.id].path}
+    for node in shared_relations:
+        existing = graph.nodes[node.id]
+        if node.path and existing.path and node.relation:
+            first = existing.attrs.get('repository') or 'this project'
+            graph.warn(
+                f'repositories: {node.relation} is built by both {first} and {name}; the graph keeps '
+                f"{first}'s definition"
+            )
     for node in other.nodes.values():
         node.id = new_id(node.id)
         if node.parent:

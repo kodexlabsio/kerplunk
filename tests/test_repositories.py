@@ -337,3 +337,116 @@ def test_the_builder_marks_a_relation_whichever_repository_is_merged_first(tmp_p
             }
         )
     assert built[0] == built[1]
+
+
+def _ltv_repository(root: Path, ltv: str = 'sum(amount)') -> None:
+    _dbt_repository(
+        root,
+        'shop',
+        [
+            _model(
+                'shop',
+                'stg',
+                "select id, amount from {{ source('raw', 'orders') }}",
+                ['source.shop.raw.orders'],
+                'analytics',
+            ),
+            _model(
+                'shop',
+                'ltv',
+                f"select id, {ltv} as total from {{{{ ref('stg') }}}} group by id",
+                ['model.shop.stg'],
+                'analytics',
+            ),
+        ],
+        [_source('shop', 'raw', 'orders', 'raw', ['id', 'amount'])],
+    )
+
+
+def test_plain_sql_reading_a_dbt_model_another_repository_builds(tmp_path: Path) -> None:
+    """The reader's table and the builder's model are one relation in the warehouse: the model
+    feeds the table, column by column, as it feeds a dbt source that reads it."""
+    finance, marketing = tmp_path / 'finance', tmp_path / 'marketing'
+    _ltv_repository(finance)
+    marketing.mkdir()
+    (marketing / 'report.sql').write_text(
+        'create table warehouse.marketing.report as '
+        'select id, total * 2 as doubled from warehouse.analytics.ltv'
+    )
+    (marketing / 'konstruct.toml').write_text('dialect = "postgres"\nrepositories = ["../finance"]\n')
+    project = Project(marketing)
+    graph = project.build(warehouses=False, run_dbt=False).graph
+    [edge] = graph.out_edges('table.warehouse.analytics.ltv#total', 'derived_from')
+    assert (edge.target, edge.attrs.get('same_relation')) == ('model.shop.ltv#total', True)
+    assert [c.id for c in project.trace('report.doubled').columns][:2] == [
+        'table.warehouse.analytics.ltv#total',
+        'model.shop.ltv#total',
+    ]
+    assert [c.label for c in project.trace('report.doubled').columns][2:] == [
+        'stg.amount',
+        'raw.orders.amount',
+    ]
+    # Columns the reader does not name are the model's too.
+    assert graph.column('table.warehouse.analytics.ltv', 'id') is not None
+
+
+def test_plain_sql_naming_a_dbt_model_without_its_database(tmp_path: Path) -> None:
+    """A reader that names the relation by schema and table only reads the one relation built
+    under that name, so the model feeds it as it feeds a reader that names it in full."""
+    finance, marketing = tmp_path / 'finance', tmp_path / 'marketing'
+    _ltv_repository(finance)
+    marketing.mkdir()
+    (marketing / 'report.sql').write_text(
+        'create table marketing.report as select id, total * 2 as doubled from analytics.ltv'
+    )
+    (marketing / 'konstruct.toml').write_text('dialect = "postgres"\nrepositories = ["../finance"]\n')
+    project = Project(marketing)
+    graph = project.build(warehouses=False, run_dbt=False).graph
+    [edge] = graph.out_edges('table.analytics.ltv#total', 'derived_from')
+    assert (edge.target, edge.attrs.get('same_relation')) == ('model.shop.ltv#total', True)
+    assert [c.label for c in project.trace('report.doubled').columns][2:] == [
+        'stg.amount',
+        'raw.orders.amount',
+    ]
+
+
+def test_a_short_name_two_built_relations_end_with_is_not_linked(tmp_path: Path) -> None:
+    """``main.ltv`` could be either repository's table, so neither feeds it."""
+    a, b, c = tmp_path / 'a', tmp_path / 'b', tmp_path / 'c'
+    for root, database in ((a, 'one'), (b, 'two')):
+        root.mkdir()
+        (root / 'ltv.sql').write_text(
+            f'create table {database}.main.ltv as select sum(amount) as total from raw.orders'
+        )
+    c.mkdir()
+    (c / 'report.sql').write_text('create table main.report as select total * 2 as doubled from main.ltv')
+    (c / 'konstruct.toml').write_text('dialect = "duckdb"\nrepositories = ["../a", "../b"]\n')
+    graph = Project(c).build(warehouses=False, run_dbt=False).graph
+    assert graph.out_edges('table.main.ltv#total', 'derived_from') == []
+
+
+def test_a_short_name_another_relation_also_ends_with_is_not_linked(tmp_path: Path) -> None:
+    """``orders`` could be finance's staging.orders or the raw.orders marketing also reads, so
+    staging.orders does not feed it."""
+    finance, marketing = tmp_path / 'finance', tmp_path / 'marketing'
+    finance.mkdir()
+    marketing.mkdir()
+    (finance / 'orders.sql').write_text('create table staging.orders as select id, amount from raw.orders')
+    (marketing / 'report.sql').write_text(
+        'create table marketing.report as select o.amount, r.id from orders o join raw.orders r on r.id = o.id'
+    )
+    (marketing / 'konstruct.toml').write_text('dialect = "duckdb"\nrepositories = ["../finance"]\n')
+    graph = Project(marketing).build(warehouses=False, run_dbt=False).graph
+    assert graph.out_edges('table.orders#amount', 'derived_from') == []
+
+
+def test_two_repositories_building_one_relation_is_a_warning(tmp_path: Path) -> None:
+    a, b, c = tmp_path / 'a', tmp_path / 'b', tmp_path / 'c'
+    for root in (a, b):
+        root.mkdir()
+        (root / 'ltv.sql').write_text('create table main.ltv as select sum(amount) as total from raw.orders')
+    c.mkdir()
+    (c / 'konstruct.toml').write_text('dialect = "duckdb"\nrepositories = ["../a", "../b"]\n')
+    (c / 'report.sql').write_text('create table main.report as select total from main.ltv')
+    graph = Project(c).build(warehouses=False, run_dbt=False).graph
+    assert "repositories: main.ltv is built by both a and b; the graph keeps a's definition" in graph.warnings

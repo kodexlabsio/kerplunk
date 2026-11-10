@@ -298,6 +298,24 @@ class Graph:
     def relations(self) -> Iterator[Node]:
         return (n for n in self.nodes.values() if n.kind in RELATION_KINDS)
 
+    def built(self, relation: Node) -> bool:
+        """Whether something in the graph builds ``relation``: a model, seed or snapshot, a file of
+        its own, a task, or SQL that gives its columns expressions. A source, or a table the graph
+        only reads, is not built."""
+        return (
+            relation.kind in RELATION_KINDS
+            and relation.kind != 'source'
+            and (
+                relation.kind in ('model', 'seed', 'snapshot')
+                or bool(relation.path)
+                or any(
+                    e.source in self.nodes and self.nodes[e.source].kind == 'task'
+                    for e in self.in_edges(relation.id, 'feeds')
+                )
+                or any('expression' in c.attrs for c in self.columns_of(relation.id))
+            )
+        )
+
     def columns_of(self, node_id: str) -> list[Node]:
         """The columns of a relation, in their order."""
         return [self.nodes[e.target] for e in self.out_edges(node_id, 'contains')]
