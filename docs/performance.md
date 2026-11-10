@@ -23,11 +23,9 @@ Konstruct is Python with a compiled core in Rust. The core walks the graph for `
 
 | Question | Time |
 |---|---:|
-| `search` | 2.4 ms |
-| `query` | 1.8 ms |
 | `path` from a column of the 11th model to one of the last | 4.0 ms |
 | `describe` of a model | 0.7 ms |
 | `conflicts` over every candidate column | 3.2 s |
 
-The first question after Konstruct loads a graph also builds the index it needs: about 50 ms for walks and paths, and 120 ms for search, on 2,000 models. Loading `graph.json` itself takes about 1.3 s at that size, so a single CLI command spends most of its time reading the graph; the MCP server, the Python API and `konstruct diff` and `conflicts`, which ask many questions of one graph, gain the most.
+The first question after Konstruct loads a graph also builds the index it needs: about 50 ms for walks and paths on 2,000 models, and the search index for `search` and `query`. Loading `graph.json` itself takes about 1.3 s at that size, so a single CLI command spends most of its time reading the graph; the MCP server, the Python API and `konstruct diff` and `conflicts`, which ask many questions of one graph, gain the most.
 
