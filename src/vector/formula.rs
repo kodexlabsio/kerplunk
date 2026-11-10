@@ -197,6 +197,11 @@ fn quoted(sql: &str, at: usize, close: u8) -> (String, usize) {
     (String::from_utf8_lossy(&text).into_owned(), bytes.len())
 }
 
+/// Whether an expression only names one column: a copy, renamed or not, that computes nothing.
+pub fn is_column(sql: &str) -> bool {
+    matches!(tokens(sql).as_slice(), [Token::Column(_)])
+}
+
 /// Whether a question reads as a formula: it calls a function (a name straight before `(`) or
 /// uses an arithmetic or comparison operator. A hyphen counts only beside a space, so
 /// `year-to-date` stays words.

@@ -41,7 +41,7 @@ fn strings<'py>(
 
 /// `text` as a key of the indexes ([`keys`]), borrowed from Python unless it holds a lone
 /// surrogate or the escape character, as almost no string does.
-fn key<'a>(text: &'a Bound<'_, PyString>) -> PyResult<std::borrow::Cow<'a, str>> {
+pub(crate) fn key<'a>(text: &'a Bound<'_, PyString>) -> PyResult<std::borrow::Cow<'a, str>> {
     match text.to_str() {
         Ok(utf8) => Ok(keys::from_str(utf8)),
         Err(_) => {
@@ -78,7 +78,7 @@ fn string<'py>(py: Python<'py>, key: &str) -> PyResult<Bound<'py, PyString>> {
 }
 
 /// A Python string argument as a key of the indexes ([`keys`]).
-enum Key {
+pub(crate) enum Key {
     /// The string itself, its UTF-8 kept by Python.
     Python(PyBackedStr),
     Escaped(String),
@@ -275,8 +275,8 @@ impl RelationNames {
 
 /// Ranked word search over a graph's nodes.
 #[pyclass(frozen, module = "konstruct._core")]
-struct SearchIndex {
-    inner: search::SearchIndex,
+pub(crate) struct SearchIndex {
+    pub(crate) inner: search::SearchIndex,
 }
 
 #[pymethods]
@@ -363,7 +363,8 @@ impl SearchIndex {
     }
 }
 
-/// Konstruct's native core: graph traversal, name resolution, search and formula identity.
+/// Konstruct's native core: graph traversal, name resolution, search, search by meaning and
+/// formula identity.
 #[pymodule(name = "_core")]
 mod core_module {
     use pyo3::exceptions::PyImportError;
@@ -373,6 +374,8 @@ mod core_module {
     use super::{GraphIndex, RelationNames, SearchIndex};
     #[pymodule_export]
     use crate::identity::python::FormulaSet;
+    #[pymodule_export]
+    use crate::vector::python::VectorIndex;
 
     /// Refuses to load on a processor the routines cannot run on, before anything calls them.
     #[pymodule_init]

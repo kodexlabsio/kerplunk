@@ -153,6 +153,20 @@ impl SearchIndex {
         numbers
     }
 
+    /// Whether `needle` (in lower case) is a node's label or name, or a business term's synonym.
+    fn named(entry: &Entry, needle: &str) -> bool {
+        let synonym =
+            entry.standing == Standing::Term && entry.synonyms.iter().any(|s| &**s == needle);
+        &*entry.label == needle || &*entry.name == needle || synonym
+    }
+
+    /// Whether node `ordinal` is named exactly `needle`, as [`Self::search`] ranks it.
+    pub fn is_named(&self, ordinal: u32, needle: &str) -> bool {
+        self.entries
+            .get(ordinal as usize)
+            .is_some_and(|entry| Self::named(entry, needle))
+    }
+
     /// The nodes matching `text` (in lower case), best first, at most `limit` of them, each with
     /// its score. `needle` is the whole query, trimmed; a node named exactly that ranks first.
     /// With `kinds`, only nodes of those kinds are returned.
@@ -215,9 +229,7 @@ impl SearchIndex {
             if score == 0.0 {
                 continue;
             }
-            let synonym =
-                entry.standing == Standing::Term && entry.synonyms.iter().any(|s| &**s == needle);
-            if &*entry.label == needle || &*entry.name == needle || synonym {
+            if Self::named(entry, needle) {
                 score += 10.0;
             }
             scored.push((graph::ordinal(ordinal), entry.standing.weigh(score)));

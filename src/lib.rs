@@ -37,7 +37,7 @@ pub mod words;
 mod testing;
 
 #[cfg(feature = "python")]
-mod python;
+pub(crate) mod python;
 
 /// Why this processor cannot run the core, or `None` when it can.
 ///

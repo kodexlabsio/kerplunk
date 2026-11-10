@@ -13,6 +13,8 @@ use _core::graph::{EdgeKind, GraphIndex, NodeKind};
 use _core::keys;
 use _core::names::{Relation, RelationNames};
 use _core::search::{Document, SearchIndex, Standing};
+use _core::vector::VectorIndex;
+use _core::vector::embed::{Link, Node as VectorNode};
 use _core::words::Words;
 
 const MODELS: usize = 2000;
@@ -241,13 +243,59 @@ fn graph(nodes: &[Node]) -> GraphIndex {
     builder.build()
 }
 
+/// The project's nodes and lineage as search by meaning reads them.
+fn vector_nodes(nodes: &[Node]) -> (Vec<VectorNode<'_>>, Vec<Link>) {
+    let vector_nodes = nodes
+        .iter()
+        .map(|node| VectorNode {
+            id: &node.id,
+            kind: node.kind,
+            name: &node.name,
+            qualifier: node
+                .parent
+                .map_or(node.relation.as_deref().unwrap_or(""), |p| &nodes[p].label),
+            description: &node.description,
+            synonyms: Vec::new(),
+            expression: None,
+        })
+        .collect();
+    let stride = COLUMNS + 1;
+    let mut links = Vec::new();
+    let link = |source: usize, target: usize, kind| Link {
+        source: source as u32,
+        target: target as u32,
+        kind,
+    };
+    for model in 0..MODELS {
+        let at = model * stride;
+        for column in 1..stride {
+            links.push(link(at, at + column, EdgeKind::Contains));
+        }
+        if model >= 10 {
+            for upstream in [model / 2, model / 3] {
+                let from = upstream * stride;
+                links.push(link(from, at, EdgeKind::Feeds));
+                for column in 1..stride {
+                    links.push(link(at + column, from + column, EdgeKind::DerivedFrom));
+                }
+            }
+        }
+    }
+    (vector_nodes, links)
+}
+
 /// Times `run` unless `filter` (the bench's first argument) names other lines. The fastest run
 /// is the one least disturbed by the rest of the machine; the median shows the spread.
-fn bench(filter: Option<&str>, what: &str, mut run: impl FnMut()) {
+fn bench(filter: Option<&str>, what: &str, run: impl FnMut()) {
+    bench_runs(filter, what, RUNS, run);
+}
+
+/// [`bench`] over `runs` runs, for what takes seconds.
+fn bench_runs(filter: Option<&str>, what: &str, runs: usize, mut run: impl FnMut()) {
     if filter.is_some_and(|f| !what.contains(f)) {
         return;
     }
-    let mut times: Vec<Duration> = (0..RUNS)
+    let mut times: Vec<Duration> = (0..runs)
         .map(|_| {
             let started = Instant::now();
             run();
@@ -259,7 +307,7 @@ fn bench(filter: Option<&str>, what: &str, mut run: impl FnMut()) {
     println!(
         "{what:<44} {:>10.1} µs fastest {:>10.1} µs median",
         micros(times[0]),
-        micros(times[RUNS / 2])
+        micros(times[runs / 2])
     );
 }
 
@@ -338,4 +386,37 @@ fn main() {
     bench(filter, "path from the 11th model to the last", || {
         black_box(lineage.path(column(10), column(MODELS - 1)));
     });
+
+    let (vector_nodes, links) = vector_nodes(&nodes);
+    let standings = vec![0; vector_nodes.len()];
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    bench_runs(filter, "vector index", 3, || {
+        black_box(VectorIndex::new(
+            &vector_nodes,
+            &links,
+            &standings,
+            None,
+            threads,
+        ));
+    });
+    let vectors = VectorIndex::new(&vector_nodes, &links, &standings, None, threads);
+    let saved = vectors.to_bytes();
+    bench_runs(filter, "vector index, read from vectors.bin", 5, || {
+        black_box(VectorIndex::new(
+            &vector_nodes,
+            &links,
+            &standings,
+            Some(&saved),
+            threads,
+        ));
+    });
+    for query in [
+        "customer lifetime value",
+        "revenue",
+        "refund amount in pounds",
+    ] {
+        bench(filter, &format!("search by meaning {query:?}"), || {
+            black_box(vectors.search(query, 20, &[]));
+        });
+    }
 }
