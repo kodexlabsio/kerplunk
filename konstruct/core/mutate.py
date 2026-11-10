@@ -58,7 +58,7 @@ _FLIPS: dict[type[exp.Expr], type[exp.Expr]] = {
     exp.GTE: exp.LTE,
     exp.LTE: exp.GTE,
 }
-_DATE = re.compile(r'^(\d{4}-\d{2}-\d{2})([ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?$')
+_DATE = re.compile(r'(\d{4}-\d{2}-\d{2})([ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?')
 _SNIPPET = 100
 
 
@@ -262,7 +262,7 @@ def _comparison_sites(node: exp.Expr, index: int, dialect: str) -> list[_Site]:
 
 def _date_sites(node: exp.Literal, index: int, dialect: str) -> list[_Site]:
     """A date or timestamp literal a day later: a filter or bucket boundary one day off."""
-    match = _DATE.match(node.this)
+    match = _DATE.fullmatch(node.this)  # the whole literal: $ would also match before a final newline
     if match is None:
         return []
     try:

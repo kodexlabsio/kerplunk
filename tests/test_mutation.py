@@ -133,6 +133,12 @@ def test_the_last_date_is_not_shifted() -> None:
     }
 
 
+def test_a_date_with_a_trailing_newline_is_not_a_date() -> None:
+    """The date pattern matches the whole literal: a string that only starts like a date is text."""
+    assert by_description("select a from t where d < '2024-01-01\n'", operators=('date',)) == {}
+    assert by_description("select a from t where d < '2024-01-01 10:00\n'", operators=('date',)) == {}
+
+
 def test_scope_column_and_ids() -> None:
     sql = 'with o as (select k, sum(v) as total from t where v > 0 group by k) select k, coalesce(total, 0) as total from o'
     result = mutants(sql)
@@ -823,8 +829,12 @@ def test_a_model_with_the_last_date_is_mutation_tested(tmp_path: Path) -> None:
         "select id, name, coalesce(cast(null as varchar), '9999-12-31') as valid_to "
         'from "shop"."main"."customers" where id > 0'
     )
-    [model] = run_mutate(make_shop(tmp_path, sql=sql, tests=[]), suggest=False).models
+    [model] = run_mutate(make_shop(tmp_path, sql=sql, tests=[]), max_mutants=100, suggest=False).models
     assert model.skipped is None and model.mutants
+    # Every mutation the query admits was made, and none of them shifts the sentinel.
+    assert model.sites == mutants(sql, 'duckdb').sites
+    assert not [m for m in model.mutants if "'9999-12-31' to" in m.mutant.description]
+    assert not [m for m in model.mutants if m.mutant.operator == 'date']
 
 
 def test_a_unit_test_compares_the_columns_of_its_first_expected_row(tmp_path: Path) -> None:
