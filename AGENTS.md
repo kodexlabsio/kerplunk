@@ -69,6 +69,12 @@ change.
 - **Never import or execute user code.** DAG and Dagster files are parsed with `ast`; dbt Jinja is
   rendered in a sandbox. Only `konstruct verify` runs a model's SQL, and never commits anything to
   the warehouse.
+- **Never break users.** graph.json, the `--json` output, the MCP tools, the CLI's commands,
+  options and exit statuses, the Python API and the `konstruct.toml` keys are interfaces. Add to
+  them freely; a removal, a rename or a change of meaning is a breaking change, marked with both
+  `!` after the type and a `BREAKING CHANGE:` footer. A JSON document's `format_version` changes
+  only then, and readers accept every earlier format. `tests/test_interfaces.py` and the corpus in
+  `tests/compat/` check this, and the commit check refuses an unmarked removal.
 - **Every claim about lineage is tested.** A lineage fix comes with a small failing case (usually
   in `tests/test_sql.py`). Changes to what Konstruct claims should hold under `konstruct verify`.
 - **The README and the docs say what a user would notice**: a new command, option, input,
