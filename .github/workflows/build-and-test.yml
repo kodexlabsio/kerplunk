@@ -503,12 +503,10 @@ jobs:
     name: GitHub Action and its gate on a breaking and a safe change
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # `$/` runs the action from this repository at the commit under test, as `kodexlabsio/konstruct@v0`
+    # runs it for users, rather than from whatever an earlier step left in the workspace; so the job
+    # needs no checkout.
     steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - name: Make a SQL repository with a change to review
         run: |
           mkdir -p "$RUNNER_TEMP/shop/sql" && cd "$RUNNER_TEMP/shop"
@@ -522,7 +520,7 @@ jobs:
 
       - name: Review the breaking change
         id: breaking
-        uses: ./
+        uses: $/
         continue-on-error: true
         with:
           working-directory: ${{ env.SHOP }}
@@ -550,7 +548,7 @@ jobs:
 
       - name: Review the safe change
         id: safe
-        uses: ./
+        uses: $/
         with:
           working-directory: ${{ env.SHOP }}
           base: HEAD
