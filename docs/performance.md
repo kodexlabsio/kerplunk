@@ -19,7 +19,7 @@ Plugins cost nothing in commands that cannot run one: only `build`, `export`, `g
 
 ## The Rust Core
 
-Konstruct is Python with a compiled core in Rust. The core walks the graph for `impact` and `trace`, finds paths, resolves names and ranks `search` and `query` results; everything else, the SQL analysis included, is Python. On the 2,000-model project, after the graph is loaded:
+Konstruct is Python with a compiled core in Rust. The core walks the graph for `impact` and `trace`, finds paths, resolves names and ranks `search` and `query` results, and decides whether two formulas compute the same thing; everything else, the SQL analysis included, is Python. On the 2,000-model project, after the graph is loaded:
 
 | Question | Time |
 |---|---:|

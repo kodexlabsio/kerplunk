@@ -14,7 +14,9 @@ models through CTEs, with a manifest, a catalog and Airflow DAGs. For each size 
 * the questions the Rust core answers, on the graph as a command loads it: loading graph.json,
   the first impact and the first search (each also builds its index), then the median time of a
   search, a query, a path from the 11th model to the deepest and a describe of the deepest
-  model, and one run of conflicts over every candidate column.
+  model, and one run of conflicts over every candidate column;
+* the formula identity test: translating every column's composed formula into the core's
+  program, then fingerprinting all of them and grouping them by fingerprint.
 
 It also measures start-up: the CPU time of ``konstruct --help`` and of ``konstruct status`` on
 the largest project, each in a fresh process.
@@ -43,6 +45,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from konstruct import Project, __version__  # noqa: E402
+from konstruct.analysis.identity import Formulas  # noqa: E402
 from konstruct.analysis.query import search  # noqa: E402
 from konstruct.core.graph import Graph  # noqa: E402
 from konstruct.interfaces import hook  # noqa: E402
@@ -65,6 +68,23 @@ def median_time(func: Any, *args: Any, repeat: int = REPEAT) -> float:
         elapsed, _ = timed(func, *args)
         times.append(elapsed)
     return statistics.median(times)
+
+
+def identity(graph: Graph) -> tuple[int, float, float]:
+    """The formulas with an expression, the time to translate them, and the time to fingerprint
+    and group them."""
+    columns = [
+        n for n in graph.nodes.values() if n.kind == 'column' and isinstance(n.attrs.get('expression'), str)
+    ]
+    started = time.perf_counter()
+    formulas = Formulas(graph, fixed_key=True)
+    definitions = [formulas.column(n) for n in columns]
+    translated = time.perf_counter() - started
+    started = time.perf_counter()
+    groups: dict[str, list[str]] = {}
+    for column, value in zip(columns, formulas.fingerprints(definitions), strict=True):
+        groups.setdefault(value, []).append(column.id)
+    return len(columns), translated, time.perf_counter() - started
 
 
 def measure(models: int) -> dict[str, Any]:
@@ -92,6 +112,7 @@ def measure(models: int) -> dict[str, Any]:
         conflicts, _ = timed(project.conflicts)
         walk = project.impact('raw_m008' if models > 8 else 'raw_m000')
         startup = {} if models != max(SIZES) else measure_startup(root)
+        formulas, translate, fingerprint = identity(loaded)
         return {
             'models': models,
             'columns': sum(1 for n in graph.nodes.values() if n.kind == 'column'),
@@ -118,6 +139,9 @@ def measure(models: int) -> dict[str, Any]:
             'path_ms': round(1000 * median_time(project.path_between, 'm010.c01', f'{deepest}.c00'), 1),
             'describe_ms': round(1000 * median_time(project.describe, deepest), 1),
             'conflicts_s': round(conflicts, 2),
+            'formulas': formulas,
+            'identity_translate_s': round(translate, 2),
+            'identity_fingerprint_ms': round(1000 * fingerprint, 1),
         }
 
 
@@ -207,6 +231,16 @@ def markdown(rows: list[dict[str, Any]]) -> str:
             f'Start-up (CPU time, {startup["models"]:,} models): `konstruct --help` {startup["help_cpu_ms"]} ms, '
             f'`konstruct status` {startup["status_cpu_ms"]} ms.',
         ]
+    lines += [
+        '',
+        '| Models | Formulas | Translate | Fingerprint and group |',
+        '|---:|---:|---:|---:|',
+    ]
+    for r in rows:
+        lines.append(
+            f'| {r["models"]:,} | {r["formulas"]:,} | {r["identity_translate_s"]} s '
+            f'| {r["identity_fingerprint_ms"]} ms |'
+        )
     return '\n'.join(lines)
 
 
