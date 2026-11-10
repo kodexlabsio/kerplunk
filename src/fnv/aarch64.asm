@@ -31,7 +31,8 @@
 //   it by that exact name, as a leading \x01 byte in its link_name tells LLVM not to add the
 //   underscore Mach-O symbols otherwise get. `.text` names the code section in all three object
 //   formats, and `.p2align 2` aligns the entry to 4 bytes, the size of every A64 instruction.
-//   On ELF targets src/fnv/mod.rs adds the symbol's `.type` and `.size` after the routine.
+//   On ELF targets the routine! macro in src/lib.rs adds the symbol's `.type` and `.size` after
+//   the routine.
 
     .text
     .globl konstruct_fnv1a64

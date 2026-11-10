@@ -28,7 +28,8 @@
 //   byte in its link_name, which tells LLVM to use the name exactly as written). `.text` is the
 //   ELF code section, and `.p2align 2` aligns the entry to 4 bytes, the size of every
 //   LoongArch instruction.
-//   On ELF targets src/fnv/mod.rs adds the symbol's `.type` and `.size` after the routine.
+//   On ELF targets the routine! macro in src/lib.rs adds the symbol's `.type` and `.size` after
+//   the routine.
 
     .text
     .globl konstruct_fnv1a64

@@ -32,7 +32,8 @@
 //   function entries.
 //   Local labels are numbered 2 and 3: in Intel syntax a label made only of 0 and 1 reads as a
 //   binary number.
-//   On ELF targets src/fnv/mod.rs adds the symbol's `.type` and `.size` after the routine.
+//   On ELF targets the routine! macro in src/lib.rs adds the symbol's `.type` and `.size` after
+//   the routine.
 
     .text
     .globl konstruct_fnv1a64

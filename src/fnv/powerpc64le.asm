@@ -32,7 +32,8 @@
 //   TOC, its global and local entry points are the same address and it needs no
 //   `.localentry`. `.text` is the ELF code section; `.p2align 4` aligns the entry to 16 bytes,
 //   as compilers align function entries for POWER's instruction fetch.
-//   On ELF targets src/fnv/mod.rs adds the symbol's `.type` and `.size` after the routine.
+//   On ELF targets the routine! macro in src/lib.rs adds the symbol's `.type` and `.size` after
+//   the routine.
 
     .text
     .globl konstruct_fnv1a64

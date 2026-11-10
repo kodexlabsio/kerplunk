@@ -29,40 +29,23 @@ compile_error!(
 /// The state FNV-1a 64 starts from.
 pub const OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
 
-/// Assembles one routine. On ELF targets the symbol also gets its type and size, so debuggers,
-/// profilers and `nm -S` see a function of known length; these are ELF directives, which the
-/// routines leave out so that each assembles for Mach-O and COFF too. `.` is the end of the
-/// routine, as each file ends in its `.text` section.
-macro_rules! routine {
-    ($file:literal) => {
-        #[cfg(any(target_vendor = "apple", target_os = "windows"))]
-        core::arch::global_asm!(include_str!($file));
-        #[cfg(not(any(target_vendor = "apple", target_os = "windows")))]
-        core::arch::global_asm!(
-            include_str!($file),
-            ".type konstruct_fnv1a64, %function",
-            ".size konstruct_fnv1a64, . - konstruct_fnv1a64",
-        );
-    };
-}
-
 #[cfg(target_arch = "x86_64")]
-routine!("x86_64.asm");
+routine!(include_str!("x86_64.asm"), "konstruct_fnv1a64");
 
 #[cfg(target_arch = "aarch64")]
-routine!("aarch64.asm");
+routine!(include_str!("aarch64.asm"), "konstruct_fnv1a64");
 
 #[cfg(target_arch = "riscv64")]
-routine!("riscv64.asm");
+routine!(include_str!("riscv64.asm"), "konstruct_fnv1a64");
 
 #[cfg(all(target_arch = "powerpc64", target_endian = "little"))]
-routine!("powerpc64le.asm");
+routine!(include_str!("powerpc64le.asm"), "konstruct_fnv1a64");
 
 #[cfg(target_arch = "s390x")]
-routine!("s390x.asm");
+routine!(include_str!("s390x.asm"), "konstruct_fnv1a64");
 
 #[cfg(target_arch = "loongarch64")]
-routine!("loongarch64.asm");
+routine!(include_str!("loongarch64.asm"), "konstruct_fnv1a64");
 
 // System V on x86_64 whatever the operating system, so one routine serves Windows as well.
 #[cfg(target_arch = "x86_64")]

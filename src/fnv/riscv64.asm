@@ -28,9 +28,11 @@
 // Symbol, section and alignment
 //   The label is the plain name konstruct_fnv1a64, the name Rust links to (with a leading \x01
 //   byte in its link_name, which tells LLVM to use the name exactly as written). `.text` is the
-//   ELF code section, and `.p2align 2` aligns the entry to 4 bytes, the size of the base,
-//   uncompressed instructions used here.
-//   On ELF targets src/fnv/mod.rs adds the symbol's `.type` and `.size` after the routine.
+//   ELF code section, and `.p2align 2` aligns the entry to 4 bytes, the size of a base
+//   instruction; RV64GC includes the C extension, so the assembler writes the instructions that
+//   have one in their 2-byte compressed form.
+//   On ELF targets the routine! macro in src/lib.rs adds the symbol's `.type` and `.size` after
+//   the routine.
 
     .text
     .option push
