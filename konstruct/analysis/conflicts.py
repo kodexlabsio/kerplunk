@@ -3,7 +3,9 @@
 ``konstruct conflicts`` finds columns that look like the same measure (by name, by synonyms from
 definitions.yml, or by being bound to the same business term) and compares how each is computed:
 
-* the formula in terms of source columns (from :mod:`konstruct.analysis.explain`);
+* the formula in terms of source columns (from :mod:`konstruct.analysis.explain`), compared by
+  what it computes rather than how it is written (:mod:`konstruct.analysis.identity`), with
+  NULLs; formulas that are the same only when no source value is NULL are reported as such;
 * the source columns it reads;
 * the filters and joins on its route back to source, with the file each lives in;
 * the aggregation at the top of the formula.
@@ -26,6 +28,7 @@ import sqlglot
 from sqlglot import exp
 
 from konstruct.analysis.explain import Explainer, short_sql
+from konstruct.analysis.identity import Formulas, Verdict, Witness
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
 from konstruct.core.sql import PARSE_ERRORS
 
@@ -63,6 +66,7 @@ SYNONYMS = (
 )
 KEY_WORDS = frozenset({'id', 'key', 'uuid', 'pk', 'fk', 'sk', 'hash'})
 FILTER_HEADS = ('WHERE', 'HAVING', 'QUALIFY')
+SAME_UNLESS_NULL = 'the same unless a source value is NULL or there are no rows'
 _CANONICAL = {word: group[0] for group in SYNONYMS for word in group}
 
 
@@ -96,9 +100,16 @@ class Difference:
     """Which column has it (``a`` or ``b``) when only one does; None when both differ."""
     path: str | None = None
     """The file the filter or join is in."""
+    witness: Witness | None = None
+    """For a formula or aggregation not shown to be the same, values at which the two give
+    different results (a proof only when it sets source columns alone; see
+    :class:`~konstruct.analysis.identity.Witness`), or the function they apply differently."""
 
     def to_dict(self) -> dict[str, Any]:
-        return {k: v for k, v in self.__dict__.items() if v is not None}
+        data = {k: v for k, v in self.__dict__.items() if v is not None}
+        if self.witness is not None:
+            data['witness'] = self.witness.to_dict()
+        return data
 
 
 @dataclass
@@ -187,6 +198,8 @@ class Conflict:
             )
             where = f'  ({difference.path})' if difference.path else ''
             out.append(f'  - {difference.kind}{who}: {difference.detail}{where}')
+            if difference.witness is not None:
+                out.append(f'      {difference.witness}')
         return out
 
 
@@ -255,6 +268,8 @@ class Conflicts:
                     who = f' (only in {"A" if difference.side == "a" else "B"})'
                 where = f', in `{difference.path}`' if difference.path else ''
                 lines.append(f'- {difference.kind}{who}: `{difference.detail}`{where}')
+                if difference.witness is not None:
+                    lines.append(f'  - {difference.witness}')
             for side, name in ((conflict.a, 'A'), (conflict.b, 'B')):
                 if side.carried_into:
                     copies = ', '.join(f'`{c}`' for c in side.carried_into)
@@ -288,6 +303,8 @@ class _Finder:
         self.dialect = dialect if isinstance(dialect, str) else None
         self.explainer = Explainer(graph)
         self.ancestors: dict[str, set[str]] = {}
+        self.formulas: Formulas | None = None
+        self.joinless: Formulas | None = None
 
     def upstream(self, column_id: str) -> set[str]:
         if column_id not in self.ancestors:
@@ -409,12 +426,57 @@ class _Finder:
             for _relation, condition, path in items_b:
                 if condition not in conditions_a:
                     differences.append(Difference(kind, condition, 'b', path))
+        if a.composed is not None and a.composed == b.composed:
+            # The same text is the same formula. What else tells the two apart, such as a
+            # not_null test on one or an outer join on the route of one, is in the filters and
+            # joins above, not in the formula.
+            return differences
+        verdict = self.verdict(a, b)
+        # A verdict of the same with no guarantee (a divisor zero at a sampled point) is not
+        # taken as the same.
+        trusted = verdict is not None and verdict.error_bound < 1
+        if trusted and verdict is not None and verdict.equal:
+            return differences
+        if trusted and any(d.kind == 'join' for d in differences) and self.same_inside_joins(a, b):
+            # They differ only through an outer join on one route, which is reported above.
+            return differences
+        witness = verdict.witness if verdict is not None else None
+        if trusted and verdict is not None and verdict.equal_without_nulls:
+            if not any(d.kind == 'source' for d in differences):
+                detail = f'{a.composed} against {b.composed}, {SAME_UNLESS_NULL}'
+                differences.append(Difference('formula', detail, witness=witness))
+            return differences
         top_a, top_b = _top_function(a.composed, self.dialect), _top_function(b.composed, self.dialect)
         if top_a != top_b and (top_a or top_b):
-            differences.append(Difference('aggregation', f'{top_a or "none"} against {top_b or "none"}'))
-        if a.composed != b.composed and not any(d.kind in ('source', 'aggregation') for d in differences):
-            differences.append(Difference('formula', f'{a.composed} against {b.composed}'))
+            detail = f'{top_a or "none"} against {top_b or "none"}'
+            differences.append(Difference('aggregation', detail, witness=witness))
+            witness = None
+        differs = verdict is not None or a.composed != b.composed
+        if differs and not any(d.kind in ('source', 'aggregation') for d in differences):
+            differences.append(Difference('formula', f'{a.composed} against {b.composed}', witness=witness))
         return differences
+
+    def same_inside_joins(self, a: Side, b: Side) -> bool:
+        """Whether the two formulas are the same when a column read through an outer join is
+        taken as it is in its own relation: then what tells them apart is the join."""
+        if self.formulas is None or not self.formulas.joins:
+            return False
+        if self.joinless is None:
+            self.joinless = Formulas(self.graph, conditions=False, outer=False)
+        first = self.joinless.column(self.graph.nodes[a.column])
+        verdict = self.joinless.compare(first, self.joinless.column(self.graph.nodes[b.column]))
+        return verdict.equal and verdict.error_bound < 1
+
+    def verdict(self, a: Side, b: Side) -> Verdict | None:
+        """Whether two columns' formulas compute the same values, however they are written.
+        Their conditions are left out: the filters and joins on each route are compared on
+        their own, and reported with the files they are in."""
+        if a.composed is None or b.composed is None:
+            return None
+        if self.formulas is None:
+            self.formulas = Formulas(self.graph, conditions=False)
+        first = self.formulas.column(self.graph.nodes[a.column])
+        return self.formulas.compare(first, self.formulas.column(self.graph.nodes[b.column]))
 
 
 def find_conflicts(graph: Graph, limit: int | None = None) -> Conflicts:

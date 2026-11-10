@@ -11,7 +11,8 @@ import duckdb
 import pytest
 
 from konstruct import Project
-from konstruct.analysis.conflicts import core
+from konstruct.analysis.conflicts import SAME_UNLESS_NULL, core, find_conflicts
+from konstruct.core.graph import Graph, Node
 from konstruct.interfaces.cli import main
 
 FINANCE = """\
@@ -174,3 +175,206 @@ def test_command_files_and_formats(tmp_path: Path, capsys: pytest.CaptureFixture
     assert capsys.readouterr().out.startswith('# Conflicting definitions')
     assert main(['conflicts', '-C', str(tmp_path), '--json', '--no-write', '-n', '0']) == 0
     assert json.loads(capsys.readouterr().out)['conflicts'] == []
+
+
+NET_FINANCE = """\
+create table finance.revenue as
+select order_date, sum(amount) - sum(discount) as net_revenue
+from raw.orders
+group by order_date
+"""
+NET_MARKETING = """\
+create table marketing.daily as
+select order_date, sum(amount - discount) as net_revenue
+from raw.orders
+group by order_date
+"""
+
+
+def net_revenue_shop(root: Path, marketing: str = NET_MARKETING) -> Project:
+    con = duckdb.connect(str(root / 'shop.duckdb'))
+    con.execute('create schema raw')
+    con.execute(
+        'create table raw.orders (id int, order_date date, amount decimal(10,2), discount decimal(10,2), '
+        'status varchar)'
+    )
+    con.close()
+    (root / 'finance').mkdir()
+    (root / 'marketing').mkdir()
+    (root / 'finance' / 'revenue.sql').write_text(NET_FINANCE)
+    (root / 'marketing' / 'daily.sql').write_text(textwrap.dedent(marketing))
+    project = Project(root)
+    project.build()
+    return project
+
+
+def _net_revenue_graph(not_null: bool, formulas: tuple[str, str] | None = None) -> Graph:
+    """Two models computing net revenue as SUM(amount) - SUM(discount) and SUM(amount - discount),
+    or as ``formulas``, with or without not_null tests on the source columns."""
+    graph = Graph()
+    orders = graph.add_node(Node('source.raw.orders', 'source', 'orders', relation='db.raw.orders'))
+    for name in ('amount', 'discount'):
+        column = graph.add_column(orders, name)
+        if not_null:
+            test = graph.add_node(
+                Node(f'test.not_null_{name}', 'test', f'not_null_{name}', attrs={'test': 'not_null'})
+            )
+            graph.add_edge(test.id, column.id, 'tests')
+    finance, marketing = formulas or (
+        'SUM(db.raw.orders.amount) - SUM(db.raw.orders.discount)',
+        'SUM(db.raw.orders.amount - db.raw.orders.discount)',
+    )
+    for name, formula in (('finance', finance), ('marketing', marketing)):
+        model = graph.add_node(Node(f'model.{name}', 'model', name, relation=f'db.s.{name}'))
+        column = graph.add_column(model, 'net_revenue', attrs={'expression': formula})
+        graph.add_edge(orders.id, model.id, 'feeds')
+        for source in ('amount', 'discount'):
+            graph.add_edge(column.id, f'{orders.id}#{source}', 'derived_from')
+    return graph
+
+
+def test_conflicts_count_formulas_that_are_the_same_as_one() -> None:
+    """Acceptance: SUM(a) - SUM(b) and SUM(a - b) are one definition when a and b are never NULL."""
+    result = find_conflicts(_net_revenue_graph(not_null=True))
+    assert result.conflicts == []
+    assert result.candidates == 2
+    [conflict] = find_conflicts(_net_revenue_graph(not_null=False)).conflicts
+    [difference] = conflict.differences
+    assert difference.detail.endswith(f', {SAME_UNLESS_NULL}')
+
+
+def test_formulas_the_same_only_without_nulls_are_reported_with_values(tmp_path: Path) -> None:
+    result = net_revenue_shop(tmp_path).conflicts()
+    [conflict] = result.conflicts
+    [difference] = conflict.differences
+    assert difference.kind == 'formula'
+    assert difference.detail.endswith('the same unless a source value is NULL or there are no rows')
+    witness = difference.witness
+    assert witness is not None and witness.kind == 'values'
+    assert 'NULL' in str(witness)
+
+
+def test_conflicts_that_differ_by_a_filter_are_reported(tmp_path: Path) -> None:
+    filtered = NET_MARKETING.replace('from raw.orders', "from raw.orders where status = 'completed'")
+    [conflict] = net_revenue_shop(tmp_path, filtered).conflicts().conflicts
+    assert [(d.kind, d.detail) for d in conflict.differences] == [
+        ('filter', "WHERE: orders.status = 'completed'"),
+        (
+            'formula',
+            'SUM(orders.amount) - SUM(orders.discount) against SUM(orders.amount - orders.discount), '
+            + SAME_UNLESS_NULL,
+        ),
+    ]
+
+
+def test_conflicting_formulas_show_values_that_differ(tmp_path: Path) -> None:
+    other = NET_MARKETING.replace('sum(amount - discount)', 'sum(amount) - 2 * sum(discount)')
+    result = net_revenue_shop(tmp_path, other).conflicts()
+    [conflict] = result.conflicts
+    [difference] = conflict.differences
+    assert difference.kind == 'formula'
+    witness = difference.witness
+    assert witness is not None and witness.kind == 'values'
+    assert witness.rows is not None
+    assert {'orders.amount', 'orders.discount'} <= set(witness.rows[0])
+    assert witness.a != witness.b
+    assert f'\n        {witness}' in str(result)
+    assert f'  - {witness}' in result.markdown().splitlines()
+    assert result.to_dict()['conflicts'][0]['differences'][0]['witness']['kind'] == 'values'
+
+
+def test_conflicting_aggregations_show_the_function(tmp_path: Path) -> None:
+    other = NET_MARKETING.replace('sum(amount - discount)', 'max(amount - discount)')
+    [conflict] = net_revenue_shop(tmp_path, other).conflicts().conflicts
+    [difference] = [d for d in conflict.differences if d.kind == 'aggregation']
+    assert difference.witness is not None
+    assert difference.witness.kind == 'functions'
+    assert 'MAX' in difference.witness.functions
+
+
+def test_formulas_written_the_same_are_never_a_formula_difference() -> None:
+    # A not_null test on one of the two makes their verdict differ, but not their formula.
+    same = 'SUM(db.raw.orders.amount) * 1'
+    graph = _net_revenue_graph(not_null=False, formulas=(same, same))
+    test = graph.add_node(Node('test.not_null_net', 'test', 'not_null_net', attrs={'test': 'not_null'}))
+    graph.add_edge(test.id, 'model.finance#net_revenue', 'tests')
+    result = find_conflicts(graph)
+    assert result.candidates == 2
+    assert result.conflicts == []
+
+
+def _amount_and_credit_not_null(graph: Graph) -> Graph:
+    """The graph with not_null tests on orders.amount and customers.credit."""
+    for relation, column in (('orders', 'amount'), ('customers', 'credit')):
+        [tested] = [
+            n for n in graph.nodes.values() if n.kind == 'column' and n.id.endswith(f'.{relation}#{column}')
+        ]
+        test = graph.add_node(Node(f'test.not_null_{column}', 'test', 'not_null', attrs={'test': 'not_null'}))
+        graph.add_edge(test.id, tested.id, 'tests')
+    return graph
+
+
+@pytest.mark.parametrize('join', ['on customers.customer_id = orders.customer_id', 'using (customer_id)'])
+def test_a_not_null_measure_read_through_an_outer_join_conflicts(tmp_path: Path, join: str) -> None:
+    """Acceptance: amount and credit are never NULL in their own tables, but a customer with no
+    order has no amount, so SUM(amount) - SUM(credit) and SUM(amount - credit) differ."""
+    con = duckdb.connect(str(tmp_path / 'shop.duckdb'))
+    con.execute('create schema raw')
+    con.execute('create table raw.customers (customer_id int, region varchar, credit int)')
+    con.execute('create table raw.orders (customer_id int, amount int)')
+    con.close()
+    (tmp_path / 'customer_orders.sql').write_text(
+        'create table marts.customer_orders as\n'
+        'select customers.region, customers.credit, orders.amount\n'
+        f'from raw.customers left join raw.orders {join}\n'
+    )
+    for name, formula in (('apart', 'sum(amount) - sum(credit)'), ('together', 'sum(amount - credit)')):
+        (tmp_path / f'{name}.sql').write_text(
+            f'create table marts.{name} as\n'
+            f'select region, {formula} as net_amount from marts.customer_orders group by region\n'
+        )
+    graph = _amount_and_credit_not_null(Project(tmp_path).build().graph)
+    [conflict] = find_conflicts(graph).conflicts
+    [difference] = [d for d in conflict.differences if d.kind == 'formula']
+    assert difference.detail.endswith(f', {SAME_UNLESS_NULL}')
+    assert difference.witness is not None and difference.witness.kind == 'values'
+    # Only the outer join makes them differ.
+    inner = tmp_path / 'customer_orders.sql'
+    inner.write_text(inner.read_text().replace(' left join ', ' join '))
+    graph = _amount_and_credit_not_null(Project(tmp_path).build().graph)
+    assert find_conflicts(graph).conflicts == []
+
+
+def test_an_outer_join_on_one_route_is_the_join_difference_alone(tmp_path: Path) -> None:
+    # credit is read from the preserved side of a LEFT JOIN on one route and directly on the
+    # other: the formulas are the same once it is taken as it is in customers, and the join is
+    # reported on its own.
+    con = duckdb.connect(str(tmp_path / 'shop.duckdb'))
+    con.execute('create schema raw')
+    con.execute('create table raw.customers (customer_id int, region varchar, credit int)')
+    con.execute('create table raw.orders (customer_id int, amount int)')
+    con.close()
+    (tmp_path / 'a.sql').write_text(
+        'create table marts.a as\n'
+        'select customers.region, sum(customers.credit) as total_credit from raw.customers\n'
+        'left join raw.orders on customers.customer_id = orders.customer_id group by customers.region\n'
+    )
+    (tmp_path / 'b.sql').write_text(
+        'create table marts.b as\n'
+        'select region, sum(credit * 1) as total_credit from raw.customers group by region\n'
+    )
+    graph = Project(tmp_path).build().graph
+    [credit] = [n for n in graph.nodes.values() if n.kind == 'column' and n.id.endswith('.customers#credit')]
+    graph.add_node(Node('test.not_null_credit', 'test', 'not_null', attrs={'test': 'not_null'}))
+    graph.add_edge('test.not_null_credit', credit.id, 'tests')
+    [conflict] = find_conflicts(graph).conflicts
+    assert [d.kind for d in conflict.differences] == ['join']
+
+
+def test_a_source_difference_hides_a_formula_the_same_unless_null() -> None:
+    graph = _net_revenue_graph(
+        not_null=False,
+        formulas=('SUM(db.raw.orders.amount) + SUM(db.raw.orders.discount) * 0', 'SUM(db.raw.orders.amount)'),
+    )
+    [conflict] = find_conflicts(graph).conflicts
+    assert [(d.kind, d.side) for d in conflict.differences] == [('source', 'a')]

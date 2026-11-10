@@ -855,6 +855,10 @@ def conflicts_lines(result: Conflicts, style: Style) -> Lines:
             if difference.path:
                 body.append((f'  ({difference.path})', 'dim'))
             lines += wrap(style, body, first=lead, hanging=6)
+            if difference.witness is not None:
+                # Values at which the two give different results, or the function they apply
+                # differently.
+                lines += paragraph(style, Text((str(difference.witness), 'dim')), indent=8)
     return lines
 
 
