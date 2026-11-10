@@ -357,6 +357,18 @@ impl SearchIndex {
 /// Konstruct's native core: graph traversal, name resolution and search.
 #[pymodule(name = "_core")]
 mod core_module {
+    use pyo3::exceptions::PyImportError;
+    use pyo3::prelude::*;
+
     #[pymodule_export]
     use super::{GraphIndex, RelationNames, SearchIndex};
+
+    /// Refuses to load on a processor the routines cannot run on, before anything calls them.
+    #[pymodule_init]
+    fn init(_module: &Bound<'_, PyModule>) -> PyResult<()> {
+        match crate::unsupported_processor() {
+            Some(reason) => Err(PyImportError::new_err(reason)),
+            None => Ok(()),
+        }
+    }
 }

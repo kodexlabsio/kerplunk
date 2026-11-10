@@ -14,9 +14,9 @@
 //! - powerpc64le: VMX and VSX as POWER8 has them, the oldest processor little-endian Power
 //!   Linux runs on. `vbpermq` gathers sixteen comparisons into a mask.
 //! - s390x: the vector facility of z13. The s390x wheel is built for manylinux_2_28, the
-//!   AlmaLinux 8 platform, whose userland is built for z13 and later. `vstrc` finds the first
-//!   byte in or out of the two ranges, and `vll` loads the last bytes of a text without reading
-//!   past it.
+//!   AlmaLinux 8 platform, whose userland is built for z13 and later; the extension refuses to
+//!   load on an older machine ([`crate::unsupported_processor`]). `vstrc` finds the first byte in
+//!   or out of the two ranges, and `vll` loads the last bytes of a text without reading past it.
 //! - loongarch64: LSX, part of the la64v1.0 profile that Linux distributions build for and that
 //!   Rust's target enables. `vmskltz.b` turns sixteen comparisons into a mask.
 //!
