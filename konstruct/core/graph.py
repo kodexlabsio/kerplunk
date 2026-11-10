@@ -457,7 +457,6 @@ class Graph:
 
     def write(self, path: Path) -> None:
         """Write the graph to ``path`` as JSON (``graph.json``)."""
-        path.parent.mkdir(parents=True, exist_ok=True)
         jsonio.write_text(path, jsonio.dumps(self.to_dict(), indent=True) + '\n')
 
     @classmethod

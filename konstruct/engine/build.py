@@ -105,7 +105,6 @@ class Cache:
         return _QuietCache(self)
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {'version': CACHE_VERSION, 'konstruct': __version__, 'entries': self.used}
         jsonio.write_text(self.path, jsonio.dumps(payload))
 

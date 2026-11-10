@@ -1,10 +1,14 @@
 """JSON in and out, through orjson: graph.json, the build cache and the viewer's data are written
-on every build, and the standard library's encoder was a measurable share of build time."""
+on every build, and the standard library's encoder was a measurable share of build time. The
+build's files are written whole, through a renamed temporary file."""
 
 from __future__ import annotations
 
 import os
+import stat
+import sys
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -33,20 +37,45 @@ def loads(text: str | bytes) -> Any:
     return orjson.loads(text)
 
 
+def _umask() -> int:
+    # The umask can only be read by setting it; do so once, at import, before any thread starts.
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+_UMASK = _umask()
+# On Windows a reader holding the file open makes the rename fail for a moment.
+_REPLACE_TRIES = 5 if sys.platform == 'win32' else 1
+
+
 def write_text(path: Path, text: str) -> None:
     """Write ``text`` to ``path`` through a new file in the same directory that is then renamed
-    over it. A symbolic link at ``path`` is replaced, not followed, so links a repository commits
-    in its output directory cannot send Konstruct's files elsewhere, and a reader never sees a
-    half-written file."""
+    over it, so a reader (an MCP server, or a hook run at the same time) sees the old file or the
+    new one, never half of one. A symbolic link at ``path`` is replaced, not followed, so links a
+    repository commits in its output directory cannot send Konstruct's files elsewhere. A regular
+    file keeps the mode it had; a new one gets the mode an ordinary write would give it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        # lstat, so a link's target is neither followed nor allowed to set the mode.
+        current = path.lstat()
+        mode = stat.S_IMODE(current.st_mode) if stat.S_ISREG(current.st_mode) else 0o666 & ~_UMASK
+    except OSError:
+        mode = 0o666 & ~_UMASK
     descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=f'.{path.name}.', suffix='.tmp')
     try:
         with os.fdopen(descriptor, 'w', encoding='utf-8', newline='') as handle:
             handle.write(text)
-        # mkstemp makes the file private; outputs get the permissions a plain write would give.
-        mask = os.umask(0o022)
-        os.umask(mask)
-        Path(temporary).chmod(0o666 & ~mask)
-        Path(temporary).replace(path)
+        # mkstemp makes the file private; outputs get the mode chosen above.
+        Path(temporary).chmod(mode)
+        for attempt in range(_REPLACE_TRIES):
+            try:
+                Path(temporary).replace(path)
+                break
+            except PermissionError:
+                if attempt == _REPLACE_TRIES - 1:
+                    raise
+                time.sleep(0.05 * 2**attempt)
     except BaseException:
         Path(temporary).unlink(missing_ok=True)
         raise
