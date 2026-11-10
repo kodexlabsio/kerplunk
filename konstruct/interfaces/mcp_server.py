@@ -173,11 +173,13 @@ def build_server(root: Path, *, plugins: bool = True) -> MCPServer:
         with the working tree and reports removed columns something still reads, approved
         definitions whose meaning changed, and changed columns that compute a business idea
         differently from an existing one, each with what to do about it. Run it before proposing
-        a change, fix what it reports, and run it again until `passed` is true."""
+        a change, fix what it reports, and run it again until `passed` is true. It updates the
+        graph from the files alone: it runs no dbt and connects to no warehouse."""
         from konstruct.analysis.diff import DiffError
 
         try:
-            return run(project.gate, base)
+            # A change an agent makes can alter the connections too, so the update reads files only.
+            return run(lambda: project.gate(base, run_dbt=False, warehouses=False))
         except DiffError as error:
             raise _untrusted_error(str(error)) from error
 

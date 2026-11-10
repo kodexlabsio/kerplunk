@@ -186,3 +186,28 @@ def test_reloads_a_rebuilt_graph_and_reports_a_missing_one(jaffle_built_graph: P
             assert found['kind'] == 'model'
 
     anyio.run(main)
+
+
+def test_gate_updates_from_files_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / 'repo'
+    (root / 'konstruct-out').mkdir(parents=True)
+    (root / 'konstruct-out' / 'graph.json').write_text('{"nodes": [], "edges": []}')
+    calls: list[dict[str, Any]] = []
+
+    class Result:
+        def to_dict(self) -> dict[str, Any]:
+            return {'passed': True}
+
+    def gate(self: Project, base: str | None = None, **options: Any) -> Result:
+        calls.append({'base': base, **options})
+        return Result()
+
+    monkeypatch.setattr(Project, 'gate', gate)
+
+    async def run() -> None:
+        async with Client(build_server(root)) as client:
+            result = await client.call_tool('gate', {'base': 'main'})
+            assert not result.is_error
+
+    anyio.run(run)
+    assert calls == [{'base': 'main', 'run_dbt': False, 'warehouses': False}]
