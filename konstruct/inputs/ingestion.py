@@ -3,10 +3,12 @@
 Each format gives :class:`Feed` records: a loader's task (a pipeline, connection or connector),
 the source system's table it reads (``postgres.app.public.orders``), the table it lands, and the
 columns it copies when the file names them. Nothing is imported, run or connected to: Python is
-parsed with :mod:`ast`, YAML with a safe loader and JSON with :mod:`json`.
+parsed with :mod:`ast`, YAML with a safe loader, JSON with :mod:`json` and Terraform with
+:mod:`konstruct.inputs.hcl`.
 
 :func:`kind_of` says from a file's name and a cheap look at its text which format it is, so
-discovery reads nothing else; :func:`read` turns one file into feeds and problems.
+discovery reads nothing else; :func:`read_files` turns one file, or for Terraform and Octavia one
+directory's files, into feeds and problems.
 """
 
 from __future__ import annotations
@@ -23,9 +25,11 @@ from urllib.parse import urlparse
 
 import yaml
 
+from konstruct.inputs import hcl
+
 MAX_BYTES = 2_000_000
 """Files larger than this are not configuration, and are not read."""
-SUFFIXES = ('.py', '.yml', '.yaml', '.json')
+SUFFIXES = ('.py', '.yml', '.yaml', '.json', '.tf')
 """The file names discovery looks at."""
 MALFORMED = (RecursionError, MemoryError, ValueError, TypeError, AttributeError, KeyError, IndexError)
 """What a reader raises on a file of a shape it does not expect: nesting past Python's recursion
@@ -44,8 +48,19 @@ LOADER_OF = {
     'meltano': 'meltano',
     'singer_catalog': 'singer',
     'singer_state': 'singer',
+    'airbyte_octavia': 'airbyte',
+    'airbyte_api': 'airbyte',
+    'terraform': 'terraform',
 }
-"""The loader each format configures."""
+"""The loader each format configures (a Terraform module can configure several)."""
+COMPANIONS = {'meltano': ('plugins/extractors/*.lock', 'plugins/loaders/*.lock')}
+"""Files read with one of a format's, found by these globs from its directory: the Meltano Hub
+definitions ``meltano lock`` writes beside meltano.yml, which hold the defaults of the plugins
+it uses (target-postgres's schema is the extractor's load_schema)."""
+GROUPED = {'terraform': 1, 'airbyte_octavia': 3}
+"""Formats read a directory at a time, as resources in one file refer to those in another: a
+Terraform module's directory, and an Octavia project (``connections/<name>/configuration.yaml``
+beside ``sources/`` and ``destinations/``)."""
 
 
 @dataclass(frozen=True)
@@ -210,7 +225,17 @@ def kind_of(path: str, text: str) -> str | None:
         return 'dlt_schema' if 'engine_version' in text and 'tables:' in text else None
     if lower in ('meltano.yml', 'meltano.yaml'):
         return 'meltano'
+    if lower.endswith('.tf'):
+        return 'terraform' if re.search(r'resource\s+"(fivetran|airbyte)_', text) else None
+    if lower.endswith(('.yaml', '.yml')) and re.search(
+        r'^definition_type:\s*(connection|source|destination)\b', text, re.MULTILINE
+    ):
+        return 'airbyte_octavia'
     if lower.endswith('.json'):
+        if '"syncCatalog"' in text or all(
+            f'"{key}"' in text for key in ('sourceId', 'destinationId', 'configurations')
+        ):
+            return 'airbyte_api'
         if '"tap_stream_id"' in text and '"streams"' in text:
             return 'singer_catalog'
         if 'state' in lower and '"bookmarks"' in text:
@@ -697,9 +722,36 @@ _MELTANO_LOAD_SCHEMA = re.compile(
 )
 
 
-def _read_meltano(text: str, context: _Context) -> None:
+def _read_meltano_project(files: list[tuple[str, str]], context: _Context) -> None:
+    """meltano.yml, with the lock files of its plugins (:data:`COMPANIONS`)."""
+    hub: dict[tuple[str, ...], dict[str, Any]] = {}
+    for path, text in files:
+        if not path.endswith('.lock'):
+            continue
+        with context.reading_file(path):
+            data = json.loads(text)
+            if not (isinstance(data, dict) and isinstance(data.get('name'), str)):
+                continue
+            defaults = {
+                'namespace': data.get('namespace'),
+                'settings': {
+                    s['name']: s['value']
+                    for s in data.get('settings') or []
+                    if isinstance(s, dict) and isinstance(s.get('name'), str) and 'value' in s
+                },
+            }
+            kind = PurePosixPath(path).parent.name
+            hub[(kind, data['name'])] = hub[(kind, data['name'], str(data.get('variant')))] = defaults
+    for path, text in files:
+        if not path.endswith('.lock'):
+            with context.reading_file(path):
+                _read_meltano(text, context, hub)
+
+
+def _read_meltano(text: str, context: _Context, hub: dict[tuple[str, ...], dict[str, Any]]) -> None:
     """meltano.yml: each extractor and loader a job or schedule pairs, the streams the extractor
-    selects, and the schema the loader lands them in; without one, the table is found by name."""
+    selects, and the schema the loader lands them in, from the file or its lock file; without
+    one, the table is found by name."""
     data = _yaml(text, context)
     if data is None:
         return
@@ -725,9 +777,20 @@ def _read_meltano(text: str, context: _Context) -> None:
                 pairs[(extractor, loader)] = None
     if not pairs and len(loaders) == 1:
         pairs = dict.fromkeys((tap, next(iter(loaders))) for tap in extractors)
+
+    def locked(kind: str, plugin: dict[str, Any]) -> dict[str, Any]:
+        """A plugin with the defaults of its lock file under its own settings."""
+        base = str(plugin['base'])
+        defaults = hub.get((kind, base, str(plugin.get('variant')))) or hub.get((kind, base)) or {}
+        return {
+            **plugin,
+            'namespace': plugin.get('namespace') or defaults.get('namespace'),
+            'config': {**defaults.get('settings', {}), **plugin['config']},
+        }
+
     for tap_name, target_name in pairs:
-        tap = extractors.get(tap_name) or {'base': tap_name, 'config': {}}
-        target = loaders.get(target_name) or {'base': target_name, 'config': {}}
+        tap = locked('extractors', extractors.get(tap_name) or {'base': tap_name, 'config': {}})
+        target = locked('loaders', loaders.get(target_name) or {'base': target_name, 'config': {}})
         _meltano_pair(context, tap_name, tap, target_name, target)
 
 
@@ -764,18 +827,398 @@ def _meltano_pair(
         )
 
 
+# Airbyte
+
+
+def _airbyte_system(image_or_type: str) -> str:
+    """The source system an Airbyte connector reads: ``airbyte/source-postgres`` is ``postgres``."""
+    name = image_or_type.rsplit('/', 1)[-1].split(':')[0]
+    return _slug(re.sub(r'^(airbyte_)?source[-_]', '', name)) or 'airbyte'
+
+
+def _airbyte_namespace(definition: str, format_: str, stream_namespace: Any, default: Any) -> Any:
+    """The schema an Airbyte connection lands a stream in, as Airbyte documents it
+    (https://docs.airbyte.com/platform/using-airbyte/core-concepts/namespaces): the stream's
+    namespace, else the destination's default; a custom format, else the default when it is
+    blank."""
+    if definition == 'source':
+        return stream_namespace or default
+    if definition == 'customformat':
+        namespace = stream_namespace if isinstance(stream_namespace, str) else ''
+        text = format_.replace('${SOURCE_NAMESPACE}', namespace)
+        return text if text.strip() else default
+    return default
+
+
+def _airbyte_connection(
+    context: _Context,
+    name: str,
+    system: tuple[Any, ...],
+    default_schema: Any,
+    settings: dict[str, Any],
+    streams: Iterable[dict[str, Any]],
+    source_schemas: Any = None,
+    line: int = 0,
+) -> None:
+    """Feeds for one connection's streams, each ``{'name', 'namespace', 'fields', 'mapped'}``.
+    ``settings`` holds its ``definition``, ``format`` and ``prefix``. A stream without a
+    namespace reads the source's schema when its configuration lists only one (``schemas``)."""
+    for setting, value in settings.items():
+        literal = value is None or (
+            isinstance(value, str) and not _PLACEHOLDER.search(value.replace('${SOURCE_NAMESPACE}', ''))
+        )
+        if not literal:
+            shown = value if isinstance(value, str) else getattr(value, 'text', type(value).__name__)
+            context.problem(
+                line,
+                f'connection {name}: its namespace {setting} {shown} is not a literal, so its tables are not known',
+            )
+            return
+    definition = str(settings.get('definition') or 'destination').lower().replace('_', '')
+    prefix = settings.get('prefix') or ''
+    only = (
+        source_schemas[0]
+        if isinstance(source_schemas, list)
+        and len(source_schemas) == 1
+        and isinstance(source_schemas[0], str)
+        else None
+    )
+    for stream in streams:
+        namespace = stream.get('namespace') or only
+        schema = _airbyte_namespace(definition, settings.get('format') or '', namespace, default_schema)
+        # A mapper renames, hashes, encrypts or filters fields: its columns are not followed.
+        columns = [] if stream.get('mapped') else _direct(stream.get('fields') or [])
+        context.feed(
+            'airbyte',
+            name,
+            (*system, namespace, stream['name']),
+            (schema, f'{prefix}{stream["name"]}'),
+            columns=columns,
+            line=line,
+        )
+
+
+def _name(value: Any, fallback: str) -> str:
+    """A name given as a string, else the fallback: never the text of a list or mapping."""
+    return value if isinstance(value, str) and value else fallback
+
+
+def _fields(selected: Any, properties: Any) -> list[str]:
+    """The top-level fields a stream syncs: those selected, else every property of its schema."""
+    if isinstance(selected, list) and selected:
+        paths = [s.get('field_path') or s.get('fieldPath') for s in selected if isinstance(s, dict)]
+        return list(dict.fromkeys(p[0] for p in paths if isinstance(p, list) and p and isinstance(p[0], str)))
+    return [k for k in properties if isinstance(k, str)] if isinstance(properties, dict) else []
+
+
+def _read_airbyte_api(text: str, context: _Context) -> None:
+    """A connection as Airbyte's API returns it: the public API (``configurations.streams``) or
+    the configuration API (``syncCatalog``), alone, in a list, or under ``data``."""
+    try:
+        data = json.loads(text)
+    except ValueError as error:
+        context.problem(0, f'cannot read JSON: {error}')
+        return
+    connections = data.get('data', [data]) if isinstance(data, dict) else data
+    for connection in connections if isinstance(connections, list) else []:
+        if not isinstance(connection, dict):
+            continue
+        name = _name(
+            connection.get('name'), _name(connection.get('connectionId'), PurePosixPath(context.path).stem)
+        )
+        source = connection.get('source') or {}
+        source_config = source.get('connectionConfiguration') or source.get('configuration') or {}
+        kind = _name(source.get('sourceName'), _name(source.get('sourceType'), ''))
+        system = (_airbyte_system(kind), source_config.get('database')) if kind else (_slug(name),)
+        destination = (connection.get('destination') or {}).get('connectionConfiguration') or {}
+        default = destination.get('schema') or destination.get('dataset_id')
+        streams = []
+        for item in (connection.get('syncCatalog') or {}).get('streams') or []:
+            stream, config = item.get('stream') or {}, item.get('config') or {}
+            if not config.get('selected', True) or not isinstance(stream.get('name'), str):
+                continue
+            fields = _fields(
+                config.get('selectedFields') if config.get('fieldSelectionEnabled') else None,
+                (stream.get('jsonSchema') or {}).get('properties'),
+            )
+            streams.append(
+                {
+                    'name': stream['name'],
+                    'namespace': stream.get('namespace'),
+                    'fields': fields,
+                    'mapped': bool(config.get('mappers')),
+                }
+            )
+        for item in (connection.get('configurations') or {}).get('streams') or []:
+            if isinstance(item.get('name'), str):
+                streams.append(
+                    {
+                        'name': item['name'],
+                        'namespace': item.get('namespace'),
+                        'fields': _fields(item.get('selectedFields'), None),
+                        'mapped': bool(item.get('mappers')),
+                    }
+                )
+        _airbyte_connection(
+            context,
+            name,
+            system,
+            default,
+            {
+                'definition': connection.get('namespaceDefinition'),
+                'format': connection.get('namespaceFormat'),
+                'prefix': connection.get('prefix'),
+            },
+            streams,
+            source_config.get('schemas'),
+        )
+
+
+def _read_octavia(files: list[tuple[str, str]], context: _Context) -> None:
+    """An Octavia project: each connection's ``configuration.yaml`` with the source and
+    destination configurations it points to."""
+    documents: dict[str, dict[str, Any]] = {}
+    for path, text in files:
+        with context.reading_file(path):
+            data = _yaml(text, context)
+            if isinstance(data, dict):
+                documents[path] = data
+
+    def referenced(reference: Any) -> dict[str, Any]:
+        wanted = PurePosixPath(_name(reference, '')).parts
+        for path, data in documents.items():
+            if wanted and PurePosixPath(path).parts[-len(wanted) :] == wanted:
+                return data
+        return {}
+
+    for path, data in sorted(documents.items()):
+        if data.get('definition_type') != 'connection':
+            continue
+        with context.reading_file(path):
+            source = referenced(data.get('source_configuration_path'))
+            destination = referenced(data.get('destination_configuration_path'))
+            configuration = data.get('configuration') or {}
+            source_config = source.get('configuration') or {}
+            system = (
+                _airbyte_system(_name(source.get('definition_image'), 'airbyte')),
+                source_config.get('database'),
+            )
+            default = (destination.get('configuration') or {}).get('schema') or (
+                destination.get('configuration') or {}
+            ).get('dataset_id')
+            streams = []
+            for item in (configuration.get('sync_catalog') or {}).get('streams') or []:
+                stream, config = item.get('stream') or {}, item.get('config') or {}
+                if not config.get('selected', True) or not isinstance(stream.get('name'), str):
+                    continue
+                fields = _fields(
+                    config.get('selected_fields') if config.get('field_selection_enabled') else None,
+                    (stream.get('json_schema') or {}).get('properties'),
+                )
+                streams.append(
+                    {
+                        'name': stream['name'],
+                        'namespace': stream.get('namespace'),
+                        'fields': fields,
+                        'mapped': bool(config.get('mappers')),
+                    }
+                )
+            _airbyte_connection(
+                context,
+                _name(data.get('resource_name'), PurePosixPath(path).parent.name),
+                system,
+                default,
+                {
+                    'definition': configuration.get('namespace_definition'),
+                    'format': configuration.get('namespace_format'),
+                    'prefix': configuration.get('prefix'),
+                },
+                streams,
+                source_config.get('schemas'),
+            )
+
+
+# Terraform: Airbyte and Fivetran providers
+
+
+def _resource_ref(value: Any, prefix: str) -> tuple[str, str] | None:
+    """The resource a reference names: ``airbyte_source_postgres.app.source_id`` is
+    ``('airbyte_source_postgres', 'app')``."""
+    text = value.text if isinstance(value, hcl.Ref) else ''
+    found = re.match(rf'({prefix}[a-z0-9_]*)\.([A-Za-z0-9_-]+)', text)
+    return (found.group(1), found.group(2)) if found else None
+
+
+def _attr(block: hcl.Block, name: str) -> Any:
+    """An argument written as an attribute (``destination_schema = {...}``) or a block."""
+    if name in block.arguments:
+        return block.arguments[name]
+    inner = block.block(name)
+    return dict(inner.arguments) if inner is not None else None
+
+
+def _text(value: Any) -> str | None:
+    return value if isinstance(value, str) and '${' not in value else None
+
+
+def _read_terraform(files: list[tuple[str, str]], context: _Context) -> None:
+    resources: dict[tuple[str, str], tuple[str, hcl.Block]] = {}
+    for path, text in files:
+        with context.reading_file(path):
+            try:
+                blocks = hcl.parse(text)
+            except hcl.HclError as error:
+                context.problem(error.line, f'cannot read Terraform: {error}')
+                continue
+            for block in blocks:
+                if block.type == 'resource' and len(block.labels) == 2:
+                    resources[(block.labels[0], block.labels[1])] = (path, block)
+    for (kind, label), (path, block) in sorted(resources.items()):
+        with context.reading_file(path):
+            if kind == 'airbyte_connection':
+                _terraform_airbyte(context, label, block, resources)
+            elif kind == 'fivetran_connector_schema_config':
+                _terraform_fivetran(context, block, resources)
+
+
+def _terraform_airbyte(
+    context: _Context, label: str, block: hcl.Block, resources: dict[tuple[str, str], tuple[str, hcl.Block]]
+) -> None:
+    source_ref = _resource_ref(block.arguments.get('source_id'), 'airbyte_source')
+    destination_ref = _resource_ref(block.arguments.get('destination_id'), 'airbyte_destination')
+    source = resources[source_ref][1] if source_ref and source_ref in resources else None
+    destination = resources[destination_ref][1] if destination_ref and destination_ref in resources else None
+    name = _text(block.arguments.get('name')) or label
+    source_config = _attr(source, 'configuration') if source else None
+    source_config = source_config if isinstance(source_config, dict) else {}
+    # The generic airbyte_source resource names its connector by id only.
+    if source_ref and source_ref[0] != 'airbyte_source':
+        system: tuple[Any, ...] = (_airbyte_system(source_ref[0]), source_config.get('database'))
+    else:
+        system = (_slug(name),)
+    destination_config = _attr(destination, 'configuration') if destination else None
+    destination_config = destination_config if isinstance(destination_config, dict) else {}
+    default = destination_config.get('schema') or destination_config.get('dataset_id')
+    streams = []
+    configurations = _attr(block, 'configurations') or {}
+    for item in configurations.get('streams') or [] if isinstance(configurations, dict) else []:
+        if isinstance(item, dict) and _text(item.get('name')):
+            streams.append(
+                {
+                    'name': item['name'],
+                    'namespace': item.get('namespace'),
+                    'fields': _fields(item.get('selected_fields'), None),
+                    'mapped': bool(item.get('mappers')),
+                }
+            )
+    _airbyte_connection(
+        context,
+        name,
+        system,
+        default,
+        {
+            'definition': block.arguments.get('namespace_definition'),
+            'format': block.arguments.get('namespace_format'),
+            'prefix': block.arguments.get('prefix'),
+        },
+        streams,
+        source_config.get('schemas'),
+        block.line,
+    )
+
+
+def _enabled(value: Any) -> bool:
+    return not (isinstance(value, dict) and value.get('enabled') in (False, 'false'))
+
+
+def _terraform_fivetran(
+    context: _Context, block: hcl.Block, resources: dict[tuple[str, str], tuple[str, hcl.Block]]
+) -> None:
+    """A connection's schema configuration, with the connection it configures: each enabled
+    table, and the columns it names (hashed ones transformed)."""
+    reference = _resource_ref(
+        block.arguments.get('connector_id') or block.arguments.get('connection_id'), 'fivetran_conne'
+    )
+    connector = resources[reference][1] if reference and reference in resources else None
+    if connector is None:
+        context.problem(block.line, 'a schema configuration whose connection is not in this module')
+        return
+    # Values Terraform evaluates are passed on as they are, for the feed to report.
+    service = connector.arguments.get('service') or 'fivetran'
+    destination = _attr(connector, 'destination_schema') or {}
+    config = _attr(connector, 'config') or {}
+    database = config.get('database') if isinstance(config, dict) else None
+    prefix = destination.get('prefix') if isinstance(destination, dict) else None
+    single = destination.get('name') if isinstance(destination, dict) else None
+    task = next((v for v in (single, prefix) if isinstance(v, str)), reference[1])  # type: ignore[index]
+    schemas: dict[str, Any] = {}
+    if isinstance(block.arguments.get('schemas'), dict):
+        schemas = block.arguments['schemas']
+    for old in block.blocks:
+        # The deprecated form: schema { name, table { name, column { name } } } blocks.
+        if old.type == 'schema' and _text(old.arguments.get('name')):
+            tables = {
+                str(t.arguments.get('name')): {
+                    **t.arguments,
+                    'columns': {
+                        str(c.arguments.get('name')): c.arguments for c in t.blocks if c.type == 'column'
+                    },
+                }
+                for t in old.blocks
+                if t.type == 'table'
+            }
+            schemas[str(old.arguments['name'])] = {**old.arguments, 'tables': tables}
+    for schema, spec in schemas.items():
+        if not _enabled(spec) or not isinstance(spec, dict):
+            continue
+        # A prefix Terraform evaluates is passed on as it is, for the feed to report.
+        landed_schema = (
+            (f'{prefix}_{schema}' if isinstance(prefix, str) else prefix) if prefix else (single or schema)
+        )
+        for table, table_spec in (spec.get('tables') or {}).items():
+            if not _enabled(table_spec):
+                continue
+            columns = (table_spec or {}).get('columns') if isinstance(table_spec, dict) else None
+            copied = [
+                (
+                    str(c),
+                    str(c),
+                    'transformed' if isinstance(s, dict) and s.get('hashed') in (True, 'true') else 'direct',
+                )
+                for c, s in (columns or {}).items()
+                if _enabled(s)
+            ]
+            source = (service, database, schema, table) if prefix else (service, table)
+            context.feed('fivetran', task, source, (landed_schema, table), columns=copied, line=block.line)
+
+
 READERS: dict[str, Callable[[str, _Context], None]] = {
     'dlt': _read_dlt,
     'dlt_schema': _read_dlt_schema,
-    'meltano': _read_meltano,
     'singer_catalog': _read_singer_catalog,
     'singer_state': _read_singer_state,
+    'airbyte_api': _read_airbyte_api,
+}
+GROUP_READERS: dict[str, Callable[[list[tuple[str, str]], _Context], None]] = {
+    'meltano': _read_meltano_project,
+    'terraform': _read_terraform,
+    'airbyte_octavia': _read_octavia,
 }
 
 
-def read(kind: str, path: str, text: str) -> Reading:
-    """The feeds one configuration file of a format describes."""
-    context = _Context(path)
-    with context.reading_file(path):
-        READERS[kind](text, context)
+def read_files(kind: str, files: list[tuple[str, str]]) -> Reading:
+    """The feeds a format's files describe: one file, or for the formats in :data:`GROUPED`, every
+    file of one directory. Each file is a ``(path, text)`` pair."""
+    context = _Context(files[0][0] if files else '')
+    if kind in GROUP_READERS:
+        GROUP_READERS[kind](files, context)
+    else:
+        for path, text in files:
+            with context.reading_file(path):
+                READERS[kind](text, context)
     return context.reading
+
+
+def read(kind: str, path: str, text: str) -> Reading:
+    """The feeds one configuration file describes."""
+    return read_files(kind, [(path, text)])

@@ -67,6 +67,15 @@ BUILTIN_COUNTS = frozenset(
 (``<input>_<key>``) may not take, whether or not this build gives them."""
 
 
+def _small_file(path: Path, limit: int) -> bool:
+    """Whether a path is a regular file of at most ``limit`` bytes, as discovery reads: a named
+    pipe would block a read for ever, and a file of hundreds of megabytes is not configuration."""
+    try:
+        return path.is_file() and path.stat().st_size <= limit
+    except OSError:
+        return False
+
+
 class Cache:
     """Results of the expensive steps (SQL lineage, DAG parsing), keyed by a hash of their inputs."""
 
@@ -532,31 +541,58 @@ class Builder:
         from konstruct.inputs import ingestion
 
         feeds: list[ingestion.Feed] = []
+        units: dict[tuple[str, Path], list[tuple[str, str]]] = {}
+        companions: set[str] = set()
         for path, kind in discover_ingestion_files(self.config):
-            try:
-                text = path.read_text(encoding='utf-8', errors='replace')
-            except OSError as error:
-                self.graph.warn(f'{ingestion.LOADER_OF[kind]}: cannot read {self.rel_path(path)}: {error}')
-                continue
-            rel = self.rel_path(path)
-            self.watch(path)
-            key = Cache.key('ingestion', kind, rel, text)
+            levels = ingestion.GROUPED.get(kind, 0)
+            group = path.parents[levels - 1] if levels and len(path.parents) >= levels else path
+            unit = units.setdefault((kind, group), [])
+            for companion in [
+                path,
+                *self.config.inside(
+                    sorted(
+                        c
+                        for glob in ingestion.COMPANIONS.get(kind, ())
+                        for c in path.parent.glob(glob)
+                        if _small_file(c, ingestion.MAX_BYTES)
+                    )
+                ),
+            ]:
+                try:
+                    text = companion.read_text(encoding='utf-8', errors='replace')
+                except OSError as error:
+                    self.graph.warn(
+                        f'{ingestion.LOADER_OF[kind]}: cannot read {self.rel_path(companion)}: {error}'
+                    )
+                    continue
+                self.watch(companion)
+                unit.append((self.rel_path(companion), text))
+                if companion != path:
+                    companions.add(self.rel_path(companion))
+        for (kind, _), files in units.items():
+            key = Cache.key('ingestion', kind, files)
 
-            def compute(kind: str = kind, rel: str = rel, text: str = text) -> dict[str, Any]:
-                return ingestion.read(kind, rel, text).to_dict()
+            def compute(kind: str = kind, files: list[tuple[str, str]] = files) -> dict[str, Any]:
+                return ingestion.read_files(kind, files).to_dict()
 
             reading = ingestion.Reading.from_dict(self.cache.get_or_compute(key, compute))
             for problem in reading.problems:
                 self.graph.warn(f'{ingestion.LOADER_OF[kind]}: {problem}')
             feeds.extend(reading.feeds)
-            count = len({f.target for f in reading.feeds})
-            self.sources.append(
-                {
-                    'input': ingestion.LOADER_OF[kind],
-                    'path': rel,
-                    'detail': f'{count} landed {"table" if count == 1 else "tables"}',
-                }
-            )
+            for rel, _ in files:
+                landed = {f.target for f in reading.feeds if f.path == rel}
+                if rel in companions or (not landed and kind in ingestion.GROUPED):
+                    continue
+                loaders = sorted({f.loader for f in reading.feeds if f.path == rel}) or [
+                    ingestion.LOADER_OF[kind]
+                ]
+                self.sources.append(
+                    {
+                        'input': ', '.join(loaders),
+                        'path': rel,
+                        'detail': f'{len(landed)} landed {"table" if len(landed) == 1 else "tables"}',
+                    }
+                )
         # The tables the files say a loader lands, which refine the family the warehouse shows.
         self.index = RelationIndex(self.graph)
         self.declared = {}

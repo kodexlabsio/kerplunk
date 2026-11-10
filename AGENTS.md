@@ -17,7 +17,7 @@ Action and a single offline HTML page.
 |------|----------|
 | `konstruct/` | The Python package, in subpackages by role (a bare `src/` cannot work, see below). The public API is `konstruct.Project` and the names `konstruct/__init__.py` exports |
 | `konstruct/core/` | `graph.py` (graph model and traversal), `sql.py` (sqlglot column lineage, canonical expressions), `jsonio.py` |
-| `konstruct/inputs/` | `dbt.py`, `jinja.py`, `airflow.py`, `dagster.py`, `spark.py`, `looker.py`, `powerbi.py`, `loaders.py`, `ingestion.py`, `warehouse.py`, `usage.py` |
+| `konstruct/inputs/` | `dbt.py`, `jinja.py`, `airflow.py`, `dagster.py`, `spark.py`, `looker.py`, `powerbi.py`, `loaders.py`, `ingestion.py`, `hcl.py`, `warehouse.py`, `usage.py` |
 | `konstruct/engine/` | `build.py` (discovery, the build and its cache), `config.py`, `worker.py` (parallel SQL analysis) |
 | `konstruct/semantics/` | `definitions.py`, `vocabulary.py`, `ontology.py`, `ossie.py`, `registry.py` and `ontologies/` (the ontology packs) |
 | `konstruct/analysis/` | Questions over the graph: `query.py`, `semantic.py` (search by meaning), `explain.py`, `identity.py`, `conflicts.py`, `diff.py`, `gate.py`, `verify.py`, `history.py` |

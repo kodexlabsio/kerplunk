@@ -9,7 +9,8 @@ import pytest
 
 from konstruct import Project
 from konstruct.engine.config import discover_ingestion_files, load_config
-from konstruct.inputs.ingestion import Feed, kind_of, read
+from konstruct.inputs import hcl
+from konstruct.inputs.ingestion import Feed, kind_of, read, read_files
 
 DLT_PIPELINE = """
 import dlt
@@ -297,6 +298,14 @@ def test_a_singer_catalog_and_state() -> None:
         ('tap-github.state.json', '{"bookmarks": {"issues": {"since": "2026-01-01"}}}', 'singer_state'),
         ('package.json', '{"name": "x", "bookmarks": {}}', None),
         ('dbt_project.yml', 'name: shop\n', None),
+        ('main.tf', 'resource "fivetran_connector" "pg" {}\n', 'terraform'),
+        ('vpc.tf', 'resource "aws_vpc" "main" {}\n', None),
+        ('configuration.yaml', 'definition_type: connection\n', 'airbyte_octavia'),
+        ('settings.yaml', 'definition_type_note: x\n', None),
+        ('connection.json', '{"syncCatalog": {}}', 'airbyte_api'),
+        ('crm.json', '{"sourceId": "a", "destinationId": "b", "configurations": {}}', 'airbyte_api'),
+        # A camera's configuration: a source and streams, but no destination.
+        ('camera.json', '{"sourceId": "cam-1", "configurations": {"streams": [{"name": "front"}]}}', None),
     ],
 )
 def test_discovery_reads_only_the_formats_it_knows(name: str, text: str, kind: str | None) -> None:
@@ -542,3 +551,497 @@ def test_status_lists_the_loader_configuration(tmp_path: Path) -> None:
     assert status.ingestion_files == ['meltano.yml']
     assert ('ingestion', '1 loader configuration file: meltano.yml') in status.lines()
     assert '[ingestion]\npaths = ["meltano.yml"]' in render_config(load_config(tmp_path), status, [])
+
+
+OCTAVIA_CONNECTION = """
+definition_type: connection
+resource_name: app_to_warehouse
+source_configuration_path: sources/app/configuration.yaml
+destination_configuration_path: destinations/warehouse/configuration.yaml
+configuration:
+  namespace_definition: customformat
+  namespace_format: "${SOURCE_NAMESPACE}_raw"
+  prefix: app_
+  sync_catalog:
+    streams:
+    - stream: {name: orders, namespace: public, json_schema: {properties: {id: {}, total: {}}}}
+      config: {selected: true}
+    - stream: {name: users, namespace: public, json_schema: {properties: {id: {}, email: {}}}}
+      config: {selected: true, field_selection_enabled: true, selected_fields: [{field_path: [id]}]}
+    - stream: {name: audit, namespace: public}
+      config: {selected: false}
+"""
+
+
+def test_an_octavia_project() -> None:
+    files = [
+        ('octavia/connections/app/configuration.yaml', OCTAVIA_CONNECTION),
+        (
+            'octavia/sources/app/configuration.yaml',
+            'definition_type: source\ndefinition_image: airbyte/source-postgres\nconfiguration: {database: app}\n',
+        ),
+        (
+            'octavia/destinations/warehouse/configuration.yaml',
+            'definition_type: destination\ndefinition_image: airbyte/destination-snowflake\n'
+            'configuration: {schema: RAW}\n',
+        ),
+        ('octavia/connections/broken/configuration.yaml', 'definition_type: connection\n  bad: ['),
+    ]
+    reading = read_files('airbyte_octavia', files)
+    assert [(f.task, f.source, f.target, f.columns) for f in reading.feeds] == [
+        (
+            'app_to_warehouse',
+            ('postgres', 'app', 'public', 'orders'),
+            ('public_raw', 'app_orders'),
+            (('id', 'id', 'direct'), ('total', 'total', 'direct')),
+        ),
+        (
+            'app_to_warehouse',
+            ('postgres', 'app', 'public', 'users'),
+            ('public_raw', 'app_users'),
+            (('id', 'id', 'direct'),),
+        ),
+    ]
+    assert reading.problems[0].startswith('octavia/connections/broken/configuration.yaml: cannot read YAML')
+
+
+def test_airbyte_api_exports() -> None:
+    config_api = {
+        'name': 'Stripe',
+        'namespaceDefinition': 'destination',
+        'prefix': '',
+        'source': {'sourceName': 'Stripe', 'connectionConfiguration': {}},
+        'destination': {'connectionConfiguration': {'dataset_id': 'stripe_raw'}},
+        'syncCatalog': {
+            'streams': [
+                {
+                    'stream': {'name': 'charges', 'jsonSchema': {'properties': {'id': {}, 'amount': {}}}},
+                    'config': {'selected': True},
+                },
+                {
+                    'stream': {'name': 'refunds'},
+                    'config': {'selected': True, 'mappers': [{'type': 'hashing'}]},
+                },
+            ]
+        },
+    }
+    public_api = {
+        'data': [
+            {
+                'name': 'crm sync',
+                'sourceId': 'b5b2',
+                'destinationId': '5725',
+                'namespaceDefinition': 'source',
+                'configurations': {
+                    'streams': [
+                        {'name': 'contacts', 'namespace': 'crm', 'selectedFields': [{'fieldPath': ['email']}]}
+                    ]
+                },
+            }
+        ]
+    }
+    found = [
+        (f.source, f.target, f.columns) for f in read('airbyte_api', 'c.json', json.dumps(config_api)).feeds
+    ]
+    assert found == [
+        (
+            ('stripe', 'charges'),
+            ('stripe_raw', 'charges'),
+            (('id', 'id', 'direct'), ('amount', 'amount', 'direct')),
+        ),
+        (('stripe', 'refunds'), ('stripe_raw', 'refunds'), ()),
+    ]
+    assert [
+        (f.task, f.source, f.target) for f in read('airbyte_api', 'p.json', json.dumps(public_api)).feeds
+    ] == [('crm sync', ('crm_sync', 'crm', 'contacts'), ('crm', 'contacts'))]
+
+
+def airbyte_connection(definition: str, format_: str, schemas: list[str]) -> str:
+    """A connection exported from Airbyte's configuration API, with one stream and no namespace."""
+    return json.dumps(
+        {
+            'name': 'app',
+            'namespaceDefinition': definition,
+            'namespaceFormat': format_,
+            'source': {
+                'sourceName': 'Postgres',
+                'connectionConfiguration': {'database': 'app', 'schemas': schemas},
+            },
+            'destination': {'connectionConfiguration': {'schema': 'raw'}},
+            'syncCatalog': {'streams': [{'stream': {'name': 'orders'}, 'config': {'selected': True}}]},
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ('definition', 'format_', 'schemas', 'source', 'target'),
+    [
+        # The source's only schema is each stream's namespace.
+        ('source', '', ['public'], ('postgres', 'app', 'public', 'orders'), ('public', 'orders')),
+        (
+            'customformat',
+            '${SOURCE_NAMESPACE}_raw',
+            ['public'],
+            ('postgres', 'app', 'public', 'orders'),
+            ('public_raw', 'orders'),
+        ),
+        ('destination', '', [], ('postgres', 'app', 'orders'), ('raw', 'orders')),
+        ('customformat', 'airbyte_raw', [], ('postgres', 'app', 'orders'), ('airbyte_raw', 'orders')),
+        # Without a namespace, Airbyte lands in the destination's default, and a blank custom
+        # format does too; ${SOURCE_NAMESPACE} is then empty.
+        ('source', '', ['public', 'sales'], ('postgres', 'app', 'orders'), ('raw', 'orders')),
+        ('source', '', [], ('postgres', 'app', 'orders'), ('raw', 'orders')),
+        ('customformat', ' ', [], ('postgres', 'app', 'orders'), ('raw', 'orders')),
+        ('customformat', '${SOURCE_NAMESPACE}_raw', [], ('postgres', 'app', 'orders'), ('_raw', 'orders')),
+    ],
+)
+def test_an_airbyte_stream_without_a_namespace(
+    definition: str, format_: str, schemas: list[str], source: tuple[str, ...], target: tuple[str, ...]
+) -> None:
+    reading = read('airbyte_api', 'c.json', airbyte_connection(definition, format_, schemas))
+    assert [(f.source, f.target) for f in reading.feeds] == [(source, target)]
+    assert reading.problems == []
+
+
+def test_an_octavia_setting_from_the_environment_is_not_a_name() -> None:
+    files = [
+        (
+            'octavia/connections/app/configuration.yaml',
+            OCTAVIA_CONNECTION.replace('customformat', 'destination'),
+        ),
+        (
+            'octavia/sources/app/configuration.yaml',
+            'definition_type: source\nconfiguration: {database: app}\n',
+        ),
+        (
+            'octavia/destinations/warehouse/configuration.yaml',
+            'definition_type: destination\nconfiguration: {schema: "${SNOWFLAKE_SCHEMA}"}\n',
+        ),
+    ]
+    reading = read_files('airbyte_octavia', files)
+    assert reading.feeds == []
+    assert (
+        reading.problems
+        == [
+            'octavia/connections/app/configuration.yaml: app_to_warehouse: ${SNOWFLAKE_SCHEMA} is not a literal name, '
+            'so the feed is left out'
+        ]
+        * 2
+    )
+
+
+LOCK = {
+    'plugin_type': 'loaders',
+    'name': 'target-postgres',
+    'variant': 'meltanolabs',
+    'namespace': 'target_postgres',
+    'settings': [
+        {'name': 'database', 'kind': 'string'},
+        {'name': 'default_target_schema', 'value': '$MELTANO_EXTRACT__LOAD_SCHEMA'},
+    ],
+}
+
+
+def test_a_meltano_lock_file_gives_the_loaders_default_schema(tmp_path: Path) -> None:
+    """``meltano lock`` writes each Hub plugin's definition beside meltano.yml, defaults included."""
+    text = (
+        'plugins:\n  extractors: [{name: tap-mysql, select: [shop-orders.*]}]\n'
+        '  loaders: [{name: target-postgres, variant: meltanolabs}]\n'
+    )
+    files = [('meltano.yml', text), ('plugins/loaders/target-postgres--meltanolabs.lock', json.dumps(LOCK))]
+    assert [f.target for f in read_files('meltano', files).feeds] == [('tap_mysql', 'orders')]
+    # The build reads the lock files beside meltano.yml.
+    (tmp_path / 'plugins' / 'loaders').mkdir(parents=True)
+    (tmp_path / 'plugins' / 'loaders' / 'target-postgres--meltanolabs.lock').write_text(json.dumps(LOCK))
+    (tmp_path / 'meltano.yml').write_text(text)
+    (tmp_path / 'konstruct.toml').write_text('[ingestion]\npaths = ["meltano.yml"]\n')
+    graph = Project(tmp_path).build(run_dbt=False).graph
+    assert graph.nodes['table.tap_mysql.orders'].attrs['loaded_by'] == 'meltano'
+    assert [s['path'] for s in graph.meta['sources'] if s.get('path')] == ['meltano.yml']
+
+
+def test_a_lock_file_that_is_not_configuration_is_not_read(tmp_path: Path) -> None:
+    """A named pipe would block the build for ever, and a lock file past 2 MB is left out, as
+    discovery leaves out any such file."""
+    import os
+
+    locks = tmp_path / 'plugins' / 'loaders'
+    locks.mkdir(parents=True)
+    (locks / 'target-postgres--meltanolabs.lock').write_text(json.dumps(LOCK) + ' ' * 2_000_000)
+    if hasattr(os, 'mkfifo'):
+        os.mkfifo(locks / 'target-duckdb--meltanolabs.lock')
+    (tmp_path / 'meltano.yml').write_text(
+        'plugins:\n  extractors: [{name: tap-mysql, select: [shop-orders.*]}]\n'
+        '  loaders: [{name: target-postgres, variant: meltanolabs}]\n'
+    )
+    (tmp_path / 'konstruct.toml').write_text('[ingestion]\npaths = ["meltano.yml"]\n')
+    graph = Project(tmp_path).build(run_dbt=False).graph
+    # Without the lock file's default schema, the table is found by its name.
+    assert graph.nodes['table.orders'].attrs['loaded_by'] == 'meltano'
+    assert 'table.tap_mysql.orders' not in graph.nodes
+
+
+TERRAFORM = """
+resource "airbyte_source_postgres" "app" {
+  name = "app"
+  configuration = {
+    database = "app"
+    host     = var.host
+  }
+}
+
+resource "airbyte_destination_snowflake" "warehouse" {
+  configuration = { database = "ANALYTICS", schema = "RAW" }
+}
+
+resource "airbyte_connection" "app" {
+  name           = "app to warehouse"
+  source_id      = airbyte_source_postgres.app.source_id
+  destination_id = airbyte_destination_snowflake.warehouse.destination_id
+  namespace_definition = "custom_format"
+  namespace_format     = "$${SOURCE_NAMESPACE}"
+  configurations = {
+    streams = [
+      { name = "orders", namespace = "public", selected_fields = [{ field_path = ["id"] }, { field_path = ["total"] }] },
+      { name = "users", namespace = "public" },
+    ]
+  }
+}
+
+resource "fivetran_connector" "pg" {
+  group_id = fivetran_group.warehouse.id
+  service  = "postgres"
+  destination_schema {
+    prefix = "pg"
+  }
+  config {
+    database = "shop"
+  }
+}
+
+resource "fivetran_connection" "sf" {
+  service = "salesforce"
+  destination_schema = { name = "salesforce" }
+  config = jsonencode({ is_sandbox = false })
+}
+
+resource "fivetran_connector_schema_config" "pg" {
+  connector_id           = fivetran_connector.pg.id
+  schema_change_handling = "BLOCK_ALL"
+  schemas = {
+    "public" = {
+      tables = {
+        "customers" = {
+          columns = {
+            "email" = { hashed = true }
+            "id"    = {}
+            "notes" = { enabled = false }
+          }
+        }
+        "gone" = { enabled = false }
+      }
+    }
+    "archive" = { enabled = false }
+  }
+}
+
+resource "fivetran_connector_schema_config" "sf" {
+  connection_id = fivetran_connection.sf.id
+  schema {
+    name = "salesforce"
+    table {
+      name = "account"
+      column {
+        name = "name"
+      }
+    }
+  }
+}
+
+resource "fivetran_connector_schema_config" "elsewhere" {
+  connector_id = var.connector_id
+}
+"""
+
+
+def test_terraform_airbyte_and_fivetran_resources() -> None:
+    reading = read_files('terraform', [('infra/main.tf', TERRAFORM)])
+    assert [(f.loader, f.task, f.source, f.target, f.columns) for f in reading.feeds] == [
+        (
+            'airbyte',
+            'app to warehouse',
+            ('postgres', 'app', 'public', 'orders'),
+            ('public', 'orders'),
+            (('id', 'id', 'direct'), ('total', 'total', 'direct')),
+        ),
+        ('airbyte', 'app to warehouse', ('postgres', 'app', 'public', 'users'), ('public', 'users'), ()),
+        (
+            'fivetran',
+            'pg',
+            ('postgres', 'shop', 'public', 'customers'),
+            ('pg_public', 'customers'),
+            (('email', 'email', 'transformed'), ('id', 'id', 'direct')),
+        ),
+        (
+            'fivetran',
+            'salesforce',
+            ('salesforce', 'account'),
+            ('salesforce', 'account'),
+            (('name', 'name', 'direct'),),
+        ),
+    ]
+    assert reading.problems == [
+        'infra/main.tf:78: a schema configuration whose connection is not in this module'
+    ]
+    bad = read_files('terraform', [('bad.tf', 'resource "fivetran_connector" "x" {\n  service = "a\n}\n')])
+    assert bad.problems == ['bad.tf:2: cannot read Terraform: line 2: unterminated string']
+
+
+def test_the_hcl_reader_keeps_what_terraform_evaluates_as_text() -> None:
+    text = """
+# a comment
+locals {
+  /* a block
+     comment */
+  names = [for s in var.list : upper(s)]
+  pick  = var.on ? "a" : "b"
+  heredoc = <<-EOT
+    hello
+  EOT
+  map   = { for k, v in var.m : k => v }
+  sum   = 1 + 2
+  neg   = -1
+  float = 1.5
+  call  = lookup(var.m, "k", null)
+  flags = [true, false, null]
+  "quoted key" = "with \\"escape\\" and ${var.x}"
+}
+"""
+    (block,) = hcl.parse(text)
+    attrs = block.arguments
+    assert attrs['names'] == hcl.Ref('[for s in var.list : upper(s)]')
+    assert attrs['pick'] == hcl.Ref('var.on ? "a" : "b"')
+    assert attrs['heredoc'] == '    hello\n'
+    assert attrs['map'] == hcl.Ref('{ for k, v in var.m : k => v }')
+    assert attrs['sum'] == hcl.Ref('1 + 2')
+    assert (attrs['neg'], attrs['float'], attrs['flags']) == (-1, 1.5, [True, False, None])
+    assert attrs['call'] == hcl.Ref('lookup(var.m, "k", null)')
+    assert attrs['quoted key'] == 'with "escape" and ${var.x}'
+    for broken in ('x = [1,', 'x {', 'x = {a 1}', '= 1', 'x = <<EOT\nnever closed', 'x = @'):
+        with pytest.raises(hcl.HclError):
+            hcl.parse(broken)
+
+
+NESTED_HCL = 'resource "airbyte_connection" "a" {\n  x = ' + '[' * 5_000 + ']' * 5_000 + '\n}\n'
+
+
+@pytest.mark.parametrize(
+    ('kind', 'path', 'text'),
+    [
+        ('terraform', 'main.tf', 'resource "fivetran_connector" "a" {\n  x = b.'),
+        ('terraform', 'main.tf', NESTED_HCL),
+        (
+            'terraform',
+            'main.tf',
+            'resource "fivetran_connector" "pg" {\n  service = "postgres"\n}\n'
+            'resource "fivetran_connector_schema_config" "pg" {\n'
+            '  connector_id = fivetran_connector.pg.id\n  schemas = { public = { tables = 3 } }\n}\n',
+        ),
+        ('airbyte_octavia', 'connections/a/configuration.yaml', NESTED_YAML),
+        (
+            'airbyte_octavia',
+            'connections/a/configuration.yaml',
+            'definition_type: connection\nconfiguration: 3',
+        ),
+        ('airbyte_api', 'c.json', NESTED_JSON.replace('streams', 'syncCatalog')),
+        ('airbyte_api', 'c.json', '{"syncCatalog": 3}'),
+    ],
+)
+def test_a_malformed_airbyte_or_terraform_file_is_a_problem(kind: str, path: str, text: str) -> None:
+    reading = read_files(kind, [(path, text)])
+    assert reading.feeds == []
+    assert len(reading.problems) == 1 and reading.problems[0].startswith(f'{path}:')
+
+
+def test_a_malformed_file_in_a_module_leaves_the_others() -> None:
+    files = [('tf/main.tf', TERRAFORM), ('tf/broken.tf', NESTED_HCL)]
+    reading, alone = read_files('terraform', files), read_files('terraform', files[:1])
+    assert reading.feeds == alone.feeds != []
+    assert reading.problems == ['tf/broken.tf: cannot read: it is nested too deeply', *alone.problems]
+
+
+AIRBYTE_TF = """
+resource "airbyte_source_postgres" "app" {
+  configuration = { database = "app" }
+}
+resource "airbyte_connection" "app" {
+  name = "app"
+  source_id = airbyte_source_postgres.app.source_id
+  SETTING
+  configurations = { streams = [{ name = "orders", namespace = "public" }] }
+}
+"""
+
+
+@pytest.mark.parametrize(
+    ('setting', 'problem'),
+    [
+        ('namespace_definition = var.namespace', 'connection app: its namespace definition var.namespace'),
+        ('prefix = var.prefix', 'connection app: its namespace prefix var.prefix'),
+        (
+            'namespace_definition = "custom_format"\n  namespace_format = "${var.schema}"',
+            'connection app: its namespace format ${var.schema}',
+        ),
+    ],
+)
+def test_a_terraform_value_that_terraform_evaluates_is_not_a_name(setting: str, problem: str) -> None:
+    reading = read_files('terraform', [('main.tf', AIRBYTE_TF.replace('SETTING', setting))])
+    assert reading.feeds == []
+    assert reading.problems == [f'main.tf:5: {problem} is not a literal, so its tables are not known']
+
+
+def test_a_fivetran_prefix_from_a_variable_is_not_a_name() -> None:
+    text = (
+        'resource "fivetran_connector" "pg" {\n  service = "postgres"\n'
+        '  destination_schema { prefix = var.prefix }\n}\n'
+        'resource "fivetran_connector_schema_config" "pg" {\n  connector_id = fivetran_connector.pg.id\n'
+        '  schemas = { public = { tables = { orders = {} } } }\n}\n'
+    )
+    reading = read_files('terraform', [('main.tf', text)])
+    assert reading.feeds == []
+    assert reading.problems == ['main.tf:5: pg: var.prefix is not a literal name, so the feed is left out']
+
+
+def test_a_terraform_module_lands_fivetran_tables_with_their_source(tmp_path: Path) -> None:
+    duckdb_warehouse(
+        tmp_path,
+        'create schema pg_public;'
+        'create table pg_public.customers (id bigint, email varchar, _fivetran_synced timestamp);',
+    )
+    (tmp_path / 'infra').mkdir()
+    (tmp_path / 'infra' / 'connectors.tf').write_text(
+        TERRAFORM.split('resource "fivetran_connector_schema_config"')[0]
+    )
+    (tmp_path / 'infra' / 'schemas.tf').write_text(
+        'resource "fivetran_connector_schema_config"'
+        + TERRAFORM.split('resource "fivetran_connector_schema_config"', 1)[1]
+    )
+    (tmp_path / 'infra' / 'variables.tf').write_text('variable "host" {}\n')
+    project = Project(tmp_path)
+    graph = project.build(run_dbt=False).graph
+    feeds = {(e.source, e.target) for e in graph.edges if e.kind == 'feeds'}
+    sync = 'task.fivetran.warehouse.pg_public'
+    assert ('system.postgres.shop.public.customers', sync) in feeds
+    assert (sync, 'table.warehouse.pg_public.customers') in feeds
+    assert graph.nodes[sync].path == 'infra/schemas.tf'
+    email = graph.column('table.warehouse.pg_public.customers', 'email')
+    assert email is not None
+    (edge,) = graph.out_edges(email.id, 'derived_from')
+    assert (edge.target, edge.attrs['transform']) == (
+        'system.postgres.shop.public.customers#email',
+        'transformed',
+    )
+    assert {'input': 'fivetran', 'path': 'infra/schemas.tf', 'detail': '2 landed tables'} in graph.meta[
+        'sources'
+    ]
+    assert not [s for s in graph.meta['sources'] if s.get('path') == 'infra/variables.tf']
