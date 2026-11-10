@@ -14,6 +14,9 @@
 * ``ossie``: the ontology as an Apache Ossie semantic model (see :mod:`konstruct.semantics.ossie`).
 
 ``select`` restricts any format but ``ossie`` to the lineage of one node, upstream and downstream.
+
+Each format is in the plugin registry (:mod:`konstruct.plugins.registry`), as an installed plugin's
+format is, and :func:`export` runs whichever the registry names.
 """
 
 from __future__ import annotations
@@ -22,10 +25,11 @@ import csv
 import io
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from collections.abc import Set as AbstractSet
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import sqlglot
 from sqlglot import exp
@@ -33,9 +37,17 @@ from sqlglot import exp
 from konstruct import __version__
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
 from konstruct.core.sql import PARSE_ERRORS
+from konstruct.plugins.api import API_VERSION, ExportRequest
+from konstruct.plugins.registry import BUILTINS
 
-Format = Literal['openlineage', 'mermaid', 'dot', 'csv', 'ossie']
-FORMATS: tuple[str, ...] = ('openlineage', 'mermaid', 'dot', 'csv', 'ossie')
+if TYPE_CHECKING:
+    from konstruct.plugins.registry import Plugins
+
+# A format is any name in the registry: plugins add to Konstruct's own, so the names are not a
+# closed set a Literal could list.
+Format = str
+FORMATS: tuple[str, ...] = tuple(name for name, _ in BUILTINS['exports'])
+"""Konstruct's own export formats."""
 
 
 class ExportError(ValueError):
@@ -66,28 +78,74 @@ def export(
     namespace: str | None = None,
     job_namespace: str = 'konstruct',
     event_time: str | None = None,
+    plugins: Plugins | None = None,
 ) -> str:
-    """The graph (or the lineage of ``select``) in ``fmt``; see the module docstring."""
-    if fmt == 'ossie':
-        from konstruct.semantics.ontology import derive
-        from konstruct.semantics.ossie import export as ossie_export
+    """The graph (or the lineage of ``select``) in ``fmt``; see the module docstring. ``plugins``
+    is the registry to take the format from (default: Konstruct's own formats)."""
+    from konstruct.plugins.registry import Plugins
 
-        if select is not None:
-            raise ExportError('the ossie export is the whole ontology; it does not take a selection')
-        root = graph.meta.get('root')
-        return ossie_export(graph, derive(graph), name=Path(str(root)).name if root else None)
-    keep = _selection(graph, select) if select is not None else None
-    if fmt == 'openlineage':
-        return openlineage(
-            graph, keep, namespace=namespace, job_namespace=job_namespace, event_time=event_time
-        )
-    if fmt == 'mermaid':
-        return mermaid(graph, keep, columns=columns)
-    if fmt == 'dot':
-        return dot(graph, keep, columns=columns)
-    if fmt == 'csv':
-        return column_csv(graph, keep)
-    raise ExportError(f'unknown export format {fmt!r}; choose from {", ".join(FORMATS)}')
+    registry = plugins or Plugins.builtin()
+    plugin = registry.get('exports', fmt)
+    if plugin is None:
+        names = [p.name for p in registry.plugins if p.group == 'exports' and p.enabled]
+        raise ExportError(f'unknown export format {fmt!r}; choose from {", ".join(names)}')
+    request = ExportRequest(
+        select=select,
+        keep=frozenset(_selection(graph, select)) if select is not None else None,
+        columns=columns,
+        namespace=namespace,
+        job_namespace=job_namespace,
+        event_time=event_time,
+    )
+    text: str = plugin.loaded.export(graph, request)
+    return text
+
+
+class BuiltinFormat:
+    """One of Konstruct's own export formats, as the registry loads it."""
+
+    api_version = API_VERSION
+
+    def __init__(self, description: str, write: Callable[[Graph, ExportRequest], str]) -> None:
+        self.description = description
+        self.write = write
+
+    def export(self, graph: Graph, request: ExportRequest) -> str:
+        """The graph in this format."""
+        return self.write(graph, request)
+
+
+def _ossie(graph: Graph, request: ExportRequest) -> str:
+    from konstruct.semantics.ontology import derive
+    from konstruct.semantics.ossie import export as ossie_export
+
+    if request.select is not None:
+        raise ExportError('the ossie export is the whole ontology; it does not take a selection')
+    root = graph.meta.get('root')
+    return ossie_export(graph, derive(graph), name=Path(str(root)).name if root else None)
+
+
+# Each calls its writer by name when it runs, so the writer can be replaced (in a test) after import.
+OPENLINEAGE = BuiltinFormat(
+    'OpenLineage job events with column lineage, as JSON lines',
+    lambda graph, request: openlineage(
+        graph,
+        request.keep,
+        namespace=request.namespace,
+        job_namespace=request.job_namespace,
+        event_time=request.event_time,
+    ),
+)
+MERMAID = BuiltinFormat(
+    'a Mermaid flowchart', lambda graph, request: mermaid(graph, request.keep, columns=request.columns)
+)
+DOT = BuiltinFormat(
+    'a Graphviz DOT graph', lambda graph, request: dot(graph, request.keep, columns=request.columns)
+)
+CSV = BuiltinFormat(
+    'one CSV row per column lineage edge', lambda graph, request: column_csv(graph, request.keep)
+)
+OSSIE = BuiltinFormat('the ontology as an Apache Ossie semantic model', _ossie)
 
 
 def _selection(graph: Graph, node: Node) -> set[str]:
@@ -103,7 +161,7 @@ def _selection(graph: Graph, node: Node) -> set[str]:
     return keep
 
 
-def _relations(graph: Graph, keep: set[str] | None, kinds: Iterable[str] = VIEW_KINDS) -> list[Node]:
+def _relations(graph: Graph, keep: AbstractSet[str] | None, kinds: Iterable[str] = VIEW_KINDS) -> list[Node]:
     return sorted(
         (n for n in graph.nodes.values() if n.kind in kinds and (keep is None or n.id in keep)),
         key=lambda n: n.id,
@@ -197,7 +255,7 @@ def _indirect_subtypes(conditions: list[str], relation: str, column: str) -> lis
 
 def openlineage(
     graph: Graph,
-    keep: set[str] | None = None,
+    keep: AbstractSet[str] | None = None,
     *,
     namespace: str | None = None,
     job_namespace: str = 'konstruct',
@@ -305,7 +363,7 @@ def _mermaid_text(text: str) -> str:
     return text.replace('"', '#quot;').replace('<', '#lt;').replace('>', '#gt;')
 
 
-def mermaid(graph: Graph, keep: set[str] | None = None, *, columns: bool = False) -> str:
+def mermaid(graph: Graph, keep: AbstractSet[str] | None = None, *, columns: bool = False) -> str:
     """A Mermaid ``flowchart`` of relations and tasks, or of columns and column lineage with ``columns``."""
     nodes = _relations(graph, keep)
     ids: dict[str, str] = {}
@@ -359,7 +417,7 @@ def _dot_text(text: str) -> str:
     return text.replace('\\', '\\\\').replace('"', '\\"')
 
 
-def dot(graph: Graph, keep: set[str] | None = None, *, columns: bool = False) -> str:
+def dot(graph: Graph, keep: AbstractSet[str] | None = None, *, columns: bool = False) -> str:
     """A Graphviz graph of relations and tasks, or of columns as record ports with ``columns``."""
     nodes = _relations(graph, keep)
     present = {n.id for n in nodes}
@@ -418,7 +476,7 @@ CSV_FIELDS = (
 )
 
 
-def column_csv(graph: Graph, keep: set[str] | None = None) -> str:
+def column_csv(graph: Graph, keep: AbstractSet[str] | None = None) -> str:
     """One CSV row per column lineage edge: relation, column, upstream relation and column, transform, verification, expression, kinds and path."""
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=CSV_FIELDS, lineterminator='\n')

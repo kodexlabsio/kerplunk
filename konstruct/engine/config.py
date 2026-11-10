@@ -52,8 +52,9 @@ import contextlib
 import os
 import re
 import tomllib
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from fnmatch import fnmatch
+from fnmatch import fnmatch, fnmatchcase
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -73,6 +74,9 @@ from konstruct.inputs.warehouse import (
     SnowflakeConnector,
     TrinoConnector,
 )
+
+INPUT_PATH_FIELDS = {'looker': 'looker_paths'}
+"""The registry inputs whose ``[<name>] paths`` the configuration keeps in a field of its own."""
 
 
 class ConfigError(Exception):
@@ -215,6 +219,9 @@ class Config:
     discover_warehouses: bool = True
     config_file: Path | None = None
     usage: UsageSettings = field(default_factory=lambda: _usage_settings({}))
+    sections: dict[str, dict[str, Any]] = field(default_factory=dict)
+    """Every table of the configuration file as written, such as ``[looker]``, so an input finds
+    its own settings by its name."""
     options: dict[str, Any] = field(default_factory=dict)
     """Build options given on the command line or to :meth:`konstruct.Project.build`, which apply
     to every repository built into the graph, not only this one."""
@@ -240,6 +247,19 @@ class Config:
         except ValueError:
             return False
         return any(fnmatch(relative, pattern) for pattern in self.exclude)
+
+    def paths_for(self, name: str) -> list[Path] | None:
+        """The paths ``[<name>] paths`` pins for an input, or None to discover its files. An
+        input of Konstruct's own that has a field for them (``looker_paths``) reads that field."""
+        if name in INPUT_PATH_FIELDS:
+            paths: list[Path] | None = getattr(self, INPUT_PATH_FIELDS[name])
+            return paths
+        listed = self.sections.get(name, {}).get('paths')
+        if listed is None:
+            return None
+        if not isinstance(listed, list) or not all(isinstance(p, str) for p in listed):
+            raise ConfigError(f'[{name}] paths must be a list of paths')
+        return [self.root / p for p in listed]
 
 
 def _spark_dialect(value: Any) -> str:
@@ -363,6 +383,7 @@ def load_config(root: Path, out_dir: Path | None = None) -> Config:
         else None,
         discover_warehouses=bool(data.get('discover_warehouses', True)),
         config_file=config_file,
+        sections={k: v for k, v in data.items() if isinstance(v, dict)},
     )
     return config
 
@@ -376,6 +397,39 @@ def _read_toml(path: Path) -> dict[str, Any]:
 
 
 # Discovery
+
+
+def discover_input_files(config: Config, name: str, patterns: Iterable[str]) -> list[Path]:
+    """The files of an input: those its ``[<name>] paths`` lists (a directory gives every file in it
+    whose name matches one of ``patterns``), or every such file in the repository."""
+    patterns = list(patterns)
+
+    def wanted(path: Path) -> bool:
+        return any(fnmatchcase(path.name, pattern) for pattern in patterns)
+
+    listed = config.paths_for(name)
+    if listed is not None:
+        files: list[Path] = []
+        for path in listed:
+            if path.is_dir():
+                files.extend(
+                    sorted(
+                        p
+                        for p in path.rglob('*')
+                        if wanted(p) and p.is_file() and not set(p.parts) & SKIP_DIRS
+                    )
+                )
+            elif path.is_file():
+                files.append(path)
+        return files
+    found = []
+    for directory in walk_dirs(config.root):
+        if directory.resolve() == config.out_dir:
+            continue
+        for path in sorted(directory.iterdir()):
+            if wanted(path) and path.is_file() and not config.excluded(path):
+                found.append(path)
+    return found
 
 
 def iter_files(config: Config, suffix: str) -> list[Path]:
@@ -458,15 +512,9 @@ def discover_spark_files(config: Config) -> list[Path]:
 
 def discover_looker_files(config: Config) -> list[Path]:
     """LookML files (``*.lkml``): the configured paths, or every one in the repository."""
-    if config.looker_paths is not None:
-        files: list[Path] = []
-        for path in config.looker_paths:
-            if path.is_dir():
-                files.extend(sorted(p for p in path.rglob('*.lkml') if not set(p.parts) & SKIP_DIRS))
-            elif path.is_file():
-                files.append(path)
-        return files
-    return list(iter_files(config, '.lkml'))
+    from konstruct.inputs.looker import INPUT
+
+    return discover_input_files(config, 'looker', INPUT.patterns)
 
 
 def discover_powerbi_files(config: Config) -> list[Path]:

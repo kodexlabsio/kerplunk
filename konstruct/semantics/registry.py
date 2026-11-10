@@ -29,23 +29,30 @@ Packs are written by hand in ``ontologies/*.yml`` or generated from published co
 into ``ontologies/generated/`` by ``.kodex/scripts/generate_packs.py``. ``ontologies/index.json.gz``
 holds them all, merged, so a build reads one file; a hand-written pack's terms win over a
 generated one's.
+
+Konstruct's own packs are a directory in the plugin registry (:mod:`konstruct.plugins.registry`),
+as a plugin's packs are; :func:`load_packs` reads every directory the registry has.
 """
 
 from __future__ import annotations
 
 import fnmatch
 import gzip
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from functools import cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import orjson
 import yaml
 
 from konstruct.semantics import definitions
 
+if TYPE_CHECKING:
+    from konstruct.plugins.registry import Plugins
+
 PACKS = Path(__file__).parent / 'ontologies'
+"""The directory of Konstruct's own packs."""
 INDEX = PACKS / 'index.json.gz'
 GENERIC_COLUMNS = frozenset(
     (
@@ -111,6 +118,8 @@ class Pack:
     origins: list[str] = field(default_factory=list)
     """Where its tables come from: ``hand-written``, or the loaders a generated pack is made from,
     ``fivetran``, ``singer`` and ``dlt``."""
+    source: str = 'konstruct'
+    """The distribution that provides the pack."""
 
 
 @dataclass
@@ -198,7 +207,7 @@ def build_index(directory: Path = PACKS) -> list[dict[str, Any]]:
             packs.append(merge(own[name], generated[name]))
         else:
             packs.append(own.get(name) or generated[name])
-    return [asdict(p) for p in packs]
+    return [{k: v for k, v in asdict(p).items() if k != 'source'} for p in packs]
 
 
 def read_index() -> list[dict[str, Any]]:
@@ -214,9 +223,23 @@ def _all() -> tuple[Pack, ...]:
     return tuple(Pack(**item) for item in read_index())
 
 
-def load_packs(names: list[str] | None = None) -> list[Pack]:
-    """The packs Konstruct ships, all of them or those named."""
-    return [p for p in _all() if names is None or p.name in names]
+def load_packs(names: list[str] | None = None, *, plugins: Plugins | None = None) -> list[Pack]:
+    """The packs of every pack directory in ``plugins`` (default: Konstruct's own), all of them or
+    those named. Konstruct's own directory is read through its index."""
+    from konstruct.plugins.registry import Plugins
+
+    packs: list[Pack] = []
+    for plugin in (plugins or Plugins.builtin()).group('packs'):
+        if plugin.builtin:
+            found = list(_all())
+        else:
+            found = [
+                read_pack(yaml.safe_load(path.read_text(encoding='utf-8')) or {}, path.stem, 'hand-written')
+                for path in sorted(Path(plugin.loaded).glob('*.yml'))
+            ]
+            found = [replace(pack, source=plugin.distribution) for pack in found]
+        packs += [p for p in found if names is None or p.name in names]
+    return packs
 
 
 def _canonical(spec: str) -> str:

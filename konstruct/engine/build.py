@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from konstruct import __version__
 from konstruct.core import jsonio
@@ -31,7 +31,7 @@ from konstruct.engine.config import (
     discover_dag_files,
     discover_dagster_files,
     discover_definitions_files,
-    discover_looker_files,
+    discover_input_files,
     discover_ossie_files,
     discover_powerbi_files,
     discover_spark_files,
@@ -41,7 +41,11 @@ from konstruct.engine.config import (
 )
 from konstruct.inputs import airflow, dagster, dbt
 from konstruct.inputs.warehouse import MissingDriver, RelationMeta
+from konstruct.plugins.registry import Plugin, Plugins
 from konstruct.semantics import definitions
+
+if TYPE_CHECKING:
+    from konstruct.plugins.api import Endpoint, Fragment, PluginEdge
 
 log = logging.getLogger(__name__)
 progress = logging.getLogger('konstruct.progress')
@@ -165,6 +169,7 @@ class Builder:
         # One entry per input, for the build summary and `konstruct status`.
         self.sources: list[dict[str, str]] = []
         self.watched: set[str] = set()
+        self.plugins = Plugins.builtin()
 
     # Shared helpers
 
@@ -337,7 +342,7 @@ class Builder:
         self.load_spark(schema_key)
         self.load_sql_files(projects, used_sql, schema_key)
         log.info('reading BI models, definitions and usage')
-        self.load_looker()
+        self.load_inputs(schema_key)
         self.load_powerbi()
         self.load_definitions()
         self.load_ossie()
@@ -1190,89 +1195,121 @@ class Builder:
         if authored_relationships:
             self.graph.meta['ossie_authored_relationships'] = authored_relationships
 
-    def load_looker(self) -> None:
-        """LookML views as exposures: each reads the table its ``sql_table_name`` names (or its
-        own name), or the tables its derived SQL reads, and each of its fields the columns its
-        SQL names. Views are resolved across files, with refinements and ``extends`` applied."""
-        from konstruct.inputs import looker
+    def load_inputs(self, schema_key: str) -> None:
+        """Every input in the plugin registry, each read into a fragment and merged."""
+        for plugin in self.plugins.group('inputs'):
+            self.read_input(plugin, schema_key)
 
-        files = discover_looker_files(self.config)
-        parsed: list[looker.LookerFile] = []
-        for path in files:
+    def read_input(self, plugin: Plugin, schema_key: str) -> None:
+        """One input: its files found by its patterns (or ``[<name>] paths``), read by the input
+        and merged into the graph. A fragment that is not valid is a bug, and raises."""
+        from konstruct.plugins.api import InputContext, InputFile
+
+        name, reader = plugin.name, plugin.loaded
+        patterns = list(reader.patterns)
+        paths = discover_input_files(self.config, name, patterns) if patterns else []
+        if patterns and not paths:
+            return
+        files: list[InputFile] = []
+        for path in paths:
             rel = self.rel_path(path)
             self.watch(path)
             try:
-                content = path.read_bytes()
+                files.append(InputFile(rel, path.read_bytes()))
             except OSError as error:
-                self.graph.warn(f'looker: cannot read {rel}: {error}')
-                continue
-            key = Cache.key('looker', hashlib.sha256(content).hexdigest(), rel)
+                self.graph.warn(f'{name}: cannot read {rel}: {error}')
 
-            def compute(content: bytes = content, rel: str = rel) -> Any:
-                return looker.parse(content.decode('utf-8', errors='replace'), rel).to_dict()
+        def cached(key: tuple[Any, ...], compute: Callable[[], Any]) -> Any:
+            return self.cache.get_or_compute(Cache.key(name, plugin.version, *key), compute)
 
-            item = looker.LookerFile.from_dict(self.cache.get_or_compute(key, compute))
-            parsed.append(item)
-            for problem in item.problems:
-                self.graph.warn(f'looker: {problem}')
-        views, problems = looker.resolve(parsed, self.dialect)
-        for problem in problems:
-            self.graph.warn(f'looker: {problem}')
-        counts: dict[str, int] = {}
-        for view in views:
-            counts[view.path] = counts.get(view.path, 0) + 1
-            exposure = self.graph.add_node(
+        context = InputContext(
+            root=self.config.root,
+            dialect=self.dialect,
+            options=self.config.sections.get(name, {}),
+            cached=cached,
+        )
+        fragment = reader.read(files, context)
+        problems = fragment.problems()
+        if problems:
+            raise AssertionError(
+                f'{plugin.label} returned a fragment that is not valid: {"; ".join(problems)}'
+            )
+        self.merge_fragment(name, fragment, schema_key)
+
+    def merge_fragment(self, name: str, fragment: Fragment, schema_key: str) -> None:
+        """Add a valid fragment to the graph: its nodes under ``<name>.``, its relations and
+        columns resolved to the graph's, its SQL analysed for lineage, all with origin ``name``."""
+        from konstruct.plugins.api import Relation
+
+        for warning in fragment.warnings:
+            self.graph.warn(f'{name}: {warning}')
+        nodes = {}
+        for item in fragment.nodes:
+            nodes[item.id] = self.graph.add_node(
                 Node(
-                    id=f'looker.view.{view.name}',
-                    kind='exposure',
-                    name=view.name,
-                    description=view.description,
-                    path=view.path,
-                    origins=['looker'],
-                    attrs={
-                        k: v
-                        for k, v in {
-                            'type': 'looker view',
-                            'label': view.label,
-                            'fields': sorted(f.name for f in view.fields),
-                        }.items()
-                        if v
-                    },
+                    id=f'{name}.{item.id}',
+                    kind=item.kind,  # type: ignore[arg-type]
+                    name=item.name,
+                    description=item.description,
+                    path=item.path,
+                    origins=[name],
+                    attrs=dict(item.attrs),
                 )
             )
-            for key in [view.table] if view.table else view.derived_reads:
-                relation = self.relation(key.lower(), 'looker')
-                self.graph.add_edge(relation.id, exposure.id, 'feeds', origin='looker')
-                if not view.table:
+        # Whether a relation's columns were known before a node's edges added any, per node.
+        known: dict[tuple[str, str], bool] = {}
+
+        def end(point: Endpoint, other: Endpoint, edge: PluginEdge) -> str | None:
+            if isinstance(point, str):
+                return nodes[point].id
+            if isinstance(point, Relation):
+                return self.relation(point.key, name).id
+            relation = self.relation(point.relation, name)
+            column = self.graph.column(relation.id, point.name)
+            if column is None:
+                if known.setdefault((relation.id, str(other)), self.columns_known(relation)):
+                    reader = nodes.get(other) if isinstance(other, str) else None
+                    where = f'{reader.path}: ' if reader is not None and reader.path else ''
+                    who = repr(reader.name) if reader is not None else 'an edge'
+                    default = f'{where}{who} reads {point.relation}.{point.name}, which is not a known column'
+                    self.graph.warn(f'{name}: {edge.missing or default}')
+                    return None
+                column = self.column(relation, point.name, name)
+            return column.id
+
+        for edge in fragment.edges:
+            source = end(edge.source, edge.target, edge)
+            target = end(edge.target, edge.source, edge) if source is not None else None
+            if source is not None and target is not None:
+                self.graph.add_edge(source, target, edge.kind, origin=name, **edge.attrs)  # type: ignore[arg-type]
+        for sql in fragment.sql:
+            task = nodes[sql.task] if sql.task else None
+            label = f'{name} {sql.path}'
+            for statement in self.analyse_cached(
+                sql.sql, kind=f'input:{name}', schema_key=schema_key, dialect=sql.dialect
+            ):
+                if task is not None:
+                    for read in statement.reads:
+                        self.graph.add_edge(self.relation(read, name).id, task.id, 'feeds', origin=name)
+                if not statement.target:
+                    for problem in statement.errors:
+                        self.graph.warn(f'{label}: {problem}')
                     continue
-                by_column: dict[str, list[str]] = {}
-                for looked in view.fields:
-                    for name in looked.columns:
-                        by_column.setdefault(name, []).append(looked.name)
-                # A table the build only infers has no known columns: what the view reads is all
-                # that is known about them.
-                known = self.columns_known(relation)
-                for name, field_names in sorted(by_column.items()):
-                    column = self.graph.column(relation.id, name)
-                    if column is None and known:
-                        missing = ', '.join(sorted(field_names))
-                        self.graph.warn(
-                            f'looker: {view.path}: view {view.name!r} reads {key}.{name} ({missing}), '
-                            'which is not a known column'
-                        )
-                        continue
-                    column = column or self.column(relation, name, 'looker')
-                    self.graph.add_edge(
-                        column.id, exposure.id, 'feeds', origin='looker', fields=sorted(field_names)
-                    )
-        for path in files:
-            rel = self.rel_path(path)
-            count = counts.get(rel, 0)
-            self.sources.append(
-                {'input': 'looker', 'path': rel, 'detail': f'{count} view{"s" if count != 1 else ""}'}
-            )
-        if files:
-            self.inputs['looker_views'] = len(views)
+                target_node = self.relation(statement.target, name)
+                target_node.path = target_node.path or sql.path
+                if task is not None:
+                    self.graph.add_edge(task.id, target_node.id, 'feeds', origin=name)
+                self.apply(
+                    statement,
+                    target=target_node,
+                    origin=name,
+                    label=label,
+                    via=task.id if task is not None else sql.path,
+                )
+        for source_line in fragment.sources:
+            self.sources.append({'input': name, 'path': source_line.path, 'detail': source_line.detail})
+        for key, count in fragment.counts.items():
+            self.inputs[f'{name}_{key}'] = count
 
     def load_powerbi(self) -> None:
         """Power BI semantic models (TMDL) as exposures: each table reads the warehouse tables its
@@ -1376,7 +1413,8 @@ class Builder:
                 columns.update(c.name.lower() for c in self.graph.columns_of(node.id))
                 if node.attrs.get('loaded_by'):
                     loaded.setdefault(schema, set()).add(table)
-        matches = registry.find(registry.load_packs(self.config.ontology_packs), schemas, loaded)
+        packs = registry.load_packs(self.config.ontology_packs, plugins=self.plugins)
+        matches = registry.find(packs, schemas, loaded)
         suffixes = registry.suffixes(matches)
         found: list[definitions.Term] = []
         joins: list[dict[str, str]] = []

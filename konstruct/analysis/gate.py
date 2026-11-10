@@ -16,44 +16,27 @@ the same check with ``gate: true``. It compares the working tree with the base a
   different business terms in ``definitions.yml``.
 
 Each finding says what to do about it, so an agent can fix the change and run the gate again.
+
+Each rule is a check in the plugin registry (:mod:`konstruct.plugins.registry`), as a plugin's
+check is, and :func:`gate` runs every check the registry has.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from konstruct.analysis.conflicts import Conflicts
 from konstruct.analysis.diff import Diff, RelationChange
 from konstruct.core.graph import Graph, column_id
+from konstruct.plugins.api import API_VERSION, CheckContext, Finding
 
 if TYPE_CHECKING:
     from konstruct.interfaces.layout import Style
+    from konstruct.plugins.registry import Plugins
 
-RULES = {
-    'breaking': 'Keep the column, or change the models that read it in the same change.',
-    'approved-definition-changed': "Ask the term's owner to re-approve it before the change is merged.",
-    'conflicting-definition': (
-        'Compute it the way the existing column does, or bind each to its own term in definitions.yml.'
-    ),
-}
-
-
-@dataclass
-class Finding:
-    """One thing that stops a change."""
-
-    rule: str
-    """``breaking``, ``approved-definition-changed`` or ``conflicting-definition``."""
-    message: str
-    """What is wrong."""
-    path: str | None = None
-    """The file to change, when one is known, relative to the project."""
-
-    @property
-    def fix(self) -> str:
-        """What to do about it."""
-        return RULES[self.rule]
+__all__ = ['RULES', 'Finding', 'Gate', 'gate']
 
 
 @dataclass
@@ -150,22 +133,56 @@ def _name(graph: Graph, node_id: str, fallback: str) -> str:
     return graph.label(node)
 
 
-def gate(graph: Graph, diff: Diff, conflicts: Conflicts) -> Gate:
-    """The gate for ``diff``, given the graph and the conflicts at the head."""
+def gate(graph: Graph, diff: Diff, conflicts: Conflicts, *, plugins: Plugins | None = None) -> Gate:
+    """The gate for ``diff``, given the graph and the conflicts at the head: every check that
+    ``plugins`` (default: Konstruct's own checks) runs."""
+    from konstruct.plugins.registry import Plugins
+
+    registry = plugins or Plugins.builtin()
     result = Gate(base=diff.shown_base, changed=len(diff.source_files))
-    for relation in diff.relations:
+    context = CheckContext(graph=graph, diff=diff, conflicts=conflicts)
+    for plugin in registry.group('checks'):
+        result.findings += plugin.loaded.check(context)
+    return result
+
+
+@dataclass(frozen=True)
+class BuiltinCheck:
+    """One of Konstruct's own gate rules, as the registry loads it."""
+
+    description: str
+    """What the rule stops."""
+    fix: str
+    """What to do about a finding of the rule."""
+    run: Callable[[CheckContext], list[Finding]]
+    api_version: tuple[int, int] = API_VERSION
+
+    def check(self, context: CheckContext) -> list[Finding]:
+        """The findings of this rule, each with the rule's fix."""
+        return [replace(f, fix=f.fix or self.fix) for f in self.run(context)]
+
+
+def _breaking(context: CheckContext) -> list[Finding]:
+    found: list[Finding] = []
+    for relation in context.diff.relations:
         for column in relation.columns:
             if column.breaks:
-                result.findings.append(
+                found.append(
                     Finding(
                         'breaking',
                         f'{relation.label}.{column.column} is removed but still read by {", ".join(column.breaks)}',
                         relation.path,
                     )
                 )
+    return found
+
+
+def _approved_definition_changed(context: CheckContext) -> list[Finding]:
+    graph, diff = context.graph, context.diff
+    found: list[Finding] = []
     for definitions in diff.definitions:
         for name in definitions.approved_changed:
-            result.findings.append(
+            found.append(
                 Finding(
                     'approved-definition-changed',
                     f'{name!r} is approved, but the change gives it a new meaning',
@@ -210,7 +227,7 @@ def gate(graph: Graph, diff: Diff, conflicts: Conflicts) -> Gate:
         for altering, target in hits:
             if altering is not None:
                 bound = _name(graph, target, target)
-                result.findings.append(
+                found.append(
                     Finding(
                         'approved-definition-changed',
                         f'{term.name!r} is approved, and the change alters {bound}, which it names',
@@ -218,6 +235,13 @@ def gate(graph: Graph, diff: Diff, conflicts: Conflicts) -> Gate:
                     )
                 )
                 break
+    return found
+
+
+def _conflicting_definition(context: CheckContext) -> list[Finding]:
+    graph, conflicts = context.graph, context.conflicts
+    changed = _changed_columns(graph, context.diff)
+    found: list[Finding] = []
 
     def terms_of(column: str) -> set[str]:
         return {e.source for e in graph.in_edges(column, 'defines') if e.attrs.get('role') != 'input'}
@@ -235,11 +259,35 @@ def gate(graph: Graph, diff: Diff, conflicts: Conflicts) -> Gate:
             seen.add((side.column, other.column))
             differences = '; '.join(f'{d.kind} {d.detail}' for d in conflict.differences[:2])
             mine, theirs = _name(graph, side.column, side.label), _name(graph, other.column, other.label)
-            result.findings.append(
+            found.append(
                 Finding(
                     'conflicting-definition',
                     f'{mine} computes {conflict.idea!r} differently from {theirs} ({differences})',
                     source.path,
                 )
             )
-    return result
+    return found
+
+
+BREAKING = BuiltinCheck(
+    'a removed column that something downstream still reads',
+    'Keep the column, or change the models that read it in the same change.',
+    _breaking,
+)
+APPROVED_DEFINITION_CHANGED = BuiltinCheck(
+    'a change to what an approved business term means',
+    "Ask the term's owner to re-approve it before the change is merged.",
+    _approved_definition_changed,
+)
+CONFLICTING_DEFINITION = BuiltinCheck(
+    'a changed column that computes a business idea differently from another',
+    'Compute it the way the existing column does, or bind each to its own term in definitions.yml.',
+    _conflicting_definition,
+)
+
+RULES = {
+    'breaking': BREAKING.fix,
+    'approved-definition-changed': APPROVED_DEFINITION_CHANGED.fix,
+    'conflicting-definition': CONFLICTING_DEFINITION.fix,
+}
+"""Each of Konstruct's own rules with its fix."""

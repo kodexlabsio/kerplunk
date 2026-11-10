@@ -14,7 +14,9 @@ A view over a derived table reads the tables its SQL reads.
 
 from __future__ import annotations
 
+import hashlib
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -23,6 +25,17 @@ import sqlglot
 from sqlglot import exp
 
 from konstruct.core.sql import PARSE_ERRORS
+from konstruct.plugins.api import (
+    API_VERSION,
+    Column,
+    Fragment,
+    InputContext,
+    InputFile,
+    PluginEdge,
+    PluginNode,
+    Relation,
+    Source,
+)
 
 FILE_SUFFIX = '.lkml'
 _TABLE_COLUMN = re.compile(r'\$\{TABLE\}\.("(?:[^"]|"")+"|`[^`]+`|\w+)')
@@ -266,3 +279,79 @@ def _columns_of(
         if other in items and other not in seen and other != name:
             found += _columns_of(other, view, items, kinds, aliases, seen | {name})
     return sorted(set(found))
+
+
+class LookerInput:
+    """Looker as an input in the plugin registry: each view an exposure, fed by the table it reads
+    (or the tables its derived SQL reads) and by each column its fields read."""
+
+    api_version = API_VERSION
+    patterns: tuple[str, ...] = (f'*{FILE_SUFFIX}',)
+
+    def read(self, files: Sequence[InputFile], context: InputContext) -> Fragment:
+        """The views of ``files``, resolved across them, as exposures."""
+        fragment = Fragment()
+        parsed: list[LookerFile] = []
+        for file in files:
+
+            def compute(file: InputFile = file) -> Any:
+                return parse(file.text, file.path).to_dict()
+
+            item = LookerFile.from_dict(
+                context.cached((hashlib.sha256(file.content).hexdigest(), file.path), compute)
+            )
+            parsed.append(item)
+            fragment.warnings += item.problems
+        views, problems = resolve(parsed, context.dialect)
+        fragment.warnings += problems
+        counts: dict[str, int] = {}
+        for view in views:
+            counts[view.path] = counts.get(view.path, 0) + 1
+            exposure = f'view.{view.name}'
+            fragment.nodes.append(
+                PluginNode(
+                    id=exposure,
+                    kind='exposure',
+                    name=view.name,
+                    description=view.description,
+                    path=view.path,
+                    attrs={
+                        k: v
+                        for k, v in {
+                            'type': 'looker view',
+                            'label': view.label,
+                            'fields': sorted(f.name for f in view.fields),
+                        }.items()
+                        if v
+                    },
+                )
+            )
+            for key in [view.table] if view.table else view.derived_reads:
+                fragment.edges.append(PluginEdge(Relation(key.lower()), exposure, 'feeds'))
+                if not view.table:
+                    continue
+                by_column: dict[str, list[str]] = {}
+                for looked in view.fields:
+                    for name in looked.columns:
+                        by_column.setdefault(name, []).append(looked.name)
+                for name, field_names in sorted(by_column.items()):
+                    missing = ', '.join(sorted(field_names))
+                    fragment.edges.append(
+                        PluginEdge(
+                            Column(key.lower(), name),
+                            exposure,
+                            'feeds',
+                            attrs={'fields': sorted(field_names)},
+                            missing=f'{view.path}: view {view.name!r} reads {key}.{name} ({missing}), '
+                            'which is not a known column',
+                        )
+                    )
+        for file in files:
+            count = counts.get(file.path, 0)
+            fragment.sources.append(Source(file.path, f'{count} view{"s" if count != 1 else ""}'))
+        if files:
+            fragment.counts['views'] = len(views)
+        return fragment
+
+
+INPUT = LookerInput()
