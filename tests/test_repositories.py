@@ -450,3 +450,36 @@ def test_two_repositories_building_one_relation_is_a_warning(tmp_path: Path) -> 
     (c / 'report.sql').write_text('create table main.report as select total from main.ltv')
     graph = Project(c).build(warehouses=False, run_dbt=False).graph
     assert "repositories: main.ltv is built by both a and b; the graph keeps a's definition" in graph.warnings
+
+
+def test_formulas_compose_through_a_relation_another_repository_builds(tmp_path: Path) -> None:
+    """Read as a dbt source or by plain SQL, the relation's columns have no formula of their own:
+    they are the builder's columns, so formulas compose through to the builder's sources."""
+    finance, marketing, sql = tmp_path / 'finance', tmp_path / 'marketing', tmp_path / 'sql'
+    _ltv_repository(finance)
+    _dbt_repository(
+        marketing,
+        'shop',
+        [
+            _model(
+                'shop',
+                'report',
+                "select id, total * 2 as doubled from {{ source('fin', 'ltv') }}",
+                ['source.shop.fin.ltv'],
+                'marketing',
+            )
+        ],
+        [_source('shop', 'fin', 'ltv', 'analytics', [])],
+    )
+    sql.mkdir()
+    (sql / 'report.sql').write_text(
+        'create table warehouse.marketing.report as '
+        'select id, total * 2 as doubled from warehouse.analytics.ltv'
+    )
+    for root in (marketing, sql):
+        (root / 'konstruct.toml').write_text('dialect = "postgres"\nrepositories = ["../finance"]\n')
+        project = Project(root)
+        project.build(warehouses=False, run_dbt=False)
+        explained = project.explain('report.doubled')
+        assert (explained.composed, explained.complete) == ('SUM(raw.orders.amount) * 2', True)
+        assert explained.sources == ['raw.orders.amount']

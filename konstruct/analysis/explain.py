@@ -111,6 +111,18 @@ class Explanation:
         return self.text()
 
 
+def same_relation(graph: Graph, node: Node) -> Node | None:
+    """For a column with no formula of its own in a relation another node builds (a dbt source
+    over a model, a table another repository's model writes), the builder's column: the same
+    column of the same relation, whose formula it has."""
+    if 'expression' in node.attrs:
+        return None
+    edges = graph.out_edges(node.id, 'derived_from')
+    if len(edges) != 1 or not edges[0].attrs.get('same_relation'):
+        return None
+    return graph.nodes.get(edges[0].target)
+
+
 def composed_from(graph: Graph, node: Node) -> list[Node]:
     """The columns a column's formula is composed from. A column a loader lands is a source:
     its link to the source system's column is lineage, not a formula."""
@@ -393,6 +405,12 @@ class Explainer:
         if node.id in self.writing or depth > MAX_DEPTH:
             return _Text(None, frozenset(), False, deep=depth > MAX_DEPTH)
         graph = self.graph
+        builder = same_relation(graph, node)
+        if builder is not None:
+            self.writing.add(node.id)
+            found = self.compose_text(builder, depth + 1)
+            self.writing.discard(node.id)
+            return self._keep_text(node, depth, found)
         expression = node.attrs.get('expression')
         upstream = composed_from(graph, node)
         if not isinstance(expression, str):
@@ -554,6 +572,12 @@ class Explainer:
         if node.id in self.active or depth > MAX_DEPTH:
             return _Composed(None, frozenset(), False, deep=depth > MAX_DEPTH)
         graph = self.graph
+        builder = same_relation(graph, node)
+        if builder is not None:
+            self.active.add(node.id)
+            found = self.compose(builder, depth + 1)
+            self.active.discard(node.id)
+            return self._keep(node, depth, found)
         expression = node.attrs.get('expression')
         upstream = composed_from(graph, node)
         if not isinstance(expression, str):
