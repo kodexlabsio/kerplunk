@@ -363,7 +363,7 @@ class Builder:
         self.load_warehouses(projects)
         feeds = self.read_ingestion()
         self.load_loaders()
-        self.apply_ingestion(feeds)
+        self.apply_ingestion(feeds + self.read_dlt_versions())
         self.link_shared_relations()
         self.warn_missing_catalogs()
         self.index = RelationIndex(self.graph)
@@ -602,6 +602,42 @@ class Builder:
                 self.declared.setdefault(found.id, feed.loader)
         return feeds
 
+    def read_dlt_versions(self) -> list[Any]:
+        """From each dataset's ``_dlt_version`` table, the newest schema dlt loaded into it: the
+        resource that fills each table. One query per table, read only."""
+        from konstruct.inputs import ingestion, loaders
+        from konstruct.inputs.warehouse import query
+
+        feeds: list[ingestion.Feed] = []
+        if not self.config.dlt_lineage:
+            return feeds
+        for connector, relations in self.warehouse_relations:
+            for parts in loaders.dlt_versions(relations):
+                where = '.'.join(parts)
+                try:
+                    rows = query(connector, loaders.dlt_version_sql(parts, connector.dialect))
+                except Exception as error:  # a missing permission or a changed table
+                    message = (
+                        str(error).strip().splitlines()[0] if str(error).strip() else type(error).__name__
+                    )
+                    self.graph.warn(f'dlt: {where}: {message}')
+                    continue
+                if rows is None:
+                    continue
+                reading = ingestion.dlt_version_feeds(rows, parts[:-1], where)
+                for problem in reading.problems:
+                    self.graph.warn(f'dlt: {problem}')
+                feeds.extend(reading.feeds)
+                count = len(reading.feeds)
+                self.sources.append(
+                    {
+                        'input': 'dlt',
+                        'name': where,
+                        'detail': f'{count} landed {"table" if count == 1 else "tables"}',
+                    }
+                )
+        return feeds
+
     def apply_ingestion(self, feeds: list[Any]) -> None:
         """Each feed a configuration file describes: its source table, outside the warehouse and
         named after its system (``postgres.app.public.orders``), feeds the loader's task, which
@@ -633,7 +669,8 @@ class Builder:
                 ),
                 None,
             ) or self.loader_task(feed.loader, feed.task, pipeline=feed.task)
-            sync.path = sync.path or feed.path
+            if (self.config.root / feed.path).is_file():
+                sync.path = sync.path or feed.path
             sync.attrs.setdefault('pipeline', feed.task)
             self.graph.add_edge(source.id, sync.id, 'feeds', origin=feed.loader, evidence=evidence)
             self.graph.add_edge(sync.id, target.id, 'feeds', origin=feed.loader, evidence=evidence)

@@ -1950,3 +1950,97 @@ def test_a_lakeflow_bundle_lands_in_the_warehouse_catalog(tmp_path: Path) -> Non
     assert graph.warnings == [
         'lakeflow: resources/ingestion.yml: salesforce_ingestion ingests every table of reports, which it does not list'
     ]
+
+
+def dlt_dataset(root: Path, *rows: tuple[int, str]) -> None:
+    script = (
+        'create schema github_data;'
+        'create table github_data.issues (id bigint, title varchar, _dlt_load_id varchar, _dlt_id varchar);'
+        'create table github_data.issues__labels (name varchar, _dlt_id varchar, _dlt_parent_id varchar, _dlt_list_idx bigint);'
+        'create table github_data._dlt_version (version bigint, engine_version bigint, inserted_at timestamp, '
+        'schema_name varchar, version_hash varchar, schema varchar);'
+    )
+    for version, schema in rows:
+        script += (
+            f"insert into github_data._dlt_version values ({version}, 9, now(), 'github', 'h', '{schema}');"
+        )
+    duckdb_warehouse(root, script)
+
+
+def test_the_schemas_dlt_keeps_in_the_warehouse(tmp_path: Path) -> None:
+    old = json.dumps({'name': 'github', 'tables': {'issues': {'resource': 'old_issues'}}})
+    new = json.dumps(
+        {
+            'name': 'github',
+            'tables': {
+                '_dlt_loads': {'columns': {}},
+                'issues': {'resource': 'issues', 'columns': {}},
+                'issues__labels': {'parent': 'issues', 'columns': {}},
+            },
+        }
+    )
+    dlt_dataset(tmp_path, (1, old), (2, new))
+    graph = Project(tmp_path).build(run_dbt=False).graph
+    feeds = {(e.source, e.target) for e in graph.edges if e.kind == 'feeds'}
+    assert ('system.dlt.github.issues', 'task.dlt.warehouse.github_data') in feeds
+    assert ('task.dlt.warehouse.github_data', 'table.warehouse.github_data.issues') in feeds
+    assert 'system.dlt.github.old_issues' not in graph.nodes
+    assert graph.nodes['task.dlt.warehouse.github_data'].path is None
+    edge = next(e for e in graph.in_edges('table.warehouse.github_data.issues', 'feeds'))
+    assert edge.attrs['evidence'] == 'warehouse.github_data._dlt_version'
+    assert {
+        'input': 'dlt',
+        'name': 'warehouse.github_data._dlt_version',
+        'detail': '1 landed table',
+    } in graph.meta['sources']
+    assert not graph.warnings
+    from konstruct.interfaces.status import inspect
+
+    assert {
+        'input': 'dlt',
+        'name': 'warehouse.github_data._dlt_version',
+        'detail': '1 landed table',
+    } in inspect(tmp_path).built_from
+    (tmp_path / 'konstruct.toml').write_text('[dlt]\nlineage = false\n')
+    graph = Project(tmp_path).build(run_dbt=False).graph
+    assert 'system.dlt.github.issues' not in graph.nodes
+
+
+def test_a_malformed_dlt_version_leaves_the_other_schemas() -> None:
+    from konstruct.inputs.ingestion import dlt_version_feeds
+
+    deep = '{"tables": ' + '[' * 100_000 + ']' * 100_000 + '}'
+    rows = [
+        ('deep', 1, deep),
+        ('wrong', 1, '{"tables": 3}'),
+        ('shop', 1, {'tables': {'a': {'resource': 'a'}}}),
+    ]
+    reading = dlt_version_feeds(rows, ('db', 'ds'), 'db.ds._dlt_version')
+    assert [(f.source, f.target) for f in reading.feeds] == [(('dlt', 'shop', 'a'), ('db', 'ds', 'a'))]
+    assert reading.problems == [
+        'db.ds._dlt_version: cannot read the schema of deep: it is nested too deeply',
+        "db.ds._dlt_version: cannot read the schema of wrong: 'int' object has no attribute 'items'",
+    ]
+
+
+def test_a_dlt_version_that_cannot_be_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from konstruct.inputs.ingestion import dlt_version_feeds
+
+    reading = dlt_version_feeds(
+        [('github', 'x', 'not json'), ('shop', 1, {'tables': {'a': {'resource': 'a'}}})],
+        ('db', 'ds'),
+        'db.ds._dlt_version',
+    )
+    assert [(f.source, f.target) for f in reading.feeds] == [(('dlt', 'shop', 'a'), ('db', 'ds', 'a'))]
+    assert reading.problems == ['db.ds._dlt_version: the schema of github is not JSON']
+    dlt_dataset(tmp_path, (1, '{}'))
+    from konstruct.inputs import warehouse as module
+
+    def refuse(connector: object, sql: str) -> None:
+        raise RuntimeError('permission denied for table _dlt_version')
+
+    monkeypatch.setattr(module, 'query', refuse)
+    graph = Project(tmp_path).build(run_dbt=False).graph
+    assert graph.warnings == [
+        'dlt: warehouse.github_data._dlt_version: permission denied for table _dlt_version'
+    ]

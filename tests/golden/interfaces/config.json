@@ -12,6 +12,8 @@
  "definitions.paths": "key",
  "dialect": "key",
  "discover_warehouses": "key",
+ "dlt": "key",
+ "dlt.lineage": "key",
  "exclude": "key",
  "fivetran": "key",
  "fivetran.lineage": "key",

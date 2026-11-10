@@ -51,6 +51,9 @@ paths = ["pipelines/", "meltano.yml"]  # loader configuration, which may add tab
 [fivetran]
 lineage = false                   # read the Platform Connector's lineage tables; default true
 
+[dlt]
+lineage = false                   # read the schemas in each dataset's _dlt_version; default true
+
 [usage]                           # column usage from query history; off by default
 enabled = true
 days = 90

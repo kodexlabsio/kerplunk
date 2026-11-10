@@ -56,7 +56,7 @@ class Status:
     ontology_packs: list[dict[str, str]] = field(default_factory=list)
     """The ontology packs the last build bound: each pack's name and its schema and term count."""
     built_from: list[dict[str, str]] = field(default_factory=list)
-    """Inputs the last build read from the warehouse rather than files: Fivetran lineage and usage."""
+    """Inputs the last build read from the warehouse rather than files: Fivetran and dlt lineage, and usage."""
     graph: dict[str, Any] = field(default_factory=dict)
     skills: list[str] = field(default_factory=list)
     """Where the general skill is installed, such as ``project (Claude Code and Cursor)``."""
@@ -386,7 +386,7 @@ def inspect(
                 'detail': str(s.get('detail', '')),
             }
             for s in sources
-            if s.get('input') in ('fivetran', 'usage')
+            if s.get('input') in ('fivetran', 'usage') or (s.get('input') == 'dlt' and not s.get('path'))
         ]
     else:
         status.graph = {'exists': False, 'path': _relative(graph_path, root)}
@@ -461,6 +461,9 @@ def render_config(config: Config, status: Status, warehouses: list[WarehouseConf
         '',
         '[fivetran]',
         '# lineage = true                 # read the Fivetran Platform Connector lineage tables',
+        '',
+        '[dlt]',
+        "# lineage = true                 # read the schemas dlt keeps in each dataset's _dlt_version",
     ]
     lines += ['', '[definitions]']
     lines.append(

@@ -268,6 +268,9 @@ class Config:
     """The ontology packs to bind: None for every pack Konstruct ships, [] for none."""
     fivetran_lineage: bool = True
     """Read the Fivetran Platform Connector's lineage tables when a warehouse has them."""
+    dlt_lineage: bool = True
+    """Read the schemas dlt keeps in each dataset's ``_dlt_version`` table, for the resource that
+    fills each table."""
     looker_paths: list[Path] | None = None
     definitions_paths: list[Path] | None = None
     vocabulary_paths: list[Path] = field(default_factory=list)
@@ -653,6 +656,7 @@ def _read(root: Path, out_dir: Path | None) -> tuple[Config, dict[str, Any]]:
         sql_paths=list(sql['paths']) if 'paths' in sql else None,
         usage=_usage_settings(data.get('usage', {})),
         fivetran_lineage=_flag(data.get('fivetran', {}), 'lineage', '[fivetran] lineage', True),
+        dlt_lineage=_flag(data.get('dlt', {}), 'lineage', '[dlt] lineage', True),
         vocabulary_paths=_listed(data, root, 'vocabularies', 'paths') or [],
         definitions_paths=_listed(data, root, 'definitions', 'paths'),
         ossie_paths=_listed(data, root, 'ossie', 'paths'),

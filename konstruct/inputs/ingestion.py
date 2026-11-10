@@ -91,7 +91,7 @@ class Feed:
     collection) rather than a table in it."""
     line: int = 0
     path: str = ''
-    """The file it comes from, relative to the project."""
+    """The file it comes from, relative to the project, or the warehouse table it was read from."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -181,9 +181,9 @@ class _Context:
         self.reading.problems.append(f'{self.path}:{line}: {message}' if line else f'{self.path}: {message}')
 
     @contextmanager
-    def reading_file(self, path: str) -> Iterator[None]:
-        """Reads one file: if its reader fails on a shape it does not expect, the file gives a
-        problem and none of its feeds, and the other files are still read."""
+    def reading_file(self, path: str, part: str = '') -> Iterator[None]:
+        """Reads one file, or one ``part`` of it: if its reader fails on a shape it does not
+        expect, it gives a problem and none of its feeds, and the rest is still read."""
         self.path = path
         before = len(self.reading.feeds)
         try:
@@ -191,7 +191,7 @@ class _Context:
         except MALFORMED as error:
             del self.reading.feeds[before:]
             reason = 'it is nested too deeply' if isinstance(error, RecursionError) else error
-            self.problem(0, f'cannot read: {reason or type(error).__name__}')
+            self.problem(0, f'cannot read{" " + part if part else ""}: {reason or type(error).__name__}')
 
 
 def _direct(columns: Iterable[str]) -> list[tuple[str, str, str]]:
@@ -556,20 +556,51 @@ def _strings(value: Any) -> list[str]:
 
 
 def _read_dlt_schema(text: str, context: _Context) -> None:
-    """A schema dlt exported (``export_schema_path``): its tables, the resource each comes
-    from, and their columns. The dataset is not in the file, so tables are found by name."""
+    """A schema dlt exported (``export_schema_path``): its tables and the resource each comes
+    from. The dataset is not in the file, so tables are found by name."""
     data = _yaml(text, context)
     if data is None:
         return
+    _dlt_tables(data, context, (), PurePosixPath(context.path).name.split('.')[0])
+
+
+def _dlt_tables(data: Any, context: _Context, dataset: tuple[str, ...], fallback: str) -> None:
+    """Feeds for a dlt schema's tables, each from the resource that fills it; nested tables
+    and dlt's own are left out."""
+    if not isinstance(data, dict):
+        return
     given = data.get('name')
-    name = given if isinstance(given, str) else PurePosixPath(context.path).name.split('.')[0]
+    name = given if isinstance(given, str) else fallback
     for table, spec in (data.get('tables') or {}).items():
         if not isinstance(spec, dict) or str(table).startswith('_dlt_'):
             continue
         resource = spec.get('resource')
         if spec.get('parent') or not resource:
             continue
-        context.feed('dlt', name, ('dlt', name, resource), (table,))
+        context.feed('dlt', name, ('dlt', name, resource), (*dataset, table))
+
+
+def dlt_version_feeds(rows: Iterable[tuple[object, ...]], dataset: tuple[str, ...], where: str) -> Reading:
+    """Feeds from the rows of a dataset's ``_dlt_version`` table (``schema_name``, ``version``
+    and ``schema``, the schema as JSON): the newest version of each schema, into ``dataset``."""
+    newest: dict[str, tuple[int, object]] = {}
+    for schema_name, version, schema in rows:
+        try:
+            number = int(str(version))
+        except ValueError:
+            number = 0
+        if str(schema_name) not in newest or number >= newest[str(schema_name)][0]:
+            newest[str(schema_name)] = (number, schema)
+    context = _Context(where)
+    for schema_name, (_, schema) in sorted(newest.items()):
+        with context.reading_file(where, f'the schema of {schema_name}'):
+            try:
+                data = json.loads(schema) if isinstance(schema, str | bytes) else schema
+            except ValueError:
+                context.problem(0, f'the schema of {schema_name} is not JSON')
+                continue
+            _dlt_tables(data, context, dataset, schema_name)
+    return context.reading
 
 
 # Singer and Meltano

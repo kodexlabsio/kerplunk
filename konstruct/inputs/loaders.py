@@ -523,12 +523,33 @@ def lineage_schemas(relations: Iterable[RelationMeta]) -> list[LineageSchema]:
 def _table(schema: LineageSchema, name: str, dialect: str | None) -> str:
     """A table of the lineage schema, every part quoted as the warehouse spells it, so names with
     hyphens or in mixed case work."""
-    parts = [*schema.parts, schema.names.get(name, name)]
+    return quoted([*schema.parts, schema.names.get(name, name)], dialect)
+
+
+def quoted(parts: Sequence[str], dialect: str | None) -> str:
+    """A table's name with every part quoted as the warehouse spells it."""
     return exp.table_(
         exp.to_identifier(parts[-1], quoted=True),
         db=exp.to_identifier(parts[-2], quoted=True) if len(parts) > 1 else None,
         catalog=exp.to_identifier(parts[-3], quoted=True) if len(parts) > 2 else None,
     ).sql(dialect=dialect)
+
+
+def dlt_versions(relations: Iterable[RelationMeta]) -> list[tuple[str, ...]]:
+    """The ``_dlt_version`` tables among ``relations``, each with every part of its name: dlt
+    keeps there each version of the schema it loads into the dataset, with the resource that fills
+    each table."""
+    wanted = {'schema_name', 'version', 'schema'}
+    return [
+        tuple(r.parts)
+        for r in relations
+        if r.parts[-1].lower() == '_dlt_version' and wanted <= {c.name.lower() for c in r.columns}
+    ]
+
+
+def dlt_version_sql(parts: Sequence[str], dialect: str | None) -> str:
+    """The query for a ``_dlt_version`` table's schemas."""
+    return f'select schema_name, version, schema from {quoted(parts, dialect)}'
 
 
 def _literal(value: str, dialect: str | None = None) -> str:
