@@ -504,3 +504,171 @@ def test_every_reader_of_sql_survives_what_the_parser_fails_on(dialect: str, sql
     graph.meta['dialect'] = dialect
     assert Explainer(graph).namer.parse(sql) is None
     assert ontology._Deriver(graph).join_columns(f'INNER JOIN: {sql}') == []
+
+
+def test_a_filter_on_the_nullable_side_of_a_left_join_belongs_to_the_join() -> None:
+    """A CTE's or subquery's filter on the side of a LEFT JOIN that may find no row decides which
+    rows join: when the CTE only selects and filters, it is part of the join's ON, as a condition
+    written there is; otherwise it is a LEFT JOIN WHERE. The same filter in the outer WHERE
+    removes rows, and stays a WHERE. The nullable relations are named."""
+    joined = one(
+        'with c as (select id, first_name from db.main.customers where last_name is null) '
+        'select o.id from db.main.orders o left join c on c.id = o.customer_id'
+    )
+    on = one(
+        'select o.id from db.main.orders o left join db.main.customers c '
+        'on c.id = o.customer_id and c.last_name is null'
+    )
+    outer = one(
+        'select o.id from db.main.orders o left join db.main.customers c on c.id = o.customer_id '
+        'where c.last_name is null'
+    )
+    grouped = one(
+        'with c as (select id from db.main.customers where last_name is null group by id) '
+        'select o.id from db.main.orders o left join c on c.id = o.customer_id'
+    )
+    both = 'LEFT JOIN ON: db.main.customers.id = db.main.orders.customer_id AND db.main.customers.last_name IS NULL'
+    assert joined.conditions == on.conditions == [both]
+    assert outer.conditions == [
+        'LEFT JOIN ON: db.main.customers.id = db.main.orders.customer_id',
+        'WHERE: db.main.customers.last_name IS NULL',
+    ]
+    assert grouped.conditions == [
+        'GROUP BY: db.main.customers.id',
+        'LEFT JOIN ON: db.main.customers.id = db.main.orders.customer_id',
+        'LEFT JOIN WHERE: db.main.customers.last_name IS NULL',
+    ]
+    assert joined.nullable == on.nullable == outer.nullable == {'db.main.customers': 'LEFT'}
+    assert StatementLineage.from_dict(joined.to_dict()) == joined
+
+
+def test_an_inner_join_on_the_nullable_side_stays_an_inner_join() -> None:
+    """Joining two relations and left joining the result is not left joining each in turn."""
+    nested = one(
+        'select o.id from db.main.orders o left join (select c.id from db.main.customers c '
+        'join db.main.payments p on p.id = c.id) x on x.id = o.customer_id'
+    )
+    chained = one(
+        'select o.id from db.main.orders o left join db.main.customers c on c.id = o.customer_id '
+        'left join db.main.payments p on p.id = c.id'
+    )
+    assert 'JOIN ON: db.main.payments.id = db.main.customers.id' in nested.conditions
+    assert 'LEFT JOIN ON: db.main.payments.id = db.main.customers.id' in chained.conditions
+    assert nested.conditions != chained.conditions
+
+
+def test_the_nullable_sides_of_right_and_full_joins_and_a_relation_read_twice() -> None:
+    """A filter under a RIGHT or FULL JOIN is that side's. Under a FULL JOIN it is not the same as
+    a condition in the ON, which keeps the unmatched rows of both sides."""
+    right = one(
+        'select c.id from (select * from db.main.orders where amount > 0) o '
+        'right join db.main.customers c on c.id = o.customer_id group by c.id'
+    )
+    assert right.conditions == [
+        'GROUP BY: db.main.customers.id',
+        'RIGHT JOIN ON: db.main.customers.id = db.main.orders.customer_id',
+        'RIGHT JOIN WHERE: db.main.orders.amount > 0',
+    ]
+    assert right.nullable == {'db.main.orders': 'RIGHT'}
+    full = one(
+        'select 1 as x from db.main.orders o full join (select * from db.main.payments where amount > 0) p '
+        'on p.order_id = o.id'
+    )
+    assert full.conditions == [
+        'FULL JOIN ON: db.main.payments.order_id = db.main.orders.id',
+        'FULL JOIN WHERE: db.main.payments.amount > 0',
+    ]
+    assert full.nullable == {'db.main.orders': 'FULL', 'db.main.payments': 'FULL'}
+    # Read on the preserved side too, a relation's own rows decide the result.
+    twice = one(
+        'select o.id from db.main.orders o left join db.main.orders p on p.id = o.id '
+        'left join (select order_id from db.main.payments where amount > 0 group by order_id) q '
+        'on q.order_id = o.id'
+    )
+    assert twice.nullable == {'db.main.payments': 'LEFT'}
+    # A subquery in the joined side's filter, and a union's branches, are on that side too.
+    inner = one(
+        'select o.id from db.main.orders o left join (select id from db.main.customers '
+        'where id in (select order_id from db.main.payments where amount > 0) '
+        'union all select id from db.main.customers where first_name is null) c on c.id = o.customer_id'
+    )
+    assert 'LEFT JOIN WHERE: db.main.payments.amount > 0' in inner.conditions
+    assert 'LEFT JOIN WHERE: db.main.customers.first_name IS NULL' in inner.conditions
+    assert inner.nullable == {'db.main.customers': 'LEFT', 'db.main.payments': 'LEFT'}
+
+
+def test_a_condition_before_a_window_or_a_limit_says_so() -> None:
+    """A filter that a window function, QUALIFY or LIMIT sees the rows of changes what they give,
+    so where it is applied is part of it; a filter after them, or across a plain projection, is
+    a WHERE as before."""
+    numbered = 'select id, amount, row_number() over (order by amount) as rn from db.main.orders'
+    inside = one(f'{numbered} where amount > 0')
+    nested = one(
+        f'select * from ({numbered.replace("db.main.orders", "(select * from db.main.orders where amount > 0) o")}) x'
+    )
+    outside = one(f'select * from ({numbered}) x where amount > 0')
+    assert inside.conditions == nested.conditions == ['WHERE BEFORE WINDOW: db.main.orders.amount > 0']
+    assert outside.conditions == ['WHERE: db.main.orders.amount > 0']
+    assert inside.read_before == {'db.main.orders': ['WINDOW']}
+    limited = one(
+        'select * from (select id from db.main.orders where amount > 0 order by id limit 10 offset 5) x '
+        'where id > 1'
+    )
+    assert limited.conditions == [
+        'LIMIT: 10',
+        'OFFSET: 5',
+        'ORDER BY: db.main.orders.id',
+        'WHERE BEFORE LIMIT: db.main.orders.amount > 0',
+        'WHERE: db.main.orders.id > 1',
+    ]
+    qualified = one(
+        'select id from db.main.orders where amount > 0 qualify row_number() over (order by id) = 1 limit 3'
+    )
+    assert qualified.conditions == [
+        'LIMIT: 3',
+        'QUALIFY BEFORE LIMIT: ROW_NUMBER() OVER (ORDER BY db.main.orders.id) = 1',
+        'WHERE BEFORE WINDOW, LIMIT: db.main.orders.amount > 0',
+    ]
+
+
+def test_distinct_set_operations_and_group_by_all_are_conditions() -> None:
+    """Each decides which rows there are: DISTINCT, UNION (not UNION ALL), INTERSECT and EXCEPT,
+    and the keys GROUP BY ALL groups by."""
+    assert one('select distinct customer_id, status from db.main.orders').conditions == [
+        'DISTINCT: db.main.orders.customer_id, db.main.orders.status'
+    ]
+    assert one(
+        'select distinct on (customer_id) customer_id, amount from db.main.orders order by customer_id, amount desc'
+    ).conditions == [
+        'DISTINCT ON: db.main.orders.customer_id',
+        'ORDER BY: db.main.orders.customer_id, db.main.orders.amount DESC',
+    ]
+    union = 'select id from db.main.orders union {} select id from db.main.payments'
+    assert one(union.format('')).conditions == ['UNION: DISTINCT']
+    assert one(union.format('all')).conditions == []
+    assert one(union.replace('union {}', 'except')).conditions == ['EXCEPT: DISTINCT']
+    grouped = one('select customer_id, status, sum(amount) as total from db.main.orders group by all')
+    assert grouped.conditions == ['GROUP BY: db.main.orders.customer_id, db.main.orders.status']
+    assert ('db.main.orders', 'status') in grouped.references
+
+
+def test_the_relations_a_star_it_could_not_expand_reads() -> None:
+    """Every column of a relation with unknown columns reaches the output of a ``SELECT *`` over it,
+    beside any other item and through a CTE, except those it leaves out."""
+    assert one('select *, total * 2 as t2 from db.other.ltv').star_reads == {'db.other.ltv': []}
+    assert one('select * exclude (region) from db.other.ltv').star_reads == {'db.other.ltv': ['region']}
+    assert one('with x as (select * from db.other.ltv) select l.* from x l').star_reads == {
+        'db.other.ltv': []
+    }
+    assert one('with x as (select * from db.other.ltv) select total from x').star_reads == {}
+
+
+def test_rows_from_a_table_function_or_values_are_a_condition() -> None:
+    """No relation describes them, so the SQL that makes them is what they are."""
+    assert one('select o.id from db.main.orders o cross join range(2) t(d)').conditions == [
+        'ROWS FROM: RANGE(0, 2)'
+    ]
+    made = one(
+        "select o.id from db.main.orders o join (values ('paid', 1)) v(status, w) on v.status = o.status"
+    )
+    assert "ROWS FROM: VALUES ('paid', 1)" in made.conditions

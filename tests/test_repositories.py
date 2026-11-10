@@ -300,8 +300,8 @@ def test_a_relation_this_repository_reads_takes_its_definition_from_the_one_that
     ltv = graph.nodes['table.main.ltv']
     assert (ltv.path, ltv.attrs['repository']) == ('../builder/ltv.sql', 'builder')
     assert ltv.attrs['conditions'] == [
-        'GROUP BY: customer_id',
-        "WHERE: status <> 'void'",
+        'GROUP BY: raw.orders.customer_id',
+        "WHERE: raw.orders.status <> 'void'",
     ]
     assert graph.nodes['table.main.ltv#total'].attrs['expression'] == 'SUM(raw.orders.amount)'
     assert 'repository' not in graph.nodes['table.main.report'].attrs

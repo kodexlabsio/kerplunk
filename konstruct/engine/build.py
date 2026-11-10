@@ -291,6 +291,14 @@ class Builder:
         if statement.conditions:
             # Joins, filters and grouping, in terms of physical columns: what shapes the rows.
             target.attrs['conditions'] = statement.conditions
+        # Where the relations it reads sit, which decides where their own conditions apply.
+        for key, value in (
+            ('nullable', statement.nullable),
+            ('read_before', statement.read_before),
+            ('star_reads', statement.star_reads),
+        ):
+            if value:
+                target.attrs[key] = value
         for name, sources in statement.columns.items():
             out = self.column(target, name, origin)
             expression = statement.expressions.get(name)

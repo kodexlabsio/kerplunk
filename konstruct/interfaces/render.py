@@ -323,7 +323,18 @@ def listing_lines(result: Listing, style: Style) -> Lines:
 
 
 HIDDEN_ATTRS = frozenset(
-    {'fqn', 'dbt_name', 'checksum', 'view_sql', 'expression', 'conditions', 'description'}
+    {
+        'fqn',
+        'dbt_name',
+        'checksum',
+        'view_sql',
+        'expression',
+        'conditions',
+        'description',
+        'nullable',
+        'read_before',
+        'star_reads',
+    }
 )
 
 

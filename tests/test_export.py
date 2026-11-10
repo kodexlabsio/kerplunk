@@ -175,3 +175,18 @@ def test_unknown_format() -> None:
     with pytest.raises(ValueError, match='unknown export format'):
         export(Graph(), 'yaml')
     assert export(Graph(), 'openlineage') == ''
+
+
+def test_a_condition_where_it_applies_keeps_its_subtype() -> None:
+    """A filter before a window function or on the nullable side of a LEFT JOIN is a filter; the
+    ON of the join is a join."""
+    from konstruct.outputs.export import _indirect_subtypes
+
+    conditions = [
+        'WHERE BEFORE WINDOW: db.main.orders.amount > 0',
+        'LEFT JOIN WHERE: db.main.customers.active',
+        'LEFT JOIN ON: db.main.customers.id = db.main.orders.customer_id',
+    ]
+    assert _indirect_subtypes(conditions, 'db.main.orders', 'amount') == ['FILTER']
+    assert _indirect_subtypes(conditions, 'db.main.customers', 'active') == ['FILTER']
+    assert _indirect_subtypes(conditions, 'db.main.customers', 'id') == ['JOIN']

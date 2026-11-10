@@ -8,7 +8,7 @@ is derived from, and the columns it only joins, filters or groups on.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -89,6 +89,14 @@ class StatementLineage:
     # ignore formatting, quoting, aliases and CTE names, so `konstruct diff` can compare versions.
     expressions: dict[str, str] = field(default_factory=dict)
     conditions: list[str] = field(default_factory=list)
+    # The relations read only on the side of an outer join that may find no row of them, with
+    # that join's side (LEFT, RIGHT or FULL), and those read before a window function, QUALIFY
+    # or LIMIT, with those steps: their own conditions apply there. And the relations whose every
+    # column reaches the output through a SELECT * that could not be expanded, with the columns
+    # it leaves out.
+    nullable: dict[str, str] = field(default_factory=dict)
+    read_before: dict[str, list[str]] = field(default_factory=dict)
+    star_reads: dict[str, list[str]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -103,6 +111,9 @@ class StatementLineage:
             'errors': self.errors,
             'expressions': self.expressions,
             'conditions': self.conditions,
+            'nullable': self.nullable,
+            'read_before': self.read_before,
+            'star_reads': self.star_reads,
         }
 
     @classmethod
@@ -119,6 +130,9 @@ class StatementLineage:
             errors=list(data.get('errors', [])),
             expressions=dict(data.get('expressions', {})),
             conditions=list(data.get('conditions', [])),
+            nullable=dict(data.get('nullable', {})),
+            read_before={k: list(v) for k, v in data.get('read_before', {}).items()},
+            star_reads={k: list(v) for k, v in data.get('star_reads', {}).items()},
         )
 
 
@@ -311,6 +325,8 @@ def _column_lineage(
     if scope is None:
         result.errors.append('column lineage failed: not a query')
         return
+    for inner in scope.traverse():
+        _spell_out_group_by_all(inner.expression)
 
     # trim_selects only tidies node labels, at the cost of copying the query for every node.
     nodes = lineage(
@@ -342,7 +358,9 @@ def _column_lineage(
         if name != '*':
             out_name = (out_names[index] if out_names else name).lower()
             result.expressions[out_name] = _unbracket(canon.node(node))
-    result.conditions = canon.conditions(scope, schema)
+    scopes = _scopes(scope, lambda t: table_key(t, default_catalog, default_db))
+    result.nullable, result.read_before, result.star_reads = scopes.nullable, scopes.read_before, scopes.stars
+    result.conditions = canon.conditions(scope, schema, scopes)
 
 
 def _strip_fields(expression: exp.Expr) -> exp.Expr:
@@ -507,6 +525,200 @@ def _unbracket(text: str) -> str:
     return text
 
 
+OUTER_SIDES = ('LEFT', 'RIGHT', 'FULL')
+"""The sides of an outer join, as ``Join.side`` spells them."""
+
+
+def in_context(condition: str, side: str | None = None, before: Sequence[str] = ()) -> str:
+    """``condition`` labelled with where it applies, so that moving it changes it.
+
+    A WHERE on the nullable side of an outer join (``side``: ``LEFT``, ``RIGHT`` or ``FULL``)
+    decides which rows join, not which rows there are: it is a ``LEFT JOIN WHERE``. A condition
+    applied before a window function or QUALIFY (``WINDOW``) or a LIMIT or OFFSET (``LIMIT``)
+    changes what they see: it lists them, nearest first, as ``WHERE BEFORE WINDOW, LIMIT``.
+    ``before`` adds steps further away than those the label lists already."""
+    label, sep, rest = condition.partition(': ')
+    if not sep:
+        return condition
+    base, _, earlier = label.partition(' BEFORE ')
+    if side and base == 'WHERE':
+        base = f'{side} JOIN WHERE'
+    steps = [s for s in earlier.split(', ') if s] + list(before)
+    return f'{base} BEFORE {", ".join(steps)}: {rest}' if steps else f'{base}: {rest}'
+
+
+def _steps_after(query: exp.Expr, clause: str) -> list[str]:
+    """The steps of ``query`` that see the rows its ``clause`` leaves: its window functions and
+    QUALIFY after its joins, filters and grouping, and its LIMIT or OFFSET after everything."""
+    args = query.args
+    window = isinstance(query, exp.Select) and (
+        bool(args.get('qualify')) or any(item.find(exp.Window) for item in query.selects)
+    )
+    limited = bool(args.get('limit') or args.get('offset'))
+    if clause in ('LIMIT', 'OFFSET', 'ORDER BY'):
+        return []
+    if clause in ('QUALIFY', 'DISTINCT', 'DISTINCT ON'):
+        return ['LIMIT'] if limited else []
+    return (['WINDOW'] if window else []) + (['LIMIT'] if limited else [])
+
+
+@dataclass
+class _Scopes:
+    """Where each scope of a statement, and each table it reads, sits: on the nullable side of
+    an outer join, and before which window functions, QUALIFYs and LIMITs."""
+
+    sides: dict[int, str] = field(default_factory=dict)
+    """The side of the outer join each scope (by id) is on the nullable side of."""
+    before: dict[int, list[str]] = field(default_factory=dict)
+    """The steps that see each scope's rows after the scope itself, nearest first."""
+    nullable: dict[str, str] = field(default_factory=dict)
+    """Tables read only on the nullable side of an outer join, with its side."""
+    read_before: dict[str, list[str]] = field(default_factory=dict)
+    """Tables read before a window function, QUALIFY or LIMIT, with those steps."""
+    folded: dict[int, Scope] = field(default_factory=dict)
+    """For a LEFT JOIN (by id) of a CTE or subquery that only selects and filters, that scope:
+    its WHERE is part of the join's ON, as it decides the same rows."""
+    stars: dict[str, list[str]] = field(default_factory=dict)
+    """Tables whose every column reaches the output through a ``SELECT *`` that could not be
+    expanded, with the columns the star leaves out."""
+
+
+def _scopes(root: Scope, key: Callable[[exp.Table], str]) -> _Scopes:
+    found = _Scopes()
+    scope_reads: dict[int, list[tuple[str | None, list[str]]]] = {}
+    table_reads: dict[str, list[tuple[str | None, list[str]]]] = {}
+    # Reversed, a scope comes before the scopes it reads.
+    for scope in reversed(list(root.traverse())):
+        reads = scope_reads.get(id(scope))
+        if reads:
+            side = reads[0][0] if all(r[0] for r in reads) else None
+            before = reads[0][1]
+        elif scope.parent is not None:
+            # A union's branch, or a subquery in a filter: where its parent's filters are.
+            side = found.sides.get(id(scope.parent))
+            before = _steps_after(scope.parent.expression, 'WHERE') + found.before.get(id(scope.parent), [])
+        else:
+            side, before = None, []
+        if side:
+            found.sides[id(scope)] = side
+        found.before[id(scope)] = before
+        select = scope.expression
+        if not isinstance(select, exp.Select):
+            continue
+        inner = _steps_after(select, 'WHERE') + before
+        nullable = _nullable_names(select, list(scope.selected_sources))
+        for name, (_, source) in scope.selected_sources.items():
+            read = (side or nullable.get(name), inner)
+            if isinstance(source, Scope):
+                scope_reads.setdefault(id(source), []).append(read)
+            elif isinstance(source, exp.Table):
+                table_reads.setdefault(key(source), []).append(read)
+        for join in select.args.get('joins') or []:
+            joined = scope.selected_sources.get(join.this.alias_or_name)
+            target = joined[1] if joined else None
+            if (join.side or '').upper() == 'LEFT' and isinstance(target, Scope) and _filters_only(target):
+                found.folded[id(join)] = target
+    for table, reads in table_reads.items():
+        if all(r[0] for r in reads):
+            found.nullable[table] = str(reads[0][0])
+        if reads[0][1]:
+            found.read_before[table] = reads[0][1]
+    # A folded scope read more than once is read elsewhere too, where its WHERE is its own.
+    for join_id, source in list(found.folded.items()):
+        if len(scope_reads.get(id(source), [])) != 1:
+            del found.folded[join_id]
+    _star_reads(root, key, found.stars)
+    return found
+
+
+def _filters_only(scope: Scope) -> bool:
+    """Whether ``scope`` only selects and filters rows, so its WHERE could as well be in the ON
+    of a join that reads it."""
+    select = scope.expression
+    if not isinstance(select, exp.Select) or not isinstance(select.args.get('where'), exp.Where):
+        return False
+    shaping = ('group', 'having', 'qualify', 'distinct', 'limit', 'offset', 'joins')
+    return not any(select.args.get(k) for k in shaping) and not any(
+        i.find(exp.Window) for i in select.selects
+    )
+
+
+def _star_reads(scope: Scope, key: Callable[[exp.Table], str], found: dict[str, list[str]]) -> None:
+    """The tables whose columns ``scope`` outputs through a ``SELECT *`` or ``t.*`` it could not
+    expand, through the CTEs and subqueries the star reads, each with the columns it leaves out."""
+    select = scope.expression
+    if isinstance(select, exp.SetOperation):
+        for branch in scope.set_operation_scopes:
+            _star_reads(branch, key, found)
+        return
+    if not isinstance(select, exp.Select):
+        return
+    for item in select.selects:
+        star = item.this if isinstance(item, exp.Column) else item
+        if not isinstance(star, exp.Star):
+            continue
+        left_out = star.args.get('except_') or star.args.get('except') or []
+        excluded = [c.name.lower() for c in left_out if isinstance(c, exp.Column)]
+        if isinstance(item, exp.Column) and item.table:
+            sources = [scope.selected_sources[item.table][1]] if item.table in scope.selected_sources else []
+        else:
+            sources = [source for _, source in scope.selected_sources.values()]
+        for source in sources:
+            if isinstance(source, exp.Table):
+                found.setdefault(key(source), excluded)
+            elif isinstance(source, Scope):
+                _star_reads(source, key, found)
+
+
+def _nullable_names(select: exp.Select, names: list[str]) -> dict[str, str]:
+    """The relations ``select`` reads, by name, that an outer join may find no row of: the one a
+    LEFT JOIN joins, those before a RIGHT JOIN, and both sides of a FULL JOIN."""
+    joined = [j.this.alias_or_name for j in select.args.get('joins') or []]
+    earlier = [n for n in names if n not in joined]
+    found: dict[str, str] = {}
+    for join, name in zip(select.args.get('joins') or [], joined, strict=True):
+        side = (join.side or '').upper()
+        if side in ('LEFT', 'FULL'):
+            found.setdefault(name, side)
+        if side in ('RIGHT', 'FULL'):
+            for other in earlier:
+                found.setdefault(other, side)
+        earlier.append(name)
+    return found
+
+
+def _named(query: exp.Query, term: exp.Expr) -> exp.Expr:
+    """``term`` of an ORDER BY or DISTINCT ON with each bare name of a select item, which they may
+    use, replaced by that item's expression."""
+    if not isinstance(query, exp.Select):
+        return term
+    items = {i.alias_or_name.lower(): i.unalias() for i in query.selects if not isinstance(i, exp.Star)}
+
+    def replace(node: exp.Expr) -> exp.Expr:
+        if isinstance(node, exp.Column) and not node.table and node.name.lower() in items:
+            named = items[node.name.lower()]
+            return node if named is node or named == node else named.copy()
+        return node
+
+    return term.transform(replace)
+
+
+def _spell_out_group_by_all(select: exp.Expr) -> None:
+    """Rewrite ``GROUP BY ALL`` as the select items it groups by, those without an aggregate or a
+    window function, so that its columns are references and its condition names them."""
+    group = select.args.get('group')
+    if not isinstance(select, exp.Select) or not isinstance(group, exp.Group):
+        return
+    if not group.args.get('all') or group.expressions:
+        return
+    keys = [s.unalias().copy() for s in select.selects if not s.find(exp.AggFunc, exp.Window)]
+    if keys:
+        group.set('all', None)
+        group.set('expressions', keys)
+    else:
+        select.set('group', None)  # only aggregates: one row, as with no GROUP BY at all
+
+
 class _Canonical:
     """Column expressions and conditions in terms of physical columns only."""
 
@@ -573,40 +785,105 @@ class _Canonical:
             for new, old in reversed(swapped):
                 new.replace(old)
 
-    def conditions(self, root: Scope, schema: MappingSchema) -> list[str]:
+    def conditions(self, root: Scope, schema: MappingSchema, scopes: _Scopes) -> list[str]:
+        """The statement's joins, filters, grouping, DISTINCT, LIMIT and OFFSET, and the ORDER BY
+        a LIMIT or DISTINCT ON picks rows by, each labelled with where it applies (see
+        :func:`in_context`)."""
         found: set[str] = set()
+        folded = {id(s) for s in scopes.folded.values()}
         for scope in root.traverse():
-            select = scope.expression
-            if not isinstance(select, exp.Select):
+            query = scope.expression
+            side, before = scopes.sides.get(id(scope)), scopes.before.get(id(scope), [])
+
+            def add(
+                label: str,
+                text: str,
+                scope: Scope = scope,
+                side: str | None = side,
+                before: list[str] = before,
+            ) -> None:
+                steps = _steps_after(scope.expression, label.split(' JOIN ')[-1])
+                found.add(in_context(f'{label}: {text}', side, steps + before))
+
+            if isinstance(query, exp.SetOperation):
+                kind = type(query).__name__.upper()
+                if query.args.get('distinct') or kind != 'UNION':
+                    add(kind, 'DISTINCT' if query.args.get('distinct') else 'ALL')
+            if not isinstance(query, exp.Query):
                 continue
-            for key in _REFERENCE_CLAUSES:
-                value = select.args.get(key)
-                for part in value if isinstance(value, list) else [value]:
-                    if not isinstance(part, exp.Expr):
-                        continue
-                    if isinstance(part, exp.Join):
-                        on = part.args.get('on')
-                        if not isinstance(on, exp.Expr):
-                            continue
-                        label = ' '.join(x for x in (part.side, part.kind, 'JOIN ON') if x).upper()
-                        part = on
-                    else:
-                        label = {
-                            'where': 'WHERE',
-                            'group': 'GROUP BY',
-                            'having': 'HAVING',
-                            'qualify': 'QUALIFY',
-                        }[key]
-                        if isinstance(part, (exp.Where, exp.Having, exp.Qualify)):
-                            part = part.this
-                    found.add(f'{label}: {self._condition(part, scope, schema)}')
+            # Rows the query makes itself, from a table function or VALUES, which no column of
+            # a relation describes: what they are is in the SQL.
+            for _, source in scope.selected_sources.values():
+                if isinstance(source, exp.Table) and not isinstance(source.this, exp.Identifier):
+                    add('ROWS FROM', source.this.sql(dialect=self.dialect))
+                elif isinstance(source, Scope) and isinstance(source.expression, exp.Values):
+                    values = source.expression.copy()
+                    values.set('alias', None)  # what it is called is not what it holds
+                    add('ROWS FROM', _unbracket(values.sql(dialect=self.dialect)))
+            for label, terms, ordered in self._clauses(query, scope, schema, scopes, folded):
+                add(label, ', '.join(terms if ordered else sorted(terms)))
         return sorted(found)
 
+    def _clauses(
+        self, query: exp.Query, scope: Scope, schema: MappingSchema, scopes: _Scopes, folded: set[int]
+    ) -> Iterator[tuple[str, list[str], bool]]:
+        """Each clause of ``query`` that decides its rows, as (label, terms, whether their order
+        matters)."""
+        args = query.args
+        for join in args.get('joins') or []:
+            on = join.args.get('on')
+            if not isinstance(on, exp.Expr):
+                continue
+            label = ' '.join(x for x in (join.side, join.kind, 'JOIN ON') if x).upper()
+            text = self._condition(on, scope, schema)
+            inner = scopes.folded.get(id(join))
+            if inner is not None:
+                where = self._condition(inner.expression.args['where'].this, inner, schema)
+                text = ' AND '.join(f'({t})' if re.search(r'\bOR\b', t, re.I) else t for t in (text, where))
+            yield label, [text], False
+        for key, label in (('where', 'WHERE'), ('having', 'HAVING'), ('qualify', 'QUALIFY')):
+            clause = args.get(key)
+            if isinstance(clause, exp.Expr) and not (key == 'where' and id(scope) in folded):
+                yield label, [self._condition(clause.this, scope, schema)], False
+        group = args.get('group')
+        if isinstance(group, exp.Group) and group.expressions:
+            yield 'GROUP BY', [self._condition(e, scope, schema) for e in group.expressions], False
+        distinct = args.get('distinct')
+        if isinstance(distinct, exp.Distinct) and isinstance(query, exp.Select):
+            on = distinct.args.get('on')
+            if isinstance(on, exp.Expr):
+                keys = list(on.expressions) if isinstance(on, exp.Tuple) else [on]
+                yield 'DISTINCT ON', [self._condition(_named(query, k), scope, schema) for k in keys], False
+            else:
+                yield 'DISTINCT', [self._condition(s.unalias(), scope, schema) for s in query.selects], False
+        limit, offset = args.get('limit'), args.get('offset')
+        if isinstance(limit, exp.Limit) and isinstance(limit.expression, exp.Expr):
+            yield 'LIMIT', [limit.expression.sql(dialect=self.dialect)], False
+        elif isinstance(limit, exp.Fetch):
+            count = limit.args.get('count')
+            yield 'LIMIT', [count.sql(dialect=self.dialect) if isinstance(count, exp.Expr) else '1'], False
+        if isinstance(offset, exp.Offset) and isinstance(offset.expression, exp.Expr):
+            yield 'OFFSET', [offset.expression.sql(dialect=self.dialect)], False
+        order = args.get('order')
+        picks = limit or offset or (isinstance(distinct, exp.Distinct) and distinct.args.get('on'))
+        if isinstance(order, exp.Order) and picks:
+            yield (
+                'ORDER BY',
+                [self._condition(_named(query, o), scope, schema) for o in order.expressions],
+                True,
+            )
+
     def _condition(self, part: exp.Expr, scope: Scope, schema: MappingSchema) -> str:
+        # A bare name in a query that reads one relation is that relation's: qualify leaves it
+        # bare when the relation's columns are unknown, and then the filters of a union's
+        # branches, each over its own relation, would read the same.
+        only = list(scope.selected_sources.values())
+        single = only[0][1] if len(only) == 1 else None
+
         def replace(item: exp.Expr) -> exp.Expr:
             if not isinstance(item, exp.Column):
                 return item
-            source = scope.sources.get(item.table)
+            source = scope.sources.get(item.table) if item.table else single
             if isinstance(source, exp.Table):
                 return exp.Var(
                     this=f'{table_key(source, self.default_catalog, self.default_db)}.{item.name.lower()}'
@@ -619,12 +896,6 @@ class _Canonical:
                 return _inline(self.node(traced))
             return item
 
-        if isinstance(part, exp.Group):
-            if part.args.get('all') or not part.expressions:
-                return 'ALL'
-            return ', '.join(
-                sorted(e.transform(replace).sql(dialect=self.dialect, copy=False) for e in part.expressions)
-            )
         return part.transform(replace).sql(dialect=self.dialect, copy=False)
 
 

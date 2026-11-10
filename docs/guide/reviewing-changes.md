@@ -2,6 +2,17 @@
 
 `konstruct diff` answers "what does this branch do to the data?" For each dbt model, SQL file and DAG file that changed, it analyses the base and current versions and compares each output column's canonical expression: the expression with every CTE, subquery and alias inlined down to physical columns. Reformatting, renaming a CTE or reordering columns is therefore not a change, and a real change is shown in full. Join, filter and grouping conditions are compared the same way. A removed column is breaking when a downstream model's current SQL still reads it, so a change that also updates its consumers is not flagged.
 
+A relation's conditions are its joins, filters and grouping, its `DISTINCT`, `LIMIT` and `OFFSET`, the `ORDER BY` a `LIMIT` or `DISTINCT ON` picks rows by, a `UNION`, `INTERSECT` or `EXCEPT` that removes duplicates (`UNION ALL` does not), and the rows a query makes itself from a table function such as `range(2)` or a `VALUES` list (`ROWS FROM`). `GROUP BY ALL` is listed as the keys it groups by. Each is labelled with where it applies, so moving it to where it decides other rows is a change:
+
+| Label | Where the condition applies |
+|-------|-----------------------------|
+| `WHERE`, `JOIN ON`, `GROUP BY`, `HAVING` | The rows of the query, wherever in its CTEs and subqueries it is written |
+| `LEFT JOIN ON` | Which rows the `LEFT JOIN` joins. A CTE or subquery that the join reads and that only selects and filters has its `WHERE` here, as the same condition in the `ON` would |
+| `LEFT JOIN WHERE`, `RIGHT JOIN WHERE`, `FULL JOIN WHERE` | Any other filter on the side of an outer join that may find no row: it decides which rows join, where the same filter outside the join removes rows |
+| `... BEFORE WINDOW`, `... BEFORE LIMIT` | A condition applied before a window function or `QUALIFY`, or before a `LIMIT` or `OFFSET`, which see the rows it leaves |
+
+In an [OpenLineage export](exporting.md), a filter of the side of a `LEFT JOIN` that is listed under the join's `LEFT JOIN ON` has the subtype `JOIN`; one listed as a `LEFT JOIN WHERE` keeps the subtype `FILTER`.
+
 The base is the merge base with main unless `--base` names another commit or a date: `konstruct diff --base 2026-10-01 --head HEAD` shows what changed in the data stack since the first of October, column by column, taking the last commit on the current branch before that date begins. A date and time (`2026-10-01 14:30`) is also accepted; both are read in the machine's local time zone, and a branch or tag named like a date is taken as that ref. JSON output keeps the date as `base` and gives the commit it stands for as `base_commit`.
 
 ![konstruct diff on a branch of the example project](../images/demo-diff.gif)

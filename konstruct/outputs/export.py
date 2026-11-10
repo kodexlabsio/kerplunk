@@ -245,9 +245,12 @@ def _indirect_subtypes(conditions: list[str], relation: str, column: str) -> lis
             head, _, body = condition.partition(':')
             if not pattern.search(body):
                 continue
-            head = head.upper()
+            # Where the condition applies (BEFORE WINDOW, a LEFT JOIN's WHERE) is not what it is.
+            head = head.upper().partition(' BEFORE ')[0]
             kind = (
-                'JOIN'
+                'FILTER'
+                if head.endswith('WHERE')
+                else 'JOIN'
                 if 'JOIN' in head
                 else 'GROUP_BY'
                 if 'GROUP' in head
