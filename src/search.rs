@@ -14,6 +14,7 @@ use std::cmp::Ordering;
 use crate::fnv::FnvHashMap;
 use crate::graph;
 use crate::keys;
+use crate::substring;
 use crate::words::Words;
 
 /// Words a question is made of that say nothing about what it is asking for.
@@ -198,7 +199,10 @@ impl SearchIndex {
             for (forms, numbers, weight) in &query {
                 if numbers.iter().any(|n| entry.names.binary_search(n).is_ok()) {
                     score += 3.0 * weight;
-                } else if forms.iter().any(|f| entry.label.contains(f)) {
+                } else if forms
+                    .iter()
+                    .any(|f| substring::contains(entry.label.as_bytes(), f.as_bytes()))
+                {
                     score += 1.5 * weight;
                 }
                 if numbers

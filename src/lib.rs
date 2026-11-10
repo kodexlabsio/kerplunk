@@ -27,6 +27,7 @@ pub mod graph;
 pub mod keys;
 pub mod names;
 pub mod search;
+pub mod substring;
 pub mod words;
 
 #[cfg(test)]
