@@ -1405,10 +1405,10 @@ KEPT: dict[str, Any] = {
     'attrs_at_the_depth_bound': lambda: Fragment(nodes=[task(attrs={'d': deep(64)})]),
     'attrs_konstruct_shares': lambda: Fragment(
         nodes=[
-            PluginNode('d', 'dag', 'd', attrs={'owner': 'finance', 'type': 'pipeline', 'fields': ['a']}),
+            PluginNode('d', 'dag', 'd', attrs={'owner': 'finance', 'type': 'pipeline', 'region': 'eu'}),
             PluginNode('t', 'test', 't', attrs={'test': 'not_null'}),
         ],
-        edges=[E('t', Column('analytics.orders', 'id'), 'tests', {'fields': ['a']})],
+        edges=[E('t', Column('analytics.orders', 'id'), 'tests', {'region': 'eu'})],
     ),
 }
 
@@ -1677,7 +1677,12 @@ def test_attributes_konstruct_reads_are_reserved() -> None:
     is one a plugin may not set, bar the few a plugin sets with the meaning Konstruct gives them:
     a new reader that forgets to reserve its name fails here, and so does a reserved name nothing
     reads any more."""
-    from konstruct.plugins.api import PLUGIN_NODE_ATTRS, RESERVED_EDGE_ATTRS, RESERVED_NODE_ATTRS
+    from konstruct.plugins.api import (
+        PLUGIN_LIST_ATTRS,
+        PLUGIN_NODE_ATTRS,
+        RESERVED_EDGE_ATTRS,
+        RESERVED_NODE_ATTRS,
+    )
 
     read: set[str] = set()
     for path in (ROOT / 'konstruct').rglob('*.py'):
@@ -1692,8 +1697,8 @@ def test_attributes_konstruct_reads_are_reserved() -> None:
     assert {'role', 'verified', 'sql_path', 'usage', 'sensors', 'line'} <= from_viewer
     read |= from_viewer
     assert {'conditions', 'expression', 'usage', 'role', 'command', 'primary_key'} <= read
-    assert read - PLUGIN_NODE_ATTRS == RESERVED_NODE_ATTRS
-    assert read | {'origin', 'source', 'target', 'kind'} == RESERVED_EDGE_ATTRS
+    assert read - PLUGIN_NODE_ATTRS - PLUGIN_LIST_ATTRS == RESERVED_NODE_ATTRS
+    assert (read - PLUGIN_LIST_ATTRS) | {'origin', 'source', 'target', 'kind'} == RESERVED_EDGE_ATTRS
 
 
 def test_counts_konstruct_gives_are_reserved() -> None:

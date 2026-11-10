@@ -70,9 +70,9 @@ _KONSTRUCT_ATTRS = frozenset(
     {
         'also_via', 'approved', 'bash_command', 'broader', 'checksum', 'column', 'columns', 'command',
         'conditions', 'connection', 'currency', 'dag', 'dbt_name', 'definition', 'documented_only',
-        'entities', 'exceptions', 'expression', 'filters', 'formula', 'formula_dialect', 'fqn', 'grain',
+        'entities', 'exceptions', 'expression', 'fields', 'filters', 'formula', 'formula_dialect', 'fqn', 'grain',
         'identifier_fields', 'in_warehouse', 'incremental_strategy', 'inferred', 'iri', 'kind', 'label',
-        'line', 'lineage', 'loaded', 'loaded_by', 'loader', 'materialized', 'maturity', 'model',
+        'line', 'lineage', 'loaded', 'loaded_by', 'loader', 'materialized', 'maturity', 'measures', 'model',
         'nested', 'nullable', 'operator', 'orchestrator', 'ossie_authored', 'ossie_columns',
         'ossie_dataset', 'ossie_expression', 'ossie_key', 'ossie_metric', 'ossie_reads',
         'outside_warehouse', 'owner', 'package', 'partitioned_by', 'parts', 'primary_key',
@@ -95,15 +95,29 @@ Konstruct gives it, which are ``test`` and ``severity`` on a test node, naming t
 those the graph viewer shows: ``schedule``, ``operator``, ``orchestrator`` and ``bash_command`` for
 a DAG or task, and ``type``, ``maturity``, ``label`` and ``url`` for an exposure."""
 
-RESERVED_NODE_ATTRS = _KONSTRUCT_ATTRS - PLUGIN_NODE_ATTRS
+PLUGIN_LIST_ATTRS = frozenset({'fields'})
+"""The attribute names Konstruct reads that a plugin's node or edge may set as a list of strings, with
+the meaning Konstruct gives it: ``fields``, the fields a BI view or explore shows, which the Looker
+input sets and search by meaning reads."""
+
+RESERVED_NODE_ATTRS = _KONSTRUCT_ATTRS - PLUGIN_NODE_ATTRS - PLUGIN_LIST_ATTRS
 """The attribute names a plugin's node may not set, which are every name Konstruct reads from
 attributes bar :data:`PLUGIN_NODE_ATTRS`; ``sorted(RESERVED_NODE_ATTRS)`` lists them."""
 
-RESERVED_EDGE_ATTRS = _KONSTRUCT_ATTRS | {'origin', 'source', 'target', 'kind'}
+RESERVED_EDGE_ATTRS = (_KONSTRUCT_ATTRS - PLUGIN_LIST_ATTRS) | {'origin', 'source', 'target', 'kind'}
 """The attribute names a plugin's edge may not set, which are those Konstruct sets on every edge
 (``origin``, ``source``, ``target``, ``kind``) and every name Konstruct reads from attributes,
 such as ``verified``, ``transform``, ``expression``, ``via`` and ``role``, which carry its own
 lineage claims; ``sorted(RESERVED_EDGE_ATTRS)`` lists them."""
+
+
+def _list_problems(where: str, attrs: Mapping[str, Any]) -> list[str]:
+    return [
+        f'{where}: {key} must be a list of strings'
+        for key in sorted(PLUGIN_LIST_ATTRS & set(attrs))
+        if type(attrs[key]) is not list or not all(type(item) is str for item in attrs[key])
+    ]
+
 
 MAX_DEPTH = 64
 """How deeply a node's or edge's attribute values, or a cached value, may nest lists and dicts."""
@@ -354,7 +368,7 @@ def _node_problems(node: Any, ids: dict[str, str]) -> list[str]:
             f'{where}: {key} must be a string'
             for key in sorted(PLUGIN_NODE_ATTRS & set(node.attrs))
             if type(node.attrs[key]) is not str
-        ]
+        ] + _list_problems(where, node.attrs)
     if attrs:
         return found + attrs
     # As graph.json nests it: the node's own fields with its attributes inside.
@@ -385,7 +399,7 @@ def _edge_problems(edge: Any, ids: dict[str, str]) -> list[str]:
     missing: Any = edge.missing
     if missing is not None and not _text(missing):
         found.append(f'{where}: missing must be a string')
-    attrs = _attrs_problems(where, edge.attrs, RESERVED_EDGE_ATTRS)
+    attrs = _attrs_problems(where, edge.attrs, RESERVED_EDGE_ATTRS) or _list_problems(where, edge.attrs)
     if attrs:
         return found + attrs
     plain = {
@@ -686,6 +700,7 @@ __all__ = [
     'API_VERSION',
     'MAX_DEPTH',
     'PLUGIN_EDGE_KINDS',
+    'PLUGIN_LIST_ATTRS',
     'PLUGIN_NODE_ATTRS',
     'PLUGIN_NODE_KINDS',
     'RESERVED_EDGE_ATTRS',

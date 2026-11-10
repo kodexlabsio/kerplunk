@@ -119,6 +119,9 @@ class Item:
     """In a path, ``forward`` or ``backward`` along data flow."""
     score: float | None = None
     """In a search, how well the node matched."""
+    matched: str | None = None
+    """In a semantic search, what a match by meaning rests on most: the node's own ``words``,
+    its ``lineage``, its ``formula`` or its ``structure``."""
     status: str | None = None
     """For a business term, its status (draft, agreed, approved or retired)."""
 
@@ -441,8 +444,25 @@ class SearchResult:
         return self.text()
 
 
-def search(graph: Graph, text: str, limit: int = 20, kinds: list[str] | None = None) -> SearchResult:
-    """Nodes whose names or descriptions match the words in ``text``, best first."""
+SearchMode = Literal['keyword', 'semantic']
+
+
+def search(
+    graph: Graph,
+    text: str,
+    limit: int = 20,
+    kinds: list[str] | None = None,
+    mode: SearchMode = 'keyword',
+    out_dir: Path | None = None,
+) -> SearchResult:
+    """Nodes that match ``text``, best first. ``keyword`` matches the words of names and
+    descriptions; ``semantic`` also finds nodes by meaning, through synonyms, abbreviations,
+    formulas and lineage (:func:`konstruct.analysis.semantic.search`), reading the vector index
+    saved in ``out_dir`` when one is given."""
+    if mode == 'semantic':
+        from konstruct.analysis import semantic
+
+        return semantic.search(graph, text, limit, kinds, out_dir)
     return SearchResult(
         text, [item(graph, n, score=round(s, 2)) for n, s in _scored(graph, text, limit, kinds)]
     )

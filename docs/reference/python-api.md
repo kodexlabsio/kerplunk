@@ -32,7 +32,7 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 | `konstruct.inputs` | `dbt`, `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `warehouse`, `usage` |
 | `konstruct.engine` | `build`, `config`, `worker` |
 | `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `ossie`, `registry` |
-| `konstruct.analysis` | `query`, `explain`, `conflicts`, `diff`, `gate`, `verify`, `mutation`, `why`, `laws`, `history` |
+| `konstruct.analysis` | `query`, `semantic`, `explain`, `conflicts`, `diff`, `gate`, `verify`, `mutation`, `why`, `laws`, `history` |
 | `konstruct.outputs` | `report`, `html`, `export` |
 | `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
 | `konstruct.plugins` | `api` (the plugin API: protocols and types), `registry` (finding, enabling and loading plugins) |
@@ -441,6 +441,19 @@ These are stable enough to build on, but `Project` is the supported entry point.
    :members:
 ```
 
+### Search by Meaning
+
+```{eval-rst}
+.. autofunction:: konstruct.analysis.semantic.search
+
+.. autofunction:: konstruct.analysis.semantic.similar
+
+.. autoclass:: konstruct.analysis.semantic.SimilarResult
+   :members:
+
+.. autofunction:: konstruct.analysis.semantic.vector_index
+```
+
 ### Formulas, Conflicts and Export
 
 ```{eval-rst}
@@ -506,6 +519,8 @@ entry-point group, and what Konstruct gives it. Everything here is imported from
    :no-value:
 
 .. autodata:: konstruct.plugins.api.PLUGIN_NODE_ATTRS
+
+.. autodata:: konstruct.plugins.api.PLUGIN_LIST_ATTRS
 
 .. autodata:: konstruct.plugins.api.RESERVED_EDGE_ATTRS
    :no-value:

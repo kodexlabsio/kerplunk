@@ -189,6 +189,7 @@
  "python konstruct.Item.id": "field str",
  "python konstruct.Item.kind": "field str",
  "python konstruct.Item.label": "field str",
+ "python konstruct.Item.matched": "field str | None",
  "python konstruct.Item.name": "field str",
  "python konstruct.Item.path": "field str | None",
  "python konstruct.Item.relation_kind": "field str | None",

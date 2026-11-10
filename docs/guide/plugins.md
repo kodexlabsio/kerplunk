@@ -182,8 +182,10 @@ an edge, so that what it claims about lineage, usage and the warehouse comes onl
 {data}`~konstruct.plugins.api.PLUGIN_NODE_ATTRS`, each a string with the meaning Konstruct gives it:
 `test` and `severity` on a test node (such as `unique` or `not_null`, and `warn` or `error`),
 `owner`, and those the graph viewer shows: `schedule`, `operator`, `orchestrator` and
-`bash_command` on a DAG or task, and `type`, `maturity`, `label` and `url` on an exposure. Other
-names, such as `team` or `fields`, are the plugin's own. An `Sql` dialect must be one sqlglot knows.
+`bash_command` on a DAG or task, and `type`, `maturity`, `label` and `url` on an exposure. A node or
+an edge may set `fields` ({data}`~konstruct.plugins.api.PLUGIN_LIST_ATTRS`), a list of the field names
+a BI view shows, as the Looker input does. Other
+names, such as `team` or `region`, are the plugin's own. An `Sql` dialect must be one sqlglot knows.
 
 ```python
 from konstruct.plugins import API_VERSION, Fragment, PluginEdge, PluginNode, Source, Sql

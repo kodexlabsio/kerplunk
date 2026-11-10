@@ -55,6 +55,7 @@ if TYPE_CHECKING:
         TermDefinition,
         Walk,
     )
+    from konstruct.analysis.semantic import SimilarResult
     from konstruct.analysis.verify import Verification
     from konstruct.analysis.why import Why
     from konstruct.engine.trust import Trust
@@ -300,17 +301,34 @@ def search_lines(result: SearchResult, style: Style) -> Lines:
     return _matches(style, result.results, indent=0)
 
 
+def _basis(entry: Item) -> Cell:
+    """What a match by meaning rests on, when it is more than the node's own words."""
+    return (f'by {entry.matched}', 'accent') if entry.matched not in (None, 'words') else ''
+
+
 def _matches(style: Style, entries: Sequence[Item], *, indent: int) -> Lines:
+    # A search by meaning says what each match rests on; a word search has no such column.
+    by_meaning = any(_basis(entry) for entry in entries)
     rows: list[list[Cell]] = []
     for entry in entries:
         kind = entry.relation_kind or entry.kind
         facts = (f'{kind} {entry.data_type}' if entry.data_type else kind, 'dim')
-        rows.append([entry.label, facts, _status(entry.status), _place(entry)])
+        cells: list[Cell] = [entry.label, facts, _status(entry.status)]
+        if by_meaning:
+            cells.append(_basis(entry))
+        rows.append([*cells, _place(entry)])
     lines: Lines = []
     for entry, row in zip(entries, table(style, rows, indent=indent, flex=3), strict=True):
         lines.append(row)
         lines += _note(style, entry.description, indent=indent + 4)
     return lines
+
+
+def similar_lines(result: SimilarResult, style: Style) -> Lines:
+    if not result.results:
+        return [Text(f'Nothing is like {result.node.label}.')]
+    lines = [header('Like', result.node.label, _plural(len(result.results), 'node'))]
+    return lines + _matches(style, result.results, indent=2)
 
 
 def listing_lines(result: Listing, style: Style) -> Lines:

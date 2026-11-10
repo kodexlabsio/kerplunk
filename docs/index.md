@@ -12,6 +12,7 @@ What it does that lineage tools usually leave out:
 - **It reviews pull requests column by column.** `uses: kodexlabsio/konstruct@v0` comments with what a change does to each column, ignoring formatting and renamed CTEs, and fails the check when a removed column is still read downstream. It also prints a `dbt build --select` for only what the change affects. [Reviewing Changes](guide/reviewing-changes.md)
 - **One chain across tools.** A column computed in dbt, copied by an Airflow SQL task, written by a Dagster asset and shown on a dashboard is one lineage chain, through DuckDB, Postgres, Snowflake, BigQuery, Databricks, Trino and Iceberg.
 - **It handles large projects.** 2,000 models and 52,000 column edges build in 37 seconds on a four-core cloud machine and update in 7; queries answer in milliseconds. [Performance](performance.md)
+- **It finds columns by meaning.** A search for "revenue" finds a column called `net_sales_amt`, through the abbreviations and synonyms of data work, its formula and its lineage, with exact names still first. Everything is computed locally from the graph. [Searching by Meaning](guide/search.md)
 - **It derives an ontology.** The business objects, their keys and relations, the measures with their verified formulas, and how the objects relate, read from the code and tests and written to `ontology.yml` on every build. [The Ontology](guide/ontology.md)
 - **It exports open formats.** OpenLineage events validated against the specification, Mermaid, Graphviz and CSV. [Exporting](guide/exporting.md)
 
@@ -41,6 +42,7 @@ performance
 guide/inputs
 guide/viewer
 guide/explain
+guide/search
 guide/verify
 guide/reviewing-changes
 guide/github-action

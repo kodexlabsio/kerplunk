@@ -1,8 +1,9 @@
-"""Konstruct's native core (the Rust crate in src/): graph traversal, name resolution, search and
-formula identity. ``konstruct.core.graph``, ``konstruct.analysis.query`` and
-``konstruct.analysis.identity`` are its callers; nodes, edges and relations are passed in, and come
-back, as ordinals into the lists given. Any string may hold lone surrogates (a file name decoded
-with ``surrogateescape``), and an id comes back exactly as it was given."""
+"""Konstruct's native core (the Rust crate in src/): graph traversal, name resolution, search,
+search by meaning and formula identity. ``konstruct.core.graph``, ``konstruct.analysis.query``,
+``konstruct.analysis.semantic`` and ``konstruct.analysis.identity`` are its callers; nodes, edges
+and relations are passed in, and come back, as ordinals into the lists given. Any string may hold
+lone surrogates (a file name decoded with ``surrogateescape``), and an id comes back exactly as it
+was given."""
 
 from typing import final
 
@@ -97,3 +98,43 @@ class FormulaSet:
     def compare(self, a: int, b: int) -> tuple[bool, float, bool, _Witness | None]:
         """Whether two definitions are shown to be the same, a bound on the error, whether they
         are without NULLs, and why they are not."""
+
+@final
+class VectorIndex:
+    """Search by meaning over a graph's nodes (``konstruct.analysis.semantic``). Nodes are given
+    as parallel lists; edges as node ordinals and kinds. ``previous`` is a saved index
+    (``vectors.bin``), whose slots are reused where a node's vector is unchanged."""
+
+    def __init__(
+        self,
+        ids: list[str],
+        kinds: list[str],
+        standings: list[int],
+        names: list[str],
+        qualifiers: list[str],
+        descriptions: list[str],
+        synonyms: list[list[str]],
+        expressions: list[str | None],
+        sources: list[int],
+        targets: list[int],
+        edge_kinds: list[str],
+        previous: bytes | None,
+    ) -> None: ...
+    def search(self, text: str, limit: int, kinds: list[str]) -> list[tuple[int, float, str]]:
+        """The nodes that best answer ``text``, best first, as (node, score, basis)."""
+    def similar(self, ordinal: int, limit: int, kinds: list[str]) -> list[tuple[int, float, str]]:
+        """The nodes most like node ``ordinal``, best first, as (node, score, basis)."""
+    def hybrid(
+        self, words: SearchIndex, text: str, lowered: str, needle: str, limit: int, kinds: list[str]
+    ) -> list[tuple[int, float, str | None]]:
+        """The word search and this search fused, best first, as (node, score, basis or None)."""
+    def to_bytes(self) -> bytes:
+        """The index as a saved index."""
+    @property
+    def update(self) -> tuple[int, int, int, bool]:
+        """What reading the saved index did: (kept, added, removed, reused)."""
+    @property
+    def rows_read(self) -> bool:
+        """True when every node's blocks were read from the saved index, made from the same
+        graph, rather than computed."""
+    def __len__(self) -> int: ...
