@@ -348,3 +348,19 @@ def test_help_loads_neither_the_build_nor_the_sql_parser(args: list[str]) -> Non
         [sys.executable, '-c', code], capture_output=True, text=True, check=True
     ).stdout.splitlines()
     assert shown[-1] == '[]'
+
+
+def test_every_hint_names_a_command_the_parser_accepts() -> None:
+    # An error's hint is a command to try next, so it must parse: a wrong option would send the
+    # user, or an agent, to a second error.
+    import re
+    import shlex
+
+    from konstruct.interfaces.cli import parser
+
+    pattern = re.compile(r"hint=f?'`konstruct ([^`]+)`'")
+    sources = (Path(__file__).parent.parent / 'konstruct').rglob('*.py')
+    hints = [h for path in sources for h in pattern.findall(path.read_text(encoding='utf-8'))]
+    assert hints
+    for hint in hints:
+        parser().parse_args(shlex.split(re.sub(r'\{[^}]*\}', 'orders', hint)))
