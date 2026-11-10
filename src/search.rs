@@ -13,6 +13,7 @@ use std::cmp::Ordering;
 
 use crate::fnv::FnvHashMap;
 use crate::graph;
+use crate::keys;
 
 /// Words a question is made of that say nothing about what it is asking for.
 const STOPWORDS: &[&str] = &[
@@ -80,7 +81,7 @@ pub struct Document<'a> {
 #[derive(Debug)]
 struct Entry {
     id: Box<str>,
-    /// The id's length in characters, as Python counts it.
+    /// The id's length in code points, as Python counts it.
     id_length: usize,
     kind: Box<str>,
     standing: Standing,
@@ -119,7 +120,7 @@ impl SearchIndex {
         let description = self.word_numbers(document.description);
         self.entries.push(Entry {
             id: document.id.into(),
-            id_length: document.id.chars().count(),
+            id_length: keys::length(document.id),
             kind: document.kind.into(),
             standing: document.standing,
             name: document.name.into(),

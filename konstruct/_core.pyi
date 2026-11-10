@@ -1,6 +1,8 @@
 """Konstruct's native core (the Rust crate in src/): graph traversal, name
 resolution and search. ``konstruct.core.graph`` and ``konstruct.analysis.query`` are its callers;
-nodes, edges and relations are passed in, and come back, as ordinals into the lists given."""
+nodes, edges and relations are passed in, and come back, as ordinals into the lists given. Any
+string may hold lone surrogates (a file name decoded with ``surrogateescape``), and an id comes
+back exactly as it was given."""
 
 from typing import final
 

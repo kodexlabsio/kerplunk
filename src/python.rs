@@ -7,6 +7,7 @@ use pyo3::pybacked::PyBackedStr;
 use pyo3::types::{PyList, PyString};
 
 use crate::graph::{self, EdgeKind, Flow, NodeKind, Visit};
+use crate::keys;
 use crate::names::{self, Relation};
 use crate::search::{self, Document, Standing};
 
@@ -38,6 +39,76 @@ fn strings<'py>(
         .map(|item| item.cast_into::<PyString>().map_err(PyErr::from))
 }
 
+/// `text` as a key of the indexes ([`keys`]), borrowed from Python unless it holds a lone
+/// surrogate or the escape character, as almost no string does.
+fn key<'a>(text: &'a Bound<'_, PyString>) -> PyResult<std::borrow::Cow<'a, str>> {
+    match text.to_str() {
+        Ok(utf8) => Ok(keys::from_str(utf8)),
+        Err(_) => {
+            let py = text.py();
+            let encoded = text.call_method1(
+                pyo3::intern!(py, "encode"),
+                (
+                    pyo3::intern!(py, "utf-8"),
+                    pyo3::intern!(py, "surrogatepass"),
+                ),
+            )?;
+            let bytes = encoded.cast::<pyo3::types::PyBytes>()?.as_bytes();
+            keys::from_generalized_utf8(bytes)
+                .map(std::borrow::Cow::Owned)
+                .ok_or_else(|| PyValueError::new_err("surrogatepass gave bytes that are not UTF-8"))
+        }
+    }
+}
+
+/// The Python string the key `key` stands for.
+fn string<'py>(py: Python<'py>, key: &str) -> PyResult<Bound<'py, PyString>> {
+    match keys::to_generalized_utf8(key) {
+        std::borrow::Cow::Borrowed(_) => Ok(PyString::new(py, key)),
+        std::borrow::Cow::Owned(bytes) => Ok(pyo3::types::PyBytes::new(py, &bytes)
+            .call_method1(
+                pyo3::intern!(py, "decode"),
+                (
+                    pyo3::intern!(py, "utf-8"),
+                    pyo3::intern!(py, "surrogatepass"),
+                ),
+            )?
+            .cast_into::<PyString>()?),
+    }
+}
+
+/// A Python string argument as a key of the indexes ([`keys`]).
+enum Key {
+    /// The string itself, its UTF-8 kept by Python.
+    Python(PyBackedStr),
+    Escaped(String),
+}
+
+impl std::ops::Deref for Key {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        match self {
+            Self::Python(text) => text,
+            Self::Escaped(key) => key,
+        }
+    }
+}
+
+impl FromPyObject<'_, '_> for Key {
+    type Error = PyErr;
+
+    fn extract(object: Borrowed<'_, '_, PyAny>) -> PyResult<Self> {
+        let text = object.cast::<PyString>()?.to_owned();
+        if let Ok(utf8) = text.to_str()
+            && !utf8.contains(keys::ESCAPE)
+        {
+            return Ok(Self::Python(PyBackedStr::try_from(text)?));
+        }
+        Ok(Self::Escaped(key(&text)?.into_owned()))
+    }
+}
+
 /// The edges of a graph, indexed for walks and shortest paths. Nodes and edges are numbered in
 /// the order they were given.
 #[pyclass(frozen, module = "konstruct._core")]
@@ -46,7 +117,7 @@ struct GraphIndex {
 }
 
 impl GraphIndex {
-    fn ordinals(&self, ids: &[PyBackedStr]) -> Vec<u32> {
+    fn ordinals(&self, ids: &[Key]) -> Vec<u32> {
         ids.iter().filter_map(|id| self.inner.node(id)).collect()
     }
 }
@@ -63,7 +134,7 @@ impl GraphIndex {
         targets: &Bound<'_, PyList>,
         kinds: &Bound<'_, PyList>,
         references: Vec<bool>,
-        through: Vec<(u32, PyBackedStr)>,
+        through: Vec<(u32, Key)>,
     ) -> PyResult<Self> {
         same_length(
             "GraphIndex",
@@ -77,7 +148,7 @@ impl GraphIndex {
         )?;
         let mut builder = graph::GraphIndex::builder();
         for (node, kind) in strings(nodes).zip(strings(node_kinds)) {
-            builder.node(node?.to_str()?, NodeKind::parse(kind?.to_str()?));
+            builder.node(&key(&node?)?, NodeKind::parse(&key(&kind?)?));
         }
         let edges = strings(sources)
             .zip(strings(targets))
@@ -86,9 +157,9 @@ impl GraphIndex {
         for (((source, target), kind), reference) in edges {
             let (source, target, kind) = (source?, target?, kind?);
             builder.edge(
-                source.to_str()?,
-                target.to_str()?,
-                EdgeKind::parse(kind.to_str()?),
+                &key(&source)?,
+                &key(&target)?,
+                EdgeKind::parse(&key(&kind)?),
                 reference,
             );
         }
@@ -96,7 +167,7 @@ impl GraphIndex {
             if !parent.is_none() {
                 builder.parent(
                     graph::ordinal(ordinal),
-                    parent.cast_into::<PyString>()?.to_str()?,
+                    &key(&parent.cast_into::<PyString>()?)?,
                 );
             }
         }
@@ -111,12 +182,7 @@ impl GraphIndex {
     /// Everything downstream of the nodes `starts`, in the order reached; with `column`, the
     /// consumers of the relations reached too.
     #[pyo3(signature = (starts, max_depth, column))]
-    fn impact(
-        &self,
-        starts: Vec<PyBackedStr>,
-        max_depth: Option<i64>,
-        column: bool,
-    ) -> Vec<VisitTuple> {
+    fn impact(&self, starts: Vec<Key>, max_depth: Option<i64>, column: bool) -> Vec<VisitTuple> {
         tuples(
             self.inner
                 .impact(&self.ordinals(&starts), max_depth, column),
@@ -126,36 +192,31 @@ impl GraphIndex {
     /// Everything upstream of the nodes `starts`, in the order reached; with `column`, the tasks
     /// that build the relations on the way too.
     #[pyo3(signature = (starts, max_depth, column))]
-    fn trace(
-        &self,
-        starts: Vec<PyBackedStr>,
-        max_depth: Option<i64>,
-        column: bool,
-    ) -> Vec<VisitTuple> {
+    fn trace(&self, starts: Vec<Key>, max_depth: Option<i64>, column: bool) -> Vec<VisitTuple> {
         tuples(self.inner.trace(&self.ordinals(&starts), max_depth, column))
     }
 
     /// The id of the node or edge endpoint with this ordinal.
-    fn id(&self, ordinal: u32) -> &str {
-        self.inner.id(ordinal)
+    fn id<'py>(&self, py: Python<'py>, ordinal: u32) -> PyResult<Bound<'py, PyString>> {
+        string(py, self.inner.id(ordinal))
     }
 
     /// The shortest path between two nodes, start first; empty when there is none.
-    fn path(&self, start: &str, end: &str) -> Vec<VisitTuple> {
-        match (self.inner.node(start), self.inner.node(end)) {
+    fn path(&self, start: Key, end: Key) -> Vec<VisitTuple> {
+        match (self.inner.node(&start), self.inner.node(&end)) {
             (Some(start), Some(end)) => tuples(self.inner.path(start, end)),
             _ => Vec::new(),
         }
     }
 
     /// The ordinals of the edges a walk follows from `node`, downstream or upstream.
-    fn neighbours(&self, node: &str, downstream: bool) -> Vec<u32> {
+    fn neighbours(&self, node: Key, downstream: bool) -> Vec<u32> {
         let flow = if downstream {
             Flow::Downstream
         } else {
             Flow::Upstream
         };
-        match self.inner.node(node) {
+        match self.inner.node(&node) {
             Some(node) => self
                 .inner
                 .neighbours(node, flow)
@@ -176,9 +237,9 @@ struct RelationNames {
 impl RelationNames {
     #[new]
     fn new(
-        names: Vec<PyBackedStr>,
-        ids: Vec<PyBackedStr>,
-        relations: Vec<Option<PyBackedStr>>,
+        names: Vec<Key>,
+        ids: Vec<Key>,
+        relations: Vec<Option<Key>>,
         outside_warehouse: Vec<bool>,
     ) -> PyResult<Self> {
         same_length(
@@ -198,8 +259,8 @@ impl RelationNames {
     }
 
     /// The ordinals of the relations `needle` (in lower case) names.
-    fn find(&self, needle: &str) -> Vec<u32> {
-        self.inner.find(needle)
+    fn find(&self, needle: Key) -> Vec<u32> {
+        self.inner.find(&needle)
     }
 }
 
@@ -263,18 +324,16 @@ impl SearchIndex {
                 (id?, kind?, name?, label?, words?, description?);
             let synonyms: Vec<Bound<'_, PyString>> =
                 strings(synonyms.cast::<PyList>()?).collect::<PyResult<_>>()?;
+            let synonyms: Vec<_> = synonyms.iter().map(key).collect::<PyResult<_>>()?;
             index.add(Document {
-                id: id.to_str()?,
-                kind: kind.to_str()?,
+                id: &key(&id)?,
+                kind: &key(&kind)?,
                 standing,
-                name: name.to_str()?,
-                label: label.to_str()?,
-                names: words.to_str()?,
-                description: description.to_str()?,
-                synonyms: synonyms
-                    .iter()
-                    .map(|s| s.to_str())
-                    .collect::<PyResult<_>>()?,
+                name: &key(&name)?,
+                label: &key(&label)?,
+                names: &key(&words)?,
+                description: &key(&description)?,
+                synonyms: synonyms.iter().map(|s| &**s).collect(),
             });
         }
         Ok(Self { inner: index })
@@ -285,13 +344,13 @@ impl SearchIndex {
     fn search(
         &self,
         py: Python<'_>,
-        text: &str,
-        needle: &str,
+        text: Key,
+        needle: Key,
         limit: Option<usize>,
-        kinds: Vec<PyBackedStr>,
+        kinds: Vec<Key>,
     ) -> Vec<(u32, f64)> {
         let kinds: Vec<&str> = kinds.iter().map(|k| &**k).collect();
-        py.detach(|| self.inner.search(text, needle, limit, &kinds))
+        py.detach(|| self.inner.search(&text, &needle, limit, &kinds))
     }
 }
 

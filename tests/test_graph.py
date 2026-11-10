@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import itertools
 from collections.abc import Callable
 from pathlib import Path
 
+from konstruct import _core
 from konstruct.analysis.query import search_nodes
 from konstruct.core.graph import Graph, Node, column_id, relation_key
 
@@ -344,3 +346,37 @@ def test_max_depth_beyond_the_native_range_means_no_limit() -> None:
     assert g.trace(lifetime, max_depth=2**64) == g.trace(lifetime)
     assert g.impact(amount, max_depth=-(2**70)) == g.impact(amount, max_depth=0)
     assert ids(g.impact(amount, max_depth=0)) == {amount.id}
+
+
+def test_ids_and_names_with_lone_surrogates_stay_distinct() -> None:
+    # File names that are not UTF-8 decode, with surrogateescape, to lone surrogates; U+FFFD is
+    # what a lossy conversion would turn them into, and U+D7FF is the core's escape character.
+    names = [b'caf\xe9'.decode('utf-8', 'surrogateescape'), b'caf\xe8'.decode('utf-8', 'surrogateescape')]
+    names += ['caf' + chr(0xFFFD), 'caf' + chr(0xD7FF), chr(0xD83D) + chr(0xDE00), chr(0x1F600)]
+    g = Graph()
+    nodes = [g.add_node(Node(f'table.{n}', 'table', n, relation=f'db.main.{n}')) for n in names]
+    for upstream, downstream in itertools.pairwise(nodes):
+        if upstream is not nodes[2]:
+            g.add_edge(upstream.id, downstream.id, 'feeds')
+    assert [s.node for s in g.impact(nodes[0])] == nodes[:3]
+    assert [s.node for s in g.trace(nodes[5])] == [nodes[5], nodes[4], nodes[3]]
+    assert [s.node for s in g.path(nodes[3], nodes[5])] == nodes[3:]
+    assert g.path(nodes[0], nodes[4]) == []
+    for name, node in zip(names, nodes, strict=True):
+        assert g.resolve(name) == [node]
+        assert g.resolve(f'main.{name}') == [node]
+    assert search_nodes(g, 'caf') == sorted(nodes[:4], key=lambda n: n.id)
+    # The task that writes a relation known only as an edge's endpoint is reached through it,
+    # and the step names that relation by its own id.
+    column = g.add_node(Node(f'table.{names[1]}x#c', 'column', 'c', parent=f'table.{names[1]}x'))
+    g.add_node(Node('task.load', 'task', 'load'))
+    g.add_edge('task.load', f'table.{names[1]}x', 'runs')
+    [step] = [s for s in g.trace(column) if s.node.id == 'task.load']
+    assert step.previous == f'table.{names[1]}x'
+
+
+def test_the_native_index_returns_ids_as_given() -> None:
+    ids = ['a' + chr(0xDC80), 'a' + chr(0xD7FF), 'a' + chr(0xD7FF) + chr(0xF0000), 'a' + chr(0xF0001)]
+    index = _core.GraphIndex(ids, ['table'] * 4, [None] * 4, [], [], [], [], [])
+    assert [index.id(i) for i in range(4)] == ids
+    assert [index.neighbours(i, True) for i in ids] == [[], [], [], []]

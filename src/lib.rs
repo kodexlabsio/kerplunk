@@ -6,6 +6,7 @@
 
 pub mod fnv;
 pub mod graph;
+pub mod keys;
 pub mod names;
 pub mod search;
 
