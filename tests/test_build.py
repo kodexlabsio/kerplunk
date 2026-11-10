@@ -275,6 +275,8 @@ UNREADABLE_PYTHON = {
     'sum': 'total = ' + ' + '.join(['1'] * 100_000) + '\n',
     # A ValueError on Python 3.11, a SyntaxError later.
     'nul': 'x = 1\x00\n',
+    # Unary minus signs exhaust the parser's memory rather than its recursion limit.
+    'minus': 'x = ' + '-' * 200_000 + '1\n',
 }
 
 

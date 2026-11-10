@@ -803,3 +803,6 @@ def _syntax_tree(source: str, path: Path) -> ast.Module:
     except ValueError as error:
         # Python 3.11 rejects a NUL byte with a ValueError; 3.12 and later with a SyntaxError.
         raise SyntaxError(str(error), (str(path), 1, 1, None)) from None
+    except MemoryError:
+        # The parser's own stack overflows on thousands of nested operators (``x = ----1``).
+        raise SyntaxError('the file is too complex for Python to parse', (str(path), 1, 1, None)) from None

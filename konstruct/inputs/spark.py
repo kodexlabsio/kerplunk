@@ -120,6 +120,10 @@ def _parse(text: str, path: str) -> SparkFile:
         # Python 3.11 rejects a NUL byte with a ValueError; 3.12 and later with a SyntaxError.
         result.problems.append(f'{path}:1: not valid Python: {error}')
         return result
+    except MemoryError:
+        # The parser's own stack overflows on thousands of nested operators (``x = ----1``).
+        result.problems.append(f'{path}:1: not valid Python: too complex for Python to parse')
+        return result
     except SyntaxError as error:
         result.problems.append(f'{path}:{error.lineno or 0}: not valid Python: {error.msg}')
         return result
