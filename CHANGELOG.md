@@ -1,3 +1,13 @@
+## v0.12.8 (2026-11-10)
+
+### Feat
+
+- **plugins**: Load inputs, exports, checks, packs and MCP tools from installed plugins
+
+### Refactor
+
+- **plugins**: Run Konstruct's own inputs, exports, checks and packs through one registry
+
 ## v0.12.7 (2026-11-10)
 
 ### Feat
