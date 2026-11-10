@@ -7,7 +7,11 @@ models through CTEs, with a manifest, a catalog and Airflow DAGs. For each size 
   graph.html (including every column's composed formula);
 * --update with nothing changed, and --update after editing one model in the middle;
 * the median time of an impact, a trace and an explain on the deepest model;
-* the size of graph.json and graph.html.
+* the size of graph.json and graph.html;
+* the questions the Rust core answers, on the graph as a command loads it: loading graph.json,
+  the first impact and the first search (each also builds its index), then the median time of a
+  search, a query, a path from the 11th model to the deepest and a describe of the deepest
+  model, and one run of conflicts over every candidate column.
 
 Usage:
     uv run .kodex/scripts/benchmark.py                  # 100, 500, 1000 and 2000 models
@@ -30,6 +34,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from konstruct import Project, __version__  # noqa: E402
+from konstruct.analysis.query import search  # noqa: E402
+from konstruct.core.graph import Graph  # noqa: E402
 from tests.test_scale import make_project  # noqa: E402
 
 COLUMNS = 20
@@ -67,6 +73,10 @@ def measure(models: int) -> dict[str, Any]:
         manifest.write_text(json.dumps(data))
         one_edit, _ = timed(project.build, update=True, run_dbt=False, warehouses=False)
         deepest = f'm{models - 1:03}'
+        load, loaded = timed(Graph.read, project.graph_path)
+        first_impact, _ = timed(loaded.impact, loaded.resolve('m010.c01')[0])
+        first_search, _ = timed(search, loaded, 'm010 c01')
+        conflicts, _ = timed(project.conflicts)
         return {
             'models': models,
             'columns': sum(1 for n in graph.nodes.values() if n.kind == 'column'),
@@ -80,6 +90,14 @@ def measure(models: int) -> dict[str, Any]:
             'explain_ms': round(1000 * median_time(project.explain, f'{deepest}.c01'), 1),
             'graph_json_mb': round((project.out_dir / 'graph.json').stat().st_size / 1e6, 1),
             'graph_html_mb': round((project.out_dir / 'graph.html').stat().st_size / 1e6, 1),
+            'load_s': round(load, 2),
+            'first_impact_ms': round(1000 * first_impact, 1),
+            'first_search_ms': round(1000 * first_search, 1),
+            'search_ms': round(1000 * median_time(project.search, 'm010 c01'), 1),
+            'query_ms': round(1000 * median_time(project.query, 'which models use m010'), 1),
+            'path_ms': round(1000 * median_time(project.path_between, 'm010.c01', f'{deepest}.c00'), 1),
+            'describe_ms': round(1000 * median_time(project.describe, deepest), 1),
+            'conflicts_s': round(conflicts, 2),
         }
 
 
@@ -94,6 +112,18 @@ def markdown(rows: list[dict[str, Any]]) -> str:
             f'| {r["models"]:,} | {r["columns"]:,} | {r["column_edges"]:,} | {r["cold_build_s"]} s '
             f'| {r["update_unchanged_s"]} s | {r["update_one_model_s"]} s | {r["impact_ms"]} ms '
             f'| {r["trace_ms"]} ms | {r["explain_ms"]} ms | {r["graph_html_mb"]} MB |'
+        )
+    lines += [
+        '',
+        '| Models | Load graph.json | First impact | First search | search | query | path | describe '
+        '| conflicts |',
+        '|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
+    ]
+    for r in rows:
+        lines.append(
+            f'| {r["models"]:,} | {r["load_s"]} s | {r["first_impact_ms"]} ms | {r["first_search_ms"]} ms '
+            f'| {r["search_ms"]} ms | {r["query_ms"]} ms | {r["path_ms"]} ms | {r["describe_ms"]} ms '
+            f'| {r["conflicts_s"]} s |'
         )
     return '\n'.join(lines)
 
