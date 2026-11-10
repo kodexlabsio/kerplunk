@@ -28,6 +28,7 @@ const messages: Catalogue = {
     'page.usage': '利用状況',
     'page.tests': 'テスト',
     'page.warnings': '警告',
+    'page.map': 'マップ',
 
     'kind.source': 'ソース',
     'kind.seed': 'シード',
@@ -451,6 +452,41 @@ const messages: Catalogue = {
     'notFound.title': '見つかりません',
     'notFound.body': 'このグラフに {id} という名前のものはありません。',
     'notFound.back': '概要へ移動',
+
+    'map.lead':
+        'ノード {count, number}、エッジ {edges, number}。プロジェクト全体を一度に表示します。ノードをクリックするとそのページが開きます。',
+    'map.label': 'プロジェクトのマップ、ノード {count, number}',
+    'map.roledescription': 'マップ',
+    'map.help':
+        'ドラッグでマップを移動し、スクロールでズームします。キーボードでは、左右でリネージをたどり、上下で同じ層の中を移動し、Home で最初のノードに移動し、Enter でページを開き、F または 0 でマップ全体を表示し、プラスとマイナスでズームし、Escape でフォーカスを解除します。',
+    'map.announce': '{name}、{kind}。上流 {up, number}、下流 {down, number}。',
+    'map.hover': '{name}（{kind}）',
+    'map.loading': 'マップを配置しています。',
+    'map.unsupported':
+        'マップには WebGPU に対応したブラウザーが必要です。ほかのページはすべてなしで動作します。',
+    'map.failed': 'マップを描画できませんでした: {error}',
+    'map.lost': 'グラフィックスデバイスが停止したため、マップを消去しました。',
+    'map.retry': 'マップを再描画',
+    'map.find': 'ノードを検索',
+    'map.findPlaceholder': 'テーブル、モデル、タスクの名前',
+    'map.matches': '{count, number} 件',
+    'map.noMatch': 'マップ上に一致するものはありません。',
+    'map.labels': 'ラベル',
+    'map.list': 'マップ上のノード',
+    'map.shown': '{total, number} 件中 {shown, number} 件を表示',
+    'map.locate': '{name} をマップに表示',
+    'map.open': '開く',
+    'map.summary': '概要',
+    'map.packages': 'パッケージ別の割合',
+    'map.noPackage': 'パッケージなし',
+    'map.orphans': 'エッジのないノード: {count, number}',
+    'map.untested': 'テストのないモデル: {count, number}',
+    'map.layerEnd': 'この階層にはこれ以上ありません。',
+    'map.listHelp':
+        '矢印キーでリストを移動し、マップ上でノードを表示する操作とページを開く操作を切り替えます。',
+    'map.dropped': 'グリフアトラスがいっぱいのため、ラベルから {count, number} 文字が欠けています。',
+    'map.tooLarge':
+        '{needed, number} バイトのバッファーは、このグラフィックデバイスの上限 ({limit, number} バイト) を超えています。',
 };
 
 export default messages;

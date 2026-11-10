@@ -28,6 +28,7 @@ const messages: Catalogue = {
     'page.usage': 'उपयोग',
     'page.tests': 'टेस्ट',
     'page.warnings': 'चेतावनियाँ',
+    'page.map': 'मानचित्र',
 
     'kind.source': 'स्रोत',
     'kind.seed': 'सीड',
@@ -453,6 +454,40 @@ const messages: Catalogue = {
     'notFound.title': 'नहीं मिला',
     'notFound.body': 'इस ग्राफ़ में {id} नाम का कुछ नहीं है।',
     'notFound.back': 'अवलोकन पर जाएँ',
+
+    'map.lead':
+        '{count, number} नोड और {edges, number} किनारे: पूरा प्रोजेक्ट एक साथ। किसी नोड का पेज खोलने के लिए उस पर क्लिक करें।',
+    'map.label': 'प्रोजेक्ट का मानचित्र, {count, number} नोड',
+    'map.roledescription': 'मानचित्र',
+    'map.help':
+        'मानचित्र खिसकाने के लिए खींचें और ज़ूम के लिए स्क्रॉल करें। कीबोर्ड पर बाएँ और दाएँ लिनिएज का अनुसरण करते हैं, ऊपर और नीचे एक परत के भीतर चलते हैं, Home पहले नोड पर ले जाता है, Enter पेज खोलता है, F या 0 पूरा मानचित्र दिखाता है, प्लस और माइनस ज़ूम करते हैं और Escape फ़ोकस हटाता है।',
+    'map.announce': '{name}, {kind}. {up, number} अपस्ट्रीम, {down, number} डाउनस्ट्रीम।',
+    'map.hover': '{name} ({kind})',
+    'map.loading': 'मानचित्र व्यवस्थित हो रहा है।',
+    'map.unsupported': 'मानचित्र के लिए WebGPU वाला ब्राउज़र चाहिए। बाकी सभी पेज इसके बिना काम करते हैं।',
+    'map.failed': 'मानचित्र नहीं बनाया जा सका: {error}',
+    'map.lost': 'ग्राफ़िक्स डिवाइस रुक गया, इसलिए मानचित्र साफ़ कर दिया गया।',
+    'map.retry': 'मानचित्र फिर से बनाएँ',
+    'map.find': 'नोड खोजें',
+    'map.findPlaceholder': 'किसी टेबल, मॉडल या टास्क का नाम',
+    'map.matches': '{count, number} परिणाम',
+    'map.noMatch': 'मानचित्र पर कुछ मेल नहीं खाता।',
+    'map.labels': 'लेबल',
+    'map.list': 'मानचित्र पर नोड',
+    'map.shown': '{total, number} में से {shown, number} दिखाए गए',
+    'map.locate': '{name} को मानचित्र पर दिखाएँ',
+    'map.open': 'खोलें',
+    'map.summary': 'सारांश',
+    'map.packages': 'पैकेज के अनुसार हिस्सा',
+    'map.noPackage': 'कोई पैकेज नहीं',
+    'map.orphans': 'बिना किनारों वाले नोड: {count, number}',
+    'map.untested': 'बिना टेस्ट वाले मॉडल: {count, number}',
+    'map.layerEnd': 'इस परत में आगे कुछ नहीं।',
+    'map.listHelp':
+        'तीर कुंजियाँ सूची में चलती हैं, और मानचित्र पर नोड दिखाने और उसका पेज खोलने के बीच बदलती हैं।',
+    'map.dropped': 'लेबल से गायब अक्षर: {count, number}, क्योंकि ग्लिफ़ एटलस भर गया है।',
+    'map.tooLarge':
+        '{needed, number} बाइट का बफ़र इस ग्राफ़िक्स डिवाइस की सीमा ({limit, number} बाइट) से बड़ा है।',
 };
 
 export default messages;

@@ -28,6 +28,7 @@ const messages: Catalogue = {
     'page.usage': 'الاستخدام',
     'page.tests': 'الاختبارات',
     'page.warnings': 'التحذيرات',
+    'page.map': 'الخريطة',
 
     'kind.source': 'مصدر',
     'kind.seed': 'بذرة',
@@ -454,6 +455,39 @@ const messages: Catalogue = {
     'notFound.title': 'غير موجود',
     'notFound.body': 'لا شيء في هذا الرسم اسمه {id}.',
     'notFound.back': 'الانتقال إلى النظرة العامة',
+
+    'map.lead':
+        'العقد: {count, number}، الحواف: {edges, number}. المشروع كله دفعة واحدة. انقر على عقدة لفتح صفحتها.',
+    'map.label': 'خريطة المشروع، العقد: {count, number}',
+    'map.roledescription': 'خريطة',
+    'map.help':
+        'اسحب لتحريك الخريطة ومرّر للتكبير. بلوحة المفاتيح، يتبع السهمان الأيسر والأيمن النسب، ويتحرك السهمان الأعلى والأسفل داخل الطبقة، وينتقل Home إلى أول عقدة، ويفتح Enter الصفحة، ويعرض F أو 0 الخريطة كلها، ويكبّر زائد وناقص، ويلغي Escape التركيز.',
+    'map.announce': '{name}، {kind}. في المنبع: {up, number}، في المصب: {down, number}.',
+    'map.hover': '{name} ({kind})',
+    'map.loading': 'جارٍ ترتيب الخريطة.',
+    'map.unsupported': 'تحتاج الخريطة إلى متصفح يدعم WebGPU. تعمل كل الصفحات الأخرى بدونه.',
+    'map.failed': 'تعذّر رسم الخريطة: {error}',
+    'map.lost': 'توقف جهاز الرسومات، لذا مُسحت الخريطة.',
+    'map.retry': 'ارسم الخريطة مجددًا',
+    'map.find': 'ابحث عن عقدة',
+    'map.findPlaceholder': 'اسم جدول أو نموذج أو مهمة',
+    'map.matches': 'النتائج: {count, number}',
+    'map.noMatch': 'لا شيء على الخريطة يطابق.',
+    'map.labels': 'التسميات',
+    'map.list': 'العقد على الخريطة',
+    'map.shown': 'المعروض: {shown, number} من {total, number}',
+    'map.locate': 'أظهر {name} على الخريطة',
+    'map.open': 'فتح',
+    'map.summary': 'ملخص',
+    'map.packages': 'الحصة حسب الحزمة',
+    'map.noPackage': 'بلا حزمة',
+    'map.orphans': 'عقد بلا حواف: {count, number}',
+    'map.untested': 'نماذج بلا اختبارات: {count, number}',
+    'map.layerEnd': 'لا شيء آخر في هذه الطبقة.',
+    'map.listHelp': 'تتنقل مفاتيح الأسهم في القائمة، وبين إظهار العقدة على الخريطة وفتح صفحتها.',
+    'map.dropped': 'أحرف ناقصة من التسميات: {count, number}، لأن أطلس الرموز ممتلئ.',
+    'map.tooLarge':
+        'يتجاوز مخزن مؤقت بحجم {needed, number} بايت ما يسمح به جهاز الرسوميات هذا ({limit, number} بايت).',
 };
 
 export default messages;

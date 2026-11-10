@@ -28,6 +28,7 @@ const messages: Catalogue = {
     'page.usage': 'Uso',
     'page.tests': 'Testes',
     'page.warnings': 'Avisos',
+    'page.map': 'Mapa',
 
     'kind.source': 'Fonte',
     'kind.seed': 'Seed',
@@ -460,6 +461,43 @@ const messages: Catalogue = {
     'notFound.title': 'Não encontrado',
     'notFound.body': 'Nada neste grafo se chama {id}.',
     'notFound.back': 'Ir para a visão geral',
+
+    'map.lead':
+        '{count, plural, one {# nó} other {# nós}} e {edges, plural, one {# aresta} other {# arestas}}: o projeto inteiro de uma vez. Clique em um nó para abrir a página dele.',
+    'map.label': 'Mapa do projeto, {count, plural, one {# nó} other {# nós}}',
+    'map.roledescription': 'mapa',
+    'map.help':
+        'Arraste para mover o mapa e role para dar zoom. No teclado, esquerda e direita seguem a linhagem, cima e baixo se movem dentro de uma camada, Home vai para o primeiro nó, Enter abre a página, F ou 0 ajustam o mapa, mais e menos dão zoom e Esc remove o foco.',
+    'map.announce':
+        '{name}, {kind}. {up, plural, one {# nó} other {# nós}} a montante, {down, plural, one {# nó} other {# nós}} a jusante.',
+    'map.hover': '{name} ({kind})',
+    'map.loading': 'Organizando o mapa.',
+    'map.unsupported':
+        'O mapa precisa de um navegador com WebGPU. Todas as outras páginas funcionam sem ele.',
+    'map.failed': 'Não foi possível desenhar o mapa: {error}',
+    'map.lost': 'O dispositivo gráfico parou, então o mapa foi apagado.',
+    'map.retry': 'Desenhar o mapa de novo',
+    'map.find': 'Encontrar um nó',
+    'map.findPlaceholder': 'Nome de uma tabela, um modelo ou uma tarefa',
+    'map.matches': '{count, plural, one {# resultado} other {# resultados}}',
+    'map.noMatch': 'Nada no mapa corresponde.',
+    'map.labels': 'Rótulos',
+    'map.list': 'Nós no mapa',
+    'map.shown': '{shown, number} de {total, plural, one {# nó} other {# nós}} exibidos',
+    'map.locate': 'Mostrar {name} no mapa',
+    'map.open': 'Abrir',
+    'map.summary': 'Resumo',
+    'map.packages': 'Participação por pacote',
+    'map.noPackage': 'Sem pacote',
+    'map.orphans': '{count, plural, one {# nó sem arestas} other {# nós sem arestas}}',
+    'map.untested': '{count, plural, one {# modelo sem testes} other {# modelos sem testes}}',
+    'map.layerEnd': 'Nada mais nesta camada.',
+    'map.listHelp':
+        'As setas percorrem a lista e alternam entre mostrar um nó no mapa e abrir a página dele.',
+    'map.dropped':
+        '{count, plural, one {Falta # caractere} other {Faltam # caracteres}} nos rótulos: o atlas de glifos está cheio.',
+    'map.tooLarge':
+        'um buffer de {needed, number} bytes excede o que este dispositivo gráfico permite ({limit, number} bytes).',
 };
 
 export default messages;

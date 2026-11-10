@@ -28,6 +28,7 @@ const messages: Catalogue = {
     'page.usage': 'Usage',
     'page.tests': 'Tests',
     'page.warnings': 'Warnings',
+    'page.map': 'Map',
 
     'kind.source': 'Source',
     'kind.seed': 'Seed',
@@ -457,6 +458,42 @@ const messages: Catalogue = {
     'notFound.title': 'Not found',
     'notFound.body': 'Nothing in this graph is called {id}.',
     'notFound.back': 'Go to the overview',
+
+    'map.lead':
+        '{count, plural, one {# node} other {# nodes}} and {edges, plural, one {# edge} other {# edges}}: the whole project at once. Click a node to open its page.',
+    'map.label': 'Map of the project, {count, plural, one {# node} other {# nodes}}',
+    'map.roledescription': 'map',
+    'map.help':
+        'Drag to move the map and scroll to zoom. With the keyboard, left and right follow the lineage, up and down move within a layer, Home goes to the first node, Enter opens the page, F or 0 fits the map, plus and minus zoom, and Escape clears the focus.',
+    'map.announce':
+        '{name}, {kind}. {up, plural, one {# node} other {# nodes}} upstream, {down, plural, one {# node} other {# nodes}} downstream.',
+    'map.hover': '{name} ({kind})',
+    'map.loading': 'Laying out the map.',
+    'map.unsupported': 'The map needs a browser with WebGPU. Every other page works without it.',
+    'map.failed': 'The map could not be drawn: {error}',
+    'map.lost': 'The graphics device stopped, so the map was cleared.',
+    'map.retry': 'Draw the map again',
+    'map.find': 'Find a node',
+    'map.findPlaceholder': 'Name of a table, model or task',
+    'map.matches': '{count, plural, one {# match} other {# matches}}',
+    'map.noMatch': 'Nothing on the map matches.',
+    'map.labels': 'Labels',
+    'map.list': 'Nodes on the map',
+    'map.shown': '{shown, number} of {total, plural, one {# node} other {# nodes}} shown',
+    'map.locate': 'Show {name} on the map',
+    'map.open': 'Open',
+    'map.summary': 'Summary',
+    'map.packages': 'Share by package',
+    'map.noPackage': 'No package',
+    'map.orphans': '{count, plural, one {# node with no edges} other {# nodes with no edges}}',
+    'map.untested': '{count, plural, one {# model without tests} other {# models without tests}}',
+    'map.layerEnd': 'Nothing further in this layer.',
+    'map.listHelp':
+        'The arrow keys move through the list, and between showing a node on the map and opening its page.',
+    'map.dropped':
+        '{count, plural, one {# character is} other {# characters are}} missing from the labels: the glyph atlas is full.',
+    'map.tooLarge':
+        'a buffer of {needed, number} bytes is more than this graphics device allows ({limit, number} bytes).',
 };
 
 export default messages;

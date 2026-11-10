@@ -28,6 +28,7 @@ const messages: Catalogue = {
     'page.usage': 'Użycie',
     'page.tests': 'Testy',
     'page.warnings': 'Ostrzeżenia',
+    'page.map': 'Mapa',
 
     'kind.source': 'Źródło',
     'kind.seed': 'Seed',
@@ -462,6 +463,40 @@ const messages: Catalogue = {
     'notFound.title': 'Nie znaleziono',
     'notFound.body': 'Nic w tym grafie nie nazywa się {id}.',
     'notFound.back': 'Przejdź do przeglądu',
+
+    'map.lead':
+        'Węzły: {count, number}, krawędzie: {edges, number}. Cały projekt naraz. Kliknij węzeł, aby otworzyć jego stronę.',
+    'map.label': 'Mapa projektu, węzły: {count, number}',
+    'map.roledescription': 'mapa',
+    'map.help':
+        'Przeciągnij, aby przesunąć mapę, i przewiń, aby powiększyć. Na klawiaturze strzałki w lewo i w prawo podążają za pochodzeniem, w górę i w dół poruszają się w obrębie warstwy, Home przechodzi do pierwszego węzła, Enter otwiera stronę, F lub 0 dopasowuje mapę, plus i minus zmieniają powiększenie, a Escape usuwa fokus.',
+    'map.announce': '{name}, {kind}. Powyżej: {up, number}, poniżej: {down, number}.',
+    'map.hover': '{name} ({kind})',
+    'map.loading': 'Układanie mapy.',
+    'map.unsupported': 'Mapa wymaga przeglądarki z WebGPU. Wszystkie inne strony działają bez niego.',
+    'map.failed': 'Nie udało się narysować mapy: {error}',
+    'map.lost': 'Urządzenie graficzne przestało działać, więc mapa została wyczyszczona.',
+    'map.retry': 'Narysuj mapę ponownie',
+    'map.find': 'Znajdź węzeł',
+    'map.findPlaceholder': 'Nazwa tabeli, modelu lub zadania',
+    'map.matches': 'Wyniki: {count, number}',
+    'map.noMatch': 'Nic na mapie nie pasuje.',
+    'map.labels': 'Etykiety',
+    'map.list': 'Węzły na mapie',
+    'map.shown': 'Wyświetlane: {shown, number} z {total, number}',
+    'map.locate': 'Pokaż {name} na mapie',
+    'map.open': 'Otwórz',
+    'map.summary': 'Podsumowanie',
+    'map.packages': 'Udział według pakietu',
+    'map.noPackage': 'Bez pakietu',
+    'map.orphans': 'Węzły bez krawędzi: {count, number}',
+    'map.untested': 'Modele bez testów: {count, number}',
+    'map.layerEnd': 'Nic więcej w tej warstwie.',
+    'map.listHelp':
+        'Klawisze strzałek przechodzą po liście oraz między pokazaniem węzła na mapie a otwarciem jego strony.',
+    'map.dropped': 'Brakujące znaki w etykietach: {count, number}. Atlas glifów jest pełny.',
+    'map.tooLarge':
+        'bufor o rozmiarze {needed, number} B przekracza limit tego urządzenia graficznego ({limit, number} B).',
 };
 
 export default messages;

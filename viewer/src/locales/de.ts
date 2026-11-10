@@ -28,6 +28,7 @@ const messages: Catalogue = {
     'page.usage': 'Nutzung',
     'page.tests': 'Tests',
     'page.warnings': 'Warnungen',
+    'page.map': 'Karte',
 
     'kind.source': 'Quelle',
     'kind.seed': 'Seed',
@@ -462,6 +463,41 @@ const messages: Catalogue = {
     'notFound.title': 'Nicht gefunden',
     'notFound.body': 'In diesem Graphen heißt nichts {id}.',
     'notFound.back': 'Zur Übersicht',
+
+    'map.lead':
+        'Knoten: {count, number}, Kanten: {edges, number}. Das ganze Projekt auf einen Blick. Ein Klick auf einen Knoten öffnet seine Seite.',
+    'map.label': 'Karte des Projekts, Knoten: {count, number}',
+    'map.roledescription': 'Karte',
+    'map.help':
+        'Ziehen verschiebt die Karte, Scrollen zoomt. Mit der Tastatur folgen links und rechts der Herkunft, oben und unten bewegen sich innerhalb einer Ebene, Pos1 springt zum ersten Knoten, Enter öffnet die Seite, F oder 0 zeigt die ganze Karte, Plus und Minus zoomen und Escape hebt den Fokus auf.',
+    'map.announce': '{name}, {kind}. Vorgelagert: {up, number}, nachgelagert: {down, number}.',
+    'map.hover': '{name} ({kind})',
+    'map.loading': 'Die Karte wird angeordnet.',
+    'map.unsupported': 'Die Karte braucht einen Browser mit WebGPU. Alle anderen Seiten funktionieren ohne.',
+    'map.failed': 'Die Karte konnte nicht gezeichnet werden: {error}',
+    'map.lost': 'Das Grafikgerät hat angehalten, deshalb wurde die Karte geleert.',
+    'map.retry': 'Karte neu zeichnen',
+    'map.find': 'Knoten finden',
+    'map.findPlaceholder': 'Name einer Tabelle, eines Modells oder einer Aufgabe',
+    'map.matches': 'Treffer: {count, number}',
+    'map.noMatch': 'Nichts auf der Karte passt.',
+    'map.labels': 'Beschriftungen',
+    'map.list': 'Knoten auf der Karte',
+    'map.shown': '{shown, number} von {total, number} angezeigt',
+    'map.locate': '{name} auf der Karte zeigen',
+    'map.open': 'Öffnen',
+    'map.summary': 'Zusammenfassung',
+    'map.packages': 'Anteil je Paket',
+    'map.noPackage': 'Kein Paket',
+    'map.orphans': 'Knoten ohne Kanten: {count, number}',
+    'map.untested': 'Modelle ohne Tests: {count, number}',
+    'map.layerEnd': 'Nichts weiter in dieser Ebene.',
+    'map.listHelp':
+        'Die Pfeiltasten bewegen sich durch die Liste und wechseln zwischen dem Zeigen eines Knotens auf der Karte und dem Öffnen seiner Seite.',
+    'map.dropped':
+        '{count, plural, one {# Zeichen fehlt} other {# Zeichen fehlen}} in den Beschriftungen: Der Glyphenatlas ist voll.',
+    'map.tooLarge':
+        'Ein Puffer von {needed, number} Byte ist größer, als dieses Grafikgerät erlaubt ({limit, number} Byte).',
 };
 
 export default messages;

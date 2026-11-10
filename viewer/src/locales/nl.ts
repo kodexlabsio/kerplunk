@@ -28,6 +28,7 @@ const messages: Catalogue = {
     'page.usage': 'Gebruik',
     'page.tests': 'Tests',
     'page.warnings': 'Waarschuwingen',
+    'page.map': 'Kaart',
 
     'kind.source': 'Bron',
     'kind.seed': 'Seed',
@@ -459,6 +460,43 @@ const messages: Catalogue = {
     'notFound.title': 'Niet gevonden',
     'notFound.body': 'Niets in deze graaf heet {id}.',
     'notFound.back': 'Naar het overzicht',
+
+    'map.lead':
+        '{count, plural, one {# knooppunt} other {# knooppunten}} en {edges, plural, one {# verbinding} other {# verbindingen}}: het hele project in één keer. Klik op een knooppunt om de pagina te openen.',
+    'map.label': 'Kaart van het project, {count, plural, one {# knooppunt} other {# knooppunten}}',
+    'map.roledescription': 'kaart',
+    'map.help':
+        'Sleep om de kaart te verplaatsen en scrol om te zoomen. Met het toetsenbord volgen links en rechts de herkomst, omhoog en omlaag bewegen binnen een laag, Home gaat naar het eerste knooppunt, Enter opent de pagina, F of 0 past de kaart in beeld, plus en min zoomen en Escape wist de focus.',
+    'map.announce':
+        '{name}, {kind}. {up, plural, one {# knooppunt} other {# knooppunten}} stroomopwaarts, {down, plural, one {# knooppunt} other {# knooppunten}} stroomafwaarts.',
+    'map.hover': '{name} ({kind})',
+    'map.loading': 'De kaart wordt ingedeeld.',
+    'map.unsupported': 'De kaart heeft een browser met WebGPU nodig. Alle andere pagina’s werken zonder.',
+    'map.failed': 'De kaart kon niet worden getekend: {error}',
+    'map.lost': 'Het grafische apparaat is gestopt, dus de kaart is gewist.',
+    'map.retry': 'Kaart opnieuw tekenen',
+    'map.find': 'Knooppunt zoeken',
+    'map.findPlaceholder': 'Naam van een tabel, model of taak',
+    'map.matches': '{count, plural, one {# resultaat} other {# resultaten}}',
+    'map.noMatch': 'Niets op de kaart komt overeen.',
+    'map.labels': 'Labels',
+    'map.list': 'Knooppunten op de kaart',
+    'map.shown': '{shown, number} van {total, plural, one {# knooppunt} other {# knooppunten}} getoond',
+    'map.locate': '{name} op de kaart tonen',
+    'map.open': 'Openen',
+    'map.summary': 'Samenvatting',
+    'map.packages': 'Aandeel per pakket',
+    'map.noPackage': 'Geen pakket',
+    'map.orphans':
+        '{count, plural, one {# knooppunt zonder verbindingen} other {# knooppunten zonder verbindingen}}',
+    'map.untested': '{count, plural, one {# model zonder tests} other {# modellen zonder tests}}',
+    'map.layerEnd': 'Niets verder in deze laag.',
+    'map.listHelp':
+        'De pijltoetsen gaan door de lijst en wisselen tussen een knooppunt op de kaart tonen en de pagina ervan openen.',
+    'map.dropped':
+        '{count, plural, one {# teken ontbreekt} other {# tekens ontbreken}} in de labels: de glyph-atlas is vol.',
+    'map.tooLarge':
+        'een buffer van {needed, number} bytes is groter dan dit grafische apparaat toestaat ({limit, number} bytes).',
 };
 
 export default messages;

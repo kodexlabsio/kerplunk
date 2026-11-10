@@ -28,6 +28,7 @@ const messages: Catalogue = {
     'page.usage': 'Utilizzo',
     'page.tests': 'Test',
     'page.warnings': 'Avvisi',
+    'page.map': 'Mappa',
 
     'kind.source': 'Sorgente',
     'kind.seed': 'Seed',
@@ -459,6 +460,43 @@ const messages: Catalogue = {
     'notFound.title': 'Non trovato',
     'notFound.body': 'In questo grafo nulla si chiama {id}.',
     'notFound.back': 'Vai alla panoramica',
+
+    'map.lead':
+        '{count, plural, one {# nodo} other {# nodi}} e {edges, plural, one {# arco} other {# archi}}: tutto il progetto in una volta. Fai clic su un nodo per aprirne la pagina.',
+    'map.label': 'Mappa del progetto, {count, plural, one {# nodo} other {# nodi}}',
+    'map.roledescription': 'mappa',
+    'map.help':
+        'Trascina per spostare la mappa e scorri per lo zoom. Con la tastiera, sinistra e destra seguono la discendenza, su e giù si muovono all’interno di un livello, Home va al primo nodo, Invio apre la pagina, F o 0 adattano la mappa, più e meno cambiano lo zoom ed Esc toglie il focus.',
+    'map.announce':
+        '{name}, {kind}. {up, plural, one {# nodo} other {# nodi}} a monte, {down, plural, one {# nodo} other {# nodi}} a valle.',
+    'map.hover': '{name} ({kind})',
+    'map.loading': 'Disposizione della mappa in corso.',
+    'map.unsupported':
+        'La mappa richiede un browser con WebGPU. Tutte le altre pagine funzionano anche senza.',
+    'map.failed': 'Impossibile disegnare la mappa: {error}',
+    'map.lost': 'Il dispositivo grafico si è fermato, quindi la mappa è stata svuotata.',
+    'map.retry': 'Ridisegna la mappa',
+    'map.find': 'Trova un nodo',
+    'map.findPlaceholder': 'Nome di una tabella, un modello o un’attività',
+    'map.matches': '{count, plural, one {# risultato} other {# risultati}}',
+    'map.noMatch': 'Niente sulla mappa corrisponde.',
+    'map.labels': 'Etichette',
+    'map.list': 'Nodi sulla mappa',
+    'map.shown': '{shown, number} di {total, plural, one {# nodo} other {# nodi}} mostrati',
+    'map.locate': 'Mostra {name} sulla mappa',
+    'map.open': 'Apri',
+    'map.summary': 'Riepilogo',
+    'map.packages': 'Quota per pacchetto',
+    'map.noPackage': 'Nessun pacchetto',
+    'map.orphans': '{count, plural, one {# nodo senza archi} other {# nodi senza archi}}',
+    'map.untested': '{count, plural, one {# modello senza test} other {# modelli senza test}}',
+    'map.layerEnd': 'Nient’altro in questo livello.',
+    'map.listHelp':
+        'I tasti freccia scorrono l’elenco e passano dal mostrare un nodo sulla mappa all’aprirne la pagina.',
+    'map.dropped':
+        '{count, plural, one {Manca # carattere} other {Mancano # caratteri}} nelle etichette: l’atlante dei glifi è pieno.',
+    'map.tooLarge':
+        'un buffer di {needed, number} byte supera quanto consente questo dispositivo grafico ({limit, number} byte).',
 };
 
 export default messages;

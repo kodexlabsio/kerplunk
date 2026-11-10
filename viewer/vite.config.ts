@@ -2,6 +2,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import type { Plugin } from 'vite';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import { defineConfig } from 'vitest/config';
+import { minifyWgsl } from './src/gpu/wgsl.ts';
 
 /**
  * A Content-Security-Policy for the page, allowing its one inline script and one inline style
@@ -54,10 +55,21 @@ function contentSecurityPolicy(): Plugin {
     };
 }
 
+/** WGSL shaders imported as their source text, without comments or spare whitespace. */
+function wgsl(): Plugin {
+    return {
+        name: 'konstruct-wgsl',
+        transform(code, id) {
+            if (!id.endsWith('.wgsl')) return null;
+            return { code: `export default ${JSON.stringify(minifyWgsl(code))};`, map: null };
+        },
+    };
+}
+
 // One self-contained HTML file: script, styles and fonts inlined, nothing loaded from the network.
 // It is written into the Python package, where konstruct fills the data placeholders.
 export default defineConfig({
-    plugins: [svelte(), viteSingleFile({ removeViteModuleLoader: true }), contentSecurityPolicy()],
+    plugins: [wgsl(), svelte(), viteSingleFile({ removeViteModuleLoader: true }), contentSecurityPolicy()],
     build: {
         // Writes ../konstruct/outputs/viewer.html: the entry's name, in the package directory.
         outDir: '../konstruct/outputs',

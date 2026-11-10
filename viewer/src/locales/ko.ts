@@ -28,6 +28,7 @@ const messages: Catalogue = {
     'page.usage': '사용량',
     'page.tests': '테스트',
     'page.warnings': '경고',
+    'page.map': '맵',
 
     'kind.source': '소스',
     'kind.seed': '시드',
@@ -449,6 +450,40 @@ const messages: Catalogue = {
     'notFound.title': '찾을 수 없음',
     'notFound.body': '이 그래프에 {id}(이)라는 항목이 없습니다.',
     'notFound.back': '개요로 이동',
+
+    'map.lead':
+        '노드 {count, number}개, 엣지 {edges, number}개: 프로젝트 전체를 한 번에 보여 줍니다. 노드를 클릭하면 해당 페이지가 열립니다.',
+    'map.label': '프로젝트 맵, 노드 {count, number}개',
+    'map.roledescription': '맵',
+    'map.help':
+        '드래그하여 맵을 옮기고 스크롤하여 확대/축소합니다. 키보드에서는 왼쪽과 오른쪽으로 리니지를 따라가고, 위와 아래로 같은 계층 안에서 이동하며, Home으로 첫 노드로 이동하고, Enter로 페이지를 열고, F 또는 0으로 맵 전체를 맞추고, 더하기와 빼기로 확대/축소하며, Escape로 포커스를 해제합니다.',
+    'map.announce': '{name}, {kind}. 업스트림 {up, number}개, 다운스트림 {down, number}개.',
+    'map.hover': '{name} ({kind})',
+    'map.loading': '맵을 배치하는 중입니다.',
+    'map.unsupported':
+        '맵을 보려면 WebGPU를 지원하는 브라우저가 필요합니다. 다른 페이지는 모두 없이도 작동합니다.',
+    'map.failed': '맵을 그릴 수 없습니다: {error}',
+    'map.lost': '그래픽 장치가 멈춰서 맵을 지웠습니다.',
+    'map.retry': '맵 다시 그리기',
+    'map.find': '노드 찾기',
+    'map.findPlaceholder': '테이블, 모델 또는 작업 이름',
+    'map.matches': '결과 {count, number}개',
+    'map.noMatch': '맵에 일치하는 항목이 없습니다.',
+    'map.labels': '레이블',
+    'map.list': '맵의 노드',
+    'map.shown': '{total, number}개 중 {shown, number}개 표시',
+    'map.locate': '맵에서 {name} 보기',
+    'map.open': '열기',
+    'map.summary': '요약',
+    'map.packages': '패키지별 비율',
+    'map.noPackage': '패키지 없음',
+    'map.orphans': '엣지가 없는 노드: {count, number}개',
+    'map.untested': '테스트가 없는 모델: {count, number}개',
+    'map.layerEnd': '이 계층에는 더 이상 없습니다.',
+    'map.listHelp': '화살표 키로 목록을 이동하고, 맵에서 노드 보기와 페이지 열기 사이를 오갑니다.',
+    'map.dropped': '글리프 아틀라스가 가득 차서 레이블에서 문자 {count, number}개가 빠졌습니다.',
+    'map.tooLarge':
+        '{needed, number}바이트 버퍼는 이 그래픽 장치가 허용하는 크기({limit, number}바이트)보다 큽니다.',
 };
 
 export default messages;

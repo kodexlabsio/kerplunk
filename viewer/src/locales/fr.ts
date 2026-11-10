@@ -28,6 +28,7 @@ const messages: Catalogue = {
     'page.usage': 'Utilisation',
     'page.tests': 'Tests',
     'page.warnings': 'Avertissements',
+    'page.map': 'Carte',
 
     'kind.source': 'Source',
     'kind.seed': 'Seed',
@@ -462,6 +463,43 @@ const messages: Catalogue = {
     'notFound.title': 'Introuvable',
     'notFound.body': 'Rien ne s’appelle {id} dans ce graphe.',
     'notFound.back': 'Aller à la vue d’ensemble',
+
+    'map.lead':
+        '{count, plural, one {# nœud} other {# nœuds}} et {edges, plural, one {# arête} other {# arêtes}} : tout le projet d’un coup d’œil. Cliquez sur un nœud pour ouvrir sa page.',
+    'map.label': 'Carte du projet, {count, plural, one {# nœud} other {# nœuds}}',
+    'map.roledescription': 'carte',
+    'map.help':
+        'Faites glisser pour déplacer la carte et faites défiler pour zoomer. Au clavier, gauche et droite suivent le lignage, haut et bas se déplacent dans une couche, Début va au premier nœud, Entrée ouvre la page, F ou 0 ajuste la carte, plus et moins zooment et Échap retire le focus.',
+    'map.announce':
+        '{name}, {kind}. {up, plural, one {# nœud} other {# nœuds}} en amont, {down, plural, one {# nœud} other {# nœuds}} en aval.',
+    'map.hover': '{name} ({kind})',
+    'map.loading': 'Disposition de la carte en cours.',
+    'map.unsupported':
+        'La carte nécessite un navigateur avec WebGPU. Toutes les autres pages fonctionnent sans.',
+    'map.failed': 'La carte n’a pas pu être dessinée : {error}',
+    'map.lost': 'Le périphérique graphique s’est arrêté, la carte a donc été effacée.',
+    'map.retry': 'Redessiner la carte',
+    'map.find': 'Trouver un nœud',
+    'map.findPlaceholder': 'Nom d’une table, d’un modèle ou d’une tâche',
+    'map.matches': '{count, plural, one {# résultat} other {# résultats}}',
+    'map.noMatch': 'Rien sur la carte ne correspond.',
+    'map.labels': 'Libellés',
+    'map.list': 'Nœuds de la carte',
+    'map.shown': '{shown, number} sur {total, plural, one {# nœud} other {# nœuds}} affichés',
+    'map.locate': 'Afficher {name} sur la carte',
+    'map.open': 'Ouvrir',
+    'map.summary': 'Résumé',
+    'map.packages': 'Part par paquet',
+    'map.noPackage': 'Aucun paquet',
+    'map.orphans': '{count, plural, one {# nœud sans arête} other {# nœuds sans arête}}',
+    'map.untested': '{count, plural, one {# modèle sans test} other {# modèles sans test}}',
+    'map.layerEnd': 'Rien de plus dans cette couche.',
+    'map.listHelp':
+        'Les flèches parcourent la liste et passent de l’affichage d’un nœud sur la carte à l’ouverture de sa page.',
+    'map.dropped':
+        '{count, plural, one {# caractère manque} other {# caractères manquent}} dans les libellés : l’atlas de glyphes est plein.',
+    'map.tooLarge':
+        'un tampon de {needed, number} octets dépasse ce que permet ce périphérique graphique ({limit, number} octets).',
 };
 
 export default messages;
