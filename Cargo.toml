@@ -7,7 +7,7 @@ license = "MIT"
 description = "The native core of Konstruct: graph traversal, name resolution and search"
 publish = false
 # The crate shares the repository root with the Python package; only these are Rust.
-include = ["/Cargo.toml", "/Cargo.lock", "/src/**", "/tests/*.rs"]
+include = ["/Cargo.toml", "/Cargo.lock", "/src/**", "/tests/*.rs", "/benches/*.rs"]
 
 [lib]
 name = "_core"
@@ -23,3 +23,8 @@ python = ["dep:pyo3", "pyo3/abi3-py311"]
 
 [dev-dependencies]
 proptest = "1.12.0"
+
+# Timings of the indexes on a generated project: `cargo bench --bench core`.
+[[bench]]
+name = "core"
+harness = false
