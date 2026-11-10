@@ -176,6 +176,8 @@ Build and Test runs on every push to `main` and on pull requests: Ruff and mypy,
 
 Every action in the workflows and in `action.yml` is pinned to a full commit SHA, with its version in a comment, and the service containers to image digests, so a run is reproducible and a moved tag cannot change what CI executes. Dependabot moves the action SHAs; the image digests, which carry the tag they track, are updated by hand. OpenSSF Scorecard runs weekly and on every push to `main`, and publishes its results to the repository's Security tab.
 
+The zizmor workflow audits the workflows, `action.yml`, the Dependabot configuration and the pre-commit hooks with [zizmor](https://docs.zizmor.sh/) on every pull request (offline) and, with its online audits, on every push to `main` and weekly, and fails on any finding; a finding that is a deliberate choice carries a `# zizmor: ignore[<audit>]` comment beside it that says why. Its version is pinned in the workflow and updated by hand.
+
 ```mermaid
 graph LR
     subgraph "Source Control"

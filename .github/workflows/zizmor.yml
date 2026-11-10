@@ -1,0 +1,68 @@
+name: zizmor
+
+# Audits the workflows, action.yml, the Dependabot configuration and the pre-commit hooks with
+# zizmor, and fails on any finding. A finding that is a deliberate choice carries a
+# `# zizmor: ignore[<audit>]` comment beside it saying why. The findings also go to code scanning,
+# on the Security tab and on pull requests.
+#
+# Pull requests are audited offline. Pushes to main and the weekly run add the online audits
+# (impostor commits, actions with known vulnerabilities, refs that do not match their version
+# comment), which read GitHub's API with the workflow's read-only token.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '47 4 * * 3'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only a pull request's superseded runs are cancelled, so a push never cancels a scheduled run.
+concurrency:
+  group: zizmor-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  ZIZMOR_VERSION: '1.32.0'
+  ZIZMOR_OFFLINE: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read # the audit reads the repository
+      security-events: write # upload the findings to code scanning
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      # Written whatever it finds, so that code scanning sees the findings; the next step fails.
+      # zizmor refuses an empty GH_TOKEN, so it is set only when there is a token to give it.
+      - name: Audit for code scanning
+        env:
+          TOKEN: ${{ github.event_name != 'pull_request' && github.token || '' }}
+        run: |
+          if [ -n "$TOKEN" ]; then export GH_TOKEN="$TOKEN"; fi
+          uvx "zizmor@${ZIZMOR_VERSION}" --no-exit-codes --format sarif . > zizmor.sarif
+
+      - name: Publish to code scanning
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: zizmor.sarif
+          category: zizmor
+
+      - name: Audit
+        env:
+          TOKEN: ${{ github.event_name != 'pull_request' && github.token || '' }}
+        run: |
+          if [ -n "$TOKEN" ]; then export GH_TOKEN="$TOKEN"; fi
+          uvx "zizmor@${ZIZMOR_VERSION}" --format github .
