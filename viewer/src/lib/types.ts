@@ -43,6 +43,8 @@ export interface GraphMeta {
     generated_at?: string;
     konstruct_version?: string;
     dialect?: string;
+    /** Each dbt project's {% docs __overview__ %} text, by project name. */
+    overviews?: Record<string, string>;
     [key: string]: unknown;
 }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import Markdown from '../Markdown.svelte';
     import { i18n, t } from '../../lib/i18n.svelte';
     import { kindName } from '../../lib/labels';
     import { attr, display, strings } from '../../lib/model';
@@ -104,9 +105,9 @@
             {#if attr(n, 'in_warehouse') === false}<li class="badge warn">{t('node.notInWarehouse')}</li>{/if}
             {#each n.origins ?? [] as origin (origin)}<li class="badge quiet">{origin}</li>{/each}
         </ul>
-        {#if n.description}<p class="description">{n.description}</p>{:else if n.kind !== 'test'}<p
-                class="description none"
-            >
+        {#if n.description}<div class="description">
+                <Markdown source={n.description} />
+            </div>{:else if n.kind !== 'test'}<p class="description none">
                 {t('node.noDescription')}
             </p>{/if}
         <div class="actions">

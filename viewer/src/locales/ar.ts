@@ -259,6 +259,7 @@ const messages: Catalogue = {
     'code.copy': 'نسخ',
     'code.copied': 'تم النسخ',
     'code.copyCommand': 'نسخ {command}',
+    'markdown.cut': 'الوصف طويل، لذا تُعرض بدايته فقط.',
 
     'column.formula': 'الصيغة',
     'column.inSources': 'بدلالة أعمدة المصدر',

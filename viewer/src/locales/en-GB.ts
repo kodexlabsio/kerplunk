@@ -255,6 +255,7 @@ const messages = {
     'code.copy': 'Copy',
     'code.copied': 'Copied',
     'code.copyCommand': 'Copy {command}',
+    'markdown.cut': 'The description is long, so only its start is shown.',
 
     'column.formula': 'Formula',
     'column.inSources': 'In terms of source columns',

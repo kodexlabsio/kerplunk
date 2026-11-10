@@ -1,4 +1,5 @@
 <script lang="ts">
+    import Markdown from '../Markdown.svelte';
     import { i18n, t } from '../../lib/i18n.svelte';
     import type { Viewer } from '../../lib/viewer.svelte';
     import Icon from '../Icon.svelte';
@@ -23,7 +24,7 @@
             <p class="eyebrow"><Icon kind="entity" size={16} />{t('kind.entity')}</p>
             <h1 tabindex="-1">{e.name}</h1>
             <p class="relation mono">{t('ontology.keyIs', { key: e.key })}</p>
-            {#if e.description}<p class="description">{e.description}</p>{/if}
+            {#if e.description}<div class="description"><Markdown source={e.description} /></div>{/if}
             <div class="actions">
                 <button
                     type="button"

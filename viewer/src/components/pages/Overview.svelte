@@ -6,6 +6,7 @@
     import { overview } from '../../lib/stats';
     import type { Viewer } from '../../lib/viewer.svelte';
     import Icon from '../Icon.svelte';
+    import Markdown from '../Markdown.svelte';
     import Meter from '../Meter.svelte';
     import NodeLink from '../NodeLink.svelte';
 
@@ -40,6 +41,8 @@
         'term',
     ].filter(k => stats.counts[k]);
     const generated = meta.generated_at ? String(meta.generated_at) : '';
+    // The dbt projects' {% docs __overview__ %} blocks, which dbt's site opens on.
+    const overviews = Object.entries((meta.overviews ?? {}) as Record<string, string>);
 </script>
 
 <article class="page overview">
@@ -65,6 +68,12 @@
             >
         </div>
     </header>
+
+    {#each overviews as [name, text] (name)}
+        <section class="card about" aria-label={name}>
+            <Markdown source={text} />
+        </section>
+    {/each}
 
     <section aria-labelledby="ov-counts">
         <h2 id="ov-counts" class="sr-only">{t('overview.counts')}</h2>

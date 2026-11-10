@@ -254,6 +254,7 @@ const messages: Catalogue = {
     'code.copy': 'कॉपी करें',
     'code.copied': 'कॉपी हो गया',
     'code.copyCommand': '{command} कॉपी करें',
+    'markdown.cut': 'विवरण लंबा है, इसलिए केवल उसकी शुरुआत दिखाई गई है।',
 
     'column.formula': 'सूत्र',
     'column.inSources': 'स्रोत कॉलम के रूप में',

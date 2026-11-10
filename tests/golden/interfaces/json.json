@@ -565,6 +565,8 @@
  "json graph.json .meta.inputs": "object",
  "json graph.json .meta.inputs{}": "int",
  "json graph.json .meta.konstruct_version": "str",
+ "json graph.json .meta.overviews": "object",
+ "json graph.json .meta.overviews.jaffle_shop": "str",
  "json graph.json .meta.root": "str",
  "json graph.json .meta.sources": "list",
  "json graph.json .meta.sources[]": "object",

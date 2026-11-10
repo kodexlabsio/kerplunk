@@ -256,6 +256,7 @@ const messages: Catalogue = {
     'code.copy': 'Copiar',
     'code.copied': 'Copiado',
     'code.copyCommand': 'Copiar {command}',
+    'markdown.cut': 'A descrição é longa, por isso só o início é mostrado.',
 
     'column.formula': 'Fórmula',
     'column.inSources': 'Em termos das colunas de origem',

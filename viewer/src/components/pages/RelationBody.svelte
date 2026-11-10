@@ -1,4 +1,5 @@
 <script lang="ts">
+    import Markdown from '../Markdown.svelte';
     import { untrack } from 'svelte';
     import { i18n, t } from '../../lib/i18n.svelte';
     import { kindName, transformName } from '../../lib/labels';
@@ -192,7 +193,9 @@
                                     >{/if}</th
                             >
                             <td class="mono type">{c.data_type?.toLowerCase() ?? ''}</td>
-                            <td class="desc">{c.description ?? ''}</td>
+                            <td class="desc"
+                                >{#if c.description}<Markdown source={c.description} />{/if}</td
+                            >
                             <td><TestBadges {viewer} id={c.id} /></td>
                             <td>
                                 {#each terms as term (term.id)}<a

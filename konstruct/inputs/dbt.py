@@ -374,6 +374,10 @@ def load(
     metadata = manifest.get('metadata', {})
     dialect = dialect or dialect_for(metadata.get('adapter_type'))
     root = project.root
+    # The project's {% docs __overview__ %} block, which dbt's documentation site opens on.
+    overview = manifest.get('docs', {}).get(f'doc.{project.name}.__overview__', {}).get('block_contents')
+    if isinstance(overview, str) and overview.strip():
+        graph.meta.setdefault('overviews', {})[project.name] = overview.strip()
 
     def rel_path(item: dict[str, Any]) -> str | None:
         path = item.get('original_file_path')

@@ -69,7 +69,28 @@ export default defineConfig({
         reportCompressedSize: false,
     },
     test: {
-        include: ['tests/**/*.test.ts'],
         environment: 'node',
+        projects: [
+            {
+                extends: true,
+                test: {
+                    name: 'unit',
+                    include: ['tests/**/*.test.ts'],
+                    exclude: ['tests/**/*.timing.test.ts'],
+                },
+            },
+            // Timings are compared within one process that has the processor to itself.
+            {
+                extends: true,
+                test: {
+                    name: 'timing',
+                    include: ['tests/**/*.timing.test.ts'],
+                    pool: 'forks',
+                    maxWorkers: 1,
+                    // A later group: it starts once the unit tests have finished.
+                    sequence: { groupOrder: 1 },
+                },
+            },
+        ],
     },
 });

@@ -271,6 +271,8 @@ def test_the_ontology_and_conflicts_are_embedded(jaffle_built_graph: Path, tmp_p
     assert measure['columns'][0]['id'] == 'model.jaffle_shop.orders#amount'
     assert {r['name'] for r in data['ontology']['rules']} >= {'one-formula-per-measure'}
     assert 'model.jaffle_shop.orders' in data['sql']
+    overview = json.loads(embedded_json(page.read_text(encoding='utf-8')))['meta']['overviews']['jaffle_shop']
+    assert overview.startswith('## Data Documentation for Jaffle Shop')
     # Conflicts appear once konstruct conflicts has looked for them.
     assert data['conflicts'] == {}
     assert main(['conflicts', '-C', str(project), '-q']) == 0

@@ -400,6 +400,36 @@ def test_a_served_page_loads_the_graph_and_follows_changes(browser: Any) -> None
         server.shutdown()
 
 
+@pytest.mark.dbt
+def test_markdown_descriptions(jaffle_built_graph: Path, open_page: Any) -> None:
+    graph = jaffle_built_graph / 'konstruct-out' / 'graph.html'
+    page = open_page(graph)
+    # The dbt project's {% docs __overview__ %}, rendered as Markdown with its links.
+    assert 'Data Documentation for Jaffle Shop' in page.inner_text('.about')
+    assert page.get_attribute('.about a:text-is("dbt")', 'href') == 'https://www.getdbt.com/'
+    # A column description's Markdown table is a table.
+    page.goto(graph.as_uri() + '#/node/model.jaffle_shop.orders')
+    page.wait_for_selector('#page h1:text-is("orders")')
+    status = page.locator('#col-table tr[data-column="model.jaffle_shop.orders#status"] .markdown table')
+    assert status.count() == 1 and 'placed' in status.inner_text()
+
+
+def test_deep_quotes_and_long_descriptions(tmp_path: Path, open_page: Any) -> None:
+    graph = Graph()
+    graph.add_node(Node('model.p.deep', 'model', 'deep', description='>' * 10_000, relation='db.s.deep'))
+    graph.add_node(Node('model.p.long', 'model', 'long', description='word ' * 30_000, relation='db.s.long'))
+    path = write_html(graph, tmp_path / 'graph.html')
+    # Quotes nest eight deep, and the rest is text, rather than overflowing the stack.
+    page = open_page(path, '#/node/model.p.deep')
+    assert page.locator('#page .markdown blockquote').count() == 8
+    assert '>' * 9_992 in page.inner_text('#page .markdown')
+    # A description longer than the viewer shows is cut, with a note.
+    page.goto(path.as_uri() + '#/node/model.p.long')
+    page.wait_for_selector('#page h1:text-is("long")')
+    assert 'The description is long, so only its start is shown.' in page.inner_text('#page')
+    assert len(page.inner_text('#page .markdown')) < 101_000
+
+
 def test_hostile_text_is_shown_as_text(tmp_path: Path, open_page: Any) -> None:
     graph = Graph()
     hostile = "</script><script>window.pwned = 1</script><img src=x onerror='window.pwned=2'>"

@@ -250,6 +250,7 @@ const messages: Catalogue = {
     'code.copy': '复制',
     'code.copied': '已复制',
     'code.copyCommand': '复制 {command}',
+    'markdown.cut': '描述较长，只显示开头部分。',
 
     'column.formula': '公式',
     'column.inSources': '以源列表示',

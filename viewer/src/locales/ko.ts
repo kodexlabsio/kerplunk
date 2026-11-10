@@ -252,6 +252,7 @@ const messages: Catalogue = {
     'code.copy': '복사',
     'code.copied': '복사됨',
     'code.copyCommand': '{command} 복사',
+    'markdown.cut': '설명이 길어 앞부분만 표시합니다.',
 
     'column.formula': '수식',
     'column.inSources': '소스 열로 표현한 수식',

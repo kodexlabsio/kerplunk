@@ -252,6 +252,7 @@ const messages: Catalogue = {
     'code.copy': 'コピー',
     'code.copied': 'コピーしました',
     'code.copyCommand': '{command} をコピー',
+    'markdown.cut': '説明が長いため、先頭のみ表示しています。',
 
     'column.formula': '式',
     'column.inSources': 'ソースカラムで表した式',

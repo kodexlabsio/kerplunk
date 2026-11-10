@@ -1,4 +1,5 @@
 <script lang="ts">
+    import Markdown from '../Markdown.svelte';
     import { untrack } from 'svelte';
     import { i18n, t } from '../../lib/i18n.svelte';
     import { attr, strings } from '../../lib/model';
@@ -76,7 +77,7 @@
                             >
                         </dt>
                         <dd>
-                            {#if term.description}<p>{term.description}</p>{/if}
+                            {#if term.description}<Markdown source={term.description} />{/if}
                             <p class="note">
                                 {#if strings(attr(term, 'synonyms')).length}{t('glossary.also', {
                                         names: strings(attr(term, 'synonyms')).join(', '),

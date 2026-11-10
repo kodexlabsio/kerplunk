@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { plainSummary } from '../../lib/markdown';
     import { untrack } from 'svelte';
     import { i18n, t } from '../../lib/i18n.svelte';
     import { kindName } from '../../lib/labels';
@@ -39,7 +40,7 @@
         tests: model.testsOf(n.id).length,
         up: model.upAdj.get(n.id)?.length ?? 0,
         down: model.downAdj.get(n.id)?.length ?? 0,
-        description: n.description ?? '',
+        description: plainSummary(n.description ?? ''),
         tags: model.tagsOf(n),
     }));
     const kinds = VIEW_KINDS.filter(k => all.some(r => r.kind === k));
