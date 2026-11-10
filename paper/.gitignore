@@ -1,0 +1,12 @@
+# LaTeX build output, and the numbers paper/generate.py measures: CI generates both.
+generated/
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+konstruct.pdf

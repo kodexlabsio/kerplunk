@@ -24,6 +24,7 @@ Action and a single offline HTML page.
 | `Cargo.toml`, `src/` | The Rust core, built by maturin as `konstruct._core`: graph walks and paths, relation names, ranked search, and FNV-1a in assembly for each architecture (`src/fnv/`) |
 | `viewer/` | The viewer's source: Svelte 5 and strict TypeScript, built with Vite and pnpm |
 | `docs/` | Sphinx documentation in MyST Markdown, Read the Docs theme |
+| `paper/` | The paper in LaTeX: `konstruct.tex`, `sections/`, `references.bib`, and `generated/` (not committed), which `generate.py` writes by running the experiments the paper reports |
 | `tests/` | pytest suites, golden files in `tests/golden/`, fixtures in `tests/fixtures/` |
 | `examples/jaffle_shop` | dbt Labs' jaffle_shop_duckdb (Apache-2.0) with a DAG and `definitions.yml` |
 | `.kodex/scripts/` | Project scripts: commit rules, services, benchmark, agent benchmark, demo tapes, viewer build check |
@@ -47,6 +48,10 @@ Action and a single offline HTML page.
   `cargo test`, at the repository root: the Rust core. CI also checks it with Rust 1.88, its
   `rust-version`. `uv sync` and `uv run` rebuild the extension after a change under
   `src/`, so the Python tests run against it.
+- `uv run python paper/generate.py`, then `cd paper && latexmk -pdf konstruct.tex`: the paper.
+  Every measurement of Konstruct in it is a macro from `paper/generated/`, which CI generates and
+  git ignores; never type a result by hand. `tests/test_paper.py` fails on a number outside a
+  sentence that cites its source, and on a command, MCP tool or export format the paper misses.
 
 Run the tests, ruff, mypy and, for viewer changes, `pnpm check` and `pnpm test`, and for Rust
 changes `cargo fmt --check`, Clippy with `-D warnings` and `cargo test`, before finishing a

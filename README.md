@@ -27,6 +27,8 @@ Open source, local first, one command.
 <a href="https://kodexlabsio.github.io/konstruct/reference/cli.html">Commands</a>
 &nbsp;&middot;&nbsp;
 <a href="CHANGELOG.md">Changelog</a>
+&nbsp;&middot;&nbsp;
+<a href="https://kodexlabsio.github.io/konstruct/paper/konstruct.pdf">Paper</a>
 </p>
 
 <p align="center">
@@ -257,6 +259,7 @@ The full documentation is at **[kodexlabsio.github.io/konstruct](https://kodexla
 - **Guide:** [inputs and how lineage works](https://kodexlabsio.github.io/konstruct/guide/inputs.html), [the viewer](https://kodexlabsio.github.io/konstruct/guide/viewer.html), [explain](https://kodexlabsio.github.io/konstruct/guide/explain.html), [verify](https://kodexlabsio.github.io/konstruct/guide/verify.html), [reviewing changes](https://kodexlabsio.github.io/konstruct/guide/reviewing-changes.html), [business definitions](https://kodexlabsio.github.io/konstruct/guide/definitions.html), [the ontology](https://kodexlabsio.github.io/konstruct/guide/ontology.html), [Apache Ossie models](https://kodexlabsio.github.io/konstruct/guide/ossie.html), [conflicts](https://kodexlabsio.github.io/konstruct/guide/conflicts.html), [usage](https://kodexlabsio.github.io/konstruct/guide/usage.html), [coding agents](https://kodexlabsio.github.io/konstruct/guide/agents.html)
 - **Reference:** [commands](https://kodexlabsio.github.io/konstruct/reference/cli.html), [Python API](https://kodexlabsio.github.io/konstruct/reference/python-api.html), [MCP server](https://kodexlabsio.github.io/konstruct/reference/mcp.html), [configuration](https://kodexlabsio.github.io/konstruct/reference/configuration.html), [outputs](https://kodexlabsio.github.io/konstruct/reference/outputs.html), [limitations](https://kodexlabsio.github.io/konstruct/reference/limitations.html)
 - **Project:** [development](https://kodexlabsio.github.io/konstruct/development.html), [contributing](CONTRIBUTING.md), [security](SECURITY.md), [changelog](CHANGELOG.md)
+- **Paper:** [Konstruct: Column-Level Lineage Checked Against the Data](https://kodexlabsio.github.io/konstruct/paper/konstruct.pdf), the design, the verification method and its soundness, and the evaluation, with every measurement of Konstruct regenerated from the code
 
 ## Star History
 

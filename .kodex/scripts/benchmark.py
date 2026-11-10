@@ -39,6 +39,8 @@ from konstruct.core.graph import Graph  # noqa: E402
 from tests.test_scale import make_project  # noqa: E402
 
 COLUMNS = 20
+REPEAT = 5
+"""Runs of each query; its median is reported."""
 
 
 def timed(func: Any, *args: Any, **kwargs: Any) -> tuple[float, Any]:
@@ -47,7 +49,7 @@ def timed(func: Any, *args: Any, **kwargs: Any) -> tuple[float, Any]:
     return time.perf_counter() - started, result
 
 
-def median_time(func: Any, *args: Any, repeat: int = 5) -> float:
+def median_time(func: Any, *args: Any, repeat: int = REPEAT) -> float:
     times = []
     for _ in range(repeat):
         elapsed, _ = timed(func, *args)

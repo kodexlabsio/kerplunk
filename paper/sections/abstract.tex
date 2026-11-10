@@ -1,0 +1,24 @@
+\begin{abstract}
+A number on a dashboard is a claim about a chain of SQL, orchestration code and business intent
+that nobody can read end to end. Lineage tools draw that chain but assert it; they do not check it,
+and they rarely say how a value is calculated or what it means. Konstruct is an open-source,
+local-first system that reads a data repository and its warehouse (dbt, SQL, Airflow, Dagster,
+PySpark, Looker, Power BI, Fivetran and Airbyte) and builds one graph of every relation, column,
+task, test, dashboard and business term, with column-level lineage parsed statically from the SQL
+that connects them. It composes each column's expression through every model upstream into a
+formula over source columns, derives an ontology of entities, measures and relationships from the
+code and its tests, reads and writes Apache Ossie semantic models, and gives coding agents the
+graph through an MCP server and a gate that a change must pass. Its central idea is that lineage
+should be measured, not asserted: \cmd{konstruct verify} perturbs each input column of each
+model, reruns the model's SQL and compares what changed with what the graph claims, so that a
+missing edge shows up as a dependency the graph does not explain, reproducible from the recorded
+seed. On dbt Labs' jaffle-shop all \jsConfirmed{} of \jsClaimed{} claimed column edges are
+confirmed with \jsUnexplained{} unexplained influences; on the bundled example, of
+\exDeletedEdges{} verified edges whose input is not also a join, filter or grouping column, each
+deleted in turn, verification reports \exDeletedEdgesPct{}\% as unexplained; \ossieNamedPortable{}
+of the \ossieNamedElements{} elements of the Apache Ossie portability fixtures in a form the
+specification allows survive a round trip unchanged; and a cold build of \perfLargestModels{}
+generated models with \perfLargestEdges{} column edges takes \perfLargestCold{}~s on
+\machineCores{} CPUs. Every measurement of Konstruct in this paper is regenerated from the code by
+continuous integration.
+\end{abstract}

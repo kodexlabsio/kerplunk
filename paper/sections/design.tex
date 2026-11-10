@@ -1,0 +1,321 @@
+\section{System Design}
+\label{sec:design}
+
+Konstruct is a Python package, with graph walks, relation names and search in a Rust extension,
+that reads a repository and the warehouses its dbt profiles name,
+and writes \cmd{konstruct-out/graph.json}, \cmd{REPORT.md}, \cmd{graph.html} and
+\cmd{ontology.yml}. Three rules shape it. It never imports or executes user orchestration code:
+DAG, Dagster and PySpark files are parsed with \cmd{ast}, dbt Jinja is rendered in a sandbox, and
+\cmd{konstruct verify} runs a model's SQL only on copies of its inputs or inside a transaction that
+is rolled back; on DuckDB copies it turns DuckDB's external access and extension autoloading off, so a
+model that reads files or URLs directly is skipped. The one exception is dbt itself: by default, when a dbt project's artefacts are
+missing or stale, \cmd{konstruct build} runs \cmd{dbt docs generate}, which runs the project's
+macros and on-run hooks with its own profile, and those can write to the warehouse; with
+\cmd{--no-dbt}, the GitHub Action's default, dbt never runs. Apart from that, it reads warehouses
+for metadata only, makes no network requests of its own beyond the warehouses it is configured to
+read, and collects no telemetry; when it runs dbt, it turns dbt's anonymous usage statistics off.
+And everything it claims about lineage is tested, including against data (\cref{sec:verify}).
+
+\subsection{The Graph Model}
+\label{sec:graph}
+
+The graph is a typed, directed multigraph $G = (V, E)$. Each node $v \in V$ has a kind
+$\mathit{kind}(v)$ among \emph{source}, \emph{table}, \emph{model}, \emph{seed}, \emph{snapshot},
+\emph{column}, \emph{dag}, \emph{task}, \emph{test}, \emph{exposure} and \emph{term}; each edge
+$(u, v, k) \in E$ has a kind $k$ among \emph{contains}, \emph{feeds}, \emph{derived\_from},
+\emph{runs}, \emph{precedes}, \emph{tests}, \emph{defines} and \emph{relates\_to}, and carries
+attributes. Let $\R \subseteq V$ be the relations (sources, tables, models, seeds and snapshots)
+and $C \subseteq V$ the columns, each with a parent relation $p(c) \in \R$. Two relations are at
+the heart of the model:
+\begin{align}
+  \D &= \{(c, c', \tau) : c \text{ is derived from } c'\} \subseteq C \times C \times \Theta, \label{eq:lineage}\\
+  \mathcal{F} &= \{(c', r) : r \text{ joins, filters or groups on } c'\} \subseteq C \times \R. \label{eq:refs}
+\end{align}
+The transform $\tau \in \Theta = \{\textit{direct}, \textit{transformed}\}$ is \emph{direct} when the path from $c'$ to $c$ is made only of column
+references and renames, and \emph{transformed} otherwise. $\D$ says where a value comes from;
+$\mathcal{F}$ says which columns decide the rows a relation returns, and is stored as
+\emph{feeds} edges with the role \emph{reference}. Keeping the two apart matters: a filter column
+changes which rows a model returns, but marking every downstream column as derived from it would
+bury the answer to ``what does this column depend on''.
+
+Each relation has a canonical key $\rel(r)$, its lower-case \cmd{catalog.schema.name}. Nodes from
+different tools that describe one physical relation (a dbt model, the warehouse table it
+materialises, the target of an Airflow SQL task, an Iceberg table) share a key, and SQL that names
+the key resolves to one of them by a fixed priority, so a chain of derivations crosses tools
+without any configuration. \cmd{impact} and \cmd{trace} are the forward and backward closures
+over $\D$, $\mathcal{F}$ and the task edges, reported with the transform at each step and the
+business entities the walk reaches; \cmd{path} is a shortest path between two nodes in either
+direction.
+
+\subsection{SQL Column Lineage and Canonical Expressions}
+\label{sec:sql}
+
+For each statement, Konstruct qualifies every column against the columns it knows: those from
+the dbt catalog or the warehouse, and those of upstream models analysed earlier in dependency
+order, so \cmd{SELECT *} expands. It then follows each output column through CTEs, subqueries,
+aliases, unions, window functions and nested fields to physical columns with sqlglot's
+lineage~\citep{sqlglot}, in the dialect of the dbt adapter, one of the \sqlDialects{} dialects that adapters map to.
+\cmd{CREATE ... AS}, \cmd{INSERT ... SELECT}, \cmd{MERGE}, \cmd{UPDATE}, \cmd{DELETE} and
+\cmd{COPY} give the relation they write.
+
+Alongside the edges, Konstruct keeps each output column's \emph{canonical expression}: its SQL
+with every column replaced, recursively, by the canonical expression of what it reads, until only
+physical columns remain. For a lineage node $n$,
+\begin{equation}
+  \kappa(n) =
+  \begin{cases}
+    \rel(t).a & \text{column $a$ of table $t$},\\
+    \mathrm{op}\big(\mathrm{sort}\,\kappa(\mathrm{ch}(n))\big) & \text{set operation},\\
+    e_n\big[x \mapsto \langle \kappa(\mathrm{ch}_x(n)) \rangle\big] & \text{otherwise},
+  \end{cases}
+  \label{eq:canonical}
+\end{equation}
+where $e_n$ is the node's expression, $\mathrm{ch}_x(n)$ the child that column $x$ resolves to,
+and $\langle\cdot\rangle$ brackets an inlined expression unless it is a name. The join, filter,
+grouping, \cmd{HAVING} and \cmd{QUALIFY} conditions of each scope are kept in the same form.
+Because CTE names, aliases, quoting, formatting and column order disappear in $\kappa$, two
+versions of a model that differ only in those have equal canonical expressions. \cmd{konstruct
+diff} relies on this: it reports a change only when a column's canonical expression or a
+condition changes, and a removed column as breaking only when something downstream still reads
+it. A model whose Jinja has not been compiled is rendered by Konstruct's own sandboxed renderer,
+with \cmd{ref}, \cmd{source}, \cmd{var}, the project's and packages' macros and
+\cmd{adapter.dispatch}; macros that would query the warehouse return empty results.
+
+\subsection{Formula Composition}
+\label{sec:compose}
+
+A canonical expression stops at the boundary of a model. \cmd{konstruct explain} composes it
+through every model and task upstream. For a column $c$ with canonical expression $e(c)$ and
+inputs $\inputs(c) = \{c' : (c, c', \tau) \in \D\}$, the composed formula is
+\begin{equation}
+  \varphi(c) =
+  \begin{cases}
+    c & \text{if } \inputs(c) = \emptyset,\\
+    e(c)\big[c' \mapsto \langle \varphi(c') \rangle\big]_{c' \in \inputs(c)} & \text{otherwise},
+  \end{cases}
+  \label{eq:compose}
+\end{equation}
+a source column standing for itself. In the bundled example, \cmd{customer\_ltv.lifetime\_value} reads as
+\cmd{\exLtvFormula{}}, across an Airflow SQL task, a dbt mart and a staging model. Composition is
+memoised, so each column is composed once however many columns read it; a cycle, a depth beyond
+\maxDepth{} columns or a formula longer than \maxComposed{} characters stops substitution and
+leaves the column as a reference, and the formula is then marked incomplete. The budget is checked
+before substituting, since a formula can grow quickly when a column reads several inputs that
+each compose to long formulas.
+
+$\varphi$ describes values, not rows. Substitution is exact for the expression, but the joins,
+filters and grouping of every step decide which rows reach it, and folding them into a single
+expression would be wrong for aggregates. \cmd{explain} therefore lists each step with its
+conditions beside the formula, and a test evaluates composed formulas of chains without joins,
+filters or aggregation directly on the source tables and requires them to give the final model's
+values row for row.
+
+\paragraph{Composition as text with operand-sensitive contexts}
+The viewer shows every column's composed formula, so a build composes all of them. Building each
+$\varphi(c)$ as a tree copies and prints ever larger trees. Konstruct instead prints each column's
+own expression once, with each input replaced by a placeholder token, and splices the composed
+texts of the inputs into the printed string, adding the brackets the composed tree would keep.
+This is only correct where the printer's output for a node does not depend on what its operand is:
+BigQuery prints \cmd{MOD} differently by operand, T-SQL rewrites a non-boolean condition as a
+comparison with zero, and DuckDB's string functions and \cmd{INTERVAL} and \cmd{ANY} look at their
+arguments. Konstruct keeps an explicit set $T$ of \textContexts{} node kinds whose printing is
+operand-insensitive in every dialect (arithmetic, comparisons, \cmd{COALESCE}, \cmd{CASE}, the
+core aggregates, \cmd{CAST}, \cmd{IN}, \cmd{LIKE}, window specifications, field access and a few
+others), and uses text only when every input sits in such a context:
+
+\begin{algorithm}[t]
+\caption{Composing a column's formula as text}
+\label{alg:text}
+\begin{algorithmic}[1]
+\Require column $c$, memo $M$
+\If{$c \in M$} \Return $M[c]$ \EndIf
+\State $t \gets$ parse$(e(c))$;\ $S \gets \emptyset$
+\For{each column reference $x$ in $t$ resolving to $c' \in \inputs(c)$}
+  \State $s \gets$ \Call{ComposeText}{$c'$}
+  \If{the parent of $x$, past brackets, is not in $T$} \Return \Call{ComposeTree}{$c$} \EndIf
+  \State replace $x$ by a fresh token $k$;\ $S[k] \gets s$
+\EndFor
+\State decide, for each $k$, whether $S[k]$ needs brackets in its parent; drop redundant ones
+\State $p \gets$ print$(t)$ in the dialect
+\If{a token is printed other than exactly once} \Return \Call{ComposeTree}{$c$} \EndIf
+\State $M[c] \gets$ $p$ with each token $k$ replaced by $S[k]$
+\State \Return $M[c]$
+\end{algorithmic}
+\end{algorithm}
+
+\noindent The invariant is that \cref{alg:text} returns exactly the string that printing the tidied
+tree of \cref{eq:compose} would. It holds by construction where it uses text: a node in $T$ prints
+its operands' strings unchanged, and the bracket decision uses the kind of node an input's
+formula starts with (before and after its own brackets are tidied), which is what the tree printer
+looks at. Elsewhere it falls back to the tree. The test suite checks the invariant on every column
+of a built project and on each input shape in each context in several dialects.
+
+\subsection{One Chain Across Tools}
+\label{sec:chains}
+
+Every input contributes nodes and edges to the same graph, keyed so that the same relation is one
+node:
+\begin{itemize}
+  \item \textbf{dbt}: models, seeds, snapshots, sources, tests, constraints and exposures from the
+  manifest and catalog, with compiled SQL for lineage, or SQL rendered without dbt.
+  \item \textbf{SQL}: standalone files and warehouse view definitions.
+  \item \textbf{Airflow}: DAGs, TaskFlow, TaskGroups and every dependency syntax, parsed with
+  \cmd{ast}; dbt commands in Bash, Cosmos and dbt operators resolved to models with dbt's selection
+  syntax; inline and file SQL with column lineage; inlet and outlet assets.
+  \item \textbf{Dagster}: assets, multi-assets and dbt assets with their selections, op jobs
+  (nested graphs, aliases, fan-in, dynamic mapping), schedules and sensors, with column lineage
+  from the SQL an asset or op runs.
+  \item \textbf{PySpark}: the SQL a job passes to a Spark session, in the Spark dialect.
+  \item \textbf{Dashboards}: dbt exposures, Looker views field by field from LookML, and Power BI
+  semantic models from TMDL, with DAX references resolved across tables.
+  \item \textbf{Loaders}: the tables Fivetran and Airbyte land, as sync tasks per schema, and
+  column lineage from each Fivetran source system when its Platform Connector's tables are in the
+  warehouse.
+  \item \textbf{Warehouses}: DuckDB, Postgres, Snowflake, BigQuery, Databricks, Trino and Iceberg
+  through any PyIceberg catalogue, read for tables, columns, types, comments, keys and views.
+  \item \textbf{Meaning}: \cmd{definitions.yml}, SKOS and OWL vocabularies~\citep{skos,owl2},
+  Apache Ossie models, and column usage from the query history of \usageWarehouses{} warehouses.
+\end{itemize}
+A column computed in dbt, copied into a reporting table by an Airflow SQL task, written by a
+Dagster asset and read by a Looker field is therefore one chain, and so is a chain across several
+repositories that share a warehouse.
+
+\subsection{Builds, Caching and Parallelism}
+\label{sec:build}
+
+Analysing SQL dominates a build. Each analysis is cached under a content key; for a dbt model $m$,
+\begin{equation}
+  k(m) = \mathrm{SHA256}\big(\textit{sql}_m,\ d,\ \rel(m),\ S(\mathrm{up}(m)),\ \textit{checksum}_m\big),
+  \label{eq:cache}
+\end{equation}
+where $d$ is the dialect and $S(\mathrm{up}(m))$ the columns of the models $m$ reads. Because the
+key holds the upstream schemas, an edit that changes a model's columns invalidates exactly the
+analyses that could see the change. \cmd{konstruct build --update} reuses every other analysis
+and recomputes only the formulas downstream of the change, but it still reads every input, checks
+every key and writes every output, so its cost grows with the project as well as with the change
+(\cref{sec:eval-performance}). A cold build analyses dbt models a level of the DAG at a time in
+worker processes, one per CPU up to \maxWorkers{}, when at least \parallelMinimum{} models are
+ready, with results identical to analysing them in order.
+
+\subsection{The Ontology}
+\label{sec:ontology}
+
+Konstruct derives an ontology from the graph, written to \cmd{ontology.yml} on every build and
+shown by \cmd{konstruct ontology}. Most of it is read from code and tests rather than declared:
+
+\paragraph{Entities} A column $k$ is an \emph{entity key} when its name is identifier-like
+(\cmd{customer\_id}, \cmd{order\_key}, \cmd{id}) and a dbt \cmd{unique} test vouches for it, or
+when it is a single-column primary key (a dbt constraint, a warehouse primary key, an Iceberg
+identifier field, an Ossie primary key). The entity is named after the key, or after the relation
+for a bare \cmd{id}, and every relation keyed by it holds one row per instance. A term of kind
+\emph{entity} names one explicitly, and a measure's grain (``one row per store'') finds the key of
+the entity it names.
+
+\paragraph{Relationships} A dbt \cmd{relationships} test, an Ossie relationship, or a join that
+equates a column of one entity's relation with another entity's key gives a relationship. Its
+cardinality is claimed only on evidence:
+\begin{equation}
+  \mathrm{card}(a \to b) =
+  \begin{cases}
+    \text{one-to-one} & u(a) \wedge u(b),\\
+    \text{many-to-one} & u(b) \wedge \neg u(a),\\
+    \text{unknown} & \text{otherwise},
+  \end{cases}
+\end{equation}
+where $u(x)$ holds when a test or key shows $x$ unique.
+
+\paragraph{Measures} A business term of kind \emph{measure}, an Ossie metric, or a term bound to
+computed columns is a measure. Each bound column carries $\varphi(c)$, the sources it reaches,
+how many lineage edges on the way \cmd{verify} confirmed, and its usage when query history is read.
+
+\paragraph{Rules} The build holds the ontology to \ontologyRules{} rules; a violation is a warning,
+so \cmd{konstruct build --strict} fails on it. The strongest is \emph{one formula per measure}:
+every column bound to a measure must compute it the same way, compared as \cmd{konstruct
+conflicts} compares columns, by composed formula, sources, filters and joins on the route back to
+source, and the aggregation at the top. The others require entity keys to be unique, entity names
+to be distinct, bound columns to exist and approved terms to have an owner and an approval date.
+
+\subsection{Apache Ossie Round Trips}
+\label{sec:ossie}
+
+Konstruct reads every \cmd{*.ossie.yaml} file, in the released shape, with models in a list, and the newer draft, with one model at the root:
+a dataset becomes the relation its source names, a field the source columns its expression reads,
+a metric a measure, a primary key an entity key and a relationship a relationship. Anything that
+does not resolve is a build warning, including a model-scoped metric that names a field without
+its dataset, which the specification does not allow. \cmd{konstruct export ossie} writes the
+ontology as one model. Writing is \emph{authored-preserving}: a dataset read from an Ossie model is
+written back as authored, and so is each metric whose datasets keep their names, with a
+\cmd{KONSTRUCT} custom extension added that holds the metric's status, owner, approval date,
+entity, and each bound column's formula, sources, verified edges and usage. Every other metric is
+derived from its composed formula, with the portable expression in ANSI SQL and the warehouse
+dialect's expression beside it. If $R$ reads a model and $W$ writes one, the property tested on
+Ossie's own portability ladder is
+\begin{equation}
+  W(R(M)) = M \oplus x
+  \label{eq:roundtrip}
+\end{equation}
+for every model $M$ whose metrics name their fields as the specification requires, where $\oplus\, x$ adds only the
+extension. \Cref{sec:eval-ossie} grades each element.
+
+\subsection{Ontology Packs}
+\label{sec:packs}
+
+Many teams load the same sources. An ontology pack is a definitions file for one source schema
+with a match block; Konstruct ships \packCount{} (\cref{tab:packs}). A schema $\sigma$ matches a
+pack $P$ when it has every table $P$ requires with its required columns, and there is evidence
+that it comes from the source: its name fits one of the pack's patterns, or a loader landed its
+tables. The second condition keeps an application's own \cmd{orders} and \cmd{customers} tables
+from being taken for Shopify's. A match binds the pack's terms to the schema's columns as drafts,
+leaving out terms whose tables or columns are missing, and the project's own terms win over a
+pack's.
+
+\begin{table}[t]
+\centering
+\caption{The ontology packs Konstruct ships: the tables a schema must have, and the entity,
+measure and other terms each binds.}
+\label{tab:packs}
+\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Pack & Tables & Entities & Measures & Terms\\
+\midrule
+\packsTable
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Interfaces and the Agent Gate}
+\label{sec:agents}
+
+The same questions are answered everywhere. The command line has \cliCommands{} commands:
+\cmd{konstruct init}, \cmd{konstruct build}, \cmd{konstruct status} and \cmd{konstruct open} set up,
+build, check and show the graph; \cmd{konstruct impact}, \cmd{konstruct trace}, \cmd{konstruct
+path}, \cmd{konstruct search}, \cmd{konstruct describe}, \cmd{konstruct list} and \cmd{konstruct
+query} walk and find it; \cmd{konstruct explain} and \cmd{konstruct history} give a column's
+formula and when it changed; \cmd{konstruct verify} checks lineage against data;
+\cmd{konstruct diff} and \cmd{konstruct gate} review changes; \cmd{konstruct define},
+\cmd{konstruct ontology} and \cmd{konstruct conflicts} answer what things mean;
+\cmd{konstruct export} writes OpenLineage events (\cmd{openlineage}), Mermaid (\cmd{mermaid}),
+Graphviz (\cmd{dot}), CSV (\cmd{csv}) and Apache Ossie (\cmd{ossie}); and \cmd{konstruct install}
+and \cmd{konstruct mcp} connect coding agents. The Python API, \cmd{konstruct.Project}, returns
+typed results for each question, and \cmd{graph.html} is one offline file with the lineage,
+formulas, terms, verification results and usage.
+
+\paragraph{Grounding agents} \cmd{konstruct mcp} runs a Model Context Protocol server with
+\mcpTools{} tools: \cmd{impact}, \cmd{trace}, \cmd{path}, \cmd{search}, \cmd{describe},
+\cmd{query}, \cmd{explain}, \cmd{history}, \cmd{define}, \cmd{conflicts}, \cmd{ontology},
+\cmd{diff} and \cmd{gate}. Answers are the same structured results the Python API returns, so an
+agent learns a column's formula, its sources, which of its edges the data confirmed, the approved
+definition of the business term it holds, its owner and the entities it touches, before it writes
+a query that joins or aggregates. The server rereads the graph whenever it changes, and
+\cmd{konstruct install} adds a skill for Claude Code and Cursor that tells the agent when to ask.
+
+\paragraph{The gate} An agent that changes a data stack should prove the change is safe before it
+proposes it. \cmd{konstruct gate} compares the working tree with a base, as \cmd{diff} does, and
+fails when the change (a) removes a column that a model, task or dashboard still reads; (b)
+changes what an approved term means, by changing its wording, columns, filters or grain, or the
+canonical expression or row conditions of a column it names or of any column upstream of one; or
+(c) adds a column that computes the same business idea as an existing one in a different way, as
+\cmd{conflicts} finds, unless the two are bound to different terms. Each finding says what to do,
+so an agent can fix the change and run the gate again. The GitHub Action runs the same check on a
+pull request when it is configured with \cmd{gate: true}.

@@ -1,0 +1,72 @@
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Data provenance}
+Database research distinguishes \emph{why}-provenance (which input tuples justify an output),
+\emph{where}-provenance (which input locations a value was copied from) and
+\emph{how}-provenance (how inputs were combined)~\citep{buneman2001why,cheney2009provenance};
+provenance semirings unify how- and why-provenance as annotations computed alongside a
+query~\citep{green2007semirings}. Lineage tracing for data warehouses goes back to Cui, Widom and
+Wiener~\citep{cui2000tracing,cui2003lineage}, and systems such as Perm compute provenance by
+rewriting queries~\citep{glavic2009perm}. These are mostly \emph{dynamic}: they annotate data as
+queries run. Müller and Grust derive where- and why-provenance for SQL by a value-less abstract
+interpretation after recording the query's control flow~\citep{muller2015abstract}, which is
+closest in spirit to Konstruct's static analysis. Cheney, Ahmed and Acar cast provenance as
+dependency analysis: an output depends on an input if changing the input can change the
+output~\citep{cheney2007dependency}. That definition is the one \cmd{konstruct verify} tests.
+Perturbation is an established tool for explaining query results: Walenz and Yang analyse how a
+query's answers respond to perturbations of its parameters~\citep{walenz2016perturbation}, and
+counterfactual causality and influence-based explanations remove or change tuples to see what an
+answer depends on~\citep{meliou2010causality,wu2013scorpion}. Konstruct applies the idea to a
+different question: not why a particular answer is what it is, but whether a static lineage claim
+about a query holds on the data.
+
+\paragraph{Column lineage tools}
+OpenLineage is an open standard for lineage events emitted by running jobs, with column-level
+lineage as a dataset facet, and Marquez is its reference
+implementation~\citep{openlineage,marquez}. SQLLineage and sqlglot's lineage module trace columns
+through a SQL statement and run locally; sqlglot's lineage nodes carry the expression of each
+step~\citep{sqllineage,sqlglot}, and Konstruct builds on sqlglot. SQLMesh, also built on sqlglot,
+derives column-level lineage locally from its own understanding of a project's
+SQL~\citep{sqlmesh}. dbt Explorer offers column-level lineage for dbt projects in dbt Labs' hosted
+service~\citep{dbtcll}, and metadata platforms such as DataHub and OpenMetadata collect lineage
+from many systems into a central service~\citep{datahub,openmetadata}. Konstruct's emphasis is
+different in three ways. It joins lineage across dbt, orchestration code, dashboards and loaders
+in one graph built from a repository with no service. It treats lineage as a claim to be tested
+against the data rather than a fact to be displayed. And it composes each column's expression
+through every model upstream, so lineage carries formulas and conditions, not only edges. It
+writes OpenLineage events, so it complements rather than replaces these systems.
+
+\paragraph{Semantic layers and Apache Ossie}
+Semantic layers such as the dbt Semantic Layer with MetricFlow and Looker's LookML define metrics
+once over physical tables~\citep{dbtsemantic,lookml}. Apache Ossie, formerly the Open Semantic
+Interchange, is a vendor-neutral YAML specification for such models (datasets, fields,
+relationships and metrics), with a portability ladder that grades how well a converter preserves
+each element~\citep{ossie}. The specification describes what a metric is, but not where its
+inputs come from, who owns it or whether its lineage holds. Konstruct reads Ossie models as an
+input and writes its ontology as one, adding exactly those facts in a custom extension
+(\cref{sec:ossie}).
+
+\paragraph{Knowledge graphs and text-to-SQL}
+Benchmarks of language models on databases show a large gap between toy and enterprise settings.
+Spider measured cross-domain text-to-SQL~\citep{yu2018spider}; BIRD added large, dirty databases
+and external knowledge~\citep{li2023bird}; Spider 2.0 moved to enterprise workflows across
+dialects and dbt projects~\citep{lei2025spider2}. Sequeda et al.\ showed that a knowledge graph of
+the business more than triples GPT-4's accuracy on enterprise questions~\citep{sequeda2023benchmark}.
+Konstruct produces such a graph from the code that already exists, with entities, measures,
+relationships and verified formulas, and serves it to agents through the Model Context
+Protocol~\citep{mcp}.
+
+\paragraph{Static analysis of orchestration code}
+Airflow and Dagster discover pipelines by importing user Python modules~\citep{airflow,dagster}.
+Importing executes arbitrary code at analysis time, which is unacceptable in a review tool that
+runs on every pull request. Konstruct parses DAG and asset files with Python's \cmd{ast} module and
+never imports them; its parsers are tested for parity against Airflow's own DagBag and Dagster's
+own asset and job graphs on the fixtures in its test suite.
+
+\paragraph{Testing analyses with data}
+Differential testing compares two implementations on generated inputs~\citep{mckeeman1998differential},
+and has found many bugs in database engines~\citep{rigger2020pqs}; property-based testing generates
+the inputs~\citep{maciver2019hypothesis}. Mutation testing measures a test's power by seeding
+faults and counting those it detects~\citep{jia2011mutation}. Konstruct uses all three to test its
+own verifier (\cref{sec:evaluation}).

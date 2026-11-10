@@ -1,0 +1,201 @@
+\section{Evaluation}
+\label{sec:evaluation}
+
+\begin{table*}[t]
+\centering
+\caption{Build and query times on generated dbt projects. Builds in seconds, queries in
+milliseconds, \cmd{graph.html} in megabytes.}
+\label{tab:performance}
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}rrrrrrrrrr@{}}
+\toprule
+Models & Columns & Column edges & Cold build & Update, no change & Update, one edit & Impact & Trace & Explain & graph.html\\
+\midrule
+\performanceTable
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\begin{table*}[t]
+\centering
+\caption{The Apache Ossie portability ladder, read and written back by Konstruct and graded
+element by element in the ladder's outcome vocabulary.}
+\label{tab:ossie}
+\small
+\begin{tabular}{@{}lllll@{}}
+\toprule
+Rung & Construct under test & Dialect tag & Reference form & Outcomes\\
+\midrule
+\ossieTable
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Every measurement in this section is written by the script \cmd{paper/generate.py}, which runs the experiments
+below on Konstruct \konstructVersion{} with sqlglot \sqlglotVersion{}, DuckDB \duckdbVersion{},
+dbt-core \dbtVersion{} and Python \pythonVersion{}, on a machine with \machineCores{} logical CPUs
+(\machineCpu{}, \machineSystem{}). Continuous integration runs it on every change and builds this
+PDF from its output. Every verification uses the seed \verifySeed{}.
+
+\subsection{Lineage Against the Data}
+\label{sec:eval-verify}
+
+\Cref{tab:verify} gives the results of \cmd{konstruct verify} on three workloads. The bundled
+example is dbt Labs' jaffle\_shop\_duckdb with an Airflow DAG whose SQL task builds a reporting
+table from a dbt mart. jaffle-shop is dbt Labs' current
+sandbox project~\citep{jaffleshop} at commit \cmd{\jsCommit{}}, with sources over seeds, packages
+and macros, built with dbt and DuckDB. The differential workload generates queries with
+Hypothesis~\citep{maciver2019hypothesis} (arithmetic, \cmd{CASE}, window functions,
+concatenation, \cmd{COALESCE} over \cmd{NULLIF}, with and without a CTE layer and a filter), runs
+each on generated data and requires verification to find nothing unexplained.
+
+\begin{table}[t]
+\centering
+\caption{Static lineage checked against the data. Claimed: column edges the graph claims;
+confirmed: those whose output changed when the input was perturbed; via references: observed
+influences of join, filter and grouping columns, all predicted; unexplained: influences the graph
+did not predict.}
+\label{tab:verify}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Workload & Models & Claimed & Confirmed & Via refs & Unexpl.\\
+\midrule
+Example & \exVerifiedModels & \exClaimed & \exConfirmed & \exThroughReferences & \exUnexplained\\
+jaffle-shop & \jsVerifiedModels & \jsClaimed & \jsConfirmed & \jsThroughReferences & \jsUnexplained\\
+Generated & \diffQueries{} queries & & & & \diffFailing\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On the bundled example, \exConfirmed{} of \exClaimed{} claimed edges (\exConfirmedPct\%) are
+confirmed, \exNotExercised{} are not exercised and \exUnexplained{} influences are unexplained; on
+jaffle-shop, \jsConfirmed{} of \jsClaimed{} (\jsConfirmedPct\%) are confirmed, \jsNotExercised{}
+are not exercised and \jsUnexplained{} are unexplained, across \jsVerifiedModels{} models with
+\jsSkipped{} skipped. The \jsThroughReferences{} influences via references on jaffle-shop are join
+keys, filters and grouping columns whose perturbation changed outputs, each predicted by the
+graph. Of the \diffQueries{} generated queries, \diffFailing{} disagreed with execution.
+\Cref{tab:jaffle} breaks jaffle-shop down by model.
+
+\begin{table}[t]
+\centering
+\caption{jaffle-shop by model: claimed, confirmed and not exercised edges, influences via
+references, and unexplained influences.}
+\label{tab:jaffle}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Model & Cl. & Conf. & N.e. & Refs & Unexpl.\\
+\midrule
+\jaffleShopVerifyTable
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Rendering without dbt} The same project built from Konstruct's own Jinja rendering,
+with dbt's compiled SQL removed from the manifest, gives \jsRenderedEdgesSame{} of the
+\jsCompiledEdges{} column edges and \jsRenderedReferencesSame{} of the \jsCompiledReferences{}
+references that compiled SQL gives, with \jsRenderedEdgesExtra{} column edges and
+\jsRenderedReferencesExtra{} references that compiled SQL does not give. \cmd{diff} and
+\cmd{gate} rely on this rendering for the side of a change that dbt has not compiled.
+
+\subsection{Does Verification Catch Wrong Lineage?}
+\label{sec:eval-sensitivity}
+
+A verifier that confirms everything is worthless, so we measure its power the way mutation
+testing measures a test suite's~\citep{jia2011mutation}: seed a fault into the graph and count how
+often verification reports it. On the bundled example we delete each confirmed edge in turn and
+verify that model again; a deletion is caught when the influence it carried is reported as
+unexplained. Of the \exDeletedEdges{} edges whose input the model does not also join, filter or
+group on, \exDeletedEdgesCaught{} are caught (\exDeletedEdgesPct\%). Of the \exDeletedShared{}
+edges whose input is also a reference, \exDeletedSharedCaught{} are caught: the perturbation still
+changes the output, but the recorded reference explains the change and so masks the deleted
+edge. This half of the experiment measures that masking, the kinds-of-dependency limit of
+\cref{sec:verify}, rather than a failure of the procedure. Deleting each of the \exDeletedReferences{} join,
+filter and grouping references in turn is caught \exDeletedReferencesCaught{} times
+(\exDeletedReferencesPct\%). The test suite adds fabricated edges, which are reported as not
+exercised, and dropped filters, which appear as unexplained changes in row count.
+
+\subsection{Apache Ossie Portability}
+\label{sec:eval-ossie}
+
+Ossie's portability ladder has \ossieRungs{} rungs, from a single \cmd{SUM} metric (M0) to a
+filtered aggregate (M3), with \ossieVariants{} fixtures in all~\citep{ossie}. Each fixture is read
+through a Konstruct build, written back by \cmd{konstruct export ossie} and graded element by
+element in the ladder's own outcome vocabulary (\cref{tab:ossie}). Of the \ossieNamedElements{}
+elements of the qualified and intra-dataset fixtures, \ossieNamedPortable{} return
+\emph{portable}: with the dialect tag they were authored in and the same expression, the model's
+datasets unchanged, as \cref{eq:roundtrip} requires. The bare variants write model-scoped metrics
+as \cmd{SUM(amount)}, which the specification does not allow; Konstruct reports each with a
+warning and leaves it out, so \ossieDroppedDiagnosed{} elements are \emph{dropped, diagnosed},
+\ossieDroppedSilent{} are dropped silently and \ossieRewritten{} are rewritten.
+
+\subsection{Performance}
+\label{sec:eval-performance}
+
+\cmd{.kodex/scripts/benchmark.py} generates dbt projects of increasing size: models in layers,
+each joining earlier models through CTEs, \perfColumnsPerModel{} columns each, with a manifest,
+a catalog and Airflow DAGs. For each it measures a cold build (which writes \cmd{graph.html} with
+every column's composed formula), \cmd{--update} with nothing changed and after editing one model
+in the middle, and the median of \perfQueryRuns{} runs of \cmd{impact}, \cmd{trace} and \cmd{explain} on the
+deepest model (\cref{tab:performance,fig:performance}).
+
+The cold build of \perfLargestModels{} models, \perfLargestColumns{} columns and
+\perfLargestEdges{} column edges takes \perfLargestCold{}~s, an update after one edit
+\perfLargestUpdate{}~s, an \cmd{impact} query \perfLargestImpact{}~ms and an \cmd{explain}
+\perfLargestExplain{}~ms. An update with nothing changed still takes \perfLargestUnchanged{}~s at
+that size, since it reads every input and writes every output. Fitting $\log t = a + b \log n$
+over the \perfSizes{} sizes, where $t$ is the time and $n$ the number of models, gives an exponent
+$b$ of \perfExponentCold{} for the cold build (\rsq{} \perfExponentColdFit{}), \perfExponentUpdate{}
+for an update after one edit (\rsq{} \perfExponentUpdateFit{}) and \perfExponentUnchanged{} for an
+update with nothing changed (\rsq{} \perfExponentUnchangedFit{}); an exponent of one would be linear
+growth.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=\columnwidth, height=0.62\columnwidth,
+  xlabel={Models}, ylabel={Seconds},
+  xmode=log, ymode=log, log basis x=10, log basis y=10,
+  grid=major, grid style={draw=rule!30},
+  legend pos=south east, legend style={font=\footnotesize, draw=none, fill=white, fill opacity=0.85, text opacity=1},
+  tick label style={font=\footnotesize}, label style={font=\footnotesize},
+  cycle list={{accent,thick},{rule!90!black,thick},{accent!45,thick,dashed}},
+]
+\input{generated/performance-plot}
+\legend{Cold build, Update after one edit, Update with nothing changed}
+\end{axis}
+\end{tikzpicture}
+\caption{Build time against project size, on logarithmic axes.}
+\label{fig:performance}
+\end{figure}
+
+\subsection{The Agent Benchmark}
+\label{sec:eval-agents}
+
+Whether grounding helps an agent is an empirical question, and Konstruct ships the harness to ask
+it. \cmd{.kodex/scripts/agent\_benchmark.py} runs a coding agent on Spider 2.0-DBT, dbt projects on
+DuckDB each with an instruction and a gold database~\citep{lei2025spider2}, in two arms: the
+project as shipped, and the same project after \cmd{konstruct build} and \cmd{konstruct install},
+optionally with the MCP server registered. Both arms receive the same prompt, which carries the
+benchmark's own hints and does not mention Konstruct. Each copy is its own git repository outside
+any other, so the agent reads no instructions from above it. As in the benchmark's protocol, the
+agent runs \cmd{dbt run} itself, and the database the project's profile writes is scored as the
+agent leaves it with the benchmark's own \cmd{duckdb\_match}. Timeouts stop the agent and
+everything it started, and an interrupted run resumes. The design isolates one variable: the
+presence of the graph, the formulas and the definitions.
+
+\subsection{Keeping the Paper True}
+
+The script \cmd{paper/generate.py} runs every experiment above and writes the macros this paper
+uses, and
+\cmd{tests/test\_paper.py} fails when the paper leaves out a command, MCP tool or export format, or
+types a number outside a sentence that cites its source. The test suite itself has
+\testCount{} tests and requires \coverageFloor\% branch coverage. These results above are also
+tests that run on every change: the verification of the bundled example, the verification of
+jaffle-shop, the comparison of Konstruct's rendering with dbt's compiled SQL, and the Ossie
+portability grades. A regression in any of them fails the build before it can reach this paper.

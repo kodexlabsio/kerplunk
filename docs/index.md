@@ -23,6 +23,7 @@ What it does that lineage tools usually leave out:
 - [The Graph Viewer](guide/viewer.md): the single-file page Konstruct writes with every build.
 - [The GitHub Action](guide/github-action.md): review pull requests column by column.
 - [Command Line](reference/cli.md) and [Python API](reference/python-api.md): every command and class.
+- [The paper](https://kodexlabsio.github.io/konstruct/paper/konstruct.pdf): the design, verification by perturbation and its soundness, and the evaluation, rebuilt from the code with these pages.
 
 ```{toctree}
 :hidden:

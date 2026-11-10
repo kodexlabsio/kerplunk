@@ -67,6 +67,7 @@ uv run pytest --cov                             # everything, with branch covera
 | Agent benchmark | `test_agent_benchmark` | The harness on a miniature Spider 2.0-DBT tree with a scripted agent: both arms, the same prompt, the graph and skill only in the Konstruct arm, the database the profile writes, scoring, timeouts that stop what the agent started, refusing an output directory with instructions above it, and resuming |
 | Survey | `test_survey` | The public-project survey on local git repositories: a dbt project built through a generated DuckDB profile with file and network access off, one that is not dbt and one that does not clone, a project that cannot write outside its database or read the surveyor's environment, pinning by commit, the timeout, `env_var` profile names, the aggregate summary naming no project, and resuming |
 | Rust core | `src/`, `tests/properties.rs` (`cargo test`) | Walks, neighbours, paths and relation names against brute-force scans on generated graphs; search ranking, limits and kinds; FNV-1a 64 against its published vectors and precomputed hashes on every supported architecture |
+| Paper | `test_paper` | The paper names every command, MCP tool and export format, types no number outside a sentence that cites its source (every measurement is a generated macro), uses only macros `paper/generate.py` writes, and has no dashes |
 | Parity | `test_airflow_parity` | The static Airflow parser against Airflow's own DagBag (needs Airflow; see the file for the command) |
 | Fuzzing | `fuzz/` | Atheris (coverage-guided) harnesses for the readers of untrusted input: `fuzz_sql.py` (the SQL analysis, in each dialect), `fuzz_python.py` (the Airflow, Dagster and PySpark readers) and `fuzz_yaml.py` (definitions and Ossie files). Each reader must report what it cannot read and never raise. The Fuzz workflow runs each for two minutes on pull requests that change the package and twenty weekly; locally, `uv run --with atheris==3.1.0 python fuzz/fuzz_sql.py -max_total_time=60` (Linux; atheris has wheels for Linux only). A crash is fixed with a test for the input, as in `test_sql` and `test_build` |
 
@@ -124,6 +125,7 @@ Pre-commit hooks check formatting and types and rebuild the page when `viewer/` 
 
 - `uv run ruff check`, `uv run ruff format`, `uv run mypy`: lint, format and type check (strict)
 - `uv run .kodex/scripts/prepare_example.py`: build the example warehouse
+- `uv run python paper/generate.py`, then `latexmk -pdf konstruct.tex` in `paper/`: measure every result of Konstruct the paper quotes and build the PDF (TeX Live with `latexmk`, `texlive-latex-extra`, `texlive-fonts-recommended` and `texlive-science`); `--only` reruns some sections and `--sizes` sets the benchmark's project sizes
 - `vhs .kodex/scripts/demo-cli.tape`: re-record `docs/images/demo-cli.gif`
 - `.kodex/scripts/demo_diff_setup.sh && vhs .kodex/scripts/demo-diff.tape`: re-record `docs/images/demo-diff.gif`
 - `vhs .kodex/scripts/demo-claude-code.tape`: record the same question through `/konstruct` in Claude Code (needs Claude Code signed in)

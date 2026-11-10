@@ -1,0 +1,402 @@
+% References for paper/konstruct.tex. Page ranges are left out: BibTeX styles print them with an
+% en dash, which the project's writing style does not use.
+
+% Data provenance and lineage
+
+@article{cui2000tracing,
+  author    = {Cui, Yingwei and Widom, Jennifer and Wiener, Janet L.},
+  title     = {Tracing the Lineage of View Data in a Warehousing Environment},
+  journal   = {ACM Transactions on Database Systems},
+  volume    = {25},
+  number    = {2},
+  year      = {2000},
+  doi       = {10.1145/357775.357777}
+}
+
+@article{cui2003lineage,
+  author    = {Cui, Yingwei and Widom, Jennifer},
+  title     = {Lineage Tracing for General Data Warehouse Transformations},
+  journal   = {The VLDB Journal},
+  volume    = {12},
+  number    = {1},
+  year      = {2003},
+  doi       = {10.1007/s00778-002-0083-8}
+}
+
+@inproceedings{buneman2001why,
+  author    = {Buneman, Peter and Khanna, Sanjeev and Tan, Wang-Chiew},
+  title     = {Why and Where: A Characterization of Data Provenance},
+  booktitle = {Proceedings of the 8th International Conference on Database Theory (ICDT)},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {1973},
+  publisher = {Springer},
+  year      = {2001},
+  doi       = {10.1007/3-540-44503-X_20}
+}
+
+@inproceedings{green2007semirings,
+  author    = {Green, Todd J. and Karvounarakis, Grigoris and Tannen, Val},
+  title     = {Provenance Semirings},
+  booktitle = {Proceedings of the 26th ACM SIGMOD-SIGACT-SIGART Symposium on Principles of Database Systems (PODS)},
+  year      = {2007},
+  doi       = {10.1145/1265530.1265535}
+}
+
+@article{cheney2009provenance,
+  author    = {Cheney, James and Chiticariu, Laura and Tan, Wang-Chiew},
+  title     = {Provenance in Databases: Why, How, and Where},
+  journal   = {Foundations and Trends in Databases},
+  volume    = {1},
+  number    = {4},
+  year      = {2009},
+  doi       = {10.1561/1900000006}
+}
+
+@inproceedings{cheney2007dependency,
+  author    = {Cheney, James and Ahmed, Amal and Acar, Umut A.},
+  title     = {Provenance as Dependency Analysis},
+  booktitle = {Database Programming Languages (DBPL)},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {4797},
+  publisher = {Springer},
+  year      = {2007},
+  doi       = {10.1007/978-3-540-75987-4_10}
+}
+
+@inproceedings{glavic2009perm,
+  author    = {Glavic, Boris and Alonso, Gustavo},
+  title     = {Perm: Processing Provenance and Data on the Same Data Model through Query Rewriting},
+  booktitle = {Proceedings of the 25th IEEE International Conference on Data Engineering (ICDE)},
+  year      = {2009},
+  doi       = {10.1109/ICDE.2009.15}
+}
+
+@article{muller2015abstract,
+  author    = {M{\"u}ller, Tobias and Grust, Torsten},
+  title     = {Provenance for {SQL} through Abstract Interpretation: Value-less, but Worthwhile},
+  journal   = {Proceedings of the VLDB Endowment},
+  volume    = {8},
+  number    = {12},
+  year      = {2015},
+  doi       = {10.14778/2824032.2824089}
+}
+
+@article{walenz2016perturbation,
+  author    = {Walenz, Brett and Yang, Jun},
+  title     = {Perturbation Analysis of Database Queries},
+  journal   = {Proceedings of the VLDB Endowment},
+  volume    = {9},
+  number    = {14},
+  year      = {2016},
+  doi       = {10.14778/3007328.3007330}
+}
+
+@article{meliou2010causality,
+  author    = {Meliou, Alexandra and Gatterbauer, Wolfgang and Moore, Katherine F. and Suciu, Dan},
+  title     = {The Complexity of Causality and Responsibility for Query Answers and Non-Answers},
+  journal   = {Proceedings of the VLDB Endowment},
+  volume    = {4},
+  number    = {1},
+  year      = {2010},
+  doi       = {10.14778/1880172.1880176}
+}
+
+@article{wu2013scorpion,
+  author    = {Wu, Eugene and Madden, Samuel},
+  title     = {Scorpion: Explaining Away Outliers in Aggregate Queries},
+  journal   = {Proceedings of the VLDB Endowment},
+  volume    = {6},
+  number    = {8},
+  year      = {2013},
+  doi       = {10.14778/2536354.2536356}
+}
+
+% Lineage tools and standards
+
+@misc{openlineage,
+  author       = {{OpenLineage Project}},
+  title        = {{OpenLineage}: An Open Standard for Lineage Metadata Collection},
+  howpublished = {LF AI \& Data Foundation},
+  note         = {\url{https://openlineage.io/}},
+  year         = {2026}
+}
+
+@misc{marquez,
+  author       = {{Marquez Project}},
+  title        = {Marquez: The Reference Implementation of the {OpenLineage} Specification},
+  howpublished = {LF AI \& Data Foundation},
+  note         = {\url{https://marquezproject.ai/}},
+  year         = {2026}
+}
+
+@misc{sqllineage,
+  author       = {Hu, Reata},
+  title        = {{SQLLineage}: {SQL} Lineage Analysis Tool Powered by {Python}},
+  note         = {\url{https://github.com/reata/sqllineage}},
+  year         = {2026}
+}
+
+@misc{sqlglot,
+  author       = {Mao, Toby and others},
+  title        = {{sqlglot}: a No-Dependency {SQL} Parser, Transpiler, Optimizer and Engine},
+  note         = {Including the \texttt{sqlglot.lineage} module. \url{https://github.com/tobymao/sqlglot}},
+  year         = {2026}
+}
+
+@misc{dbtcll,
+  author       = {{dbt Labs}},
+  title        = {Column-Level Lineage in {dbt} Explorer},
+  howpublished = {dbt Developer Hub},
+  note         = {\url{https://docs.getdbt.com/docs/explore/column-level-lineage}},
+  year         = {2026}
+}
+
+@misc{sqlmesh,
+  author       = {{Tobiko Data}},
+  title        = {{SQLMesh}: Scalable and Efficient Data Transformation},
+  note         = {Column-level lineage from its semantic understanding of SQL. \url{https://github.com/TobikoData/sqlmesh}},
+  year         = {2026}
+}
+
+@misc{datahub,
+  author       = {{DataHub Project}},
+  title        = {{DataHub}: The Metadata Platform for the Modern Data Stack},
+  note         = {Originally developed at LinkedIn. \url{https://github.com/datahub-project/datahub}},
+  year         = {2026}
+}
+
+@misc{openmetadata,
+  author       = {{OpenMetadata Project}},
+  title        = {{OpenMetadata}: A Unified Metadata Platform},
+  note         = {\url{https://github.com/open-metadata/OpenMetadata}},
+  year         = {2026}
+}
+
+@misc{ossie,
+  author       = {{Apache Ossie}},
+  title        = {Apache {Ossie}: an Open Specification for Semantic Models},
+  howpublished = {The Apache Software Foundation},
+  note         = {Formerly the Open Semantic Interchange. \url{https://ossie.apache.org/}},
+  year         = {2026}
+}
+
+@misc{dbtsemantic,
+  author       = {{dbt Labs}},
+  title        = {The {dbt} Semantic Layer and {MetricFlow}},
+  howpublished = {dbt Developer Hub},
+  note         = {\url{https://docs.getdbt.com/docs/use-dbt-semantic-layer/dbt-sl}},
+  year         = {2026}
+}
+
+@misc{lookml,
+  author       = {{Google}},
+  title        = {{LookML} Reference},
+  howpublished = {Looker documentation},
+  note         = {\url{https://cloud.google.com/looker/docs/what-is-lookml}},
+  year         = {2026}
+}
+
+@misc{skos,
+  author       = {Miles, Alistair and Bechhofer, Sean},
+  title        = {{SKOS} Simple Knowledge Organization System Reference},
+  howpublished = {W3C Recommendation},
+  year         = {2009},
+  note         = {\url{https://www.w3.org/TR/skos-reference/}}
+}
+
+@misc{owl2,
+  author       = {{W3C OWL Working Group}},
+  title        = {{OWL} 2 Web Ontology Language Document Overview (Second Edition)},
+  howpublished = {W3C Recommendation},
+  year         = {2012},
+  note         = {\url{https://www.w3.org/TR/owl2-overview/}}
+}
+
+@misc{mcp,
+  author       = {{Model Context Protocol}},
+  title        = {Model Context Protocol Specification},
+  note         = {\url{https://modelcontextprotocol.io/}},
+  year         = {2025}
+}
+
+@misc{airflow,
+  author       = {{Apache Airflow}},
+  title        = {Apache {Airflow}: a Platform to Programmatically Author, Schedule and Monitor Workflows},
+  howpublished = {The Apache Software Foundation},
+  note         = {\url{https://airflow.apache.org/}},
+  year         = {2026}
+}
+
+@misc{dagster,
+  author       = {{Dagster Labs}},
+  title        = {Dagster: an Orchestration Platform for Data Assets},
+  note         = {\url{https://github.com/dagster-io/dagster}},
+  year         = {2026}
+}
+
+@misc{dbtcore,
+  author       = {{dbt Labs}},
+  title        = {{dbt Core}: Transform Data in Your Warehouse},
+  note         = {\url{https://github.com/dbt-labs/dbt-core}},
+  year         = {2026}
+}
+
+@misc{jaffleshop,
+  author       = {{dbt Labs}},
+  title        = {jaffle-shop: a Sandbox Project for Exploring the Basic Functionality and Latest Features of {dbt}},
+  note         = {\url{https://github.com/dbt-labs/jaffle-shop}},
+  year         = {2026}
+}
+
+@inproceedings{raasveldt2019duckdb,
+  author    = {Raasveldt, Mark and M{\"u}hleisen, Hannes},
+  title     = {{DuckDB}: an Embeddable Analytical Database},
+  booktitle = {Proceedings of the 2019 International Conference on Management of Data (SIGMOD)},
+  year      = {2019},
+  doi       = {10.1145/3299869.3320212}
+}
+
+% Testing
+
+@article{maciver2019hypothesis,
+  author    = {MacIver, David R. and Hatfield-Dodds, Zac and others},
+  title     = {Hypothesis: A New Approach to Property-Based Testing},
+  journal   = {Journal of Open Source Software},
+  volume    = {4},
+  number    = {43},
+  year      = {2019},
+  doi       = {10.21105/joss.01891}
+}
+
+@article{mckeeman1998differential,
+  author    = {McKeeman, William M.},
+  title     = {Differential Testing for Software},
+  journal   = {Digital Technical Journal},
+  volume    = {10},
+  number    = {1},
+  year      = {1998}
+}
+
+@inproceedings{rigger2020pqs,
+  author    = {Rigger, Manuel and Su, Zhendong},
+  title     = {Testing Database Engines via Pivoted Query Synthesis},
+  booktitle = {Proceedings of the 14th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2020}
+}
+
+@article{jia2011mutation,
+  author    = {Jia, Yue and Harman, Mark},
+  title     = {An Analysis and Survey of the Development of Mutation Testing},
+  journal   = {IEEE Transactions on Software Engineering},
+  volume    = {37},
+  number    = {5},
+  year      = {2011},
+  doi       = {10.1109/TSE.2010.62}
+}
+
+% Language models on data
+
+@misc{sequeda2023benchmark,
+  author        = {Sequeda, Juan and Allemang, Dean and Jacob, Bryon},
+  title         = {A Benchmark to Understand the Role of Knowledge Graphs on Large Language Model's Accuracy for Question Answering on Enterprise {SQL} Databases},
+  year          = {2023},
+  eprint        = {2311.07509},
+  archiveprefix = {arXiv},
+  note          = {\url{https://arxiv.org/abs/2311.07509}}
+}
+
+@inproceedings{lei2025spider2,
+  author    = {Lei, Fangyu and Chen, Jixuan and Ye, Yuxiao and Cao, Ruisheng and Shin, Dongchan and Su, Hongjin and Suo, Zhaoqing and Gao, Hongcheng and Hu, Wenjing and Yin, Pengcheng and Zhong, Victor and Xiong, Caiming and Sun, Ruoxi and Liu, Qian and Wang, Sida and Yu, Tao},
+  title     = {Spider 2.0: Evaluating Language Models on Real-World Enterprise Text-to-{SQL} Workflows},
+  booktitle = {The Thirteenth International Conference on Learning Representations (ICLR)},
+  year      = {2025},
+  note      = {\url{https://spider2-sql.github.io/}}
+}
+
+@inproceedings{li2023bird,
+  author    = {Li, Jinyang and Hui, Binyuan and Qu, Ge and Yang, Jiaxi and Li, Binhua and Li, Bowen and Wang, Bailin and Qin, Bowen and Geng, Ruiying and Huo, Nan and Zhou, Xuanhe and Ma, Chenhao and Li, Guoliang and Chang, Kevin C. C. and Huang, Fei and Cheng, Reynold and Li, Yongbin},
+  title     = {Can {LLM} Already Serve as a Database Interface? {A} {BIg} Bench for Large-Scale Database Grounded Text-to-{SQLs}},
+  booktitle = {Advances in Neural Information Processing Systems 36 (NeurIPS), Datasets and Benchmarks Track},
+  year      = {2023},
+  note      = {\url{https://arxiv.org/abs/2305.03111}}
+}
+
+@inproceedings{yu2018spider,
+  author    = {Yu, Tao and Zhang, Rui and Yang, Kai and Yasunaga, Michihiro and Wang, Dongxu and Li, Zifan and Ma, James and Li, Irene and Yao, Qingning and Roman, Shanelle and Zhang, Zilin and Radev, Dragomir},
+  title     = {Spider: A Large-Scale Human-Labeled Dataset for Complex and Cross-Domain Semantic Parsing and Text-to-{SQL} Task},
+  booktitle = {Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing (EMNLP)},
+  year      = {2018},
+  doi       = {10.18653/v1/D18-1425}
+}
+
+@misc{dbt2026semantic,
+  author       = {{dbt Labs}},
+  title        = {Semantic Layer vs. Text-to-{SQL}: 2026 Benchmark Update},
+  howpublished = {dbt Developer Blog},
+  year         = {2026},
+  month        = apr,
+  note         = {Vendor study. \url{https://docs.getdbt.com/blog/semantic-layer-vs-text-to-sql-2026}}
+}
+
+% The problem: figures quoted in the introduction
+
+@misc{gartner2020dq,
+  author       = {{Gartner}},
+  title        = {Data Quality: Best Practices for Accurate Insights},
+  howpublished = {Gartner topic page, citing Gartner research from 2020},
+  note         = {\url{https://www.gartner.com/en/data-analytics/topics/data-quality}},
+  year         = {2026}
+}
+
+@misc{montecarlo2023,
+  author       = {{Monte Carlo}},
+  title        = {Data Quality Survey: Data Downtime Nearly Doubled Year over Year},
+  howpublished = {Monte Carlo with Wakefield Research, 200 data professionals, March 2023},
+  year         = {2023},
+  note         = {Vendor survey. \url{https://montecarlo.ai/blog-data-quality-survey}}
+}
+
+@misc{precisely2024,
+  author       = {{Precisely}},
+  title        = {2025 Planning Insights: Data Quality Remains the Top Data Integrity Challenge},
+  howpublished = {Precisely with the LeBow College of Business, Drexel University},
+  year         = {2024},
+  month        = nov,
+  note         = {Vendor survey. \url{https://www.precisely.com/blog/data-integrity/2025-planning-insights-data-quality-remains-the-top-data-integrity-challenges}}
+}
+
+@misc{dbt2026state,
+  author       = {{dbt Labs}},
+  title        = {New {dbt Labs} Report Finds {AI}-Driven Acceleration Is Outpacing Trust and Governance},
+  howpublished = {State of Analytics Engineering, 363 respondents},
+  year         = {2026},
+  month        = apr,
+  note         = {Vendor survey. \url{https://www.getdbt.com/blog/new-dbt-labs-report-finds-ai-driven-acceleration-is-outpacing-trust-and-governance}}
+}
+
+@misc{bcbs2023,
+  author       = {{Basel Committee on Banking Supervision}},
+  title        = {Progress in Adopting the Principles for Effective Risk Data Aggregation and Risk Reporting},
+  howpublished = {Bank for International Settlements},
+  year         = {2023},
+  month        = nov,
+  note         = {\url{https://www.bis.org/bcbs/publ/d559.htm}}
+}
+
+@misc{euaiact,
+  author       = {{European Parliament and Council of the European Union}},
+  title        = {Regulation ({EU}) 2024/1689 Laying Down Harmonised Rules on Artificial Intelligence (Artificial Intelligence Act)},
+  howpublished = {Official Journal of the European Union},
+  year         = {2024},
+  note         = {Article 10, data and data governance. \url{https://artificialintelligenceact.eu/article/10/}}
+}
+
+@article{xia2018comprehension,
+  author    = {Xia, Xin and Bao, Lingfeng and Lo, David and Xing, Zhenchang and Hassan, Ahmed E. and Li, Shanping},
+  title     = {Measuring Program Comprehension: A Large-Scale Field Study with Professionals},
+  journal   = {IEEE Transactions on Software Engineering},
+  volume    = {44},
+  number    = {10},
+  year      = {2018},
+  doi       = {10.1109/TSE.2017.2734091}
+}

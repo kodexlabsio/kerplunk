@@ -1,0 +1,127 @@
+\section{Verification by Perturbation}
+\label{sec:verify}
+
+Static lineage is a claim about SQL. It can be wrong in both directions: an edge can be claimed
+that does not exist (a false edge), and a dependency can exist that no edge records (a missing
+edge). \cmd{konstruct verify} tests the claim against the data, using the definition of
+dependency from provenance as dependency analysis~\citep{cheney2007dependency}: an output column
+depends on an input column if changing the input can change the output.
+
+\subsection{The Method}
+
+Let $Q_m$ be the SQL of a model $m$ (a dbt model or a table built by a SQL file or task), $I$ its
+input relations and $O$ its output columns. Verification copies each input into scratch tables,
+up to a bounded number of rows, so that the warehouse is never written: for DuckDB in an in-memory database with the warehouse
+file attached read only,
+in Postgres inside a transaction that is rolled back, and for Snowflake, BigQuery, Databricks and
+Trino on a sample copied into an in-memory DuckDB database, with the model's SQL translated to
+DuckDB. For each input column $i$ (and each field of a struct column), and each of \perturbations{}
+strategies $s$, it builds a perturbed copy $D_{i,s}$ that differs from the inputs $D$ only in $i$:
+\begin{itemize}
+  \item \emph{shift}: $x \mapsto a x + b$ for numbers, a suffix for strings, days or hours added
+  to dates and timestamps, negation for booleans, with $a$ and $b$ drawn from a seeded generator;
+  \item \emph{null}: every value set to \cmd{NULL};
+  \item \emph{shuffle}: values permuted between rows by a seeded permutation.
+\end{itemize}
+It runs $Q_m$ on $D$ twice, and skips the model if the two results differ, since a
+nondeterministic model cannot have changes attributed to inputs. It then runs $Q_m$ on each
+$D_{i,s}$ and compares the results.
+
+For an output column $o$, write $\sig_o(X)$ for the multiset of $o$'s values in a result $X$. A
+perturbation \emph{changes} $o$ when
+\begin{equation}
+  \sig_o\big(Q_m(D)\big) \neq \sig_o\big(Q_m(D_{i,s})\big),
+  \label{eq:changed}
+\end{equation}
+or, when the multiset is unchanged because values only moved between rows (a \cmd{ROW\_NUMBER()}
+ordered by $i$ still yields the same numbers), when the multiset of pairs of $o$ with the output
+columns claimed \emph{not} to depend on $i$ changes. When an output column identifies rows in both
+runs and does not depend on $i$, rows are also matched by it and compared value by value, which
+sees changes even when the perturbation adds or removes rows. A change in the number of rows is
+recorded as a row influence of $i$, but never confirms a value edge, since it cannot be pinned on
+one output column.
+
+\begin{algorithm}[t]
+\caption{Verifying one model}
+\label{alg:verify}
+\begin{algorithmic}[1]
+\Require model $m$, claims $\D_m$ and references $\mathcal{F}_m$, seed
+\Ensure confirmed, not exercised, via references, unexplained
+\State $X \gets Q_m(D)$; \textbf{if} $Q_m(D) \neq X$ \textbf{then} skip $m$
+\State $V \gets \emptyset$;\ $W \gets \emptyset$ \Comment{value and row influences}
+\For{each input column $i$ and strategy $s$}
+  \State $X' \gets Q_m(D_{i,s})$
+  \State \textbf{if} $|X'| \neq |X|$ \textbf{then} $W \gets W \cup \{i\}$
+  \State $V \gets V \cup \{(o, i) : o \text{ changed between } X \text{ and } X'\}$
+\EndFor
+\State confirmed $\gets \D_m \cap V$;\quad not exercised $\gets \D_m \setminus V$
+\State via references $\gets \{(o,i) \in V \setminus \D_m : i \in \mathcal{F}_m\}$
+\State unexplained $\gets \{(o,i) \in V \setminus \D_m : i \notin \mathcal{F}_m\}$
+\Statex \hspace{\algorithmicindent}$\cup\ \{(\ast, i) : i \in W,\ i \notin \mathcal{F}_m \cup \mathrm{src}(\D_m)\}$
+\end{algorithmic}
+\end{algorithm}
+
+\Cref{alg:verify} then classifies each claim and each observation. A claimed edge $(o, i)$ is
+\emph{confirmed} when the data shows the influence, and \emph{not exercised} when no perturbation
+moved $o$ on this data. An observed influence the graph did not claim is \emph{via references}
+when the graph records $i$ as a join, filter or grouping column of $m$, and \emph{unexplained}
+otherwise: a gap in the static analysis. Every run records its seed, so it can be repeated
+exactly, and \cmd{verify} writes \cmd{VERIFY.md} and \cmd{verify.json} and marks each verified
+edge in \cmd{graph.json}, so \cmd{explain}, the ontology and the viewer show which edges the data
+confirmed.
+
+\subsection{Soundness}
+
+The argument rests on two assumptions. First, $Q_m$ is a function of its inputs as bags of rows:
+its result does not depend on the order in which rows are stored or read. The repeated baseline
+tests determinism only on a fixed $D$, and the shuffle copy keeps the row order of $D$, so a
+perturbed copy differs from $D$ in the values of $i$ and not in the order of its rows. Second,
+the engine that runs $Q_m$ gives it the semantics the warehouse does.
+
+\paragraph{Proposition} If verification observes that perturbing $i$ changes the multiset of $o$'s
+values, then $o$ depends on $i$: there are databases $D$ and $D'$ that differ only in column $i$
+such that $\sig_o(Q_m(D)) \neq \sig_o(Q_m(D'))$. The databases are instances of the input schema
+without its constraints: a perturbed copy can break a uniqueness or foreign key constraint that
+the warehouse's data satisfies, so the dependency shown may arise only on such an instance.
+
+\paragraph{Argument} $D_{i,s}$ is built from $D$ by rewriting column $i$ alone, every other input
+column and every other relation being the same scratch copy. If $Q_m$ is a function of its inputs,
+as bags of rows, a difference between $\sig_o(Q_m(D))$ and $\sig_o(Q_m(D_{i,s}))$ can only come
+from the change to $i$, and the pair $(D, D_{i,s})$ is the witness. $\square$
+
+\noindent Consequently an edge confirmed by a change in $o$'s multiset of values is a true
+dependency, and confirmation of that kind never endorses a false edge; an unexplained influence
+seen the same way is a true dependency the graph lacks. The paired and row-matched comparisons
+are weaker. They show that the result of $Q_m$ depends on $i$, and they attribute the change to
+$o$ because the columns $o$ is paired or matched with are those the graph claims independent of
+$i$; a confirmation or gap found this way holds conditional on those claims of independence. A
+change in the number of rows shows only that the result depends on $i$. Every observation is
+reproducible from the recorded seed. The converse does not hold: \emph{not exercised} is absence
+of evidence, not evidence of absence.
+
+\subsection{Limits}
+
+\begin{itemize}
+  \item \textbf{Masking.} A genuine edge is not exercised when the data never lets the input
+  through, such as the second argument of a \cmd{COALESCE} whose first is never null, or a
+  \cmd{CASE} branch no row takes. A fabricated edge is likewise reported as not exercised, not
+  as false.
+  \item \textbf{One column at a time.} Influences that appear only when two inputs change together
+  are not observed.
+  \item \textbf{Kinds of dependency.} The witness shows that $o$ depends on $i$, not how. When a
+  model both reads $i$ as a value and joins, filters or groups on it, a perturbation of $i$
+  changes $o$ through either route, so a missing value edge on such a column is explained by the
+  reference and not reported. \Cref{sec:eval-sensitivity} measures this.
+  \item \textbf{Engine and sample.} The proposition is relative to the engine that runs $Q_m$. On
+  a remote warehouse that is DuckDB running a translation of the model's SQL on a sample, so a
+  translation that changed meaning, or a sample whose inputs no longer join, weakens the result;
+  models that do not translate, or return no rows on the sample, are skipped and reported.
+  \item \textbf{Order-sensitive SQL.} SQL whose result depends on row order breaks the first
+  assumption: an aggregate that concatenates or collects without \cmd{ORDER BY},
+  \cmd{ROW\_NUMBER() OVER ()}, a window or \cmd{ORDER BY} whose ties are broken arbitrarily,
+  \cmd{LIMIT} without \cmd{ORDER BY}, and \cmd{first} or \cmd{any\_value}. The repeated baseline
+  catches such a model only when the two runs happen to differ; otherwise a change can be
+  attributed to $i$ that order alone produced.
+  \item \textbf{Types.} Shift is defined for numbers, strings, dates, timestamps and booleans;
+  other types are perturbed by null and shuffle only.
+\end{itemize}

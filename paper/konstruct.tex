@@ -1,0 +1,109 @@
+% Konstruct: the paper. Built by .github/workflows/docs.yml and published at /paper/konstruct.pdf.
+%
+% Every measurement of Konstruct comes from paper/generated/, which paper/generate.py writes by
+% running the things the paper describes; tests/test_paper.py fails on a number typed by hand
+% outside a sentence that cites its source.
+% Build with:
+%
+%   uv run python paper/generate.py
+%   cd paper && latexmk -pdf konstruct.tex
+\documentclass[10pt,twocolumn,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{mathptmx}
+\usepackage[scaled=0.9]{helvet}
+\usepackage[margin=0.72in,columnsep=0.26in,top=0.8in,bottom=0.85in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage[numbers,sort]{natbib}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage{pgfplots}
+\usepackage{microtype}
+% Options such as --update keep both hyphens in typewriter type.
+\DisableLigatures[-]{family=tt*}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{caption}
+\usepackage[hyphens]{url}
+\usepackage[colorlinks=true,linkcolor=accent,citecolor=accent,urlcolor=accent]{hyperref}
+\usepackage[nameinlink,noabbrev]{cleveref}
+
+\pgfplotsset{compat=1.18}
+\definecolor{accent}{HTML}{1F4E9A}
+\definecolor{rule}{HTML}{8A8F98}
+
+\titleformat{\section}{\normalfont\large\bfseries}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\paragraph}[runin]{\normalfont\normalsize\bfseries}{}{}{}[.]
+\titlespacing*{\section}{0pt}{1.4ex plus 0.4ex}{0.8ex}
+\titlespacing*{\subsection}{0pt}{1.1ex plus 0.3ex}{0.5ex}
+\titlespacing*{\paragraph}{0pt}{0.6ex plus 0.2ex}{0.6em}
+\captionsetup{font=small,labelfont=bf,skip=4pt}
+\setlist{itemsep=1pt,topsep=3pt,parsep=0pt,leftmargin=1.2em}
+\setlength{\textfloatsep}{10pt plus 2pt minus 2pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}
+\renewcommand{\algorithmicensure}{\textbf{Output:}}
+\crefname{algorithm}{Algorithm}{Algorithms}
+% Each algorithm's line anchors carry its number, so hyperref does not see the same line twice.
+\makeatletter
+\def\theHALG@line{\thealgorithm.\arabic{ALG@line}}
+\makeatother
+
+% Names as the reader types them, and the operators of the model.
+% Spaces inside typewriter names stretch a little, so two-column lines need not be left loose.
+\newcommand{\cmd}[1]{{\ttfamily\spaceskip=0.5em plus 0.33em minus 0.1em\relax #1}}
+\setlength{\emergencystretch}{1.5em}
+\DeclareMathOperator{\inputs}{in}
+\DeclareMathOperator{\sig}{sig}
+\DeclareMathOperator{\rel}{rel}
+\newcommand{\D}{\mathcal{D}}
+\newcommand{\R}{\mathcal{R}}
+\newcommand{\rsq}{$R^2$}
+
+\input{generated/numbers}
+\input{generated/packs-table}
+\input{generated/ossie-table}
+\input{generated/jaffle-shop-verify-table}
+\input{generated/performance-table}
+
+\hypersetup{
+  pdftitle={Konstruct: Column-Level Lineage Checked Against the Data},
+  pdfauthor={Kodex Labs},
+  pdfsubject={Column-level lineage, formula composition, verification by perturbation and ontology derivation for data stacks}
+}
+
+\title{\textbf{Konstruct: Column-Level Lineage Checked Against the Data}\\[0.4ex]
+  \large Formulas, verification by perturbation and an ontology for the data stack}
+\author{Kodex Labs\\
+  \small\url{https://github.com/kodexlabsio/konstruct}\quad
+  \small Konstruct \konstructVersion{}, MIT licence}
+\date{}
+
+\begin{document}
+\maketitle
+
+\input{sections/abstract}
+\input{sections/introduction}
+\input{sections/related}
+\input{sections/design}
+\input{sections/verification}
+\input{sections/evaluation}
+\input{sections/limitations}
+\input{sections/conclusion}
+
+\small
+% Long URLs break more cleanly with a ragged right margin.
+\raggedright
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

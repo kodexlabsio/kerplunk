@@ -1,0 +1,71 @@
+\section{Introduction}
+\label{sec:introduction}
+
+Every organisation runs on numbers it cannot fully explain. A revenue figure on a dashboard is the
+end of a chain: a loader lands rows from a source system, dbt models clean and join them, an
+Airflow task copies the result into a reporting table, and a semantic model in a business
+intelligence tool aggregates it. Each link is code, written by different people in different
+tools, and the meaning of the final number (which rows count, in which currency, net of what)
+lives partly in that code and partly in people's heads. When the number is questioned, someone
+reads the chain by hand.
+
+The cost of that is measured, if imperfectly. Gartner puts the average cost of poor data quality
+at USD 12.9 million a year per organisation, from research published in 2020 and based on
+self-estimated costs~\citep{gartner2020dq}. In a 2024 vendor survey of over 550 respondents, 67\%
+said they do not completely trust the data they use for decisions~\citep{precisely2024}. In a 2023
+vendor survey of 200 data professionals, a data incident took 15 hours on average to resolve, up
+166\% on the year before~\citep{montecarlo2023}. dbt Labs' 2026 vendor survey of 363 data
+professionals found 71\% concerned about incorrect data reaching stakeholders and 41\% naming
+ambiguous data ownership as an obstacle~\citep{dbt2026state}. Software developers, in a 2018 field
+study, spent 58\% of their time on program comprehension~\citep{xia2018comprehension}, and a data
+stack is a program spread across many tools. Regulators ask for the chain explicitly: in 2023, ten
+years after the Basel Committee's principles for risk data aggregation, only 2 of 31 global
+systemically important banks were fully compliant with all of them~\citep{bcbs2023}, and Article 10
+of the EU Artificial Intelligence Act of 2024 requires the data of high-risk systems to be subject
+to data governance covering its origin and preparation~\citep{euaiact}.
+
+AI agents raise the stakes. An agent that writes SQL against a warehouse it does not understand
+produces confident, plausible and wrong numbers. On the enterprise questions of Sequeda et al.\
+(2023), GPT-4 answered 16.7\% correctly from the SQL schema alone and 54.2\% when the same
+questions were posed over a knowledge graph of the business~\citep{sequeda2023benchmark}. On
+Spider 2.0 (2025), which asks for real enterprise workflows, the o1-preview agent solves 21.3\% of
+tasks, against 91.2\% on Spider 1.0 and 73.0\% on BIRD for GPT-4-based
+methods~\citep{lei2025spider2}; on BIRD itself (2023), GPT-4 reached 54.89\% execution accuracy
+against 92.96\% for people~\citep{li2023bird}. A 2026 vendor study reports 64.5\% accuracy for
+text-to-SQL on a raw normalised schema, 84.1\% to 90.0\% for text-to-SQL on the modelled project,
+and 98.2\% to 100\% through a semantic layer over it~\citep{dbt2026semantic}. The lesson of these results is consistent:
+agents are only as good as the facts about the data they are grounded in. Those facts are
+lineage, formulas, definitions and relationships, and today they are mostly asserted by tools
+that never check them.
+
+This paper describes Konstruct, an MIT-licensed system that makes those facts explicit and
+checkable. It reads a repository and its warehouse locally, in one command, with no server, no
+account and no telemetry, and writes a graph that people and agents query from a command line,
+a Python API, an MCP server, a GitHub Action and a single offline HTML page. Its contributions
+are:
+
+\begin{enumerate}
+  \item \textbf{One graph across tools.} A typed graph model (\cref{sec:graph}) that joins
+  column-level lineage from dbt, standalone SQL, Airflow and Dagster tasks, PySpark jobs,
+  warehouse views, Looker and Power BI semantic models and the tables Fivetran and Airbyte land,
+  through DuckDB, Postgres, Snowflake, BigQuery, Databricks, Trino and Iceberg, without importing
+  or running any user code (\cref{sec:chains}).
+  \item \textbf{Formulas, not just arrows.} Canonical column expressions over physical columns
+  and their composition through every model upstream, so a column reads as a formula over source
+  columns, with a text composition that is exact where the SQL printer is operand-insensitive and
+  falls back to trees where it is not (\cref{sec:sql,sec:compose}).
+  \item \textbf{Lineage measured against the data.} A verification procedure by perturbation
+  that confirms claimed edges and exposes missing ones with concrete witnesses, with a soundness
+  argument and an honest account of what it cannot see (\cref{sec:verify}).
+  \item \textbf{Meaning derived, not declared.} An ontology of entities, measures and
+  relationships derived from keys, tests and joins, bound to approved business definitions, with
+  ontology packs for common source schemas and round trips of Apache Ossie semantic models
+  that return what was authored (\cref{sec:ontology,sec:ossie,sec:packs}).
+  \item \textbf{Grounding for agents.} An MCP interface whose answers carry lineage, formulas and
+  verification state, and a gate that a change must pass before it is proposed
+  (\cref{sec:agents}).
+  \item \textbf{A paper regenerated from the code.} Every measurement of Konstruct here is produced by
+  \cmd{paper/generate.py} from the code at the commit that built this PDF, and a test fails when
+  the paper types a number outside a cited sentence or leaves out a command, tool or format
+  (\cref{sec:evaluation}).
+\end{enumerate}

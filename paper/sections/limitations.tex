@@ -1,0 +1,37 @@
+\section{Limitations}
+\label{sec:limitations}
+
+\paragraph{Static lineage has edges it cannot see} SQL built at run time, Python dbt models,
+stored procedures and the bodies of user-defined functions are not followed; each gap is a build
+warning, listed in \cmd{REPORT.md}. Macros that query the warehouse while compiling render as
+empty results when Konstruct renders Jinja itself. \cmd{SELECT *} over a relation whose columns
+are unknown gets lineage only for the columns the query goes on to use. Map keys are read at run
+time, so a value read from a map traces to the map column.
+
+\paragraph{Orchestration is parsed, not run} Airflow task ids or SQL built in loops, dynamic task
+mapping over computed lists and DAG factories are skipped with a warning; Dagster graph bodies
+built in loops are counted once and ops made by factories are not seen. This is the price of never
+executing orchestration code. dbt is the exception: unless \cmd{--no-dbt} is passed, a build runs
+\cmd{dbt docs generate} when a project's artefacts are missing or stale, which runs the project's
+macros and on-run hooks with its own profile, and those can write to the warehouse.
+
+\paragraph{Verification has the limits of \cref{sec:verify}} It sees one input at a time, cannot
+tell a value dependency from a row dependency on a column used both ways, depends on the data
+exercising each path, and on remote warehouses checks a translation of the SQL on a sample.
+Iceberg catalogues are not verified.
+
+\paragraph{The ontology is inferred by convention} Entities are named from key columns and
+relations by naming conventions, which a term of kind \emph{entity} can override; a relationship
+from an entity to itself is not recorded; cardinality is left unknown without a uniqueness test or
+key.
+
+\paragraph{Search ranks by words} \cmd{query} and \cmd{search} find
+\cmd{customer\_lifetime\_value} from ``lifetime value'' but not from ``how much a customer is
+worth''; an agent is expected to follow up with \cmd{describe}.
+
+\paragraph{Formula equivalence is syntactic} Two columns are compared by canonical composed
+formula, sources, conditions and aggregation, so formulas that are equal in value but differ in
+form are reported as different.
+
+\paragraph{The agent benchmark is a harness, not a result} \Cref{sec:eval-agents} describes how
+the effect of grounding on an agent is measured; this paper does not report a result for it.

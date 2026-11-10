@@ -1932,9 +1932,12 @@ def changed_inputs(graph_path: Path, graph: Graph) -> list[str]:
 PARALLEL_MINIMUM = 64
 """Fewer models than this to analyse are analysed in the build's own process."""
 
+MAX_WORKERS = 8
+"""The most worker processes a build starts unless ``KONSTRUCT_WORKERS`` says otherwise."""
+
 
 def _workers() -> int:
-    """How many processes analyse models: ``KONSTRUCT_WORKERS``, or the CPUs, up to eight."""
+    """How many processes analyse models: ``KONSTRUCT_WORKERS``, or the CPUs, up to ``MAX_WORKERS``."""
     configured = os.environ.get('KONSTRUCT_WORKERS', '').strip()
     if configured.isdigit():
         return max(1, int(configured))
@@ -1946,7 +1949,7 @@ def _workers() -> int:
         cpus = len(os.sched_getaffinity(0))  # the CPUs this process may use, not the host's
     except AttributeError:
         cpus = os.cpu_count() or 1
-    return max(1, min(cpus, 8))
+    return max(1, min(cpus, MAX_WORKERS))
 
 
 def _analyse_model(job: tuple[str, str | None, dict[str, Any], str | None, str | None, str | None]) -> Any:

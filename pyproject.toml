@@ -124,7 +124,7 @@ skip-magic-trailing-comma = false
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["konstruct", "tests"]
+files = ["konstruct", "tests", "paper"]
 exclude = ["^tests/fixtures/"]
 warn_unreachable = true
 
