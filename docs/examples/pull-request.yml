@@ -23,7 +23,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.3.3
 
-      # Installing konstruct from source compiles its Rust core.
+      # Installing konstruct from source compiles it.
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install konstruct and dbt

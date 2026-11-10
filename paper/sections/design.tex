@@ -1,8 +1,7 @@
 \section{System Design}
 \label{sec:design}
 
-Konstruct is a Python package, with graph walks, relation names and search in a Rust extension,
-that reads a repository and the warehouses its dbt profiles name,
+Konstruct reads a repository and the warehouses its dbt profiles name,
 and writes \cmd{konstruct-out/graph.json}, \cmd{REPORT.md}, \cmd{graph.html} and
 \cmd{ontology.yml}. Three rules shape it. It never imports or executes user orchestration code:
 DAG, Dagster and PySpark files are parsed with \cmd{ast}, dbt Jinja is rendered in a sandbox, and

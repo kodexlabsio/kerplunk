@@ -17,9 +17,9 @@ Plugins cost nothing in commands that cannot run one: only `build`, `export`, `g
 
 `konstruct hook post-edit`, which the Claude Code plugin runs after an agent edits SQL or YAML, runs `konstruct build --update` into a copy of the graph, from files alone, and then the gate, so it takes about as long as an `--update` build of the project. An edit to a file the plugin does not watch starts no process, and an edit to a YAML file outside the dbt project's resource paths starts no build. `.kodex/scripts/benchmark.py` reports the hook's time beside the other measurements.
 
-## The Rust Core
+## Questions After the Graph Is Loaded
 
-Konstruct is Python with a compiled core in Rust. The core walks the graph for `impact` and `trace`, finds paths, resolves names and ranks `search` and `query` results, and decides whether two formulas compute the same thing; everything else, the SQL analysis included, is Python. On the 2,000-model project, after the graph is loaded:
+On the 2,000-model project, after the graph is loaded:
 
 | Question | Time |
 |---|---:|

@@ -27,7 +27,7 @@ jobs:
 | `build-args` | `--no-warehouse --no-dbt` | Arguments for `konstruct build`. The default needs no credentials and never runs the pull request's dbt macros. Without `--no-warehouse`, see [Reading a Warehouse](#reading-a-warehouse) |
 | `extras` | none | Konstruct extras, such as `snowflake` |
 
-The outputs `breaking`, `gate`, `summary`, `report` (markdown) and `json` let later steps act on the result. The Action installs Konstruct from its own checkout, which compiles Konstruct's Rust core: it sets up the stable Rust toolchain (`dtolnay/rust-toolchain`) for that, and later steps in the job see it. Pin a release (`@v0.7.0`) for a fixed version; `@v0` moves to each new 0.x release. [`docs/examples/pull-request.yml`](../examples/pull-request.yml) shows the same steps written out, for adding a `dbt parse` or other setup first.
+The outputs `breaking`, `gate`, `summary`, `report` (markdown) and `json` let later steps act on the result. The Action installs Konstruct from its own checkout, which compiles it: it sets up a toolchain (`dtolnay/rust-toolchain`) for that, and later steps in the job see it. Pin a release (`@v0.7.0`) for a fixed version; `@v0` moves to each new 0.x release. [`docs/examples/pull-request.yml`](../examples/pull-request.yml) shows the same steps written out, for adding a `dbt parse` or other setup first.
 
 ## Reading a Warehouse
 
