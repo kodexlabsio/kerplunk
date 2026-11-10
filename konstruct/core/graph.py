@@ -416,6 +416,12 @@ class Graph:
             traversal.core.trace(self.expand(node), _native_depth(max_depth), node.kind == 'column')
         )
 
+    def fed_by_columns_of(self, consumer: str, relation: str) -> bool:
+        """Whether ``consumer`` (a Looker view, say) records which of ``relation``'s columns it
+        reads, so a column reaches it only through its own edge, and walks do not pass it every
+        column of ``relation``."""
+        return self.indexed('traversal', _Traversal).core.fed_by_columns_of(consumer, relation)
+
     def path(self, start: Node, end: Node) -> list[Step]:
         """Shortest path from ``start`` to ``end``, following data flow in either direction: downstream
         if there is a path that way, else upstream, else either way through ``contains`` and

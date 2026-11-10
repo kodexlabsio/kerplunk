@@ -455,7 +455,7 @@ impl GraphIndex {
 
     /// Whether `consumer` records which of `relation`'s columns it reads (a Looker view, say),
     /// so a column reaches it only through its own edge.
-    fn fed_by_columns_of(&self, consumer: u32, relation: u32) -> bool {
+    pub fn fed_by_columns_of(&self, consumer: u32, relation: u32) -> bool {
         self.incoming.of(consumer).iter().any(|&e| {
             let edge = self.edge(e);
             edge.kind == EdgeKind::Feeds

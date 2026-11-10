@@ -43,7 +43,8 @@ class DiffError(Exception):
 # git
 
 
-def _git(root: Path, *args: str, check: bool = True) -> str:
+def run_git(root: Path, *args: str, check: bool = True) -> str:
+    """The output of ``git`` run in ``root``; with ``check``, a failure raises :class:`DiffError`."""
     result = subprocess.run(['git', '-C', str(root), *args], capture_output=True, text=True, check=False)
     if check and result.returncode != 0:
         raise DiffError(f'git {" ".join(args)} failed: {result.stderr.strip() or result.stdout.strip()}')
@@ -71,7 +72,7 @@ def resolve_ref(root: Path, ref: str) -> str:
     point in time. A date alone means midnight at its start, in the machine's local time zone; a
     branch or tag named like a date is taken as that ref."""
     check_ref(ref)
-    if not _DATE.match(ref) or _git(
+    if not _DATE.match(ref) or run_git(
         root, 'rev-parse', '--verify', '--quiet', f'{ref}^{{commit}}', check=False
     ):
         return ref
@@ -80,7 +81,9 @@ def resolve_ref(root: Path, ref: str) -> str:
     except ValueError:
         raise DiffError(f'{ref} is not a valid date') from None
     before = moment.strftime('%Y-%m-%d %H:%M:%S')
-    commit = _git(root, 'rev-list', '-1', '--first-parent', f'--before={before}', 'HEAD', check=False).strip()
+    commit = run_git(
+        root, 'rev-list', '-1', '--first-parent', f'--before={before}', 'HEAD', check=False
+    ).strip()
     if not commit:
         raise DiffError(f'no commit on this branch before {ref}')
     return commit
@@ -88,10 +91,10 @@ def resolve_ref(root: Path, ref: str) -> str:
 
 def default_base(root: Path) -> str:
     """The merge base with origin/main (or main, or master); otherwise HEAD."""
-    head = _git(root, 'rev-parse', 'HEAD', check=False).strip()
+    head = run_git(root, 'rev-parse', 'HEAD', check=False).strip()
     for candidate in ('origin/main', 'origin/master', 'main', 'master'):
-        if _git(root, 'rev-parse', '--verify', '--quiet', candidate, check=False).strip():
-            base = _git(root, 'merge-base', 'HEAD', candidate, check=False).strip()
+        if run_git(root, 'rev-parse', '--verify', '--quiet', candidate, check=False).strip():
+            base = run_git(root, 'merge-base', 'HEAD', candidate, check=False).strip()
             # The first main branch found decides: on main itself, compare with HEAD.
             return base if base and base != head else 'HEAD'
     return 'HEAD'
@@ -102,12 +105,12 @@ def changed_files(root: Path, base: str, head: str | None) -> dict[str, str]:
     working tree including untracked files."""
     args = ['diff', '--name-status', '--no-renames', check_ref(base)] + ([check_ref(head)] if head else [])
     changes: dict[str, str] = {}
-    for line in _git(root, *args).splitlines():
+    for line in run_git(root, *args).splitlines():
         status, _, path = line.partition('\t')
         if path:
             changes[path] = status[:1]
     if head is None:
-        for path in _git(root, 'ls-files', '--others', '--exclude-standard').splitlines():
+        for path in run_git(root, 'ls-files', '--others', '--exclude-standard').splitlines():
             changes.setdefault(path, 'A')
     return changes
 
@@ -729,7 +732,7 @@ class _Context:
 
 def diff(graph: Graph, root: Path, *, base: str | None = None, head: str | None = None) -> Diff:
     """Compare ``base`` (default: the merge base with main) with ``head`` (default: the working tree)."""
-    repository = Path(_git(root, 'rev-parse', '--show-toplevel').strip())
+    repository = Path(run_git(root, 'rev-parse', '--show-toplevel').strip())
     given_base, given_head = base, head
     base = resolve_ref(root, base) if base else default_base(root)
     head = resolve_ref(root, head) if head else None

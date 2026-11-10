@@ -50,7 +50,7 @@ from sqlglot import exp
 from sqlglot.dialects.dialect import Dialect
 
 from konstruct import _core
-from konstruct.analysis.explain import Explainer, _composed_from, short_sql
+from konstruct.analysis.explain import Explainer, composed_from, short_sql
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
 from konstruct.core.sql import PARSE_ERRORS
 
@@ -772,7 +772,7 @@ class Formulas:
             found = self._shape(tree, slot)
             assert found is not None
             shape = found
-        resolve = self.explainer.inputs(node, _composed_from(self.explainer.graph, node))
+        resolve = self.explainer.inputs(node, composed_from(self.explainer.graph, node))
         return _Plan(shape, columns, [resolve(c) for c in columns])
 
     def _define(self, node: Node, plan: _Plan | None, path: set[str]) -> int:

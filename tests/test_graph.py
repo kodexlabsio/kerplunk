@@ -260,6 +260,15 @@ def test_neighbours_follow_an_edge_added_after_a_query() -> None:
     assert [n for _, n in g.downstream_edges('model.shop.customers')] == ['exposure.shop.churn']
 
 
+def test_a_consumer_fed_by_a_column_records_the_columns_it_reads() -> None:
+    g = small_graph()
+    assert not g.fed_by_columns_of('exposure.shop.dashboard', 'model.shop.orders')
+    g.add_edge(column_id('model.shop.orders', 'amount'), 'exposure.shop.dashboard', 'feeds')
+    assert g.fed_by_columns_of('exposure.shop.dashboard', 'model.shop.orders')
+    assert not g.fed_by_columns_of('exposure.shop.dashboard', 'model.shop.customers')
+    assert not g.fed_by_columns_of('exposure.shop.missing', 'model.shop.orders')
+
+
 def test_resolve_sees_a_relation_added_after_a_query() -> None:
     g = small_graph()
     assert g.resolve('refunds') == []

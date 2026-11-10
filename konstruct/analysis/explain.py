@@ -111,7 +111,7 @@ class Explanation:
         return self.text()
 
 
-def _composed_from(graph: Graph, node: Node) -> list[Node]:
+def composed_from(graph: Graph, node: Node) -> list[Node]:
     """The columns a column's formula is composed from. A column a loader lands is a source:
     its link to the source system's column is lineage, not a formula."""
     return [
@@ -371,7 +371,7 @@ class Explainer:
             return _Text(None, frozenset(), False)
         graph = self.graph
         expression = node.attrs.get('expression')
-        upstream = _composed_from(graph, node)
+        upstream = composed_from(graph, node)
         if not isinstance(expression, str):
             leaf = _Text(None, frozenset() if upstream else frozenset({node.id}), not upstream)
             self.texts[node.id] = leaf
@@ -523,7 +523,7 @@ class Explainer:
             return _Composed(None, frozenset(), False)
         graph = self.graph
         expression = node.attrs.get('expression')
-        upstream = _composed_from(graph, node)
+        upstream = composed_from(graph, node)
         if not isinstance(expression, str):
             leaf = _Composed(None, frozenset() if upstream else frozenset({node.id}), not upstream)
             self.memo[node.id] = leaf
@@ -674,7 +674,7 @@ class Explainer:
             on_stack = {start.id}
             while stack:
                 node, expanded = stack.pop()
-                upstream = _composed_from(graph, node)
+                upstream = composed_from(graph, node)
                 if not expanded:
                     stack.append((node, True))
                     for other in upstream:

@@ -33,6 +33,8 @@ class GraphIndex:
         """The id of a node or edge endpoint."""
     def path(self, start: str, end: str) -> list[tuple[int, int, int | None, int | None]]:
         """The shortest path's nodes, as ``impact`` reports them, start first; empty when there is none."""
+    def fed_by_columns_of(self, consumer: str, relation: str) -> bool:
+        """Whether a column of ``relation`` feeds ``consumer``, which so records the columns it reads."""
     def neighbours(self, node: str, downstream: bool) -> list[int]:
         """The edges a walk follows from ``node``."""
 

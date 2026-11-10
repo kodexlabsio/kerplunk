@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from konstruct.analysis.diff import DiffError, _Context, _git, file_at
+from konstruct.analysis.diff import DiffError, _Context, file_at, run_git
 from konstruct.analysis.explain import Explainer
 from konstruct.core.graph import Graph, Node
 from konstruct.core.sql import strip_templating
@@ -248,7 +248,8 @@ def _shown(value: Any) -> str:
     return 'none' if value in (None, '') else str(value)
 
 
-def _utc(date: str) -> str:
+def utc(date: str) -> str:
+    """An ISO 8601 date from git in UTC, so dates from different time zones sort together."""
     try:
         return dt.datetime.fromisoformat(date).astimezone(dt.UTC).isoformat()
     except ValueError:
@@ -260,12 +261,12 @@ class _Repository:
 
     def __init__(self, top: Path) -> None:
         self.top = top
-        output = _git(top, 'rev-list', '--topo-order', '--reverse', 'HEAD', check=False)
+        output = run_git(top, 'rev-list', '--topo-order', '--reverse', 'HEAD', check=False)
         self.order = {sha: index for index, sha in enumerate(output.split())}
-        self.shallow = _git(top, 'rev-parse', '--is-shallow-repository', check=False).strip() == 'true'
+        self.shallow = run_git(top, 'rev-parse', '--is-shallow-repository', check=False).strip() == 'true'
 
     def git(self, *args: str) -> str:
-        return _git(self.top, '-c', 'core.quotePath=false', *args, check=False)
+        return run_git(self.top, '-c', 'core.quotePath=false', *args, check=False)
 
     def log(self, path: str, limit: int) -> tuple[list[tuple[Commit, str]], bool]:
         """The commits that changed ``path``, oldest first, each with the file's path then (renames
@@ -286,7 +287,7 @@ class _Repository:
             if not lines:
                 continue
             sha, author, date, subject = [*lines[0].split(_SEPARATOR), '', '', ''][:4]
-            commit = Commit(sha, author, _utc(date), subject, self.order.get(sha, -1), self.top)
+            commit = Commit(sha, author, utc(date), subject, self.order.get(sha, -1), self.top)
             found.append((commit, lines[-1] if len(lines) > 1 else path))
         return list(reversed(found)), len(found) >= limit
 
@@ -303,7 +304,7 @@ def _repository_of(path: Path) -> tuple[_Repository, str] | None:
     while not folder.exists() and folder != folder.parent:
         folder = folder.parent
     try:
-        top = Path(_git(folder, 'rev-parse', '--show-toplevel').strip())
+        top = Path(run_git(folder, 'rev-parse', '--show-toplevel').strip())
     except (DiffError, OSError, subprocess.SubprocessError):
         return None
     return _Repository(top), path.resolve().relative_to(top.resolve()).as_posix()
@@ -371,7 +372,7 @@ def history(graph: Graph, root: Path, column: Node, *, limit: int = 50) -> Histo
     return result
 
 
-def _defining_file(graph: Graph, relation: Node, notes: list[str]) -> tuple[str, bool] | None:
+def defining_file(graph: Graph, relation: Node, notes: list[str]) -> tuple[str, bool] | None:
     """The file whose SQL defines ``relation``, and whether it is a dbt model."""
     if relation.path and not relation.path.endswith(('.yml', '.yaml', '.json')):
         return relation.path, relation.kind in ('model', 'snapshot')
@@ -405,7 +406,7 @@ def _formula_history(
 ) -> None:
     if relation is None:
         return
-    found = _defining_file(graph, relation, result.notes)
+    found = defining_file(graph, relation, result.notes)
     if found is None:
         return
     path, is_model = found

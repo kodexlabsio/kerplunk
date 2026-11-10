@@ -209,6 +209,15 @@ impl GraphIndex {
         }
     }
 
+    /// Whether `consumer` records which of `relation`'s columns it reads: a column of
+    /// `relation` feeds it.
+    fn fed_by_columns_of(&self, consumer: Key, relation: Key) -> bool {
+        match (self.inner.node(&consumer), self.inner.node(&relation)) {
+            (Some(consumer), Some(relation)) => self.inner.fed_by_columns_of(consumer, relation),
+            _ => false,
+        }
+    }
+
     /// The ordinals of the edges a walk follows from `node`, downstream or upstream.
     fn neighbours(&self, node: Key, downstream: bool) -> Vec<u32> {
         let flow = if downstream {
