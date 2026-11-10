@@ -1,3 +1,14 @@
+## v0.12.7 (2026-11-10)
+
+### Feat
+
+- **dbt**: Mutation test a project's dbt tests inside verify
+- **dbt**: Make semantic mutants of a model's SQL
+
+### Refactor
+
+- **lineage**: Make verify's quote and rewrite public
+
 ## v0.12.6 (2026-11-10)
 
 ### Feat
