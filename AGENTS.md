@@ -25,7 +25,7 @@ Action and a single offline HTML page.
 | `viewer/` | The viewer's source: Svelte 5 and strict TypeScript, built with Vite and pnpm |
 | `docs/` | Sphinx documentation in MyST Markdown, Read the Docs theme |
 | `paper/` | The paper in LaTeX: `konstruct.tex`, `sections/`, `references.bib`, and `generated/` (not committed), which `generate.py` writes by running the experiments the paper reports |
-| `tests/` | pytest suites, golden files in `tests/golden/`, fixtures in `tests/fixtures/` |
+| `tests/` | pytest suites, golden files in `tests/golden/` (the interface snapshots in `tests/golden/interfaces/`), fixtures in `tests/fixtures/` |
 | `examples/jaffle_shop` | dbt Labs' jaffle_shop_duckdb (Apache-2.0) with a DAG and `definitions.yml` |
 | `.kodex/scripts/` | Project scripts: commit rules, services, benchmark, agent benchmark, demo tapes, viewer build check |
 | `action.yml` | The GitHub Action |
@@ -36,8 +36,8 @@ Action and a single offline HTML page.
 - `uv run pytest`: the tests. `eval "$(.kodex/scripts/services.sh up)"` first for Postgres,
   Iceberg REST and the BigQuery emulator; `uv run pytest --cov` must stay at or above 90%.
 - `uv run ruff check`, `uv run ruff format`, `uv run mypy`: lint, format and type check (strict).
-- `KONSTRUCT_UPDATE_GOLDEN=1 uv run pytest tests/test_golden.py`: regenerate the golden CLI
-  output and REPORT.md, then review the diff.
+- `KONSTRUCT_UPDATE_GOLDEN=1 uv run pytest tests/test_golden.py tests/test_interfaces.py`:
+  regenerate the golden CLI output, REPORT.md and the interface snapshots, then review the diff.
 - `cd viewer && pnpm install && pnpm check && pnpm test && pnpm build`: the viewer. Commit the
   rebuilt `konstruct/outputs/viewer.html` with the source; CI fails if they differ.
 - `uv run --group docs sphinx-build -W -b html docs docs/_build/html`: the documentation. Warnings

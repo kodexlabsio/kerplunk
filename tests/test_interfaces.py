@@ -1,0 +1,895 @@
+"""The interfaces users build on, recorded in tests/golden/interfaces/ so that none breaks silently.
+
+Each file holds one kind of interface as a flat map from an entry to what it is:
+
+- ``cli.json``: every command, option and positional argument (by position), and what each
+  option takes (default, repetition, values, choices), from the argparse parser;
+- ``exit.json``: the exit status of each kind of outcome;
+- ``json.json``: the shape of each ``--json`` document and of ``graph.json`` (every field's path
+  and types, inferred from the example and small projects made to fill every list), and each
+  document's ``format_version``;
+- ``mcp.json``: the MCP tools and their input schemas;
+- ``python.json``: the names ``konstruct`` exports, their methods, signatures (with each
+  parameter's position) and fields;
+- ``config.json``: the ``konstruct.toml`` keys Konstruct reads;
+- ``action.json`` and ``csv.json``: the GitHub Action's inputs and outputs, and the CSV export's
+  columns.
+
+An entry that disappears or changes fails the test: restore it, or make it a deliberate breaking
+change (regenerate with ``KONSTRUCT_UPDATE_GOLDEN=1`` and commit with both ``!`` after the type
+and a ``BREAKING CHANGE:`` footer; the commit check refuses it otherwise). A new entry fails too
+until the snapshot is regenerated, like the golden files. A JSON field breaks when it is removed,
+emptied to only ``null`` or given a type it did not hold; ``null`` aside, so widening ``str`` to
+``null|str`` passes, and so does a field showing fewer of its types. An entry that accepts more
+than it did is not a break either: a required argument made optional, or one that takes more
+types. A list the projects leave empty and a field they fill only with ``null`` fail as missing
+coverage, unless ``EMPTY`` or ``UNFILLED`` gives the reason; adding one there to hide a change
+still needs the breaking marks, as the commit check counts the fields gone with it as removed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import dataclasses
+import importlib.util
+import inspect
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from types import ModuleType
+from typing import Any
+
+import anyio
+import pytest
+import yaml
+from mcp import Client
+
+import konstruct
+from konstruct import Project
+from konstruct.interfaces import cli
+from konstruct.interfaces.cli import main, parser
+from konstruct.interfaces.mcp_server import build_server
+
+ROOT = Path(__file__).resolve().parents[1]
+SNAPSHOTS = ROOT / 'tests' / 'golden' / 'interfaces'
+UPDATE = bool(os.environ.get('KONSTRUCT_UPDATE_GOLDEN'))
+
+
+def _commit_check() -> ModuleType:
+    path = ROOT / '.kodex' / 'scripts' / 'check_commit_message.py'
+    spec = importlib.util.spec_from_file_location('check_commit_message', path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def check(name: str, current: dict[str, Any]) -> None:
+    """Compare ``current`` with the snapshot ``name``, or write it with KONSTRUCT_UPDATE_GOLDEN."""
+    path = SNAPSHOTS / f'{name}.json'
+    if UPDATE:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(current, indent=1, sort_keys=True) + '\n', encoding='utf-8')
+    assert path.is_file(), f'no snapshot {path}; run with KONSTRUCT_UPDATE_GOLDEN=1'
+    recorded = json.loads(path.read_text(encoding='utf-8'))
+    if current == recorded:
+        return
+    commits = _commit_check()
+    uncovered = sorted(k for k in recorded if k not in current and commits.uncovered(k, current))
+    # A field the projects stop reaching is reported as missing coverage, though the commit check
+    # counts it as removed, as it may be.
+    broken = [
+        b
+        for b in commits.interface_breaks(recorded, current)
+        if b not in {f'{k} is removed' for k in uncovered}
+    ]
+    added = sorted(set(current) - set(recorded))
+    message = [f'the {name} interface differs from {path.relative_to(ROOT)}']
+    if broken:
+        message += [
+            'These break users. Restore them, or make the change deliberately: regenerate the snapshot',
+            "with KONSTRUCT_UPDATE_GOLDEN=1 and commit it with both '!' after the type and a",
+            'BREAKING CHANGE: footer.',
+            *(f'  {item}' for item in broken),
+        ]
+    if uncovered:
+        message += [
+            'The projects no longer cover these (what holds them is empty or null); fill it again, or',
+            "commit the change with both '!' after the type and a BREAKING CHANGE: footer:",
+            *(f'  {k}' for k in uncovered),
+        ]
+    if added:
+        message += [
+            'New (regenerate the snapshot with KONSTRUCT_UPDATE_GOLDEN=1):',
+            *(f'  {k}' for k in added),
+        ]
+    others = sorted(k for k in recorded if k in current and current[k] != recorded[k])
+    if others and not broken:
+        message += ['Changed without breaking (regenerate the snapshot):', *(f'  {k}' for k in others)]
+    pytest.fail('\n'.join(message), pytrace=False)
+
+
+# The command line
+
+
+def _option(action: argparse.Action) -> str:
+    if isinstance(action, argparse._VersionAction | argparse._HelpAction) or action.nargs == 0:
+        return 'flag'
+    kind = f'option {getattr(action.type, "__name__", "str")}'
+    return f'{kind}, required' if action.required else kind
+
+
+def _positional(action: argparse.Action) -> str:
+    """``positional <type>, <arity>``: how many values it takes, and what each is read as."""
+    kind = f'positional {getattr(action.type, "__name__", "str")}'
+    if isinstance(action.nargs, int):
+        return f'{kind}, {action.nargs} value{"s" if action.nargs != 1 else ""}, required'
+    arity = {'?': 'optional', '*': 'any number', '+': 'one or more, required'}
+    return f'{kind}, {arity.get(str(action.nargs), "required")}'
+
+
+def cli_entries() -> dict[str, str]:
+    """Each command, option (under every spelling) and positional argument (by position, as
+    its name is only help text), and separately what an option takes: its default, whether it
+    can be given more than once, how many values it takes and its choices. A new way to use an
+    option is then an addition, and a changed default a change: every option that takes a value
+    records its default, ``None`` included, so a default given where there was none is a change
+    too. A positional records its type and how many values it takes, and an optional one its
+    default."""
+    entries: dict[str, str] = {}
+
+    def walk(command: argparse.ArgumentParser, prefix: str) -> None:
+        entries[prefix] = 'command'
+        positionals = 0
+        for action in command._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for name, sub in action.choices.items():
+                    walk(sub, f'{prefix} {name}')
+                continue
+            if action.option_strings:
+                for option in action.option_strings:
+                    entries[f'{prefix} {option}'] = _option(action)
+                named = f'{prefix} {max(action.option_strings, key=len)}'
+                if action.nargs != 0 and action.default is not argparse.SUPPRESS:
+                    entries[f'{named} default'] = repr(action.default)
+                if isinstance(action, argparse._AppendAction | argparse._ExtendAction):
+                    entries[f'{named} repeatable'] = 'yes'
+                if action.nargs not in (None, 0, '?'):
+                    entries[f'{named} values'] = str(action.nargs)
+            else:
+                named = f'{prefix} <{positionals}>'
+                positionals += 1
+                entries[named] = _positional(action)
+                if action.nargs in ('?', '*') and action.default is not argparse.SUPPRESS:
+                    entries[f'{named} default'] = repr(action.default)
+            for choice in action.choices or ():
+                entries[f'{named} {choice}'] = 'choice'
+
+    walk(parser(), 'konstruct')
+    return entries
+
+
+def test_command_line() -> None:
+    check('cli', cli_entries())
+
+
+# Projects the interfaces are exercised on
+
+
+def _git(root: Path, *args: str) -> None:
+    env = {**os.environ, 'GIT_AUTHOR_NAME': 'Ada', 'GIT_AUTHOR_EMAIL': 'ada@example.com'}
+    env |= {'GIT_COMMITTER_NAME': 'Ada', 'GIT_COMMITTER_EMAIL': 'ada@example.com'}
+    subprocess.run(['git', '-C', str(root), '-c', 'commit.gpgsign=false', *args], env=env, check=True)
+
+
+def _edit(path: Path, old: str, new: str) -> None:
+    text = path.read_text()
+    assert old in text, (path, old)
+    path.write_text(text.replace(old, new, 1))
+
+
+@pytest.fixture(scope='module')
+def small(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Two unconnected tables built from SQL files, and one that does not parse (a warning),
+    built and committed to git with nothing changed since."""
+    root = tmp_path_factory.mktemp('interfaces') / 'small'
+    root.mkdir()
+    (root / 'orders.sql').write_text('create table shop.orders as select 1 as amount')
+    (root / 'refunds.sql').write_text('create table shop.refunds as select 2 as amount')
+    (root / 'broken.sql').write_text('create table shop.broken as select from where')
+    (root / '.gitignore').write_text('konstruct-out/\n')
+    _git(root, 'init', '-q', '-b', 'main')
+    _git(root, 'add', '-A')
+    _git(root, 'commit', '-qm', 'Add the tables')
+    Project(root).build(warehouses=False)
+    return root
+
+
+@pytest.fixture(scope='module')
+def changed_jaffle(jaffle_built_graph: Path, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The built example in git, with a history and a change to review.
+
+    The commits change stg_payments.amount, break and then mend stg_payments.sql (a formula
+    that cannot be worked out), change the owner of the lifetime value term and add a dbt
+    source. The working tree renames stg_payments.payment_method, which orders still reads,
+    changes the lifetime value formula, adds a filter to orders and drops one from the DAG's SQL,
+    changes a DAG task, tests, a description, an exposure and the source, adds, changes and
+    removes terms, and changes a file Konstruct does not analyse. The broken version is tagged
+    ``broken``, and the lifetime value term is taken back to agreed and then approved again in
+    new words, so its history changes each field from a value to another."""
+    root = tmp_path_factory.mktemp('interfaces') / 'jaffle_shop'
+    shutil.copytree(jaffle_built_graph, root)
+    graph = root / 'konstruct-out' / 'graph.json'
+    graph.write_text(graph.read_text().replace(str(jaffle_built_graph), str(root)))
+    (root / '.gitignore').write_text('target/\nlogs/\nkonstruct-out/\n*.duckdb\n')
+    _git(root, 'init', '-q', '-b', 'main')
+    _git(root, 'add', '-A')
+    _git(root, 'commit', '-qm', 'Add the project')
+    payments = root / 'models' / 'staging' / 'stg_payments.sql'
+    _edit(payments, 'amount / 100', 'amount / 100.0')
+    _git(root, 'commit', '-qam', 'Divide exactly')
+    working = payments.read_text()
+    payments.write_text('select from where')
+    _git(root, 'commit', '-qam', 'Break the payments model')
+    _git(root, 'tag', 'broken')
+    payments.write_text(working)
+    _git(root, 'commit', '-qam', 'Mend the payments model')
+    definitions = root / 'definitions.yml'
+    _edit(
+        definitions, 'owner: {name: Priya Shah, role: Head of Finance}', 'owner: {name: Ada, role: Analyst}'
+    )
+    _git(root, 'commit', '-qam', 'Hand the lifetime value term over')
+    _edit(definitions, 'status: approved\n    approved: 2026-10-30\n', 'status: agreed\n')
+    _git(root, 'commit', '-qam', 'Take the lifetime value term back to agreed')
+    _edit(definitions, 'Total value of every payment', 'Total value of all the payments')
+    _edit(definitions, 'status: agreed\n', 'status: approved\n    approved: 2026-11-02\n')
+    _git(root, 'commit', '-qam', 'Approve the lifetime value term in new words')
+    sources = root / 'models' / 'sources.yml'
+    sources.write_text('version: 2\nsources:\n  - name: events\n    tables:\n      - name: raw_events\n')
+    _git(root, 'add', '-A')
+    _git(root, 'commit', '-qm', 'Add the events source')
+    _edit(sources, 'raw_events', 'raw_visits')
+    _edit(
+        root / 'models' / 'customers.sql', 'sum(amount) as total_amount', 'sum(amount * 1.0) as total_amount'
+    )
+    _edit(
+        root / 'models' / 'orders.sql',
+        'from orders\n',
+        "from orders\n    where orders.status != 'returned'\n",
+    )
+    _edit(root / 'dags' / 'sql' / 'customer_ltv.sql', 'where c.customer_lifetime_value > 0', '')
+    dag = root / 'dags' / 'jaffle_shop_daily.py'
+    _edit(dag, "task_id='dbt_test'", "task_id='dbt_check'")
+    _edit(dag, 'run --select customers orders', 'run --select customers')
+    _edit(dag, "sql='sql/customer_ltv.sql'", "sql='sql/lifetime_value.sql'")
+    _edit(
+        root / 'models' / 'staging' / 'stg_orders.sql',
+        'from source\n',
+        "from source\n    where status != 'void'\n",
+    )
+    schema = root / 'models' / 'schema.yml'
+    _edit(schema, 'description: This is a unique identifier for a customer', 'description: The customer')
+    _edit(
+        schema,
+        '          - unique\n          - not_null\n',
+        '          - not_null\n          - accepted_values:\n              values: [1]\n',
+    )
+    _edit(root / 'models' / 'exposures.yml', 'customer_dashboard', 'customer_report')
+    terms = definitions.read_text()
+    last = terms.index('  - name: Payment method')
+    definitions.write_text(
+        terms[:last] + '  - name: Refund\n    definition: Money returned to a customer.\n    status: draft\n'
+    )
+    _edit(payments, 'payment_method,', 'payment_method as method,')
+    _edit(root / 'dags' / 'jaffle_shop_daily.py', "schedule='@daily'", "schedule='@hourly'")
+    _edit(definitions, 'definition: Total of all payments recorded against an order', 'definition: Payments')
+    _edit(root / 'models' / 'overview.md', '{% docs __overview__ %}', '{% docs __overview__ %}\nChanged.')
+    return root
+
+
+REVENUE_TERMS = """\
+version: 1
+terms:
+  - name: Revenue
+    definition: Money taken for completed orders.
+    columns: [daily_revenue.revenue, joined_revenue.revenue]
+    filters: ["orders.status = 'completed'"]
+  - name: Gross revenue
+    definition: Every order's amount, completed or not.
+    broader: [Revenue]
+    columns: [daily_performance.total_revenue]
+"""
+
+
+@pytest.fixture(scope='module')
+def revenue(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Revenue computed in several ways, through filters, joins and terms: conflicts, and terms
+    with filters, a broader and a narrower term."""
+    from tests.test_conflicts import make_shop
+
+    root = tmp_path_factory.mktemp('interfaces') / 'revenue'
+    root.mkdir()
+    make_shop(root, invoices=True, definitions=REVENUE_TERMS)
+    (root / 'finance' / 'joined.sql').write_text(
+        'create table finance.joined_revenue as select o.order_date, sum(i.total) as revenue '
+        'from raw.orders o join raw.invoices i on i.id = o.id group by o.order_date'
+    )
+    Project(root).build()
+    return root
+
+
+def _every_input(root: Path) -> None:
+    """One file of each kind status lists that the small project lacks, vocabularies included."""
+    (root / 'orchestration').mkdir()
+    shutil.copy(ROOT / 'tests' / 'fixtures' / 'dagster' / 'definitions.py', root / 'orchestration')
+    shutil.copy(
+        ROOT / 'tests' / 'fixtures' / 'ossie' / 'scott_model.ossie.fixture.yaml', root / 'scott.ossie.yaml'
+    )
+    (root / 'views.lkml').write_text('view: orders {\n  sql_table_name: shop.orders ;;\n}\n')
+    (root / 'orders.tmdl').write_text('table orders\n\tcolumn amount\n')
+    (root / 'job.py').write_text(
+        'from pyspark.sql import SparkSession\n\nspark = SparkSession.builder.getOrCreate()\n'
+        "spark.sql('create table shop.copied as select amount from shop.orders')\n"
+    )
+    (root / 'terms.ttl').write_text(
+        '@prefix skos: <http://www.w3.org/2004/02/skos/core#> .\n'
+        '<urn:revenue> a skos:Concept ; skos:prefLabel "Revenue" .\n'
+    )
+
+
+@pytest.fixture(scope='module')
+def inputs(small: Path, jaffle_built_graph: Path, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The small project with one file of every kind status lists, two other repositories (the
+    example, and one with every kind of file again), a skill, and an input changed since the
+    build."""
+    root = tmp_path_factory.mktemp('interfaces') / 'inputs'
+    shutil.copytree(small, root)
+    graph = root / 'konstruct-out' / 'graph.json'
+    graph.write_text(graph.read_text().replace(str(small), str(root)))
+    _every_input(root)
+    other = root.parent / 'other'
+    other.mkdir()
+    _every_input(other)
+    (other / 'visits.sql').write_text('create table web.visits as select 1 as id')
+    (other / 'konstruct.toml').write_text('[vocabularies]\npaths = ["terms.ttl"]\n')
+    (root / 'konstruct.toml').write_text(
+        f'repositories = ["../other", {json.dumps(str(jaffle_built_graph))}]\n\n'
+        '[vocabularies]\npaths = ["terms.ttl"]\n'
+    )
+    (root / '.claude' / 'skills' / 'konstruct').mkdir(parents=True)
+    (root / '.claude' / 'skills' / 'konstruct' / 'SKILL.md').write_text('---\nname: konstruct\n---\n')
+    _edit(root / 'orders.sql', '1 as amount', '3 as amount')
+    return root
+
+
+STRIPE = """
+create schema stripe;
+create table stripe.charge (id varchar, amount bigint, amount_refunded bigint, captured boolean,
+    paid boolean, currency varchar, livemode boolean);
+create table stripe.customer (id varchar, delinquent boolean, livemode boolean);
+"""
+
+
+@pytest.fixture(scope='module')
+def landed(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A model over tables Fivetran landed in a DuckDB file inside the project, with Fivetran's
+    log (the source system's tables) and Stripe's tables, which bind the stripe ontology pack:
+    a build that reads lineage from the warehouse."""
+    from tests.test_loaders import LANDED, LOG, warehouse
+
+    root = tmp_path_factory.mktemp('interfaces') / 'landed'
+    root.mkdir()
+    warehouse(root, LANDED, LOG, STRIPE)
+    (root / 'accounts.sql').write_text(
+        'create table warehouse.main.accounts as select upper(name) as account_name from salesforce.account'
+    )
+    Project(root).build(run_dbt=False)
+    return root
+
+
+@pytest.fixture(scope='module')
+def misbound(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """An entity whose key has no uniqueness test: an ontology rule broken."""
+    from tests.test_ontology import _sql_project
+
+    root = tmp_path_factory.mktemp('interfaces') / 'misbound'
+    root.mkdir()
+    Project(_sql_project(root)).build(dialect='duckdb', warehouses=False, run_dbt=False)
+    return root
+
+
+@pytest.fixture(scope='module')
+def unexplained(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A DuckDB project whose graph lacks an edge the data shows: verify finds it unexplained."""
+    from tests.test_verify import make_project
+
+    root = tmp_path_factory.mktemp('interfaces') / 'unexplained'
+    root.mkdir()
+    make_project(root)
+    path = root / 'konstruct-out' / 'graph.json'
+    data = json.loads(path.read_text())
+    data['edges'] = [
+        e
+        for e in data['edges']
+        if not (
+            e['kind'] == 'derived_from'
+            and e['source'].endswith('#doubled')
+            and e['target'].endswith('#amount')
+        )
+    ]
+    path.write_text(json.dumps(data))
+    return root
+
+
+# Exit statuses
+
+
+def test_exit_statuses(
+    tmp_path: Path,
+    jaffle_built_graph: Path,
+    small: Path,
+    changed_jaffle: Path,
+    revenue: Path,
+    misbound: Path,
+    unexplained: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    dbt_on_path: None,
+) -> None:
+    nothing = tmp_path / 'nothing'
+    nothing.mkdir()
+    newer = tmp_path / 'newer'
+    (newer / 'konstruct-out').mkdir(parents=True)
+    graph = json.loads((small / 'konstruct-out' / 'graph.json').read_text())
+    (newer / 'konstruct-out' / 'graph.json').write_text(json.dumps({**graph, 'format_version': 99}))
+    copy = tmp_path / 'unexplained'
+    shutil.copytree(unexplained, copy)
+
+    def status(*args: str) -> int:
+        try:
+            return main(['--no-color', '-q', *args])
+        except SystemExit as stop:
+            return int(stop.code or 0)
+
+    def interrupted() -> int:
+        with monkeypatch.context() as patch:
+            patch.setattr(cli, 'cmd_list', lambda args, console: (_ for _ in ()).throw(KeyboardInterrupt))
+            return status('-C', str(small), 'list')
+
+    outcomes = {
+        'build': status('build', str(small), '--no-warehouse'),
+        'build --strict with warnings': status('build', str(small), '--no-warehouse', '--strict'),
+        'no command': status(),
+        'usage error': status('list', '--no-such-option'),
+        'version': status('--version'),
+        'question answered': status('-C', str(small), 'describe', 'orders'),
+        'name matches nothing': status('-C', str(small), 'describe', 'no_such_table'),
+        'path finds no connection': status('-C', str(small), 'path', 'orders', 'refunds'),
+        'define matches nothing': status('-C', str(small), 'define', 'no such term'),
+        'define finds no term on a column': status('-C', str(small), 'define', 'orders.amount'),
+        'list with an unknown kind': status('-C', str(small), 'list', 'widgets'),
+        'no graph with --no-build': status('-C', str(nothing), 'list', '--no-build'),
+        'a graph from a newer Konstruct': status('-C', str(newer), 'list'),
+        'interrupted': interrupted(),
+        'conflicts finds some': status('-C', str(revenue), 'conflicts', '--no-write'),
+        'conflicts --fail-on-conflict finds some': status(
+            '-C', str(revenue), 'conflicts', '--no-write', '--fail-on-conflict'
+        ),
+        'conflicts --fail-on-conflict finds none': status(
+            '-C', str(jaffle_built_graph), 'conflicts', '--no-write', '--fail-on-conflict'
+        ),
+        'ontology with a broken rule': status('-C', str(misbound), 'ontology'),
+        'ontology --strict with a broken rule': status('-C', str(misbound), 'ontology', '--strict'),
+        'verify finds no warehouse': status('-C', str(small), 'verify', '--no-build'),
+        'verify with an unexplained influence': status('-C', str(unexplained), 'verify'),
+        'verify --strict with an unexplained influence': status('-C', str(copy), 'verify', '--strict'),
+        'diff outside git': status('-C', str(nothing), 'diff'),
+        'diff with a breaking change': status('-C', str(changed_jaffle), 'diff', '--base', 'HEAD'),
+        'diff --fail-on-breaking with a breaking change': status(
+            '-C', str(changed_jaffle), 'diff', '--base', 'HEAD', '--fail-on-breaking'
+        ),
+        'gate fails': status('-C', str(changed_jaffle), 'gate', '--base', 'HEAD', '--no-update'),
+        'gate passes': status('-C', str(small), 'gate', '--base', 'HEAD', '--no-update'),
+    }
+    capsys.readouterr()
+    check('exit', outcomes)
+
+
+# JSON documents
+
+
+def _type(value: Any) -> str:
+    if value is None:
+        return 'null'
+    return {bool: 'bool', int: 'int', float: 'float', str: 'str', list: 'list', dict: 'object'}[type(value)]
+
+
+# Objects keyed by data (entity names, node kinds, input names) rather than by field names.
+MAPS = ('build .nodes', 'build .edges', 'graph.json .meta.inputs')
+
+
+def shape(document: str, value: Any) -> dict[str, str]:
+    """Each field of ``value`` by path (``.key``, ``[]`` for list items, ``{}`` for the values of
+    an object keyed by data) with the types it holds."""
+    found: dict[str, set[str]] = {}
+
+    def visit(item: Any, path: str) -> None:
+        if path:
+            found.setdefault(path, set()).add(_type(item))
+        if isinstance(item, dict):
+            keyed = path.endswith('.entities') or f'{document} {path}' in MAPS
+            for key, child in item.items():
+                visit(child, f'{path}{{}}' if keyed else f'{path}.{key}')
+        elif isinstance(item, list):
+            for child in item:
+                visit(child, f'{path}[]')
+
+    visit(value, '')
+    return {f'json {document} {path}': '|'.join(sorted(types)) for path, types in found.items()}
+
+
+# The commands each document is inferred from, by project; several runs add their fields up.
+QUESTIONS: dict[str, list[list[str]]] = {
+    'impact': [
+        ['impact', 'stg_payments.amount'],
+        ['impact', 'customers'],
+        ['impact', 'customers.customer_lifetime_value'],
+    ],
+    'trace': [
+        ['trace', 'customer_ltv.lifetime_value'],
+        ['trace', 'orders'],
+        ['trace', 'customers.customer_id'],
+    ],
+    'path': [['path', 'raw_payments', 'customer_dashboard']],
+    'search': [['search', 'lifetime', 'value']],
+    'describe': [
+        ['describe', 'orders'],
+        ['describe', 'customers.customer_lifetime_value'],
+        ['describe', 'jaffle_shop_daily'],
+        ['describe', 'jaffle_shop_daily.build_customer_ltv'],
+        ['describe', 'jaffle_shop_daily.dbt_run_marts'],
+        ['describe', 'Customer lifetime value'],
+    ],
+    'list': [['list'], ['list', 'columns', 'tasks', 'tests', 'dags', 'exposures']],
+    'query': [
+        ['query', 'what breaks if I change payment_method'],
+        ['query', 'where does lifetime value come from'],
+        ['query', 'what breaks if I change customer_lifetime_value'],
+        ['query', 'where does customer_id come from'],
+    ],
+    'define': [
+        ['define', 'lifetime', 'value'],
+        ['define', 'customers.customer_lifetime_value'],
+        ['define', 'completed', 'order'],
+    ],
+    'ontology': [['ontology']],
+    'explain': [
+        ['explain', 'customers.customer_lifetime_value'],
+        ['explain', 'customer_ltv.lifetime_value'],
+        ['explain', 'customers.customer_id'],
+    ],
+    'conflicts': [['conflicts', '--no-write']],
+    'status': [['status']],
+}
+
+# Lists none of the projects fills, each with why; every other list must show its items' shape.
+_DOWNSTREAM = 'only a downstream walk (impact) reaches tests, exposures and relations that join or filter'
+_UPSTREAM = "only a trace lists the columns that filter or join the traced column's relation"
+EMPTY: dict[str, str] = {
+    'json trace .tests': _DOWNSTREAM,
+    'json trace .exposures': _DOWNSTREAM,
+    'json trace .joins_and_filters': _DOWNSTREAM,
+    'json query .lineage.tests': _DOWNSTREAM,
+    'json query .lineage.exposures': _DOWNSTREAM,
+    'json query .lineage.joins_and_filters': _DOWNSTREAM,
+    'json impact .filtered_by': _UPSTREAM,
+    'json query .impact.filtered_by': _UPSTREAM,
+    'json diff .relations[].columns[].impact.filtered_by': _UPSTREAM,
+    'json diff .relations[].rows_impact.filtered_by': _UPSTREAM,
+    'json diff .relations[].rows_impact.joins_and_filters': (
+        "a relation's impact reaches whole relations; only a column's lists those that join or filter on it"
+    ),
+    # A conflict's two sides are one type, Side; the projects fill each of these on the other side.
+    'json conflicts .conflicts[].a.carried_into': 'the same field as .conflicts[].b.carried_into',
+    'json conflicts .conflicts[].b.filters': 'the same field as .conflicts[].a.filters',
+    # Plugins are installed distributions; the projects run with none installed or enabled.
+    'json status .plugins': 'only an installed plugin distribution fills it',
+    'json status .missing_plugins': 'only a [plugins] enabled name that is not installed fills it',
+}
+# Fields the projects only ever fill with null, each with why; every other field must show the
+# type it holds, or a change to that type would pass.
+UNFILLED: dict[str, str] = {}
+
+
+def gaps(entries: dict[str, Any]) -> list[str]:
+    """The fields whose shape the projects do not show, as neither EMPTY nor UNFILLED excuses
+    them, and the entries there that no longer excuse anything: a list never filled (its items
+    unrecorded) and a field only ever null (its type unrecorded)."""
+    fields = {k: str(v).split('|') for k, v in entries.items() if k.startswith('json ')}
+    empty = {k for k, types in fields.items() if 'list' in types and f'{k}[]' not in entries}
+    null = {k for k, types in fields.items() if types == ['null']}
+    problems = [f'fill this list, or list it in EMPTY with why: {k}' for k in sorted(empty - set(EMPTY))]
+    problems += [
+        f'fill this field, or list it in UNFILLED with why: {k}' for k in sorted(null - set(UNFILLED))
+    ]
+    problems += [f'EMPTY lists a list that is now filled: {k}' for k in EMPTY if k not in empty]
+    problems += [f'UNFILLED lists a field that is now filled: {k}' for k in UNFILLED if k not in null]
+    return problems
+
+
+def _json(capsys: pytest.CaptureFixture[str], *args: str) -> Any:
+    capsys.readouterr()
+    main(['--no-color', '-q', *args])
+    captured = capsys.readouterr()
+    assert captured.out.strip(), f'konstruct {" ".join(args)} wrote no JSON: {captured.err}'
+    return json.loads(captured.out)
+
+
+def test_json_documents(
+    jaffle_built_graph: Path,
+    small: Path,
+    changed_jaffle: Path,
+    revenue: Path,
+    misbound: Path,
+    unexplained: Path,
+    inputs: Path,
+    landed: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    dbt_on_path: None,
+) -> None:
+    # status lists the skills installed in the home directory; leave the person's out of it.
+    monkeypatch.setenv('HOME', str(tmp_path / 'home'))
+    documents: dict[str, list[Any]] = {}
+
+    def add(name: str, *args: str) -> None:
+        documents.setdefault(name, []).append(_json(capsys, *args))
+
+    for name, invocations in QUESTIONS.items():
+        for args in invocations:
+            add(name, '-C', str(jaffle_built_graph), *args, '--json')
+    add('conflicts', '-C', str(revenue), 'conflicts', '--no-write', '--json')
+    add('ontology', '-C', str(misbound), 'ontology', '--json')
+    add('status', '-C', str(small), 'status', '--json')
+    add('status', '-C', str(inputs), 'status', '--json')
+    add('status', '-C', str(landed), 'status', '--json')
+    newer = tmp_path / 'newer'
+    (newer / 'konstruct-out').mkdir(parents=True)
+    graph = json.loads((small / 'konstruct-out' / 'graph.json').read_text())
+    (newer / 'konstruct-out' / 'graph.json').write_text(json.dumps({**graph, 'format_version': 99}))
+    add('status', '-C', str(newer), 'status', '--json')
+    for args in (['define', 'revenue'], ['define', 'gross', 'revenue'], ['query', 'what is revenue']):
+        add(args[0], '-C', str(revenue), *args, '--json')
+    copy = tmp_path / 'jaffle_shop'
+    shutil.copytree(jaffle_built_graph, copy)
+    add('build', 'build', str(copy), '--update', '--json')
+    shutil.copytree(small, tmp_path / 'small')
+    add('build', 'build', str(tmp_path / 'small'), '--no-warehouse', '--json')
+    add('verify', '-C', str(copy), 'verify', '--json')
+    add('verify', '-C', str(unexplained), 'verify', '--json')
+    from tests.test_verify import make_project
+
+    (tmp_path / 'noisy').mkdir()
+    noisy = make_project(
+        tmp_path / 'noisy', 'create table main.noisy as select id, random() as r from raw.orders'
+    )
+    add('verify', '-C', str(noisy.root), 'verify', '--json')  # a model verify skips, and why
+    for root in (copy, small, revenue, unexplained, landed):
+        documents.setdefault('graph.json', []).append(
+            json.loads((root / 'konstruct-out' / 'graph.json').read_text())
+        )
+    git = ['-C', str(changed_jaffle)]
+    add('history', *git, 'history', 'stg_payments.amount', '--json')
+    add('history', *git, 'history', 'customers.customer_lifetime_value', '--json')
+    add('diff', *git, 'diff', '--base', 'HEAD', '--format', 'json')
+    add('diff', *git, 'diff', '--base', 'broken', '--format', 'json')  # a version that does not parse
+    add('gate', *git, 'gate', '--base', 'HEAD', '--no-update', '--format', 'json')
+    add('gate', '-C', str(small), 'gate', '--base', 'HEAD', '--format', 'json')
+    entries: dict[str, Any] = {}
+    for name, runs in documents.items():
+        versions = {run.get('format_version') for run in runs}
+        assert len(versions) == 1 and isinstance(next(iter(versions)), int), f'{name} has no format_version'
+        entries[f'format {name}'] = versions.pop()
+        merged: dict[str, set[str]] = {}
+        for run in runs:
+            for key, types in shape(name, run).items():
+                merged.setdefault(key, set()).update(types.split('|'))
+        entries |= {key: '|'.join(sorted(types)) for key, types in merged.items()}
+    # A list the projects leave empty has no recorded items, and a field they leave null no
+    # recorded type, so a change to either would pass.
+    problems = gaps(entries)
+    assert problems == [], '\n'.join(problems)
+    check('json', entries)
+
+
+def test_a_field_emptied_to_null_is_missing_coverage(
+    revenue: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A field the code stops filling, here every conflict's reason, has no type left to compare,
+    so the coverage check fails rather than the field passing as compatible."""
+    from konstruct.analysis.conflicts import Conflict
+
+    recorded = json.loads((SNAPSHOTS / 'json.json').read_text(encoding='utf-8'))
+    others = {k: v for k, v in recorded.items() if not k.startswith('json conflicts ')}
+    document = _json(capsys, '-C', str(revenue), 'conflicts', '--no-write', '--json')
+    assert gaps(others | shape('conflicts', document)) == []
+    filled = Conflict.to_dict
+    monkeypatch.setattr(Conflict, 'to_dict', lambda self: {**filled(self), 'reason': None})
+    document = _json(capsys, '-C', str(revenue), 'conflicts', '--no-write', '--json')
+    assert gaps(others | shape('conflicts', document)) == [
+        'fill this field, or list it in UNFILLED with why: json conflicts .conflicts[].reason'
+    ]
+
+
+def test_the_documented_format_versions_are_the_ones_written() -> None:
+    """The table in the Compatibility section lists each document and its format version."""
+    recorded = json.loads((SNAPSHOTS / 'json.json').read_text(encoding='utf-8'))
+    written = {
+        key.removeprefix('format '): value for key, value in recorded.items() if key.startswith('format ')
+    }
+    text = (ROOT / 'docs' / 'reference' / 'outputs.md').read_text(encoding='utf-8')
+    table = text.split('| Document | `format_version` |', 1)[1].split('\n\n', 1)[0]
+    documented: dict[str, int] = {}
+    for row in table.strip().splitlines()[1:]:
+        names, version = (cell.strip() for cell in row.strip('|').split('|'))
+        for name in names.replace(' and ', ', ').split(', '):
+            documented[name.strip('`').removesuffix(' --json')] = int(version)
+    files = {'conflicts.json': 'conflicts', 'verify.json': 'verify'}
+    assert {files.get(k, k): v for k, v in documented.items()} == written
+
+
+# MCP
+
+
+def test_mcp_tools(jaffle_built_graph: Path) -> None:
+    async def tools() -> list[Any]:
+        async with Client(build_server(jaffle_built_graph)) as client:
+            return list((await client.list_tools()).tools)
+
+    entries: dict[str, str] = {}
+    for tool in anyio.run(tools):
+        entries[f'mcp {tool.name}'] = 'tool'
+        schema = tool.input_schema
+        required = set(schema.get('required', []))
+        for name, spec in schema.get('properties', {}).items():
+            options = spec.get('anyOf', [spec])
+            kinds = [
+                f'array of {o.get("items", {}).get("type", "any")}'
+                if o.get('type') == 'array'
+                else str(o.get('type'))
+                for o in options
+            ]
+            value = '|'.join(sorted(kinds))
+            value += ', required' if name in required else f' = {spec.get("default")!r}'
+            entries[f'mcp {tool.name} {name}'] = value
+    check('mcp', entries)
+
+
+# The Python API
+
+
+def _signature(prefix: str, function: Any, entries: dict[str, str]) -> None:
+    """Each parameter with its position (``#0``), unless it is keyword-only, as moving one breaks
+    a call that passes it by position."""
+    signature = inspect.signature(function)
+    position = 0
+    for name, parameter in signature.parameters.items():
+        if name in ('self', 'cls'):
+            continue
+        value = str(parameter.annotation) if parameter.annotation is not parameter.empty else 'any'
+        if parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD):
+            value = f'#{position} {value}'
+            position += 1
+        elif parameter.kind is parameter.KEYWORD_ONLY:
+            value = f'keyword {value}'
+        if parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD):
+            value += f', {parameter.kind.description}'
+        elif parameter.default is parameter.empty:
+            value += ', required'
+        else:
+            value += f' = {parameter.default!r}'
+        entries[f'{prefix} {name}'] = value
+    if signature.return_annotation is not signature.empty:
+        entries[f'{prefix} ->'] = str(signature.return_annotation)
+
+
+def python_entries() -> dict[str, str]:
+    entries: dict[str, str] = {}
+    for name in sorted(konstruct.__all__):
+        value = getattr(konstruct, name)
+        prefix = f'python konstruct.{name}'
+        if not inspect.isclass(value):
+            entries[prefix] = type(value).__name__
+            continue
+        entries[prefix] = 'exception' if issubclass(value, BaseException) else 'class'
+        if issubclass(value, BaseException):
+            continue
+        if dataclasses.is_dataclass(value):
+            for item in dataclasses.fields(value):
+                entries[f'{prefix}.{item.name}'] = f'field {item.type}'
+        else:
+            _signature(prefix, value.__init__, entries)
+        fields = {f.name for f in dataclasses.fields(value)} if dataclasses.is_dataclass(value) else set()
+        for attribute, member in vars(value).items():
+            if attribute.startswith('_') or attribute in fields:
+                continue
+            if isinstance(member, property):
+                annotation = inspect.signature(member.fget).return_annotation if member.fget else 'any'
+                entries[f'{prefix}.{attribute}'] = f'property {annotation}'
+            elif isinstance(member, classmethod | staticmethod):
+                entries[f'{prefix}.{attribute}'] = type(member).__name__
+                _signature(f'{prefix}.{attribute}', getattr(value, attribute), entries)
+            elif inspect.isfunction(member):
+                entries[f'{prefix}.{attribute}'] = 'method'
+                _signature(f'{prefix}.{attribute}', member, entries)
+            else:
+                entries[f'{prefix}.{attribute}'] = 'attribute'
+    return entries
+
+
+def test_python_api() -> None:
+    check('python', python_entries())
+
+
+# The GitHub Action and the CSV export
+
+
+def test_github_action() -> None:
+    action = yaml.safe_load((ROOT / 'action.yml').read_text(encoding='utf-8'))
+    entries = {}
+    for name, spec in (action.get('inputs') or {}).items():
+        entries[f'action input {name}'] = 'required' if spec.get('required') else f'= {spec.get("default")!r}'
+    for name in action.get('outputs') or {}:
+        entries[f'action output {name}'] = 'output'
+    check('action', entries)
+
+
+def test_csv_columns(jaffle_built_graph: Path) -> None:
+    """The CSV export's header, each column with its position, as readers index by either."""
+    header = Project(jaffle_built_graph).export('csv').splitlines()[0].split(',')
+    check('csv', {f'csv {column}': f'#{position}' for position, column in enumerate(header)})
+
+
+# konstruct.toml
+
+
+class Recorder(dict[str, Any]):
+    """An empty configuration table that records every key Konstruct looks up in it."""
+
+    def __init__(self, prefix: str, seen: set[str]) -> None:
+        super().__init__()
+        self.prefix, self.seen = prefix, seen
+
+    def get(self, key: str, default: Any = None) -> Any:
+        self.seen.add(self.prefix + key)
+        return Recorder(f'{self.prefix}{key}.', self.seen) if isinstance(default, dict) else default
+
+    def __contains__(self, key: object) -> bool:
+        self.seen.add(f'{self.prefix}{key}')
+        return False
+
+
+WAREHOUSES = ('duckdb', 'postgres', 'iceberg', 'snowflake', 'databricks', 'trino', 'bigquery')
+
+
+def test_configuration_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from konstruct.engine import config
+
+    seen: set[str] = set()
+    (tmp_path / 'konstruct.toml').write_text('')
+    monkeypatch.setattr(config, '_read_toml', lambda path: Recorder('', seen))
+    config.load_config(tmp_path)
+    # A [[warehouse]] entry's keys are read when it connects; record them for each type.
+    monkeypatch.setattr(config, 'expand_env', lambda value: value)
+    for kind in WAREHOUSES:
+        # A missing driver raises; the keys read until then are recorded.
+        with contextlib.suppress(Exception):
+            config.WarehouseConfig(kind, Recorder(f'warehouse.{kind}.', seen)).connector(tmp_path)
+    seen |= {'warehouse', 'warehouse.type'}
+    check('config', dict.fromkeys(sorted(seen), 'key'))

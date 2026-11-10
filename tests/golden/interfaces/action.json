@@ -1,0 +1,16 @@
+{
+ "action input base": "= ''",
+ "action input build-args": "= '--no-warehouse --no-dbt'",
+ "action input comment": "= 'true'",
+ "action input extras": "= ''",
+ "action input fail-on-breaking": "= 'true'",
+ "action input gate": "= 'false'",
+ "action input python-version": "= '3.12'",
+ "action input token": "= '${{ github.token }}'",
+ "action input working-directory": "= '.'",
+ "action output breaking": "output",
+ "action output gate": "output",
+ "action output json": "output",
+ "action output report": "output",
+ "action output summary": "output"
+}
