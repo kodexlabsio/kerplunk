@@ -25,6 +25,7 @@
     const pages: { page: string; key: MessageKey; icon: string; count?: number; show: boolean }[] = [
         { page: 'overview', key: 'page.overview', icon: 'overview', show: true },
         { page: 'lineage', key: 'page.lineage', icon: 'lineage', show: true },
+        { page: 'map', key: 'page.map', icon: 'map', show: true },
         { page: 'browse', key: 'page.browse', icon: 'list', show: true },
         { page: 'glossary', key: 'page.glossary', icon: 'term', count: terms, show: terms > 0 },
         { page: 'ontology', key: 'page.ontology', icon: 'entity', show: ontology },

@@ -14,6 +14,7 @@ export const PAGES = [
     'usage',
     'tests',
     'warnings',
+    'map',
 ] as const;
 
 /** A page the address names, or 'notfound' for an address the viewer does not know. */

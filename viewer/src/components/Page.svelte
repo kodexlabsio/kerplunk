@@ -5,6 +5,7 @@
     import Conflicts from './pages/Conflicts.svelte';
     import Entity from './pages/Entity.svelte';
     import Glossary from './pages/Glossary.svelte';
+    import MapPage from './pages/MapPage.svelte';
     import NodePage from './pages/NodePage.svelte';
     import NotFound from './pages/NotFound.svelte';
     import Ontology from './pages/Ontology.svelte';
@@ -43,6 +44,8 @@
     <Tests {viewer} />
 {:else if r.page === 'warnings'}
     <Warnings {viewer} />
+{:else if r.page === 'map'}
+    <MapPage {viewer} />
 {:else}
     <NotFound {viewer} what={r.id ?? ''} />
 {/if}
