@@ -42,6 +42,9 @@ paths = ["vocabulary/business.ttl"]  # SKOS or OWL, read as terms; needs konstru
 [ossie]
 paths = ["semantic/"]             # Apache Ossie models; default: every *.ossie.yaml
 
+[plugins]
+enabled = ["konstruct-yaml-pipelines"]  # installed plugins this project runs; default: none
+
 [fivetran]
 lineage = false                   # read the Platform Connector's lineage tables; default true
 
@@ -102,4 +105,5 @@ credential = "${ICEBERG_CREDENTIAL}"
 
 | Variable | Effect |
 |----------|--------|
+| `KONSTRUCT_NO_PLUGINS` | `1` runs no plugin, whatever `[plugins] enabled` says, as `--no-plugins` does (see [Writing a Plugin](../guide/plugins.md)) |
 | `KONSTRUCT_WORKERS` | How many worker processes analyse dbt models in a build: by default one per CPU, up to eight; `1` analyses them in the build's own process |

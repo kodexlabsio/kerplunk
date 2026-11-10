@@ -10,6 +10,8 @@
 | `csv` | One row per column edge: relation, column, upstream relation and column, transform, verification and expression | Spreadsheets, or a lineage table in the warehouse |
 | `ossie` | The [ontology](ontology.md) as an Apache Ossie semantic model: datasets, relationships, and each measure as a metric with its composed formula and a `KONSTRUCT` extension for status, owner and verification (see [Apache Ossie Models](ossie.md)) | Semantic layers and BI tools that read Ossie |
 
+A [plugin](plugins.md#an-export-format) the project enables can add a format, which `konstruct export <format>` writes as it does these.
+
 ```bash
 konstruct export openlineage -o lineage.jsonl --namespace duckdb://analytics
 konstruct export mermaid -s orders.amount --columns > docs/orders-amount.mmd
