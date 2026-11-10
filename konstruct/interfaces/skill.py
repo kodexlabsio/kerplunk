@@ -362,7 +362,8 @@ def install(
         )
     elif mcp and project is not None:
         groups += [
-            (f'MCP server for {label}: {c.path}', [c]) for label, c in _servers(chosen, project, force)
+            (f'MCP server for {label}: {c.path}', [c])
+            for label, c in _servers(chosen, project, force, workflows)
         ]
 
     for _, changes in groups:
@@ -373,17 +374,27 @@ def install(
     ] + notes
 
 
-def _servers(chosen: Sequence[str], project: Path, force: bool) -> list[tuple[str, _Change]]:
-    """The MCP registration of each chosen agent, in its own project configuration."""
-    server = {'command': 'konstruct', 'args': _MCP_ARGS}
-    workspace = {'type': 'stdio', 'command': 'konstruct', 'args': ['mcp', '--path', '${workspaceFolder}']}
+def _servers(
+    chosen: Sequence[str], project: Path, force: bool, workflows: bool = True
+) -> list[tuple[str, _Change]]:
+    """The MCP registration of each chosen agent, in its own project configuration. Without the
+    workflow skills, the server offers no workflow prompts either."""
+    extra = [] if workflows else ['--no-prompts']
+    server = {'command': 'konstruct', 'args': [*_MCP_ARGS, *extra]}
+    workspace = {
+        'type': 'stdio',
+        'command': 'konstruct',
+        'args': ['mcp', '--path', '${workspaceFolder}', *extra],
+    }
     servers: list[tuple[str, _Change]] = []
     if 'claude' in chosen:
         servers.append(('Claude Code', _json_server(project / '.mcp.json', server, force)))
     if 'cursor' in chosen:
         servers.append(('Cursor', _json_server(project / '.cursor' / 'mcp.json', workspace, force)))
     if 'codex' in chosen:
-        servers.append(('Codex', _toml_server(project / '.codex' / 'config.toml', force, list(_MCP_ARGS))))
+        servers.append(
+            ('Codex', _toml_server(project / '.codex' / 'config.toml', force, [*_MCP_ARGS, *extra]))
+        )
     if 'copilot' in chosen:
         servers.append(
             (

@@ -424,7 +424,7 @@ def cmd_hook(args: argparse.Namespace, console: Console) -> int:
 def cmd_mcp(args: argparse.Namespace, console: Console) -> int:
     from konstruct.interfaces.mcp_server import serve
 
-    serve(Path(args.project), plugins=not args.no_plugins)
+    serve(Path(args.project), plugins=not args.no_plugins, prompts=not args.no_prompts)
     return 0
 
 
@@ -1091,6 +1091,9 @@ def parser() -> argparse.ArgumentParser:
     hooking.set_defaults(func=cmd_hook)
 
     mcp = add('mcp', 'run the MCP server on stdio (for agent configuration, not interactive use)')
+    mcp.add_argument(
+        '--no-prompts', action='store_true', help='offer the tools and resources without the workflow prompts'
+    )
     mcp.set_defaults(func=cmd_mcp)
 
     plugins = add('plugins', 'list installed plugins and whether each runs for this project')

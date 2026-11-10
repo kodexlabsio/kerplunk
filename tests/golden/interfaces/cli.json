@@ -357,6 +357,7 @@
  "konstruct mcp --no-color": "flag",
  "konstruct mcp --no-colour": "flag",
  "konstruct mcp --no-plugins": "flag",
+ "konstruct mcp --no-prompts": "flag",
  "konstruct mcp --path": "option str",
  "konstruct mcp --project": "option str",
  "konstruct mcp --quiet": "flag",

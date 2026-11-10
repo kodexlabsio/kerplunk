@@ -329,6 +329,18 @@ def test_only_whole_paths_are_hidden(tmp_path: Path, monkeypatch: pytest.MonkeyP
     )
 
 
+def test_without_prompts_the_server_names_none(jaffle_built_graph: Path) -> None:
+    async def main() -> None:
+        server = build_server(jaffle_built_graph, prompts=False)
+        async with Client(server) as client:
+            assert (await client.list_prompts()).prompts == []
+            assert len((await client.list_resources()).resources) == 3
+        assert 'prompts' not in (server.instructions or '')
+        assert 'prompts' in (build_server(jaffle_built_graph).instructions or '')
+
+    anyio.run(main)
+
+
 def test_the_prompt_preface_names_the_servers_tools(tmp_path: Path) -> None:
     import re
 

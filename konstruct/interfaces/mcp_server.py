@@ -127,9 +127,12 @@ def summary(project: Project) -> dict[str, Any]:
     }
 
 
-def build_server(root: Path, *, plugins: bool = True) -> MCPServer:
+def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> MCPServer:
+    """The server over the graph of the project at ``root``. ``plugins=False`` serves no plugin's
+    tools. ``prompts=False`` leaves out the workflow prompts and the instruction that names them,
+    for a setup with only the general skill (the agent benchmark's general-skill arm)."""
     project = Project(root, plugins=plugins)
-    instructions = INSTRUCTIONS + RESOURCES_NOTE + PROMPTS_NOTE
+    instructions = INSTRUCTIONS + RESOURCES_NOTE + (PROMPTS_NOTE if prompts else '')
     server = MCPServer('konstruct', version=__version__, instructions=instructions)
 
     def run(func: Callable[..., Any], *args: Any) -> dict[str, Any]:
@@ -143,7 +146,8 @@ def build_server(root: Path, *, plugins: bool = True) -> MCPServer:
             raise _untrusted_error(str(error)) from error
         return {'untrusted_content': UNTRUSTED_CONTENT, **result}
 
-    _prompts(server)
+    if prompts:
+        _prompts(server)
     _resources(server, project)
 
     @server.tool()
@@ -383,5 +387,5 @@ def _resources(server: MCPServer, project: Project) -> None:
         return private(json.dumps(data, indent=2), project)
 
 
-def serve(root: Path, *, plugins: bool = True) -> None:
-    build_server(root, plugins=plugins).run('stdio')
+def serve(root: Path, *, plugins: bool = True, prompts: bool = True) -> None:
+    build_server(root, plugins=plugins, prompts=prompts).run('stdio')
