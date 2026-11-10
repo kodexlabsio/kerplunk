@@ -1,0 +1,159 @@
+{
+ "format_version": 1,
+ "id": "model.jaffle_shop.orders",
+ "kind": "model",
+ "label": "orders",
+ "name": "orders",
+ "path": "models/orders.sql",
+ "description": "This table has basic information about orders, as well as some derived facts based on payments",
+ "relation": "jaffle_shop.main.orders",
+ "origins": [
+  "dbt",
+  "duckdb"
+ ],
+ "attrs": {
+  "package": "jaffle_shop",
+  "fqn": [
+   "jaffle_shop",
+   "orders"
+  ],
+  "materialized": "table",
+  "tags": [],
+  "dbt_name": "orders",
+  "checksum": "60c17722f35983a7948bd24f39bec8509719babcfe50316750c1a63eaebd4995",
+  "table_type": "table",
+  "in_warehouse": true,
+  "nullable": {
+   "jaffle_shop.main.stg_payments": "LEFT"
+  },
+  "entities": [
+   "order"
+  ]
+ },
+ "columns": [
+  {
+   "id": "model.jaffle_shop.orders#order_id",
+   "kind": "column",
+   "label": "orders.order_id",
+   "name": "order_id",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "INTEGER",
+   "description": "This is a unique identifier for an order"
+  },
+  {
+   "id": "model.jaffle_shop.orders#customer_id",
+   "kind": "column",
+   "label": "orders.customer_id",
+   "name": "customer_id",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "INTEGER",
+   "description": "Foreign key to the customers table"
+  },
+  {
+   "id": "model.jaffle_shop.orders#order_date",
+   "kind": "column",
+   "label": "orders.order_date",
+   "name": "order_date",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DATE",
+   "description": "Date (UTC) that the order was placed"
+  },
+  {
+   "id": "model.jaffle_shop.orders#status",
+   "kind": "column",
+   "label": "orders.status",
+   "name": "status",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "VARCHAR",
+   "description": "Orders can be one of the following statuses:\n\n| status         | description                                                                                                            |\n|----------------|------------------------------------------------------------------------------------------------------------------------|\n| placed         | The order has been placed but has not yet left the warehouse                                                           |\n| shipped        | The order has ben shipped to the customer and is currently in transit                                                  |\n| completed      | The order has been received by the customer                                                                            |\n| return_pending | The customer has indicated that they would like to return the order, but it has not yet been received at the warehouse |\n| returned       | The order has been returned by the customer and received at the warehouse                                              |"
+  },
+  {
+   "id": "model.jaffle_shop.orders#credit_card_amount",
+   "kind": "column",
+   "label": "orders.credit_card_amount",
+   "name": "credit_card_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by credit card"
+  },
+  {
+   "id": "model.jaffle_shop.orders#coupon_amount",
+   "kind": "column",
+   "label": "orders.coupon_amount",
+   "name": "coupon_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by coupon"
+  },
+  {
+   "id": "model.jaffle_shop.orders#bank_transfer_amount",
+   "kind": "column",
+   "label": "orders.bank_transfer_amount",
+   "name": "bank_transfer_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by bank transfer"
+  },
+  {
+   "id": "model.jaffle_shop.orders#gift_card_amount",
+   "kind": "column",
+   "label": "orders.gift_card_amount",
+   "name": "gift_card_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by gift card"
+  },
+  {
+   "id": "model.jaffle_shop.orders#amount",
+   "kind": "column",
+   "label": "orders.amount",
+   "name": "amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Total amount (AUD) of the order"
+  }
+ ],
+ "terms": [],
+ "defines": [],
+ "related": [],
+ "conditions": [
+  "GROUP BY: stg_payments.order_id",
+  "LEFT JOIN ON: stg_orders.order_id = stg_payments.order_id"
+ ],
+ "tests": [
+  "accepted_values_orders_status__placed__shipped__completed__return_pending__returned",
+  "not_null_orders_amount",
+  "not_null_orders_bank_transfer_amount",
+  "not_null_orders_coupon_amount",
+  "not_null_orders_credit_card_amount",
+  "not_null_orders_customer_id",
+  "not_null_orders_gift_card_amount",
+  "not_null_orders_order_id",
+  "relationships_orders_customer_id__customer_id__ref_customers_",
+  "unique_orders_order_id"
+ ],
+ "upstream": [
+  "jaffle_shop_daily.dbt_run_marts (task)",
+  "stg_orders (model)",
+  "stg_orders.order_id (column)",
+  "stg_payments (model)",
+  "stg_payments.order_id (column)"
+ ],
+ "downstream": [
+  "customer_dashboard (exposure)",
+  "jaffle_shop_daily.dbt_run_marts (task)"
+ ],
+ "tasks": [],
+ "runs": [],
+ "after": [],
+ "before": []
+}

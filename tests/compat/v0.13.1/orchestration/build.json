@@ -1,0 +1,96 @@
+{
+ "format_version": 1,
+ "root": "<root>",
+ "outputs": [
+  "konstruct-out/graph.json",
+  "konstruct-out/REPORT.md",
+  "konstruct-out/graph.html",
+  "konstruct-out/ontology.yml"
+ ],
+ "seconds": 0,
+ "inputs": [
+  {
+   "input": "dbt",
+   "name": "jaffle_shop",
+   "path": ".",
+   "note": "ran dbt docs generate",
+   "detail": "5 models, 3 seeds, 20 tests, 1 exposure"
+  },
+  {
+   "input": "duckdb",
+   "name": "duckdb jaffle_shop.duckdb",
+   "detail": "9 relations",
+   "note": "dbt profile jaffle_shop"
+  },
+  {
+   "input": "airflow",
+   "path": "dags/assigned.py",
+   "detail": "2 DAGs, 3 tasks"
+  },
+  {
+   "input": "airflow",
+   "path": "dags/dependencies.py",
+   "detail": "1 DAG, 7 tasks"
+  },
+  {
+   "input": "airflow",
+   "path": "dags/groups.py",
+   "detail": "1 DAG, 4 tasks"
+  },
+  {
+   "input": "airflow",
+   "path": "dags/jaffle_shop_daily.py",
+   "detail": "1 DAG, 6 tasks"
+  },
+  {
+   "input": "airflow",
+   "path": "dags/taskflow.py",
+   "detail": "1 DAG, 4 tasks"
+  },
+  {
+   "input": "dagster",
+   "path": "orchestration/definitions.py",
+   "detail": "6 assets, 4 ops, 3 jobs, 3 sensors"
+  },
+  {
+   "input": "definitions",
+   "path": "definitions.yml",
+   "detail": "5 terms"
+  }
+ ],
+ "nodes": {
+  "model": 5,
+  "column": 50,
+  "seed": 3,
+  "exposure": 1,
+  "test": 20,
+  "table": 9,
+  "dag": 9,
+  "task": 37,
+  "term": 5
+ },
+ "edges": {
+  "contains": 50,
+  "feeds": 46,
+  "tests": 21,
+  "derived_from": 42,
+  "runs": 75,
+  "precedes": 47,
+  "defines": 5,
+  "relates_to": 3
+ },
+ "lineage": {
+  "covered": 38,
+  "columns": 38
+ },
+ "cache": {
+  "hits": 0,
+  "misses": 18
+ },
+ "warnings": [
+  "airflow task first.load: SELECT * over relations with unknown columns: jaffle_shop.raw.events",
+  "airflow: dags/assigned.py: task report: `dbt build --select +events` matched no dbt nodes",
+  "airflow: dags/taskflow.py: task run_dbt: `dbt run --select marts` matched no dbt nodes",
+  "definitions: definitions.yml:20: term 'Order amount': bound column 'orders.amount' is ambiguous (model.jaffle_shop.orders#amount, table.jaffle_shop.archive.orders#amount); qualify it"
+ ]
+}
