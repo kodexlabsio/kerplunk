@@ -499,9 +499,10 @@ class Builder:
         self.inputs['warehouses'] = count
 
     def load_loaders(self) -> None:
-        """Fivetran and Airbyte: a loader task per schema for the tables each lands (known by the
-        columns it adds), and, from the Fivetran Platform Connector's lineage tables, each
-        connection's source tables and columns with column lineage into the tables it lands."""
+        """Loaders: a loader task per schema for the tables each lands (known by the marks it
+        leaves, see :mod:`konstruct.inputs.loaders`), and, from the Fivetran Platform Connector's
+        lineage tables, each connection's source tables and columns with column lineage into the
+        tables it lands."""
         from konstruct.inputs import loaders
         from konstruct.inputs.warehouse import query
 
@@ -520,21 +521,46 @@ class Builder:
                 )
             )
 
-        landed = 0
+        nodes: list[Node] = []
+        tables: list[loaders.Table] = []
+        declared: dict[int, str] = {}
         for relation in sorted(self.graph.relations(), key=lambda n: n.id):
-            if not relation.relation or not relation.attrs.get('in_warehouse'):
+            if not relation.relation:
                 continue
-            loader = loaders.loader_of(c.name for c in self.graph.columns_of(relation.id))
-            if loader is None:
+            if relation.attrs.get('declared_loader'):
+                declared[len(nodes)] = loaders.loader_name(str(relation.attrs['declared_loader']))
+            elif not relation.attrs.get('in_warehouse'):
                 continue
-            relation.attrs['loaded_by'] = loader
-            parts = relation.relation.split('.')
-            namespace = loaders.airbyte_raw_namespace(*parts[-2:]) if len(parts) > 1 else None
-            if loader == loaders.AIRBYTE and namespace:
-                self.graph.add_edge(relation.id, task(loader, '.'.join([*parts[:-2], namespace])).id, 'feeds')
+            schema_key, _, name = relation.relation.rpartition('.')
+            nodes.append(relation)
+            tables.append(
+                loaders.Table(
+                    schema_key, name, frozenset(c.name.lower() for c in self.graph.columns_of(relation.id))
+                )
+            )
+        landed = 0
+        landings = loaders.detect(tables, declared)
+        for index, (relation, table, landing) in enumerate(zip(nodes, tables, landings, strict=True)):
+            if landing is None and index in declared:
+                # Nothing in the warehouse shows a loader, or the table is not there: the project's
+                # word stands.
+                landing = loaders.Landing(declared[index])
+            if landing is None:
                 continue
-            self.graph.add_edge(task(loader, '.'.join(parts[:-1])).id, relation.id, 'feeds', origin=loader)
-            landed += 1
+            relation.attrs['loaded_by'] = landing.loader
+            if landing.role != 'landed':
+                relation.attrs['loader_role'] = landing.role
+            if landing.namespace:
+                # A raw table feeds the task that loads its namespace's tables from it.
+                database = table.schema.rpartition('.')[0]
+                self.graph.add_edge(
+                    relation.id, task(landing.loader, relation_key(database, landing.namespace)).id, 'feeds'
+                )
+                continue
+            self.graph.add_edge(
+                task(landing.loader, table.schema).id, relation.id, 'feeds', origin=landing.loader
+            )
+            landed += landing.role == 'landed'
         if landed:
             self.inputs['landed_tables'] = landed
         if not self.config.fivetran_lineage:
@@ -1519,6 +1545,7 @@ class Builder:
         every repository is merged. A pack term is left out when the project already has a term of
         that name or synonym, or a term bound to one of its columns: the project's own model of the
         source wins."""
+        from konstruct.inputs import loaders
         from konstruct.semantics import registry
 
         if self.config.ontology_packs == []:
@@ -1536,7 +1563,7 @@ class Builder:
                 schema, _, table = node.relation.rpartition('.')
                 columns = schemas.setdefault(schema, {}).setdefault(table, set())
                 columns.update(c.name.lower() for c in self.graph.columns_of(node.id))
-                if node.attrs.get('loaded_by'):
+                if loaders.lands_source_data(node.attrs):
                     loaded.setdefault(schema, set()).add(table)
         problems: list[str] = []
         packs = registry.load_packs(self.config.ontology_packs, plugins=self.plugins, problems=problems)

@@ -234,3 +234,18 @@ def test_the_licence_texts_are_named_for_what_they_cover() -> None:
     readme = (ROOT / 'README.md').read_text()
     for name in ('ontology-packs-apache-2.0.txt', 'ontology-packs.txt'):
         assert name in notice and f'`{name}`' in readme
+
+
+def test_the_inputs_guide_lists_every_loader() -> None:
+    """The loaders table names each loader Konstruct recognises by its ``loaded_by`` value, and
+    each mark's documentation is cited in the code."""
+    from konstruct.inputs.loaders import LOADERS
+
+    page = (ROOT / 'docs' / 'guide' / 'inputs.md').read_text(encoding='utf-8')
+    table = page.split('## Loaders', 1)[1].split('\n## ', 1)[0]
+    listed = {
+        line.split('|')[2].strip().strip('`')
+        for line in table.splitlines()
+        if line.startswith('| ') and '`' in line.split('|')[2]
+    }
+    assert listed - {'loaded_by'} == set(LOADERS)

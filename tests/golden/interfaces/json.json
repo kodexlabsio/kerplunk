@@ -620,6 +620,7 @@
  "json graph.json .nodes[].attrs.line": "int",
  "json graph.json .nodes[].attrs.loaded_by": "str",
  "json graph.json .nodes[].attrs.loader": "str",
+ "json graph.json .nodes[].attrs.loader_role": "str",
  "json graph.json .nodes[].attrs.materialized": "str",
  "json graph.json .nodes[].attrs.maturity": "str",
  "json graph.json .nodes[].attrs.nullable": "object",

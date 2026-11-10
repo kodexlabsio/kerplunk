@@ -444,7 +444,12 @@ def load(
                 or _description(item.get('source_description')),
                 path=rel_path(item),
                 origins=['dbt'],
-                attrs={'source_name': item.get('source_name'), 'package': item.get('package_name')},
+                attrs={
+                    'source_name': item.get('source_name'),
+                    'package': item.get('package_name'),
+                    # What the project says lands the table (`loader:` in sources.yml).
+                    **({'declared_loader': item['loader']} if item.get('loader') else {}),
+                },
             )
         )
         _add_columns(graph, node, item, catalog)

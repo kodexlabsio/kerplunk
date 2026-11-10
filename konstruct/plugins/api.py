@@ -69,10 +69,10 @@ def shown(version: ApiVersion) -> str:
 _KONSTRUCT_ATTRS = frozenset(
     {
         'also_via', 'approved', 'bash_command', 'broader', 'checksum', 'column', 'columns', 'command',
-        'conditions', 'connection', 'currency', 'dag', 'dbt_name', 'definition', 'documented_only',
+        'conditions', 'connection', 'currency', 'dag', 'dbt_name', 'declared_loader', 'definition', 'documented_only',
         'entities', 'exceptions', 'expression', 'fields', 'filters', 'formula', 'formula_dialect', 'fqn', 'grain',
         'identifier_fields', 'in_warehouse', 'incremental_strategy', 'inferred', 'iri', 'kind', 'label',
-        'line', 'lineage', 'loaded', 'loaded_by', 'loader', 'materialized', 'maturity', 'measures', 'model',
+        'line', 'lineage', 'loaded', 'loaded_by', 'loader', 'loader_role', 'materialized', 'maturity', 'measures', 'model',
         'nested', 'nullable', 'operator', 'orchestrator', 'ossie_authored', 'ossie_columns',
         'ossie_dataset', 'ossie_expression', 'ossie_key', 'ossie_metric', 'ossie_reads',
         'outside_warehouse', 'owner', 'package', 'partitioned_by', 'parts', 'primary_key',
