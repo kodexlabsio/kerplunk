@@ -97,6 +97,15 @@ def test_two_revenue_definitions_that_differ_by_one_filter(tmp_path: Path) -> No
     assert result.summary() == '1 conflicting definition among 5 computed columns.'
 
 
+def test_filters_written_differently_are_not_a_difference(tmp_path: Path) -> None:
+    project = make_shop(tmp_path)
+    (tmp_path / 'marketing' / 'daily.sql').write_text(
+        MARKETING.replace('group by order_date', "where 'completed' = status\ngroup by order_date")
+    )
+    project.build()
+    assert project.conflicts().conflicts == []
+
+
 def test_different_sources_and_ranking(tmp_path: Path) -> None:
     result = make_shop(tmp_path, invoices=True).conflicts()
     pairs = [{c.a.label, c.b.label} for c in result.conflicts]

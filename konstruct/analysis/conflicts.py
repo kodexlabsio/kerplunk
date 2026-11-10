@@ -30,7 +30,7 @@ from konstruct import _core
 from konstruct.analysis.explain import Explainer, short_sql
 from konstruct.analysis.identity import Formulas, Verdict, Witness
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
-from konstruct.core.sql import PARSE_ERRORS
+from konstruct.core.sql import PARSE_ERRORS, condition_key
 
 if TYPE_CHECKING:
     from konstruct.interfaces.layout import Style
@@ -420,13 +420,14 @@ class _Finder:
         for source in sorted(sources_b - sources_a):
             differences.append(Difference('source', source, 'b'))
         for kind, items_a, items_b in (('filter', a.filters, b.filters), ('join', a.joins, b.joins)):
-            conditions_a = {c for _, c, _ in items_a}
-            conditions_b = {c for _, c, _ in items_b}
+            # Conditions that filter alike, however they are written, are not a difference.
+            conditions_a = {condition_key(c, self.dialect) for _, c, _ in items_a}
+            conditions_b = {condition_key(c, self.dialect) for _, c, _ in items_b}
             for _relation, condition, path in items_a:
-                if condition not in conditions_b:
+                if condition_key(condition, self.dialect) not in conditions_b:
                     differences.append(Difference(kind, condition, 'a', path))
             for _relation, condition, path in items_b:
-                if condition not in conditions_a:
+                if condition_key(condition, self.dialect) not in conditions_a:
                     differences.append(Difference(kind, condition, 'b', path))
         if a.composed is not None and a.composed == b.composed:
             # The same text is the same formula. What else tells the two apart, such as a

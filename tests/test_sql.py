@@ -690,3 +690,71 @@ def test_rows_from_a_table_function_or_values_are_a_condition() -> None:
         "select o.id from db.main.orders o join (values ('paid', 1)) v(status, w) on v.status = o.status"
     )
     assert "ROWS FROM: VALUES ('paid', 1)" in made.conditions
+
+
+@pytest.mark.parametrize(
+    ('a', 'b'),
+    [
+        (
+            "WHERE: o.status <> 'x' AND o.d >= DATE '2020-01-01'",
+            "WHERE: o.d >= '2020-01-01' AND 'x' != o.status",
+        ),
+        ("WHERE: o.status IN ('x')", "WHERE: NOT o.status <> 'x'"),
+        (
+            "WHERE: o.d BETWEEN '2020-01-01' AND '2020-12-31'",
+            "WHERE: o.d <= '2020-12-31' AND '2020-01-01' <= o.d",
+        ),
+        ("WHERE: NOT o.status = ANY(['x'])", "WHERE: o.status <> 'x'"),
+        ("WHERE: o.status NOT IN (VALUES ('x'), ('y'))", "WHERE: NOT o.status IN ('x', 'y')"),
+        ("WHERE: o.status NOT LIKE 'x'", "WHERE: o.status <> 'x'"),
+        ("WHERE: o.d >= TIMESTAMP '2020-01-01 00:00:00'", "WHERE: o.d >= DATE '2020-01-01'"),
+        ("WHERE: o.status IN ('y', 'x', 'x')", "WHERE: o.status IN ('x', 'y')"),
+        ("WHERE: o.status NOT IN ('x', 'x')", "WHERE: o.status <> 'x'"),
+    ],
+)
+def test_conditions_that_filter_alike_have_one_key(a: str, b: str) -> None:
+    from konstruct.core.sql import condition_key
+
+    assert condition_key(a, 'duckdb') == condition_key(b, 'duckdb')
+    assert condition_key("WHERE: o.status = 'x'", 'duckdb') != condition_key(
+        "WHERE: o.status <> 'x'", 'duckdb'
+    )
+
+
+@pytest.mark.parametrize(
+    ('a', 'b', 'dialect'),
+    [
+        ("WHERE: o.status NOT IN UNNEST(['x'])", "WHERE: o.status <> 'x'", 'bigquery'),
+        ("WHERE: o.status IN UNNEST(['x', 'y'])", "WHERE: o.status IN ('x', 'y')", 'bigquery'),
+    ],
+)
+def test_a_list_written_as_an_array_is_a_list(a: str, b: str, dialect: str) -> None:
+    from konstruct.core.sql import condition_key
+
+    assert condition_key(a, dialect) == condition_key(b, dialect)
+
+
+def test_a_typed_literal_on_a_column_of_another_type_keeps_its_type() -> None:
+    import sqlglot
+
+    from konstruct.core.sql import normal_condition
+
+    def normal(text: str, untimed: tuple[str, ...] = ()) -> str:
+        return normal_condition(sqlglot.parse_one(text, read='duckdb'), 'duckdb', untimed=untimed).sql()
+
+    assert normal("note = DATE '2020-01-01'", ('note',)) != normal("note = '2020-01-01'", ('note',))
+    assert normal("d = DATE '2020-01-01'") == normal("d = '2020-01-01'")
+    assert normal('d >= MAKE_DATE(2020, 1, 1)') == normal("d >= '2020-01-01'")
+
+
+def test_patterns_and_untyped_times_keep_their_meaning() -> None:
+    from konstruct.core.sql import condition_key
+
+    # A wildcard is a pattern, not a value.
+    assert condition_key("WHERE: o.status NOT LIKE 'x%'", 'duckdb') != condition_key(
+        "WHERE: o.status <> 'x%'", 'duckdb'
+    )
+    # A string that looks like a midnight timestamp is only a day where the column is a date or time.
+    assert condition_key("WHERE: o.note = '2020-01-01 00:00:00'", 'duckdb') != condition_key(
+        "WHERE: o.note = '2020-01-01'", 'duckdb'
+    )

@@ -7,8 +7,9 @@ is derived from, and the columns it only joins, filters or groups on.
 
 from __future__ import annotations
 
+import datetime
 import re
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -951,3 +952,207 @@ def _references(
                     if leaf_source:
                         add(leaf_source.relation, leaf_source.column)
     return found
+
+
+# Filters in one form, so that two written differently compare equal
+
+_DATE_LITERAL = re.compile(r'(\d{4}-\d{2}-\d{2})(?:[ T]00:00(?::00(?:\.0+)?)?)?')
+
+
+def split_conjuncts(tree: exp.Expr, *, between: bool = False) -> list[exp.Expr]:
+    """The conjuncts of a condition; with ``between``, ``x BETWEEN a AND b`` as the two new
+    conjuncts ``x >= a`` and ``x <= b``."""
+    parts: list[exp.Expr] = []
+    stack = [tree]
+    while stack:
+        node = stack.pop()
+        while isinstance(node, exp.Paren):
+            node = node.this
+        if isinstance(node, exp.And):
+            stack += [node.expression, node.this]
+        elif between and isinstance(node, exp.Between) and not node.args.get('symmetric'):
+            parts += [
+                exp.GTE(this=node.this.copy(), expression=node.args['low'].copy()),
+                exp.LTE(this=node.this.copy(), expression=node.args['high'].copy()),
+            ]
+        else:
+            parts.append(node)
+    return parts
+
+
+_FLIPPED: dict[type[exp.Expr], type[exp.Expr]] = {
+    exp.GT: exp.LT,
+    exp.LT: exp.GT,
+    exp.GTE: exp.LTE,
+    exp.LTE: exp.GTE,
+    exp.EQ: exp.EQ,
+    exp.NEQ: exp.NEQ,
+}
+_NEGATED: dict[type[exp.Expr], type[exp.Expr]] = {
+    exp.EQ: exp.NEQ,
+    exp.NEQ: exp.EQ,
+    exp.GT: exp.LTE,
+    exp.LTE: exp.GT,
+    exp.LT: exp.GTE,
+    exp.GTE: exp.LT,
+}
+
+
+def _listed(node: exp.Expr) -> exp.Expr:
+    """A list or pattern written another way, as ``IN`` or ``=``: ``IN UNNEST(['a'])``, ``IN (VALUES
+    ('a'))`` and ``= ANY(['a'])`` as ``IN ('a')``, ``<> ALL(['a'])`` as ``NOT IN ('a')``, and
+    ``LIKE 'a'`` with no wildcard as ``= 'a'``."""
+    if isinstance(node, exp.In):
+        unnest = node.args.get('unnest')
+        found: list[exp.Expr] | None = None
+        if isinstance(unnest, exp.Unnest) and len(unnest.expressions) == 1:
+            array = unnest.expressions[0]
+            found = list(array.expressions) if isinstance(array, exp.Array) else None
+        elif len(node.expressions) == 1 and isinstance(node.expressions[0], exp.Values):
+            rows = node.expressions[0].expressions
+            if all(isinstance(r, exp.Tuple) and len(r.expressions) == 1 for r in rows):
+                found = [r.expressions[0] for r in rows]
+        if found and all(isinstance(f, exp.Literal) for f in found):
+            return exp.In(this=node.this, expressions=[f.copy() for f in found])
+    if isinstance(node, (exp.EQ, exp.NEQ)):
+        quantified = node.expression
+        listed = None
+        if isinstance(node, exp.EQ) and isinstance(quantified, exp.Any):
+            listed = quantified.this
+        elif isinstance(node, exp.NEQ) and isinstance(quantified, (exp.All, exp.Anonymous)):
+            named = quantified.name.upper() if isinstance(quantified, exp.Anonymous) else 'ALL'
+            listed = (
+                quantified.expressions[0] if named == 'ALL' and quantified.expressions else quantified.this
+            )
+        while isinstance(listed, exp.Paren):
+            listed = listed.this
+        if isinstance(listed, exp.Array) and all(isinstance(e, exp.Literal) for e in listed.expressions):
+            found_in = exp.In(this=node.this, expressions=[e.copy() for e in listed.expressions])
+            return found_in if isinstance(node, exp.EQ) else exp.Not(this=found_in)
+    escape = None
+    if isinstance(node, exp.Escape) and isinstance(node.expression, exp.Literal):
+        escape = node.expression.name
+        node = node.this
+    if (
+        type(node) is exp.Like
+        and isinstance(node.expression, exp.Literal)
+        and node.expression.is_string
+        and not any(c in node.expression.name for c in ['%', '_', '\\', *([escape] if escape else [])])
+    ):
+        compare = exp.NEQ if node.args.get('negate') else exp.EQ
+        return compare(this=node.this, expression=node.expression.copy())
+    return node
+
+
+def _constant(node: exp.Expr) -> bool:
+    """Whether a value is written out: a literal, a typed literal or a date built from literals."""
+    if isinstance(node, exp.Cast):
+        node = node.this
+    if isinstance(node, exp.DateFromParts):
+        return all(isinstance(node.args.get(k), exp.Literal) for k in ('year', 'month', 'day'))
+    return isinstance(node, exp.Literal)
+
+
+def normal_condition(
+    tree: exp.Expr,
+    dialect: DialectType,
+    dated: Collection[str] = (),
+    timed: Collection[str] = (),
+    untimed: Collection[str] = (),
+) -> exp.Expr:
+    """One form for a conjunct, however it is written, so that equal filters compare equal:
+    operands of ``=`` and ``<>`` in order, a literal on the right of a comparison, a one-item ``IN``
+    as ``=``, a list or a pattern without wildcards written another way as ``IN`` or ``=``, and
+    ``NOT`` folded into the comparison it negates. ``dated`` and ``timed`` hold the operands (by
+    their SQL) whose type is a date or a timestamp, and ``untimed`` those of another known type.
+    Compared with an operand not in ``untimed``, a typed date or time literal (``DATE '...'``,
+    ``CAST('...' AS TIMESTAMP)``, ``MAKE_DATE(2020, 1, 1)``) is the plain string, a midnight one
+    its day; against a date or timestamp, a midnight timestamp string is its day too; and on a date
+    ``x > d`` is ``x >= d + 1`` and ``x < d`` is ``x <= d - 1``. ``tree`` is changed in place."""
+    while isinstance(tree, exp.Paren):
+        tree = tree.this
+
+    def day(text: str) -> str:
+        match = _DATE_LITERAL.fullmatch(text)
+        return match.group(1) if match else text
+
+    def value(node: exp.Expr, operand: str) -> exp.Expr:
+        temporal = operand not in untimed
+        if (
+            temporal
+            and isinstance(node, exp.Cast)
+            and isinstance(node.this, exp.Literal)
+            and node.this.is_string
+            and node.to.is_type(*exp.DataType.TEMPORAL_TYPES)
+        ):
+            return exp.Literal.string(day(node.this.name))
+        if temporal and isinstance(node, exp.DateFromParts) and _constant(node):
+            parts = [int(node.args[k].name) for k in ('year', 'month', 'day')]
+            try:
+                return exp.Literal.string(str(datetime.date(*parts)))
+            except ValueError:
+                return node
+        if isinstance(node, exp.Literal) and node.is_string and (operand in dated or operand in timed):
+            return exp.Literal.string(day(node.name))
+        return node
+
+    tree = tree.transform(_listed, copy=False)
+    listed = tree.this if isinstance(tree, exp.Not) else tree
+    while isinstance(listed, exp.Paren):
+        listed = listed.this
+    if isinstance(listed, exp.In) and not listed.args.get('query'):
+        operand = listed.this.sql(dialect=dialect)
+        # A list is a set: its order and repeats change nothing.
+        values = {(v := value(e, operand)).sql(dialect=dialect): v for e in listed.expressions}
+        listed.set('expressions', [values[k] for k in sorted(values)])
+    if isinstance(tree, exp.Not):
+        inner = tree.this
+        while isinstance(inner, exp.Paren):
+            inner = inner.this
+        if type(inner) in _NEGATED:
+            tree = _NEGATED[type(inner)](this=inner.this, expression=inner.expression)
+        elif isinstance(inner, exp.In) and len(inner.expressions) == 1 and not inner.args.get('query'):
+            tree = exp.NEQ(this=inner.this, expression=inner.expressions[0])
+    if isinstance(tree, exp.In) and len(tree.expressions) == 1 and not tree.args.get('query'):
+        tree = exp.EQ(this=tree.this, expression=tree.expressions[0])
+    if type(tree) in _FLIPPED:
+        left, right = tree.this, tree.expression
+        if _constant(left) and not _constant(right):
+            tree = _FLIPPED[type(tree)](this=right, expression=left)
+        operand = tree.this.sql(dialect=dialect)
+        tree.set('expression', value(tree.expression, operand))
+        if isinstance(tree, (exp.EQ, exp.NEQ)) and (
+            tree.this.sql(dialect=dialect) > tree.expression.sql(dialect=dialect)
+        ):
+            tree = type(tree)(this=tree.expression, expression=tree.this)
+        if (
+            isinstance(tree, (exp.GT, exp.LT))
+            and operand in dated
+            and isinstance(tree.expression, exp.Literal)
+        ):
+            try:
+                first = datetime.date.fromisoformat(tree.expression.name)
+            except ValueError:
+                return tree
+            if isinstance(tree, exp.GT):
+                return exp.GTE(
+                    this=tree.this, expression=exp.Literal.string(str(first + datetime.timedelta(1)))
+                )
+            return exp.LTE(this=tree.this, expression=exp.Literal.string(str(first - datetime.timedelta(1))))
+    return tree
+
+
+def condition_key(condition: str, dialect: DialectType) -> str:
+    """A condition from the graph (``WHERE: ...``), its conjuncts each in one form and sorted, so
+    that two conditions that filter alike compare equal however they are written."""
+    label, sep, text = condition.partition(': ')
+    if not sep:
+        return condition
+    try:
+        tree = sqlglot.parse_one(text, dialect=dialect)
+    except PARSE_ERRORS:
+        return condition
+    parts = sorted(
+        normal_condition(p, dialect).sql(dialect=dialect) for p in split_conjuncts(tree, between=True)
+    )
+    return f'{label}: {" AND ".join(parts)}'
