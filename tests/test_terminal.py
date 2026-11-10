@@ -559,7 +559,7 @@ def test_status_rows_say_what_needs_attention() -> None:
 
     status = Status(root=Path(), config_file=None, dbt_on_path=True, graph={'exists': False})
     states = {key: state for key, _, state in status.rows()}
-    assert (states['dbt on PATH'], states['graph'], states['skill'], states['config']) == (
+    assert (states['dbt on PATH'], states['graph'], states['skills'], states['config']) == (
         'ok',
         'attention',
         'attention',

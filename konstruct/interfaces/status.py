@@ -56,6 +56,9 @@ class Status:
     """Inputs the last build read from the warehouse rather than files: Fivetran lineage and usage."""
     graph: dict[str, Any] = field(default_factory=dict)
     skills: list[str] = field(default_factory=list)
+    """Where the general skill is installed, such as ``project (Claude Code and Cursor)``."""
+    skill_directories: list[dict[str, Any]] = field(default_factory=list)
+    """Each directory with Konstruct's skills: its scope, its path and how many skills it holds."""
     repositories: list[dict[str, Any]] = field(default_factory=list)
     plugins: list[dict[str, Any]] = field(default_factory=list)
     """Each installed plugin's components, with whether it runs for this project and why."""
@@ -84,6 +87,7 @@ class Status:
             'built_from': self.built_from,
             'graph': self.graph,
             'skills': self.skills,
+            'skill_directories': self.skill_directories,
             'repositories': self.repositories,
             'plugins': self.plugins,
             'missing_plugins': self.missing_plugins,
@@ -172,7 +176,7 @@ class Status:
             rows.append(('graph', 'not built yet; run `konstruct build`'))
             states[len(rows) - 1] = 'attention'
         rows.append(
-            ('skill', ', '.join(self.skills) if self.skills else 'not installed; run `konstruct install`')
+            ('skills', ', '.join(self.skills) if self.skills else 'not installed; run `konstruct install`')
         )
         states[len(rows) - 1] = '' if self.skills else 'attention'
         return [(key, value, states.get(index, '')) for index, (key, value) in enumerate(rows)]
@@ -379,15 +383,28 @@ def inspect(
         status.graph = {'exists': False, 'path': _relative(graph_path, root)}
 
     home = home or Path.home()
-    for base, agent in (
-        (root / '.claude' / 'skills', 'project (Claude Code and Cursor)'),
-        (root / '.cursor' / 'skills', 'project (Cursor)'),
-        (home / '.claude' / 'skills', 'user (Claude Code and Cursor)'),
-        (home / '.cursor' / 'skills', 'user (Cursor)'),
-    ):
-        if (base / 'konstruct' / 'SKILL.md').is_file():
-            status.skills.append(agent)
+    for scope, base in (('project', root), ('user', home)):
+        for directory, readers in _SKILL_READERS.items():
+            skills = base / directory
+            if (skills / 'konstruct' / 'SKILL.md').is_file():
+                # The value's shape is the one `status --json` has always given.
+                status.skills.append(f'{scope} ({readers})')
+                status.skill_directories.append(
+                    {
+                        'scope': scope,
+                        'path': directory if scope == 'project' else f'~/{directory}',
+                        'skills': sum(1 for _ in skills.glob('konstruct*/SKILL.md')),
+                    }
+                )
     return status
+
+
+# The agents that read each skill directory, as `konstruct status` names them.
+_SKILL_READERS = {
+    '.claude/skills': 'Claude Code and Cursor',
+    '.cursor/skills': 'Cursor',
+    '.agents/skills': 'Codex, Gemini CLI, GitHub Copilot, Windsurf and Cursor',
+}
 
 
 def render_config(config: Config, status: Status, warehouses: list[WarehouseConfig]) -> str:

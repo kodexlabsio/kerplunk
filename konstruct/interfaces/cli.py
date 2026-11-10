@@ -26,6 +26,7 @@ from konstruct.interfaces.layout import Style, Text, paragraph, wrap
 from konstruct.interfaces.layout import command as command_lines
 from konstruct.interfaces.project import OUT_DIR, Project, find_out_dir
 from konstruct.interfaces.render import build_lines
+from konstruct.interfaces.skill import AGENT_CHOICES
 from konstruct.plugins.registry import BUILTINS
 
 __all__ = ['OUT_DIR', 'find_out_dir', 'main', 'parser']
@@ -388,11 +389,28 @@ def cmd_open(args: argparse.Namespace, console: Console) -> int:
 # Agents
 
 
+class _ExtendDefault(argparse._ExtendAction):
+    """An ``extend`` option whose values replace its default, rather than add to it, the first
+    time it is given."""
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str | Sequence[Any] | None,
+        option_string: str | None = None,
+    ) -> None:
+        if getattr(namespace, self.dest, None) is self.default:
+            setattr(namespace, self.dest, None)
+        super().__call__(parser, namespace, values, option_string)
+
+
 def cmd_install(args: argparse.Namespace, console: Console) -> int:
-    from konstruct.interfaces.skill import install
+    from konstruct.interfaces.skill import DEFAULT_AGENTS, install
 
     target = Path(args.target).resolve() if args.target else None
-    for line in install(agents=args.agent, project=target, mcp=args.mcp, force=args.force):
+    agents = args.agent or DEFAULT_AGENTS
+    for line in install(agents=agents, project=target, mcp=args.mcp, force=args.force):
         console.print(f'konstruct: {line}')
     return 0
 
@@ -448,7 +466,7 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ('konstruct explain customers.lifetime_value', 'its formula, down to source columns'),
         ('konstruct diff --base origin/main', 'what this branch changes and breaks, column by column'),
         ('konstruct gate', 'the check to pass before opening a pull request'),
-        ('konstruct install', 'add /konstruct to Claude Code and Cursor'),
+        ('konstruct install', 'add the Konstruct skills to Claude Code and Cursor'),
     ),
     'build': (
         ('konstruct build', 'build the graph for the current directory'),
@@ -538,8 +556,9 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ('konstruct open --print-only', 'print its file URL'),
     ),
     'install': (
-        ('konstruct install', 'the skill for Claude Code and Cursor, in your home directory'),
+        ('konstruct install', 'the skills for Claude Code and Cursor, in your home directory'),
         ('konstruct install --target . --mcp', 'into this repository, with the MCP server'),
+        ('konstruct install --target . --agent all', 'for every agent: Codex, Copilot, Gemini CLI too'),
     ),
     'mcp': (('konstruct mcp', 'run by an agent from its configuration, not by hand'),),
     'plugins': (
@@ -1032,17 +1051,26 @@ def parser() -> argparse.ArgumentParser:
     _query_options(open_)
     open_.set_defaults(func=cmd_open)
 
-    install = add('install', 'add the /konstruct skill to Claude Code and Cursor')
+    install = add('install', 'add the Konstruct skills and instructions to coding agents')
     install.add_argument(
-        '--agent', choices=['claude', 'cursor', 'both'], default='both', help='which agent (default: both)'
+        '--agent',
+        action=_ExtendDefault,
+        default='both',
+        nargs='+',
+        choices=AGENT_CHOICES,
+        metavar='AGENT',
+        help='claude, cursor, codex, copilot, gemini or windsurf; both (claude and cursor, the '
+        'default) or all',
     )
     install.add_argument(
         '--target', metavar='DIR', help='install into this repository, not your home directory'
     )
     install.add_argument(
-        '--mcp', action='store_true', help='also register the MCP server in the target repository'
+        '--mcp', action='store_true', help="also register the MCP server in each agent's configuration"
     )
-    install.add_argument('--force', action='store_true', help='replace a skill that was edited by hand')
+    install.add_argument(
+        '--force', action='store_true', help='replace files and sections that were edited by hand'
+    )
     install.set_defaults(func=cmd_install)
 
     mcp = add('mcp', 'run the MCP server on stdio (for agent configuration, not interactive use)')

@@ -314,7 +314,9 @@ formulas, terms, verification results and usage.
 agent learns a column's formula, its sources, which of its edges the data confirmed, the approved
 definition of the business term it holds, its owner and the entities it touches, before it writes
 a query that joins or aggregates. The server rereads the graph whenever it changes, and
-\cmd{konstruct install} adds a skill for Claude Code and Cursor that tells the agent when to ask.
+\cmd{konstruct install} writes skills for Claude Code, Cursor, Codex, GitHub Copilot, Gemini CLI and
+Windsurf that teach the agent whole workflows, such as a safe change, a review or a correct query,
+with the commands each step needs.
 
 \paragraph{The gate} An agent that changes a data stack should prove the change is safe before it
 proposes it. \cmd{konstruct gate} compares the working tree with a base, as \cmd{diff} does, and

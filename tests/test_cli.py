@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from konstruct import __version__
+from konstruct.interfaces import toolkit
 from konstruct.interfaces.cli import find_out_dir, main
 from konstruct.interfaces.console import Console, colour_enabled
 
@@ -168,7 +169,7 @@ def test_status_and_init(
     assert '  warehouse    duckdb jaffle_shop.duckdb (dbt profile jaffle_shop)' in out
     assert '  sql          no SQL files found' in out
     assert '  graph        not built yet; run `konstruct build`' in out
-    assert '  skill        not installed; run `konstruct install`' in out
+    assert '  skills       not installed; run `konstruct install`' in out
     code, out, _ = run(capsys, 'status', '-C', str(jaffle), '--json')
     assert json.loads(out)['dag_files'] == ['dags/jaffle_shop_daily.py']
 
@@ -187,7 +188,14 @@ def test_status_and_init(
     assert '  config       konstruct.toml' in out
     run(capsys, 'install', '--target', str(jaffle))
     code, out, _ = run(capsys, 'status', '-C', str(jaffle))
-    assert '  skill        project (Claude Code and Cursor)' in out
+    assert '  skills       project (Claude Code and Cursor)' in out
+    code, out, _ = run(capsys, 'status', '-C', str(jaffle), '--json')
+    status = json.loads(out)
+    # The values keep the shape `status --json` has always had; the counts are a new key.
+    assert 'project (Claude Code and Cursor)' in status['skills']
+    assert {'scope': 'project', 'path': '.claude/skills', 'skills': len(toolkit.SKILLS)} in status[
+        'skill_directories'
+    ]
 
 
 def test_find_out_dir_looks_upwards(tmp_path: Path) -> None:
