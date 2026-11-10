@@ -1767,6 +1767,9 @@ def good() -> dict[str, Any]:
     return {}
 
 
+TOOLS_LABEL = "tools '{}' (konstruct-hostile-tools 1.0)"
+
+
 def test_tool_listings_a_plugin_gets_wrong_leave_the_rest_served(
     hostile: Any, site: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -1776,8 +1779,10 @@ def test_tool_listings_a_plugin_gets_wrong_leave_the_rest_served(
         {
             # A name that is not a string cannot be sorted with the others.
             'mixed': {'ok': good, 3: good, None: good},
-            # Konstruct's own tools have no underscore, so a plugin's never takes one of their names.
+            # A plugin's tool is named for its plugin, so it never takes the name of one of Konstruct's.
             'list': {'terms': good, 'x': good},
+            # Unless the joined name is one: Konstruct's mutation_test is kept.
+            'mutation': {'test': good},
             'notmap': 5,
             'pairs': iter([('ok', good)]),
             # a_b + c and a + b_c both join to a_b_c: the first, in the listing's order, is kept.
@@ -1791,9 +1796,13 @@ def test_tool_listings_a_plugin_gets_wrong_leave_the_rest_served(
             return [t.name for t in (await client.list_tools()).tools]
 
     tools = anyio.run(names)
-    assert [t for t in tools if '_' in t] == ['a_b_c', 'list_terms', 'list_x', 'mixed_ok']
+    assert [t for t in tools if '_' in t] == ['mutation_test', 'a_b_c', 'list_terms', 'list_x', 'mixed_ok']
+    assert (
+        f"{TOOLS_LABEL.format('mutation')}: tool 'mutation_test' is left out: Konstruct has a tool of that name"
+        in caplog.text
+    )
     assert 'impact' in tools and 'terms' not in tools
-    label = "tools '{}' (konstruct-hostile-tools 1.0)"
+    label = TOOLS_LABEL
     assert f'{label.format("mixed")}: tool 3 is left out' in caplog.text
     assert f'{label.format("mixed")}: tool None is left out' in caplog.text
     assert f'{label.format("notmap")} returned 5, not a mapping of names to functions' in caplog.text

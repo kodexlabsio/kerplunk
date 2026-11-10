@@ -267,6 +267,37 @@ def test_verify_needs_a_duckdb_warehouse(tmp_path: Path, capsys: pytest.CaptureF
     )
 
 
+def test_verify_mutate(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from .test_mutation import make_shop
+
+    make_shop(tmp_path)
+    report = tmp_path / 'report.md'
+    options = [
+        '--warehouse',
+        str(tmp_path / 'shop.duckdb'),
+        '--max-mutants',
+        '6',
+        '--operators',
+        'coalesce, aggregate',
+    ]
+    code, out, _ = run(
+        capsys, 'verify', '-C', str(tmp_path), '--mutate', *options, '--no-suggest', '--markdown', str(report)
+    )
+    assert code == 0 and out.startswith('Mutation testing against shop.duckdb (seed 1729, up to 6 mutants')
+    assert (
+        'Mutation score' in out and 'customer_value' in out and 'Wrote MUTATION.md and mutation.json' in out
+    )
+    assert report.read_text().startswith('# Konstruct mutation testing')
+    written = json.loads((tmp_path / 'konstruct-out' / 'mutation.json').read_text())
+    assert written['operators'] == ['coalesce', 'aggregate'] and written['max_rows'] == 1000
+    code, out, _ = run(capsys, 'verify', '-C', str(tmp_path), '--mutate', *options, '--json', '--seed', '3')
+    data = json.loads(out)
+    assert code == 0 and data['seed'] == 3 and data['totals']['mutants'] <= 6
+    assert all(m['suggestions'] for m in data['models'][0]['mutants'] if m['status'] == 'survived')
+    code, _, err = run(capsys, 'verify', '-C', str(tmp_path), '--mutate', '--operators', 'nope')
+    assert code == 1 and "unknown mutation operator 'nope'" in err
+
+
 @pytest.mark.usefixtures('trust_config')
 def test_status_lists_every_input_and_the_packs_bound(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch

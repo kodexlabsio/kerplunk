@@ -292,6 +292,8 @@ def cmd_query(args: argparse.Namespace, console: Console) -> int:
 
 def cmd_verify(args: argparse.Namespace, console: Console) -> int:
     project = _ready(_project(args), args, console)
+    if args.mutate:
+        return _mutate(project, args, console)
     if not args.json:
         console.info(
             'perturbing inputs and rerunning models; this reads the warehouse but never writes to it'
@@ -310,6 +312,33 @@ def cmd_verify(args: argparse.Namespace, console: Console) -> int:
     if not result.checked:
         return 1
     return 1 if args.strict and result.totals()['unexplained'] else 0
+
+
+def _mutate(project: Project, args: argparse.Namespace, console: Console) -> int:
+    """`verify --mutate`: mutation test the dbt tests of each model."""
+    operators = [o.strip() for o in args.operators.split(',') if o.strip()] if args.operators else None
+    if not args.json:
+        console.info(
+            'running mutants of each model and its dbt tests; this reads the warehouse but never writes to it'
+        )
+    with console.progress('Mutation testing the dbt tests'):
+        result = project.mutate(
+            warehouse=args.warehouse,
+            seed=args.seed,
+            max_rows=_rows(args, 1000),
+            max_mutants=args.max_mutants,
+            operators=operators,
+            models=args.model,
+            suggest=not args.no_suggest,
+        )
+    _emit(console, result, args.json)
+    if args.markdown:
+        Path(args.markdown).write_text(result.markdown(), encoding='utf-8')
+    if not args.json:
+        wrote = f'Wrote MUTATION.md and mutation.json to {_relative(project.out_dir)}'
+        extra = f', and the report to {args.markdown}' if args.markdown else ''
+        console.print('\n' + console.ui.line(Text((f'{wrote}{extra}.', 'dim'))))
+    return 0 if result.checked else 1
 
 
 def cmd_gate(args: argparse.Namespace, console: Console) -> int:
@@ -387,6 +416,26 @@ def cmd_open(args: argparse.Namespace, console: Console) -> int:
 
 
 # Agents
+
+
+class _StoreGiven(argparse._StoreAction):
+    """An option whose default depends on the mode it is used in: setting it records its name in
+    ``given``, so a mode with another default (see :func:`_rows`) knows it was not given."""
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str | Sequence[Any] | None,
+        option_string: str | None = None,
+    ) -> None:
+        super().__call__(parser, namespace, values, option_string)
+        namespace.given = {*getattr(namespace, 'given', ()), self.dest}
+
+
+def _rows(args: argparse.Namespace, default: int) -> int:
+    """``verify --rows`` as given, or ``default``, the mode's own."""
+    return int(args.rows) if 'rows' in getattr(args, 'given', ()) else default
 
 
 class _ExtendDefault(argparse._ExtendAction):
@@ -556,6 +605,7 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ('konstruct verify', 'check every model in the discovered warehouse'),
         ('konstruct verify -m orders --strict', 'one model; exit 1 on an unexplained influence'),
         ('konstruct verify --warehouse snowflake --rows 2000', 'a sample of the configured Snowflake'),
+        ('konstruct verify --mutate -m orders', "would orders' dbt tests catch a wrong change to it?"),
     ),
     'open': (
         ('konstruct open', 'graph.html in the default browser'),
@@ -1039,7 +1089,12 @@ def parser() -> argparse.ArgumentParser:
         '--seed', type=int, default=1729, help='random seed, for reproducible runs (default 1729)'
     )
     verify.add_argument(
-        '--rows', type=int, default=10000, metavar='N', help='rows copied per input (default 10000)'
+        '--rows',
+        type=int,
+        default=10000,
+        action=_StoreGiven,
+        metavar='N',
+        help='rows copied per input (default 10000, or 1000 with --mutate)',
     )
     verify.add_argument(
         '--warehouse',
@@ -1050,6 +1105,28 @@ def parser() -> argparse.ArgumentParser:
     verify.add_argument(
         '--strict', action='store_true', help='exit with status 1 if any influence is unexplained'
     )
+    mutating = verify.add_argument_group(
+        'mutation testing', 'with --mutate: would the dbt tests fail if a model were wrong?'
+    )
+    mutating.add_argument(
+        '--mutate',
+        action='store_true',
+        help='run small changes to each dbt model against its data and unit tests, and suggest a test '
+        'for each change they miss; writes MUTATION.md and mutation.json',
+    )
+    mutating.add_argument(
+        '--max-mutants', type=int, default=30, metavar='N', help='the most mutants run per model (default 30)'
+    )
+    mutating.add_argument(
+        '--operators',
+        metavar='LIST',
+        help='comma-separated kinds of mutation (default all): aggregate, filter, join_condition, '
+        'join_type, boundary, comparison, date, coalesce, case',
+    )
+    mutating.add_argument(
+        '--no-suggest', action='store_true', help='do not look for a test that kills each survivor'
+    )
+    mutating.add_argument('--markdown', metavar='FILE', help='also write the report as markdown to FILE')
     _query_options(verify)
     verify.set_defaults(func=cmd_verify)
 

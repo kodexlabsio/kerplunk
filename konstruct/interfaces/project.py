@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.explain import Explanation
     from konstruct.analysis.gate import Gate
     from konstruct.analysis.history import History
+    from konstruct.analysis.mutation import MutationTesting
     from konstruct.analysis.verify import Engine, Verification
     from konstruct.engine.build import BuildResult
     from konstruct.engine.config import Config
@@ -599,28 +600,16 @@ class Project:
             result = project.verify(seed=7)
             result.totals()  # {'claimed': 36, 'confirmed': 36, 'unexplained': 0, ...}
         """
-        from konstruct.analysis.verify import REMOTE, annotate, verify
+        from konstruct.analysis.verify import annotate, verify
         from konstruct.outputs.html import write_html
         from konstruct.semantics.ontology import derive as derive_ontology
 
         graph = self.graph
-        target: str | Engine
-        if warehouse is not None and str(warehouse).lower() in REMOTE:
-            target = self._remote_engine(str(warehouse).lower())
-        elif warehouse:
-            target = str(warehouse)
-        else:
-            target = self._verification_warehouse()
+        target = self._target(warehouse)
         result = verify(
             graph, self.root, target, seed=seed, max_rows=max_rows, only=list(models) if models else None
         )
-        if isinstance(target, str) and not result.warehouse.startswith('postgres'):
-            path = Path(target).resolve()
-            # The project's own directory first: a graph copied with its project keeps the old root.
-            for base in (self.path, self.root.resolve()):
-                if path.is_relative_to(base):
-                    result.warehouse = str(path.relative_to(base))
-                    break
+        result.warehouse = self._shown(target, result.warehouse)
         if write:
             annotate(graph, result)
             graph.write(self.graph_path)
@@ -632,6 +621,98 @@ class Project:
             jsonio.write_text(self.out_dir / 'VERIFY.md', result.markdown())
             jsonio.write_text(self.out_dir / 'verify.json', json.dumps(document(result), indent=1) + '\n')
         return result
+
+    def mutate(
+        self,
+        *,
+        warehouse: str | Path | None = None,
+        seed: int = 1729,
+        max_rows: int = 1000,
+        max_mutants: int = 30,
+        operators: Sequence[str] | None = None,
+        models: Sequence[str] | None = None,
+        suggest: bool = True,
+        write: bool = True,
+    ) -> MutationTesting:
+        """Mutation test the project's dbt tests: would they fail if a model were wrong?
+
+        For each dbt model, makes small semantic mutants of its compiled SQL (an aggregate swapped,
+        a filter or join condition dropped or negated, a join type, a comparison or a date moved, a
+        COALESCE removed, a CASE branch dropped), runs each in verify's read-only engines on a
+        sample of the model's inputs, and runs the dbt data tests and unit tests that read the model
+        against it. A mutant is killed when a test fails on it. For each survivor, a test that
+        would have killed it is suggested.
+
+        Args:
+            warehouse: As for :meth:`verify`.
+            seed: The seed of the mutant sample, so a run can be repeated exactly.
+            max_rows: The most rows sampled from any input.
+            max_mutants: The most mutants run per model.
+            operators: The kinds of mutation to make (by default all of
+                :data:`konstruct.core.mutate.OPERATORS`).
+            models: Only these models.
+            suggest: Find, for each survivor, a test that would kill it.
+            write: Write ``MUTATION.md`` and ``mutation.json``.
+
+        Returns:
+            One result per model, with ``totals()`` and ``score`` across them.
+
+        Raises:
+            konstruct.QueryError: No warehouse was found, or an operator is unknown.
+
+        Example::
+
+            result = project.mutate(models=['orders'], max_mutants=10)
+            result.score  # killed / (killed + survived)
+        """
+        from konstruct.analysis.mutation import mutate
+        from konstruct.core.mutate import OPERATORS
+
+        chosen = tuple(operators) if operators else OPERATORS
+        unknown = sorted(set(chosen) - set(OPERATORS))
+        if unknown:
+            raise query.QueryError(
+                f'unknown mutation operator {unknown[0]!r}; choose from {", ".join(OPERATORS)}'
+            )
+        target = self._target(warehouse)
+        result = mutate(
+            self.graph,
+            self.root,
+            target,
+            seed=seed,
+            max_rows=max_rows,
+            max_mutants=max_mutants,
+            operators=chosen,
+            only=list(models) if models else None,
+            suggest=suggest,
+        )
+        result.warehouse = self._shown(target, result.warehouse)
+        if write:
+            self.out_dir.mkdir(parents=True, exist_ok=True)
+            jsonio.write_text(self.out_dir / 'MUTATION.md', result.markdown())
+            jsonio.write_text(self.out_dir / 'mutation.json', json.dumps(document(result), indent=1) + '\n')
+        return result
+
+    def _target(self, warehouse: str | Path | None) -> str | Engine:
+        """The warehouse verify's modes run in: a named remote one sampled, a DuckDB file or
+        Postgres URL as given, or else the one the build read."""
+        from konstruct.analysis.verify import REMOTE
+
+        if warehouse is not None and str(warehouse).lower() in REMOTE:
+            return self._remote_engine(str(warehouse).lower())
+        if warehouse:
+            return str(warehouse)
+        return self._verification_warehouse()
+
+    def _shown(self, target: str | Engine, label: str) -> str:
+        """A DuckDB file inside the project, named relative to it."""
+        if isinstance(target, str) and not label.startswith('postgres'):
+            path = Path(target).resolve()
+            # The project's own directory first: a graph copied with its project keeps the old root.
+            for base in (self.path, self.root.resolve()):
+                if path.is_relative_to(base):
+                    return str(path.relative_to(base))
+        return label
 
     def _remote_engine(self, kind: str) -> Engine:
         """A sampled engine for the configured Snowflake, BigQuery, Databricks or Trino warehouse."""

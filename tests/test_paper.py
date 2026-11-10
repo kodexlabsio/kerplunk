@@ -202,7 +202,8 @@ def test_the_paper_names_every_mcp_tool() -> None:
             isinstance(d, ast.Call) and getattr(d.func, 'attr', '') == 'tool' for d in node.decorator_list
         )
     ]
-    text = paper_text()
+    # LaTeX escapes the underscore of a name such as mutation_test.
+    text = paper_text().replace('\\_', '_')
     assert tools
     assert [t for t in tools if f'\\cmd{{{t}}}' not in text] == []
 

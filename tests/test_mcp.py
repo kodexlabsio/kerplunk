@@ -43,6 +43,7 @@ async def _exercise(client: Client) -> None:
         'query',
         'diff',
         'gate',
+        'mutation_test',
     }
     assert all(t.description and t.input_schema for t in tools.tools)
     impact = structured(await client.call_tool('impact', {'ref': 'stg_payments.amount'}))
@@ -165,6 +166,7 @@ def test_marks_repository_text_as_untrusted(jaffle_built_graph: Path) -> None:
         ('explain', {'ref': 'customer_ltv.lifetime_value'}),
         ('path', {'start': 'raw_orders', 'end': 'orders'}),
         ('query', {'question': 'what breaks if stg_payments.amount changes'}),
+        ('mutation_test', {'models': ['orders'], 'max_mutants': 2}),
     ]
 
     async def main() -> None:

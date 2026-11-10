@@ -28,11 +28,11 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 
 | Package | Modules |
 |---------|---------|
-| `konstruct.core` | `graph` (the graph and its traversal), `sql` (column lineage from SQL), `jsonio` |
+| `konstruct.core` | `graph` (the graph and its traversal), `sql` (column lineage from SQL), `mutate` (mutants of a query), `jsonio` |
 | `konstruct.inputs` | `dbt`, `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `warehouse`, `usage` |
 | `konstruct.engine` | `build`, `config`, `worker` |
 | `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `ossie`, `registry` |
-| `konstruct.analysis` | `query`, `explain`, `conflicts`, `diff`, `gate`, `verify`, `history` |
+| `konstruct.analysis` | `query`, `explain`, `conflicts`, `diff`, `gate`, `verify`, `mutation`, `history` |
 | `konstruct.outputs` | `report`, `html`, `export` |
 | `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
 | `konstruct.plugins` | `api` (the plugin API: protocols and types), `registry` (finding, enabling and loading plugins) |
@@ -146,12 +146,18 @@ print(change.selection.command())  # dbt build --select <only what changed>
 
 result = project.verify(seed=1729)
 print(result.totals())  # {'claimed': 36, 'confirmed': 36, ...}
+
+tests = project.mutate(models=['orders'], max_mutants=10)
+print(tests.score)  # killed / (killed + survived)
+for survivor in tests.models[0].survivors:
+    print(survivor.mutant.description, survivor.suggestions[:1])
 ```
 
 ```{eval-rst}
 .. automethod:: konstruct.Project.diff
 .. automethod:: konstruct.Project.gate
 .. automethod:: konstruct.Project.verify
+.. automethod:: konstruct.Project.mutate
 .. automethod:: konstruct.Project.export
 ```
 
@@ -305,6 +311,33 @@ print(result.totals())  # {'claimed': 36, 'confirmed': 36, ...}
 
 .. autoclass:: konstruct.analysis.verify.ModelResult
    :members:
+```
+
+### Mutation Testing
+
+```{eval-rst}
+.. autoclass:: konstruct.analysis.mutation.MutationTesting
+   :members:
+
+.. autoclass:: konstruct.analysis.mutation.ModelMutation
+   :members:
+
+.. autoclass:: konstruct.analysis.mutation.MutantResult
+   :members:
+
+.. autoclass:: konstruct.analysis.mutation.TestCheck
+   :members:
+
+.. autoclass:: konstruct.analysis.mutation.Suggestion
+   :members:
+
+.. autoclass:: konstruct.analysis.mutation.ColumnScore
+   :members:
+
+.. autoclass:: konstruct.core.mutate.Mutant
+   :members:
+
+.. autofunction:: konstruct.core.mutate.mutants
 ```
 
 ### Builds

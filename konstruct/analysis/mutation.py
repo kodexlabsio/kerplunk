@@ -43,7 +43,7 @@ import uuid
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlglot import exp
 
@@ -60,6 +60,9 @@ from konstruct.core.graph import Graph, Node
 from konstruct.core.mutate import OPERATORS, Mutant, mutants, parse_query
 from konstruct.core.sql import analyse
 from konstruct.semantics.ontology import Relationship, derive
+
+if TYPE_CHECKING:
+    from konstruct.interfaces.layout import Style
 
 STATUSES = ('killed', 'survived', 'equivalent', 'indistinguishable', 'invalid')
 ROW_COUNT = '(row count)'
@@ -344,49 +347,15 @@ class MutationTesting:
             lines.append(f'{t["invalid"]} mutant{"s" if t["invalid"] != 1 else ""} did not run.')
         return '\n'.join(lines)
 
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import mutation_lines, show
+
+        return show(mutation_lines, self, style)
+
     def __str__(self) -> str:
-        header = (
-            f'Mutation testing against {self.warehouse} (seed {self.seed}, up to {self.max_mutants} mutants '
-            f'per model, up to {self.max_rows} rows per input)'
-        )
-        width = max([len(m.label) for m in self.models] + [5])
-        rows = [
-            f'  {"model".ljust(width)}  mutants  killed  survived  equivalent  indistinguishable  invalid  score'
-        ]
-        for m in self.models:
-            if m.skipped:
-                rows.append(f'  {m.label.ljust(width)}  skipped: {m.skipped}')
-                continue
-            rows.append(
-                f'  {m.label.ljust(width)}  {len(m.mutants):>7}  {m.count("killed"):>6}  {m.count("survived"):>8}  '
-                f'{m.count("equivalent"):>10}  {m.count("indistinguishable"):>17}  {m.count("invalid"):>7}  '
-                f'{_percent(m.score):>5}'
-            )
-        text = [header, '', *rows, '', self.summary()]
-        survivors = sorted(
-            ((m, s) for m in self.checked for s in m.survivors), key=lambda pair: -pair[1].reach
-        )
-        if survivors:
-            text += ['', 'Survivors, by downstream reach:']
-            for model, survivor in survivors[:20]:
-                text.append(
-                    f'  {model.label}: {_where(survivor.mutant)}; changes {", ".join(survivor.changed)}'
-                )
-                if survivor.suggestions:
-                    best = survivor.suggestions[0]
-                    text.append(f'    would be killed by {_name(best)}: {best.reason}')
-            if len(survivors) > 20:
-                text.append(f'  and {len(survivors) - 20} more in MUTATION.md')
-        unused = [(m, t) for m in self.checked for t in m.tests if t.state != 'used']
-        if unused:
-            text += ['', 'Tests not used:']
-            text += [
-                f'  {m.label}: {t.name} ({t.state}{": " + t.reason if t.reason else ""})'
-                for m, t in unused[:20]
-            ]
-            if len(unused) > 20:
-                text.append(f'  and {len(unused) - 20} more in MUTATION.md')
-        return '\n'.join(text)
+        return self.text()
 
     def markdown(self) -> str:
         t = self.totals()
@@ -436,9 +405,9 @@ class MutationTesting:
                 ]
                 lines.append('')
             for survivor in m.survivors:
-                lines.append(f'- Survived: {_where(survivor.mutant)}; changes {", ".join(survivor.changed)}.')
+                lines.append(f'- Survived: {where(survivor.mutant)}; changes {", ".join(survivor.changed)}.')
                 for suggestion in survivor.suggestions[:1]:
-                    lines.append(f'  Would be killed by {_name(suggestion)}: {suggestion.reason}.')
+                    lines.append(f'  Would be killed by {suggestion_name(suggestion)}: {suggestion.reason}.')
                     if suggestion.yaml:
                         lines += [
                             f'  Add it to {suggestion.where}:',
@@ -454,7 +423,7 @@ class MutationTesting:
                 same = [r for r in m.mutants if r.status == status]
                 if same:
                     lines += ['', heading, '']
-                    lines += [f'- {_where(r.mutant)}' for r in same]
+                    lines += [f'- {where(r.mutant)}' for r in same]
             unused = [t for t in m.tests if t.state != 'used']
             if unused:
                 lines += ['', 'Tests not used:', '']
@@ -462,11 +431,13 @@ class MutationTesting:
         return '\n'.join(lines) + '\n'
 
 
-def _where(mutant: Mutant) -> str:
+def where(mutant: Mutant) -> str:
+    """The mutation in words, with the CTE it is in."""
     return mutant.description + (f' in CTE `{mutant.scope}`' if mutant.scope else '')
 
 
-def _name(suggestion: Suggestion) -> str:
+def suggestion_name(suggestion: Suggestion) -> str:
+    """The suggested test as a short phrase: ``not_null on total_paid``."""
     if suggestion.column:
         return f'{suggestion.test} on {suggestion.column}'
     return suggestion.test.replace('_', ' ') if suggestion.test == 'unit_test' else suggestion.test

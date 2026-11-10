@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.explain import Explanation
     from konstruct.analysis.gate import Gate
     from konstruct.analysis.history import History
+    from konstruct.analysis.mutation import MutationTesting
     from konstruct.analysis.query import (
         Definitions,
         Description,
@@ -638,6 +639,79 @@ def verification_lines(result: Verification, style: Style) -> Lines:
         lines += [blank(), *table(style, details[:40])]
         if len(details) > 40:
             lines.append(Text((f'  and {len(details) - 40} more in VERIFY.md', 'dim')))
+    return lines
+
+
+def mutation_lines(result: MutationTesting, style: Style) -> Lines:
+    from konstruct.analysis.mutation import suggestion_name, where
+
+    facts = [
+        f'seed {result.seed}',
+        f'up to {result.max_mutants} mutants per model',
+        f'up to {result.max_rows} rows per input',
+    ]
+    lines = [header('Mutation testing against', result.warehouse, *facts)]
+    for line in result.summary().splitlines():
+        lines += _summary(style, line)
+    rows: list[list[Cell]] = []
+    for m in result.models:
+        if m.skipped:
+            rows.append([m.label, Text((f'skipped: {m.skipped}', 'warn'))])
+            continue
+        score = '-' if m.score is None else f'{100 * m.score:.0f}%'
+        rows.append(
+            [
+                m.label,
+                str(len(m.mutants)),
+                _count(m.count('killed'), 'ok'),
+                _count(m.count('survived'), 'warn'),
+                _count(m.count('equivalent'), ''),
+                _count(m.count('indistinguishable'), ''),
+                _count(m.count('invalid'), 'error'),
+                score,
+            ]
+        )
+    headings = [
+        'model',
+        'mutants',
+        'killed',
+        'survived',
+        'equivalent',
+        'indistinguishable',
+        'invalid',
+        'score',
+    ]
+    if rows:
+        lines += [blank(), *table(style, rows, right=[1, 2, 3, 4, 5, 6, 7], headers=headings, cap=None)]
+    survivors = sorted(((m, s) for m in result.checked for s in m.survivors), key=lambda pair: -pair[1].reach)
+    if survivors:
+        lines += [blank(), section('Survivors, by downstream reach', len(survivors))]
+        for model, survivor in survivors[:20]:
+            changes = ', '.join(survivor.changed)
+            lines += wrap(
+                style,
+                Text(f'{where(survivor.mutant)}; changes {changes}'),
+                first=Text(f'  {model.label}: '),
+                hanging=4,
+            )
+            if survivor.suggestions:
+                best = survivor.suggestions[0]
+                lines += _note(style, f'would be killed by {suggestion_name(best)}: {best.reason}', indent=4)
+        if len(survivors) > 20:
+            lines.append(Text((f'  and {len(survivors) - 20} more in MUTATION.md', 'dim')))
+    unused = [(m, t) for m in result.checked for t in m.tests if t.state != 'used']
+    if unused:
+        lines += [blank(), section('Tests not used', len(unused))]
+        for model, test in unused[:20]:
+            reason = f': {test.reason}' if test.reason else ''
+            lines += wrap(
+                style,
+                Text((f'({test.state}{reason})', 'dim')),
+                first=Text(f'  {model.label}: {test.name} '),
+                hanging=4,
+            )
+        if len(unused) > 20:
+            lines.append(Text((f'  and {len(unused) - 20} more in MUTATION.md', 'dim')))
     return lines
 
 
