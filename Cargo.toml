@@ -4,10 +4,17 @@ version = "0.0.0"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
-description = "The native core of Konstruct: graph traversal, name resolution and search"
+description = "The native core of Konstruct: graph traversal, name resolution, search and formula identity"
 publish = false
-# The crate shares the repository root with the Python package; only these are Rust.
-include = ["/Cargo.toml", "/Cargo.lock", "/src/**", "/tests/*.rs", "/benches/*.rs"]
+# The crate shares the repository root with the Python package; only these belong to it.
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/src/**",
+    "/tests/*.rs",
+    "/tests/fixtures/blake2b-kat.txt",
+    "/benches/*.rs",
+]
 
 [lib]
 name = "_core"

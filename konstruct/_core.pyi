@@ -1,8 +1,8 @@
-"""Konstruct's native core (the Rust crate in src/): graph traversal, name
-resolution and search. ``konstruct.core.graph`` and ``konstruct.analysis.query`` are its callers;
-nodes, edges and relations are passed in, and come back, as ordinals into the lists given. Any
-string may hold lone surrogates (a file name decoded with ``surrogateescape``), and an id comes
-back exactly as it was given."""
+"""Konstruct's native core (the Rust crate in src/): graph traversal, name resolution, search and
+formula identity. ``konstruct.core.graph``, ``konstruct.analysis.query`` and
+``konstruct.analysis.identity`` are its callers; nodes, edges and relations are passed in, and come
+back, as ordinals into the lists given. Any string may hold lone surrogates (a file name decoded
+with ``surrogateescape``), and an id comes back exactly as it was given."""
 
 from typing import final
 
@@ -63,3 +63,35 @@ class SearchIndex:
     ) -> None: ...
     def search(self, text: str, needle: str, limit: int | None, kinds: list[str]) -> list[tuple[int, float]]:
         """The nodes matching ``text`` (in lower case), best first, as (node, score)."""
+
+# An input of a witness: name, then the definition and label of the expression it is (None for a
+# column), then its value (None for NULL).
+_Input = tuple[str, int | None, int | None, str | None]
+# A function's name, and the definition and label of where it is applied.
+_Mention = tuple[str, int, int | None]
+# kind, inputs, rows (None when nothing aggregates), the two results, functions, and the
+# expressions only in each formula.
+_Witness = tuple[
+    str,
+    list[_Input],
+    list[list[_Input]] | None,
+    tuple[str | None, str | None] | None,
+    list[str],
+    list[_Mention],
+    list[_Mention],
+]
+
+@final
+class FormulaSet:
+    """Formulas written as definitions of a straight-line program, to fingerprint and compare."""
+
+    def __init__(self, key: bytes | None = None) -> None:
+        """Formulas under ``key``, or under the fixed key fingerprints use when it is None."""
+    def __len__(self) -> int: ...
+    def add(self, text: str, context: str) -> int:
+        """Adds a definition whose aggregates run under ``context``; raises ValueError if malformed."""
+    def fingerprints(self, definitions: list[int]) -> list[int]:
+        """The 128-bit fingerprint of each definition."""
+    def compare(self, a: int, b: int) -> tuple[bool, float, bool, _Witness | None]:
+        """Whether two definitions are shown to be the same, a bound on the error, whether they
+        are without NULLs, and why they are not."""

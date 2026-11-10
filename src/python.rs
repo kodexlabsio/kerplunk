@@ -354,7 +354,7 @@ impl SearchIndex {
     }
 }
 
-/// Konstruct's native core: graph traversal, name resolution and search.
+/// Konstruct's native core: graph traversal, name resolution, search and formula identity.
 #[pymodule(name = "_core")]
 mod core_module {
     use pyo3::exceptions::PyImportError;
@@ -362,6 +362,8 @@ mod core_module {
 
     #[pymodule_export]
     use super::{GraphIndex, RelationNames, SearchIndex};
+    #[pymodule_export]
+    use crate::identity::python::FormulaSet;
 
     /// Refuses to load on a processor the routines cannot run on, before anything calls them.
     #[pymodule_init]

@@ -1,4 +1,5 @@
-//! The parts of Konstruct that run natively: graph traversal, name resolution and search.
+//! The parts of Konstruct that run natively: graph traversal, name resolution, search and
+//! formula identity.
 //!
 //! The Python package `konstruct` keeps its whole API; these modules hold the work that is
 //! faster as compiled code, and the `python` feature exposes them as `konstruct._core`. Without
@@ -24,6 +25,7 @@ macro_rules! routine {
 
 pub mod fnv;
 pub mod graph;
+pub mod identity;
 pub mod keys;
 pub mod names;
 pub mod search;
