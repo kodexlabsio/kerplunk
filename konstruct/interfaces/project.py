@@ -372,7 +372,8 @@ class Project:
 
         Args:
             limit: The most conflicts to return.
-            write: Also write ``CONFLICTS.md`` and ``conflicts.json`` beside the graph.
+            write: Also write ``CONFLICTS.md`` and ``conflicts.json`` beside the graph, and show the
+                conflicts in ``graph.html``.
 
         Returns:
             The conflicts, ranked by what depends on each side downstream.
@@ -388,8 +389,15 @@ class Project:
 
         result = find_conflicts(self.graph, limit)
         if write:
+            from konstruct.outputs.html import graph_fingerprint, write_html
+
             jsonio.write_text(self.out_dir / 'CONFLICTS.md', result.markdown())
-            jsonio.write_text(self.out_dir / 'conflicts.json', json.dumps(document(result), indent=1) + '\n')
+            # The fingerprint says which graph these are true of, so graph.html shows them only
+            # while the graph is unchanged.
+            data = {**document(result), 'graph': graph_fingerprint(self.graph)}
+            jsonio.write_text(self.out_dir / 'conflicts.json', json.dumps(data, indent=1) + '\n')
+            if (self.out_dir / 'graph.html').is_file():
+                write_html(self.graph, self.out_dir / 'graph.html')
         return result
 
     def ontology(self) -> Ontology:

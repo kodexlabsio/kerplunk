@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import logging
 import os
 import stat
 from dataclasses import asdict
@@ -28,6 +29,8 @@ from konstruct.core.graph import Graph, Node
 
 if TYPE_CHECKING:
     from konstruct.semantics.ontology import Ontology
+
+log = logging.getLogger(__name__)
 
 _DATA_PLACEHOLDER = '__KONSTRUCT_DATA__'
 _EXPLAIN_PLACEHOLDER = '__KONSTRUCT_EXPLAIN__'
@@ -81,6 +84,7 @@ def explanations(graph: Graph, cache: Any = None) -> dict[str, Any]:
         # `konstruct explain` for the full composition.
         return Explainer(graph, max_composed=VIEWER_FORMULA_LIMIT).summaries(cache=cache)
     except RecursionError:
+        log.warning('graph.html: the lineage is too deep to compose formulas; the page shows none')
         return {}
 
 
@@ -234,35 +238,47 @@ def ontology_data(graph: Graph, ontology: Ontology | None = None) -> dict[str, A
     }
 
 
-def conflicts_data(graph: Graph, cache: Any = None) -> dict[str, Any]:
-    """The most consequential conflicting definitions, as ``konstruct conflicts --json`` gives them.
-    With the build cache, an unchanged graph reuses the last build's answer."""
-    from konstruct.analysis.conflicts import find_conflicts
-
-    def compute() -> dict[str, Any]:
-        try:
-            return find_conflicts(graph, VIEWER_CONFLICT_LIMIT).to_dict()
-        except RecursionError:
-            return {}
-
-    if cache is None:
-        return compute()
-    # The nodes and edges, not meta: meta records when and how fast the build ran.
-    data = graph.to_dict()
+def graph_fingerprint(graph: Graph, data: dict[str, Any] | None = None) -> str:
+    """A hash of the graph's nodes and edges, not its meta (which records when the build ran), so
+    a result computed from one graph can be recognised as still true of the next. ``data`` is
+    ``graph.to_dict()``, when the caller has made it already."""
+    if data is None:
+        data = graph.to_dict()
     content = {'nodes': data['nodes'], 'edges': data['edges'], 'dialect': graph.meta.get('dialect')}
-    fingerprint = hashlib.sha256(jsonio.dumps(content, sort_keys=True).encode('utf-8')).hexdigest()
-    result: dict[str, Any] = cache.get_or_compute(
-        f'viewer-conflicts:{VIEWER_CONFLICT_LIMIT}:{fingerprint}', compute
-    )
-    return result
+    return hashlib.sha256(jsonio.dumps(content).encode('utf-8')).hexdigest()
 
 
-def viewer_data(graph: Graph, cache: Any = None, ontology: Ontology | None = None) -> dict[str, Any]:
-    """Everything the page shows beside ``Graph.to_dict()``, in its second placeholder."""
+def conflicts_data(graph: Graph, directory: Path, graph_data: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The conflicts ``konstruct conflicts`` last wrote to ``conflicts.json`` beside the graph, if
+    they were found in this same graph; otherwise none. Finding conflicts is a question asked on
+    demand: a build does not spend its time on it. ``graph_data`` is ``graph.to_dict()``."""
+    path = directory / 'conflicts.json'
+    try:
+        data = jsonio.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict) or data.get('graph') != graph_fingerprint(graph, graph_data):
+        return {}
+    found = {k: v for k, v in data.items() if k != 'graph'}
+    if isinstance(found.get('conflicts'), list):
+        found['conflicts'] = found['conflicts'][:VIEWER_CONFLICT_LIMIT]
+    return found
+
+
+def viewer_data(
+    graph: Graph,
+    directory: Path,
+    cache: Any = None,
+    ontology: Ontology | None = None,
+    graph_data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Everything the page shows beside ``Graph.to_dict()`` (``graph_data``, when it is made
+    already), in its second placeholder; ``directory`` is where the page is written, beside
+    graph.json and conflicts.json."""
     data = explanations(graph, cache)
     data['sql'] = code(graph, cache)
     data['ontology'] = ontology_data(graph, ontology)
-    data['conflicts'] = conflicts_data(graph, cache)
+    data['conflicts'] = conflicts_data(graph, directory, graph_data)
     # The page's language follows the reader's browser; KONSTRUCT_LOCALE (such as de or pt-BR)
     # sets the one to use when the reader has not chosen one.
     locale = os.environ.get('KONSTRUCT_LOCALE', '').strip()
@@ -274,10 +290,13 @@ def viewer_data(graph: Graph, cache: Any = None, ontology: Ontology | None = Non
 def write_html(graph: Graph, path: Path, cache: Any = None, ontology: Ontology | None = None) -> Path:
     """Write the interactive viewer for ``graph`` to ``path`` and return ``path``. ``ontology`` is
     the build's, when it has already derived one."""
+    # Made once: the page embeds it, and the conflicts' fingerprint is a hash of it.
+    graph_data = graph.to_dict()
+    shown = viewer_data(graph, path.parent, cache, ontology, graph_data)
     page = (
         template()
-        .replace(_EXPLAIN_PLACEHOLDER, _embed_json(viewer_data(graph, cache, ontology)), 1)
-        .replace(_DATA_PLACEHOLDER, _embed_json(graph.to_dict()), 1)
+        .replace(_EXPLAIN_PLACEHOLDER, _embed_json(shown), 1)
+        .replace(_DATA_PLACEHOLDER, _embed_json(graph_data), 1)
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     jsonio.write_text(path, page)

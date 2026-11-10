@@ -257,15 +257,25 @@ def test_a_graph_without_its_project_embeds_no_sql(tmp_path: Path) -> None:
 
 
 @pytest.mark.dbt
-def test_the_ontology_and_conflicts_are_embedded(jaffle_built_graph: Path) -> None:
-    data = explain_json((jaffle_built_graph / 'konstruct-out' / 'graph.html').read_text(encoding='utf-8'))
+def test_the_ontology_and_conflicts_are_embedded(jaffle_built_graph: Path, tmp_path: Path) -> None:
+    from konstruct.interfaces.cli import main
+
+    # konstruct conflicts writes beside the graph, so it runs on a copy: the fixture is shared.
+    project = tmp_path / 'jaffle_shop'
+    shutil.copytree(jaffle_built_graph, project)
+    page = project / 'konstruct-out' / 'graph.html'
+    data = explain_json(page.read_text(encoding='utf-8'))
     customer = next(e for e in data['ontology']['entities'] if e['name'] == 'customer')
     assert 'model.jaffle_shop.customers#customer_id' in customer['key_ids']
     measure = next(m for m in data['ontology']['measures'] if m['name'] == 'Order amount')
     assert measure['columns'][0]['id'] == 'model.jaffle_shop.orders#amount'
     assert {r['name'] for r in data['ontology']['rules']} >= {'one-formula-per-measure'}
-    assert data['conflicts']['candidates'] > 0 and 'conflicts' in data['conflicts']
     assert 'model.jaffle_shop.orders' in data['sql']
+    # Conflicts appear once konstruct conflicts has looked for them.
+    assert data['conflicts'] == {}
+    assert main(['conflicts', '-C', str(project), '-q']) == 0
+    data = explain_json(page.read_text(encoding='utf-8'))
+    assert data['conflicts']['candidates'] > 0 and 'conflicts' in data['conflicts']
 
 
 def test_konstruct_locale_sets_the_page_language(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -277,22 +287,57 @@ def test_konstruct_locale_sets_the_page_language(tmp_path: Path, monkeypatch: py
     assert 'locale' not in explain_json(page)
 
 
-def test_conflicts_are_reused_while_the_graph_is_unchanged(tmp_path: Path) -> None:
-    from konstruct.engine.build import Cache
-    from konstruct.outputs.html import conflicts_data
+def test_conflicts_are_shown_only_for_the_graph_they_were_found_in(tmp_path: Path) -> None:
+    from konstruct.outputs.html import VIEWER_CONFLICT_LIMIT, conflicts_data, graph_fingerprint
 
     graph = sample_graph()
-    cache = Cache(tmp_path / 'cache.json', enabled=True)
-    first = conflicts_data(graph, cache)
-    cache.save()
-    # The next build: a new build time is not a change to the graph.
+    # A build alone finds none: konstruct conflicts writes them.
+    assert conflicts_data(graph, tmp_path) == {}
+    found = {'summary': 's', 'candidates': 3, 'conflicts': [{'idea': str(i)} for i in range(150)]}
+    (tmp_path / 'conflicts.json').write_text(json.dumps({**found, 'graph': graph_fingerprint(graph)}))
+    data = conflicts_data(graph, tmp_path)
+    assert data['candidates'] == 3 and len(data['conflicts']) == VIEWER_CONFLICT_LIMIT
+    assert 'graph' not in data
+    # A new build time is not a change to the graph; a new node is.
     graph.meta['generated_at'] = '2026-11-07T10:00:00+00:00'
-    cache = Cache(tmp_path / 'cache.json', enabled=True)
-    assert conflicts_data(graph, cache) == first
-    assert (cache.hits, cache.misses) == (1, 0)
+    assert conflicts_data(graph, tmp_path)['candidates'] == 3
     graph.add_node(Node('model.shop.more', 'model', 'more'))
-    conflicts_data(graph, cache)
-    assert cache.misses == 1
+    assert conflicts_data(graph, tmp_path) == {}
+    (tmp_path / 'conflicts.json').write_text('not json')
+    assert conflicts_data(graph, tmp_path) == {}
+
+
+def test_the_page_turns_the_graph_into_data_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from konstruct.outputs.html import graph_fingerprint
+
+    graph = sample_graph()
+    (tmp_path / 'conflicts.json').write_text(json.dumps({'candidates': 1, 'graph': graph_fingerprint(graph)}))
+    calls: list[int] = []
+    to_dict = Graph.to_dict
+
+    def counted(self: Graph) -> dict[str, Any]:
+        calls.append(1)
+        return to_dict(self)
+
+    monkeypatch.setattr(Graph, 'to_dict', counted)
+    page = write_html(graph, tmp_path / 'graph.html').read_text(encoding='utf-8')
+    # The fingerprint that matches conflicts.json is made from the data the page embeds.
+    assert explain_json(page)['conflicts'] == {'candidates': 1}
+    assert len(calls) == 1
+
+
+def test_too_deep_a_lineage_is_reported(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from konstruct.analysis import explain
+    from konstruct.outputs.html import explanations
+
+    def deep(*args: Any, **kwargs: Any) -> Any:
+        raise RecursionError
+
+    monkeypatch.setattr(explain.Explainer, 'summaries', deep)
+    assert explanations(sample_graph()) == {}
+    assert 'too deep' in caplog.text
 
 
 def test_the_page_carries_a_strict_content_security_policy(tmp_path: Path) -> None:
