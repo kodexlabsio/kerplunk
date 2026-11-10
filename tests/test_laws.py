@@ -4,7 +4,9 @@ change breaks them, with the model to blame."""
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -1493,3 +1495,97 @@ def test_rows_keep_one_row_per_input_row_or_are_grouped() -> None:
     assert rows == 'a set operation (UNION, INTERSECT or EXCEPT)'
     flows, rows = _read('select from where')
     assert flows == {} and isinstance(rows, str) and 'could not be read' in rows
+
+
+# Scale: reading the SQL of a large generated project
+
+
+@pytest.mark.scale
+@pytest.mark.parametrize('tested', [False, True], ids=['untested joins', 'every join tested'])
+def test_laws_on_a_large_project(tmp_path: Path, tested: bool) -> None:
+    """``KONSTRUCT_SCALE_MODELS`` sets the size (300 by default). With ``tested``, every model has a
+    uniqueness test on the key it is joined on, so every model's SQL is read in full rather than
+    stopped at an untested join. The CPU bound is the start-up, measured on a project of one model
+    (which also warms the parser), and three to four times the cost per model measured at 300 and
+    at 2000 models on a loaded machine."""
+    from .test_scale import make_project
+
+    one = tmp_path / 'one'
+    make_project(one, models=1, columns_per_model=20)
+    small = Project(one)
+    small.build(run_dbt=False, warehouses=False)
+    startup = time.process_time()
+    propose(small.graph, one)
+    startup = time.process_time() - startup
+    models = int(os.environ.get('KONSTRUCT_SCALE_MODELS', '300'))
+    tmp_path = tmp_path / 'big'
+    make_project(tmp_path, models=models, columns_per_model=20)
+    if tested:
+        path = tmp_path / 'target' / 'manifest.json'
+        manifest = json.loads(path.read_text())
+        for index in range(models):
+            name = f'm{index:03}'
+            manifest['nodes'][f'test.big.unique_{name}_c00'] = {
+                'unique_id': f'test.big.unique_{name}_c00',
+                'resource_type': 'test',
+                'name': f'unique_{name}_c00',
+                'package_name': 'big',
+                'test_metadata': {'name': 'unique', 'kwargs': {'column_name': 'c00'}},
+                'column_name': 'c00',
+                'attached_node': f'model.big.{name}',
+                'depends_on': {'nodes': [f'model.big.{name}'], 'macros': []},
+            }
+        path.write_text(json.dumps(manifest))
+    project = Project(tmp_path)
+    project.build(run_dbt=False, warehouses=False)
+    graph = project.graph
+    started, cpu = time.perf_counter(), time.process_time()
+    laws = propose(graph, tmp_path)
+    wall, cpu = time.perf_counter() - started, time.process_time() - cpu
+    assert laws.totals()['laws'] >= 10
+    bound = startup + models * (0.015 if tested else 0.001)
+    assert cpu < bound, f'propose took {cpu:.2f}s of CPU, more than {bound:.2f}s'
+    started = time.perf_counter()
+    head = propose(graph, tmp_path, models=laws.models())
+    gate = time.perf_counter() - started
+    assert violations(graph, laws, head) == []
+    print(
+        f'\n{models} models ({"every join tested" if tested else "untested joins"}): propose {wall:.2f}s '
+        f'({cpu:.2f}s CPU; {startup:.2f}s on one model), {len(laws.laws)} laws, {laws.totals()["blocked"]} measures blocked; '
+        f'propose for the gate on {len(laws.models())} models {gate:.2f}s'
+    )
+
+
+@pytest.mark.scale
+def test_confirming_laws_on_a_large_warehouse(tmp_path: Path) -> None:
+    """A tree of ``KONSTRUCT_SCALE_MODELS`` views (300 by default) over one payments table, each
+    mapping its parent row for row with a unit conversion: every model has a conservation and a
+    count law, chained back to the source and confirmed per day."""
+    models = int(os.environ.get('KONSTRUCT_SCALE_MODELS', '300'))
+    tree = {
+        f'm{i:04}': (
+            f'select payment_id, paid_at, amount * 2 as amount from '
+            f'{raw("payments") if i == 0 else rel(f"m{(i - 1) // 2:04}")}'
+        )
+        for i in range(models)
+    }
+    payments = (
+        "select i as payment_id, timestamp '2026-01-01' + to_hours(i % 2000) as paid_at, "
+        '(i * 37) % 1000 as amount from range(1, 20001) t(i)'
+    )
+    write_shop(tmp_path, tree, [], {**RAW, 'payments': payments})
+    project = Project(tmp_path)
+    project.build(run_dbt=False)
+    started, cpu = time.perf_counter(), time.process_time()
+    laws = propose(project.graph, tmp_path)
+    proposing, proposing_cpu = time.perf_counter() - started, time.process_time() - cpu
+    started, cpu = time.perf_counter(), time.process_time()
+    checked = confirm(project.graph, tmp_path, tmp_path / 'shop.duckdb', laws)
+    confirming, confirming_cpu = time.perf_counter() - started, time.process_time() - cpu
+    totals = checked.totals()
+    assert totals['laws'] == totals['holds'] == 2 * models
+    assert max(law.checked for law in checked.laws) > 80
+    print(
+        f'\n{models} models, {totals["laws"]} laws: propose {proposing:.2f}s ({proposing_cpu:.2f}s CPU), '
+        f'confirm {confirming:.2f}s ({confirming_cpu:.2f}s CPU)'
+    )
