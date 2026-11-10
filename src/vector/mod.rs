@@ -3,4 +3,5 @@
 
 pub mod dot;
 pub mod formula;
+pub mod hnsw;
 pub mod text;
