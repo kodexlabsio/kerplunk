@@ -121,7 +121,7 @@ src = [".", "tests"]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PTH", "C4"]
 ignore = ["E501", "SIM905"]
 
-# Matches the Prettier settings of the Kodex Labs projects (and viewer/): single quotes, lines of
+# Matches the Prettier settings of the Kodex Labs projects (and .prettierrc): single quotes, lines of
 # 110, four-space indents and trailing commas. Docstrings keep double quotes, as PEP 257 asks.
 [tool.ruff.format]
 quote-style = "single"

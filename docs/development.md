@@ -152,16 +152,15 @@ claude plugin validate .                      # the marketplace and the plugin, 
 
 ## The Graph Viewer
 
-graph.html is a Svelte 5 and TypeScript app in `viewer/`, built with Vite into one self-contained file, `konstruct/outputs/viewer.html`, with its script, styles and fonts inlined (the font licences are in `licenses/`). That file is committed, so installing Konstruct needs no Node.js; Konstruct fills its two data placeholders when it writes graph.html: the graph, and the formulas, SQL, ontology and conflicts the pages show beside it. The pure logic (selectors, routes, search, layout, message formatting) is in `viewer/src/lib/` with Vitest tests in `viewer/tests/`; the message catalogues are in `viewer/src/locales/`.
+graph.html is a Svelte 5 and TypeScript app in `viewer/`, built with Vite into one self-contained file, `konstruct/outputs/viewer.html`, with its script, styles and fonts inlined (the font licences are in `licenses/`). That file is committed, so installing Konstruct needs no Node.js; Konstruct fills its two data placeholders when it writes graph.html: the graph, and the formulas, SQL, ontology and conflicts the pages show beside it. The pure logic (selectors, routes, search, layout, message formatting) is in `viewer/src/lib/` with Vitest tests in `viewer/tests/`; the message catalogues are in `viewer/src/locales/`. Its `package.json`, lock file and toolchain configs (`tsconfig.json`, `vite.config.ts`, `svelte.config.js`, `.prettierrc`) are at the repository root, beside `Cargo.toml` and `pyproject.toml`, and every `pnpm` command runs there.
 
 ```bash
-cd viewer
 pnpm install
-mkdir -p dev && cp ../examples/jaffle_shop/konstruct-out/graph.json dev/   # data for the dev server
+mkdir -p viewer/dev && cp examples/jaffle_shop/konstruct-out/graph.json viewer/dev/   # data for the dev server
 pnpm dev                     # http://localhost:5173/viewer.html, reloading as you edit
 pnpm check                   # svelte-check (strict TypeScript)
 pnpm test                    # Vitest: selectors, routes, search, layout, catalogues and the graph model
-pnpm build                   # writes ../konstruct/outputs/viewer.html; commit it with the source
+pnpm build                   # writes konstruct/outputs/viewer.html; commit it with the source
 ```
 
 Pre-commit hooks check formatting and types and rebuild the page when `viewer/` changes, and a CI job fails if the committed build does not match the source. The browser tests (`tests/test_browser.py`) drive the built page in Chromium and fail on any network request.
@@ -213,6 +212,7 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/), che
 | `konstruct/plugins/` | `api.py` (the plugin API: protocols, fragments and its version), `registry.py` (Konstruct's own components and installed plugins: finding, enabling and loading them) |
 | `Cargo.toml`, `src/`, `benches/` | The Rust core: graph walks and paths, name resolution, search and the formula identity test, with the FNV-1a hasher, word boundaries and substring search in assembly, built into `konstruct._core` |
 | `viewer/` | The graph viewer's source: Svelte 5 and TypeScript, built with Vite |
+| `package.json`, `pnpm-lock.yaml`, `tsconfig.json`, `vite.config.ts`, `svelte.config.js` | The viewer's Node toolchain, at the root beside `Cargo.toml` and `pyproject.toml` |
 | `action.yml` | The GitHub Action |
 | `examples/jaffle_shop` | dbt Labs' jaffle_shop_duckdb (Apache-2.0, see its NOTICE) with an Airflow DAG |
 | `examples/plugin` | `konstruct-yaml-pipelines`, an example plugin: an input, a gate check, an ontology pack and an MCP tool |
@@ -231,7 +231,7 @@ The zizmor workflow audits the workflows, `action.yml`, the Dependabot configura
 
 CodeQL scans the Python package, the viewer's TypeScript, the workflows and `action.yml` (and the Rust core once its sources are in the repository) with the `security-extended` queries, weekly and on every pull request and push to `main`, and reports to code scanning. It uses an advanced setup, so code scanning's default setup stays off for the repository.
 
-The Dependency audit workflow checks every lock file in the repository (`uv.lock`, `viewer/pnpm-lock.yaml`, and a `Cargo.lock` wherever one is) against the OSV database with [osv-scanner](https://google.github.io/osv-scanner/), daily and on every pull request and push to `main`, and fails on a known vulnerability. A vulnerability that does not affect Konstruct is ignored in the `osv-scanner.toml` beside its lock file, with the reason and a date to look at it again.
+The Dependency audit workflow checks every lock file in the repository (`uv.lock`, `pnpm-lock.yaml`, and a `Cargo.lock` wherever one is) against the OSV database with [osv-scanner](https://google.github.io/osv-scanner/), daily and on every pull request and push to `main`, and fails on a known vulnerability. A vulnerability that does not affect Konstruct is ignored in the `osv-scanner.toml` beside its lock file, with the reason and a date to look at it again.
 
 ```mermaid
 graph LR

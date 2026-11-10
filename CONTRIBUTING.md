@@ -26,7 +26,7 @@ The graph viewer's messages are in `viewer/src/locales/`, one file per locale, w
 
 - **To improve a translation,** edit its file. The catalogues other than British English were translated with machine assistance, and the header of each says so; corrections from native speakers are welcome.
 - **To add a locale,** copy `en-GB.ts` to `<locale>.ts` (a BCP 47 tag such as `sv` or `pt-PT`), type it as `Catalogue`, translate it, and add it to `locales/index.ts` and to the list in `viewer/tests/catalogue.test.ts`. A right-to-left script is laid out right to left by its language code.
-- **To check,** run `cd viewer && pnpm check && pnpm test`: a missing or extra key fails the type check, and the catalogue test fails on a message that does not parse or that uses an argument the source message does not have. Then `pnpm build`, and commit the rebuilt `konstruct/outputs/viewer.html` with the catalogue.
+- **To check,** run `pnpm check && pnpm test` at the repository root: a missing or extra key fails the type check, and the catalogue test fails on a message that does not parse or that uses an argument the source message does not have. Then `pnpm build`, and commit the rebuilt `konstruct/outputs/viewer.html` with the catalogue.
 
 ## Making a Change
 

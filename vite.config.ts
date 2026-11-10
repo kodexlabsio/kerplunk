@@ -2,7 +2,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import type { Plugin } from 'vite';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import { defineConfig } from 'vitest/config';
-import { minifyWgsl } from './src/gpu/wgsl.ts';
+import { minifyWgsl } from './viewer/src/gpu/wgsl.ts';
 
 /**
  * A Content-Security-Policy for the page, allowing its one inline script and one inline style
@@ -67,11 +67,22 @@ function wgsl(): Plugin {
 }
 
 // One self-contained HTML file: script, styles and fonts inlined, nothing loaded from the network.
-// It is written into the Python package, where konstruct fills the data placeholders.
+// It is written into the Python package, where konstruct fills the data placeholders. The toolchain
+// is configured at the repository root, beside Cargo.toml and pyproject.toml; the page's own root,
+// from which its entry and tests are found, is viewer/.
 export default defineConfig({
-    plugins: [wgsl(), svelte(), viteSingleFile({ removeViteModuleLoader: true }), contentSecurityPolicy()],
+    root: 'viewer',
+    // Vite's cache would otherwise be viewer/node_modules/.vite, beside nothing else of Node's.
+    cacheDir: '../node_modules/.vite',
+    plugins: [
+        wgsl(),
+        // Relative to the root above: svelte.config.js is at the repository root, for svelte-check.
+        svelte({ configFile: '../svelte.config.js' }),
+        viteSingleFile({ removeViteModuleLoader: true }),
+        contentSecurityPolicy(),
+    ],
     build: {
-        // Writes ../konstruct/outputs/viewer.html: the entry's name, in the package directory.
+        // Writes konstruct/outputs/viewer.html: the entry's name, in the package directory.
         outDir: '../konstruct/outputs',
         rollupOptions: { input: 'viewer.html' },
         emptyOutDir: false,

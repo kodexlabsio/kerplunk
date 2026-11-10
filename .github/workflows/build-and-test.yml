@@ -655,9 +655,6 @@ jobs:
     name: Viewer (Svelte and TypeScript)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: viewer
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -667,14 +664,14 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
-          package_json_file: viewer/package.json
+          package_json_file: package.json
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
-          cache-dependency-path: viewer/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -693,7 +690,7 @@ jobs:
 
       # konstruct ships the built page so installing it needs no Node.js; it must match the source.
       - name: The committed build is up to date
-        run: git diff --exit-code -- ../konstruct/outputs/viewer.html
+        run: git diff --exit-code -- konstruct/outputs/viewer.html
 
   dagster-parity:
     name: Dagster parser against Dagster

@@ -23,6 +23,7 @@ Action and a single offline HTML page.
 | `konstruct/interfaces/` | `cli.py`, `project.py` (the Python API), `mcp_server.py`, `skill.py`, `console.py`, `status.py` |
 | `Cargo.toml`, `src/`, `benches/` | The Rust core, built by maturin as `konstruct._core`: graph walks and paths, relation names, ranked search, search by meaning (`src/vector/`) and the formula identity test (`src/identity/`), with assembly for each architecture beside the module that declares it: FNV-1a (`src/fnv/`), word boundaries (`src/words/`), substring search (`src/substring/`), the int8 inner product (`src/vector/dot/`), and Montgomery multiplication and BLAKE2b compression (in `src/identity/`). `cargo bench --bench core` times it |
 | `viewer/` | The viewer's source: Svelte 5 and strict TypeScript, built with Vite and pnpm |
+| `package.json`, `pnpm-lock.yaml`, `tsconfig.json`, `vite.config.ts`, `svelte.config.js`, `.prettierrc` | The viewer's Node toolchain, at the root like `Cargo.toml` and `pyproject.toml` |
 | `docs/` | Sphinx documentation in MyST Markdown, Read the Docs theme |
 | `paper/` | The paper in LaTeX: `konstruct.tex`, `sections/`, `references.bib`, and `generated/` (not committed), which `generate.py` writes by running the experiments the paper reports |
 | `tests/` | pytest suites, golden files in `tests/golden/` (the interface snapshots in `tests/golden/interfaces/`), fixtures in `tests/fixtures/`, the compatibility corpus in `tests/compat/` |
@@ -40,8 +41,9 @@ Action and a single offline HTML page.
   regenerate the golden CLI output, REPORT.md and the interface snapshots, then review the diff.
 - `uv run python .kodex/scripts/compat_snapshot.py --ref vX.Y.Z`: add a tagged release to the
   compatibility corpus, in the batch after it is released.
-- `cd viewer && pnpm install && pnpm check && pnpm test && pnpm build`: the viewer. Commit the
-  rebuilt `konstruct/outputs/viewer.html` with the source; CI fails if they differ.
+- `pnpm install && pnpm check && pnpm test && pnpm build`, at the repository root, where
+  `package.json` is: the viewer. Commit the rebuilt `konstruct/outputs/viewer.html` with the
+  source; CI fails if they differ.
 - `uv run --group docs sphinx-build -W -b html docs docs/_build/html`: the documentation. Warnings
   are errors, as in CI.
 - `uv run .kodex/scripts/benchmark.py 500`: before and after changes to the build, SQL analysis
@@ -138,7 +140,7 @@ change.
 ## Formatting
 
 - Python: ruff, single quotes (docstrings double), lines of 110, four-space indents.
-- Viewer: Prettier with the kodexlabs.io settings (`viewer/.prettierrc`): single quotes, trailing
+- Viewer: Prettier with the kodexlabs.io settings (`.prettierrc`): single quotes, trailing
   commas, lines of 110, four-space indents (two for JSON and YAML), organised imports.
 
 ## Dependencies and Pins
@@ -148,7 +150,7 @@ Check each when updating packages, and remove it once it is no longer needed.
 - **sqlglot `<31`**: a major release changes AST shapes and lineage; raise the bound deliberately,
   with the golden files and `.kodex/scripts/benchmark.py` before and after.
 - **mcp `<3`**: the protocol SDK's majors change the server API; raise it with `tests/test_mcp.py`.
-- **TypeScript 6** in `viewer/`: svelte-check supports `<7`.
+- **TypeScript 6** in `package.json`: svelte-check supports `<7`.
 - **fakesnow** is not a dev dependency: it pins an old sqlglot. The Snowflake test runs in its own
   CI job with `uv run --with fakesnow --with "snowflake-connector-python<5"`.
 - **pnpm 12 lock file** is several YAML documents, so `check-yaml` runs with

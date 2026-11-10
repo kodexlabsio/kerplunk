@@ -5,15 +5,16 @@ description: Work on graph.html, the Konstruct graph viewer (Svelte 5 and TypeSc
 
 # Working on the viewer
 
-The viewer is `viewer/` (Svelte 5, strict TypeScript, Vite, pnpm, Node from `.nvmrc`). `pnpm build`
-writes one self-contained `konstruct/outputs/viewer.html`; Konstruct fills its `__KONSTRUCT_DATA__`
-and `__KONSTRUCT_EXPLAIN__` placeholders when it writes `graph.html`.
+The viewer is `viewer/` (Svelte 5, strict TypeScript, Vite, pnpm, Node from `.nvmrc`), with its
+`package.json` and toolchain configs at the repository root, where every `pnpm` command runs.
+`pnpm build` writes one self-contained `konstruct/outputs/viewer.html`; Konstruct fills its
+`__KONSTRUCT_DATA__` and `__KONSTRUCT_EXPLAIN__` placeholders when it writes `graph.html`.
 
 1. **Run it with real data:**
    ```bash
    uv run konstruct build examples/jaffle_shop
-   cd viewer && pnpm install
-   mkdir -p dev && cp ../examples/jaffle_shop/konstruct-out/graph.json dev/
+   pnpm install
+   mkdir -p viewer/dev && cp examples/jaffle_shop/konstruct-out/graph.json viewer/dev/
    pnpm dev            # http://localhost:5173/viewer.html
    ```
 2. **Where things are.** Pure logic with unit tests in `tests/`: `src/lib/model.ts` (graph indexes,
@@ -25,7 +26,7 @@ and `__KONSTRUCT_EXPLAIN__` placeholders when it writes `graph.html`.
    `src/app.css`, following `../kodexlabs.io/DESIGN.md` (slate and sky, Manrope and JetBrains Mono,
    nothing below 14px), with logical properties so right-to-left languages work.
    Loading the graph (inlined, or fetched when a server marks the page with
-   `<meta name="konstruct-serve">`) is all in `src/lib/source.ts`. For dev, `dev/explain.json`
+   `<meta name="konstruct-serve">`) is all in `src/lib/source.ts`. For dev, `viewer/dev/explain.json`
    (the second placeholder's data) is read if present. The build adds a hash-based CSP
    (`vite.config.ts`): no inline handlers, no `{@html}`, no eval, no static `style` attributes.
 3. **Keep the contract.** Element ids and classes (`#nodes [data-id]`, `.row[data-col]`, `#page h1`,

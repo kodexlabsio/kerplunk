@@ -11,8 +11,9 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Node (commit tooling only)
-/node_modules
+# Node (the viewer's toolchain, from package.json at the root)
+/node_modules/
+/viewer/dev/
 
 # konstruct output
 konstruct-out/

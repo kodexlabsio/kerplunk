@@ -16,5 +16,5 @@
     "allowImportingTsExtensions": true,
     "types": ["vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "tests/**/*.ts", "vite.config.ts"]
+  "include": ["viewer/src/**/*.ts", "viewer/src/**/*.svelte", "viewer/tests/**/*.ts", "vite.config.ts"]
 }

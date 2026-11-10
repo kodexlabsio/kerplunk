@@ -81,9 +81,9 @@ updates:
       - dependencies
 
   # The viewer's build tools. A bump can change the built page, so its pull request needs
-  # `pnpm --dir viewer build` committed before the viewer job passes.
+  # `pnpm build` committed before the viewer job passes.
   - package-ecosystem: npm
-    directory: /viewer
+    directory: /
     schedule:
       interval: monthly
       timezone: 'Europe/London'

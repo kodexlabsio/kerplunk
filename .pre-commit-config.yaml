@@ -41,21 +41,21 @@ repos:
         pass_filenames: false
       - id: viewer-format
         name: viewer prettier
-        entry: pnpm --dir viewer format:check
+        entry: pnpm format:check
         language: system
-        files: ^viewer/
+        files: ^(viewer/|package\.json$|pnpm-lock\.yaml$|tsconfig\.json$|vite\.config\.ts$|svelte\.config\.js$|\.prettier)
         pass_filenames: false
       - id: viewer-check
         name: viewer svelte-check
-        entry: pnpm --dir viewer check
+        entry: pnpm check
         language: system
-        files: ^viewer/
+        files: ^(viewer/|package\.json$|pnpm-lock\.yaml$|tsconfig\.json$|vite\.config\.ts$|svelte\.config\.js$|\.prettier)
         pass_filenames: false
       - id: viewer-build
         name: viewer build is current
         entry: .kodex/scripts/check_viewer_build.sh
         language: system
-        files: ^viewer/
+        files: ^(viewer/|package\.json$|pnpm-lock\.yaml$|tsconfig\.json$|vite\.config\.ts$|svelte\.config\.js$|\.prettier)
         pass_filenames: false
       - id: commitizen
         name: commitizen check
