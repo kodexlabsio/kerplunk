@@ -30,6 +30,9 @@ from konstruct.inputs.warehouse import (
 
 from .test_warehouse import require
 
+# These projects connect with their own konstruct.toml and profiles.yml, as CI on a trusted branch does.
+pytestmark = pytest.mark.usefixtures('trust_config')
+
 # Databricks, against a stub driver
 
 

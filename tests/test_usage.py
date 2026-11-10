@@ -19,6 +19,9 @@ from konstruct.inputs.usage import (
 )
 from konstruct.interfaces.cli import main
 
+# These projects connect with their own konstruct.toml and profiles.yml, as CI on a trusted branch does.
+pytestmark = pytest.mark.usefixtures('trust_config')
+
 # The SQL each reader sends, checked against the documented views
 
 

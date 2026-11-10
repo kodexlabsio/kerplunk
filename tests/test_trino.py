@@ -22,6 +22,9 @@ from konstruct.engine.config import discover_warehouses, load_config
 from konstruct.inputs.dbt import read_project
 from konstruct.inputs.warehouse import MissingDriver, TrinoConnector
 
+# These projects connect with their own konstruct.toml and profiles.yml, as CI on a trusted branch does.
+pytestmark = pytest.mark.usefixtures('trust_config')
+
 
 class _Cursor:
     def __init__(self, server: _Server) -> None:

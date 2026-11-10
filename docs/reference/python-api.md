@@ -51,6 +51,10 @@ if not project.has_graph() or project.changed_inputs():
     print(result.graph.warnings)  # problems with the inputs, if any
 ```
 
+The repository's own warehouse connections and paths outside it are used, and dbt is run, once
+{meth}`~konstruct.Project.trust` has recorded them, as `konstruct trust` does (see
+[Trusting a Project's Connections](configuration.md#trusting-a-projects-connections)).
+
 ```{eval-rst}
 .. autoclass:: konstruct.Project
    :no-members:
@@ -60,6 +64,7 @@ if not project.has_graph() or project.changed_inputs():
 .. automethod:: konstruct.Project.changed_inputs
 .. automethod:: konstruct.Project.config
 .. automethod:: konstruct.Project.plugins
+.. automethod:: konstruct.Project.trust
 .. autoproperty:: konstruct.Project.graph
 .. autoproperty:: konstruct.Project.root
 .. autoproperty:: konstruct.Project.graph_path
@@ -388,6 +393,17 @@ These are stable enough to build on, but `Project` is the supported entry point.
 ```{eval-rst}
 .. autofunction:: konstruct.engine.config.load_config
 
+.. autoclass:: konstruct.engine.trust.Trust
+   :members:
+
+.. autofunction:: konstruct.engine.trust.check
+
+.. autofunction:: konstruct.engine.trust.trust
+
+.. autofunction:: konstruct.engine.trust.revoke
+
+.. autofunction:: konstruct.engine.trust.trust_file
+
 .. autoclass:: konstruct.inputs.usage.UsageSettings
    :members:
 
@@ -477,6 +493,8 @@ entry-point group, and what Konstruct gives it. Everything here is imported from
 .. autoexception:: konstruct.analysis.diff.DiffError
 
 .. autoexception:: konstruct.engine.config.ConfigError
+
+.. autoexception:: konstruct.engine.config.UntrustedConfig
 
 .. autoexception:: konstruct.inputs.warehouse.MissingDriver
 ```

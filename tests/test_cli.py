@@ -259,6 +259,7 @@ def test_verify_needs_a_duckdb_warehouse(tmp_path: Path, capsys: pytest.CaptureF
     )
 
 
+@pytest.mark.usefixtures('trust_config')
 def test_status_lists_every_input_and_the_packs_bound(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -27,6 +27,7 @@ Then, in a repository with dbt models, SQL, DAGs or a warehouse:
 ```bash
 cd your-data-repo
 konstruct status                 # what konstruct finds here, before building anything
+konstruct trust                  # once you have reviewed its konstruct.toml, profiles.yml and dbt project
 konstruct build                  # writes konstruct-out/: graph.json, REPORT.md, graph.html, ontology.yml
 konstruct impact orders.amount   # everything downstream of a column
 konstruct open                   # the interactive graph in a browser
@@ -44,7 +45,7 @@ uv run konstruct build examples/jaffle_shop    # about a second
 uv run konstruct impact stg_payments.amount -C examples/jaffle_shop
 ```
 
-`konstruct build` needs no configuration: it finds dbt projects, Airflow DAG files, Dagster definitions, PySpark jobs, LookML, Power BI semantic models, SQL files, DuckDB files and the warehouse each dbt profile points at (DuckDB, Postgres, Snowflake, BigQuery, Databricks or Trino), and prints what it found and what it did with each. If a dbt project's `target/manifest.json` is missing or older than the project files and `dbt` is on `PATH`, it runs `dbt docs generate` first. `konstruct init` writes a commented `konstruct.toml` recording what discovery found, for when you want to pin or change it.
+`konstruct build` needs no configuration: it finds dbt projects, Airflow DAG files, Dagster definitions, PySpark jobs, LookML, Power BI semantic models, SQL files, DuckDB files and the warehouse each dbt profile points at (DuckDB, Postgres, Snowflake, BigQuery, Databricks or Trino), and prints what it found and what it did with each. If a dbt project's `target/manifest.json` is missing or older than the project files and `dbt` is on `PATH`, it runs `dbt docs generate` first, once the project is trusted. A warehouse named in the repository's own `konstruct.toml` or `profiles.yml`, other than a DuckDB file inside it, is read, and dbt is run, only once you run `konstruct trust` after reviewing the project; until then the build skips them with a warning, and builds from the files and the dbt artefacts already in `target/` (see [Trusting a Project's Connections](reference/configuration.md#trusting-a-projects-connections)). `~/.dbt/profiles.yml` is always used. `konstruct init` writes a commented `konstruct.toml` recording what discovery found, for when you want to pin or change it.
 
 ```text
 $ konstruct build

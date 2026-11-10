@@ -11,7 +11,10 @@ is rolled back; on DuckDB copies it turns DuckDB's external access and extension
 model that reads files or URLs directly is skipped. The one exception is dbt itself: by default, when a dbt project's artefacts are
 missing or stale, \cmd{konstruct build} runs \cmd{dbt docs generate}, which runs the project's
 macros and on-run hooks with its own profile, and those can write to the warehouse; with
-\cmd{--no-dbt}, the GitHub Action's default, dbt never runs. Apart from that, it reads warehouses
+\cmd{--no-dbt}, the GitHub Action's default, dbt never runs. A repository's own warehouse
+connections, the paths it names outside the checkout and running dbt are used only once the user
+has reviewed the project and run \cmd{konstruct trust}, which records a digest of those settings
+outside the repository, so that any change to them needs trust again. Apart from that, it reads warehouses
 for metadata only, makes no network requests of its own beyond the warehouses it is configured to
 read, and collects no telemetry; when it runs dbt, it turns dbt's anonymous usage statistics off.
 And everything it claims about lineage is tested, including against data (\cref{sec:verify}).
@@ -289,7 +292,8 @@ Pack & Tables & Entities & Measures & Terms\\
 
 The same questions are answered everywhere. The command line has \cliCommands{} commands:
 \cmd{konstruct init}, \cmd{konstruct build}, \cmd{konstruct status} and \cmd{konstruct open} set up,
-build, check and show the graph; \cmd{konstruct impact}, \cmd{konstruct trace}, \cmd{konstruct
+build, check and show the graph, and \cmd{konstruct trust} trusts a project's own settings;
+\cmd{konstruct impact}, \cmd{konstruct trace}, \cmd{konstruct
 path}, \cmd{konstruct search}, \cmd{konstruct describe}, \cmd{konstruct list} and \cmd{konstruct
 query} walk and find it; \cmd{konstruct explain} and \cmd{konstruct history} give a column's
 formula and when it changed; \cmd{konstruct verify} checks lineage against data;

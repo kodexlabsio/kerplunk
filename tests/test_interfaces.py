@@ -600,6 +600,7 @@ EMPTY: dict[str, str] = {
     # Plugins are installed distributions; the projects run with none installed or enabled.
     'json status .plugins': 'only an installed plugin distribution fills it',
     'json status .missing_plugins': 'only a [plugins] enabled name that is not installed fills it',
+    'json status .trust.variables': "the projects' konstruct.toml and profiles.yml read no environment variable",
 }
 # Fields the projects only ever fill with null, each with why; every other field must show the
 # type it holds, or a change to that type would pass.

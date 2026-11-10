@@ -33,6 +33,7 @@ import sqlglot
 import yaml
 from sqlglot import exp
 
+from konstruct.core import jsonio
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
 from konstruct.core.sql import PARSE_ERRORS
 
@@ -231,7 +232,7 @@ class Ontology:
 
     def write(self, path: Path) -> Path:
         """Write the ontology to ``path`` as YAML and return ``path``."""
-        path.write_text(self.to_yaml(), encoding='utf-8')
+        jsonio.write_text(path, self.to_yaml())
         return path
 
     def entity(self, name: str) -> Entity | None:

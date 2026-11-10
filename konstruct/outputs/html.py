@@ -74,5 +74,5 @@ def write_html(graph: Graph, path: Path, cache: Any = None) -> Path:
         .replace(_DATA_PLACEHOLDER, _embed_json(graph.to_dict()), 1)
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(page, encoding='utf-8')
+    jsonio.write_text(path, page)
     return path

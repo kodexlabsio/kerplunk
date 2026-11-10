@@ -7,9 +7,13 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
+import pytest
 
 from konstruct import Project
 from konstruct.interfaces.status import inspect
+
+# These projects connect with their own konstruct.toml and profiles.yml, as CI on a trusted branch does.
+pytestmark = pytest.mark.usefixtures('trust_config')
 
 
 def test_lineage_crosses_repositories(tmp_path: Path) -> None:

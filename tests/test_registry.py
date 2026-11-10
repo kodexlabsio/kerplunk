@@ -383,6 +383,7 @@ def test_the_same_pack_in_two_catalogues_and_ga4_daily_tables(tmp_path: Path) ->
     ]
 
 
+@pytest.mark.usefixtures('trust_config')
 def test_repositories_that_share_a_warehouse_share_its_pack_terms(tmp_path: Path) -> None:
     shared = warehouse(tmp_path, STRIPE)
     main, other = tmp_path / 'main', tmp_path / 'marketing'

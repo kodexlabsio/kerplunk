@@ -55,6 +55,7 @@ if TYPE_CHECKING:
         Walk,
     )
     from konstruct.analysis.verify import Verification
+    from konstruct.engine.trust import Trust
     from konstruct.interfaces.status import Status
     from konstruct.semantics.ontology import Ontology
 
@@ -827,6 +828,42 @@ def status_lines(result: Status, style: Style) -> Lines:
         (key, _commands(value, roles.get(state, ''))) for key, value, state in result.rows()
     ]
     return [header('Status of', str(result.root)), blank(), *pairs(style, rows)]
+
+
+def trust_lines(result: Trust, style: Style) -> Lines:
+    advice = 'review it and run `konstruct trust`'
+    summary, role = {
+        'trusted': ('Trusted', 'good'),
+        'environment': (f'Trusted by {result.environment_variable}', 'good'),
+        'changed': (f'Not trusted: its settings changed since it was trusted; {advice}', 'bad'),
+        'untrusted': (f'Not trusted; {advice}', 'bad'),
+    }[result.state]
+    if result.action == 'recorded':
+        summary = 'Trusted: the record is saved'
+    elif result.action == 'unchanged' and result.trusted:
+        summary = 'Already trusted: the record is unchanged'
+    elif result.action == 'revoked':
+        summary = 'Trust revoked: the record is removed'
+    elif result.action == 'unchanged':
+        summary = 'Not trusted: there was no record to remove'
+    covers = ', '.join(result.files) if result.files else 'nothing (no connections or paths)'
+    projects = ', '.join(result.dbt_projects)
+    rows: list[tuple[str, Cell]] = [
+        ('covers', covers),
+        ('reads', f'{", ".join(result.variables)} from the environment' if result.variables else ''),
+        (
+            'runs dbt',
+            (f'in {projects}' if result.trusted else f'in {projects}, once trusted') if projects else '',
+        ),
+        ('sha256', result.sha256),
+        ('record', str(result.record)),
+    ]
+    return [
+        header('Trust of', str(result.root)),
+        *_summary(style, _commands(summary, role)),
+        blank(),
+        *pairs(style, rows),
+    ]
 
 
 def build_lines(

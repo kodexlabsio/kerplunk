@@ -18,6 +18,19 @@ REPO = Path(__file__).resolve().parents[1]
 EXAMPLE = REPO / 'examples' / 'jaffle_shop'
 
 
+@pytest.fixture(autouse=True, scope='session')
+def _private_trust(tmp_path_factory: pytest.TempPathFactory) -> None:
+    """Trust records go to a private directory, and no test inherits KONSTRUCT_TRUST_CONFIG."""
+    os.environ['XDG_CONFIG_HOME'] = str(tmp_path_factory.mktemp('config'))
+    os.environ.pop('KONSTRUCT_TRUST_CONFIG', None)
+
+
+@pytest.fixture
+def trust_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Trust every project, as CI on a trusted branch does: its connections, its paths and running dbt."""
+    monkeypatch.setenv('KONSTRUCT_TRUST_CONFIG', '1')
+
+
 def dbt_executable() -> str | None:
     candidate = Path(sys.executable).parent / 'dbt'
     if candidate.is_file():
@@ -81,11 +94,13 @@ def jaffle(built_jaffle: Path, tmp_path: Path) -> Path:
 
 @pytest.fixture
 def dbt_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """dbt on PATH, and the project trusted, so that Konstruct runs dbt."""
     dbt = dbt_executable()
     if dbt is None:
         pytest.skip('dbt is not installed')
     monkeypatch.setenv('PATH', f'{Path(dbt).parent}{os.pathsep}{os.environ.get("PATH", "")}')
     monkeypatch.setenv('DBT_SEND_ANONYMOUS_USAGE_STATS', 'false')
+    monkeypatch.setenv('KONSTRUCT_TRUST_CONFIG', '1')
 
 
 @pytest.fixture(scope='session')
@@ -101,5 +116,5 @@ def jaffle_built_graph(built_jaffle: Path, tmp_path_factory: pytest.TempPathFact
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv('PATH', f'{Path(dbt).parent}{os.pathsep}{os.environ.get("PATH", "")}')
         patch.setenv('DBT_SEND_ANONYMOUS_USAGE_STATS', 'false')
-        build(load_config(project))
+        build(load_config(project, trusted=True))  # the example is the test suite's own
     return project

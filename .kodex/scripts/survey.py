@@ -144,7 +144,11 @@ def survey(url: str, ref: str | None, work: Path, *, deps: bool) -> dict[str, An
     project = Project(checkout, out_dir=work / 'konstruct-out')
     started = time.perf_counter()
     try:
-        result = project.build(warehouses=False)
+        # Read untrusted, so paths outside the checkout are refused; then trusted to run dbt,
+        # which the survey does on purpose, with its own profile and no warehouse.
+        config = project.config()
+        config.trusted = True
+        result = project.build(warehouses=False, config=config)
     except Exception as error:  # a crash is a finding too
         return {**record, 'status': 'build failed', 'error': f'{type(error).__name__}: {error}'}
     graph = result.graph

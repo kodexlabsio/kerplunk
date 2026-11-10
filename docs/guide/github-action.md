@@ -24,10 +24,29 @@ jobs:
 | `comment` | `true` | Post the review on the pull request |
 | `fail-on-breaking` | `true` | Fail the check on a breaking change |
 | `gate` | `false` | Run [`konstruct gate`](#the-gate) and fail the check when it fails |
-| `build-args` | `--no-warehouse --no-dbt` | Arguments for `konstruct build`. The default needs no credentials and never runs the pull request's dbt macros |
+| `build-args` | `--no-warehouse --no-dbt` | Arguments for `konstruct build`. The default needs no credentials and never runs the pull request's dbt macros. Without `--no-warehouse`, see [Reading a Warehouse](#reading-a-warehouse) |
 | `extras` | none | Konstruct extras, such as `snowflake` |
 
 The outputs `breaking`, `gate`, `summary`, `report` (markdown) and `json` let later steps act on the result. The Action installs Konstruct from its own checkout, which compiles Konstruct's Rust core: it sets up the stable Rust toolchain (`dtolnay/rust-toolchain`) for that, and later steps in the job see it. Pin a release (`@v0.7.0`) for a fixed version; `@v0` moves to each new 0.x release. [`docs/examples/pull-request.yml`](../examples/pull-request.yml) shows the same steps written out, for adding a `dbt parse` or other setup first.
+
+## Reading a Warehouse
+
+With `--no-warehouse` left out of `build-args`, the build reads the warehouses your own profile names, but skips any that the repository's `konstruct.toml` or `profiles.yml` names, because the pull request under review could change them (see [Trusting a Project's Connections](../reference/configuration.md#trusting-a-projects-connections)). For pull requests, write the profile from the workflow's secrets outside the checkout and point `DBT_PROFILES_DIR` at it:
+
+```yaml
+      - name: Write the dbt profile
+        run: printf '%s' "$PROFILE" > "$RUNNER_TEMP/profiles.yml"
+        env:
+          PROFILE: ${{ secrets.DBT_PROFILE }}
+      - uses: kodexlabsio/konstruct@v0
+        with:
+          build-args: --no-dbt
+          extras: snowflake
+        env:
+          DBT_PROFILES_DIR: ${{ runner.temp }}
+```
+
+On a branch whose content is already reviewed, such as a push to the default branch, `--trust-config` in `build-args` (or `KONSTRUCT_TRUST_CONFIG: "1"` in `env`) uses the repository's own connections and, without `--no-dbt`, runs its dbt project. Never set either for pull requests from forks, or for any pull request whose `konstruct.toml` and `profiles.yml` have not been reviewed.
 
 ## The Gate
 

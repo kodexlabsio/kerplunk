@@ -248,6 +248,7 @@ Try the [live demo](https://kodexlabsio.github.io/konstruct/demo/): the viewer f
 
 **Where to use it**
 
+- `konstruct trust`: a repository's own warehouse connections and paths outside it are used, and its dbt project run, only after you review and trust it, and again after each change to those settings, so building an unreviewed checkout runs none of its code and sends no environment variable to a host it chose ([trust](https://kodexlabsio.github.io/konstruct/reference/configuration.html#trusting-a-projects-connections)).
 - The command line: `konstruct init`, `konstruct build`, `konstruct status`, `konstruct open` and every command above, the commands that answer a question with `--json` output for scripts ([every command](https://kodexlabsio.github.io/konstruct/reference/cli.html)), versioned so that scripts keep working from one release to the next ([compatibility](https://kodexlabsio.github.io/konstruct/reference/outputs.html#compatibility)).
 - Coding agents: `konstruct install` adds the skill for Claude Code and Cursor, and `konstruct mcp` runs the [MCP server](https://kodexlabsio.github.io/konstruct/reference/mcp.html), whose tools are `impact`, `trace`, `path`, `search`, `describe`, `query`, `explain`, `history`, `define`, `conflicts`, `ontology`, `diff` and `gate`.
 - Python: `konstruct.Project`, with [typed results](https://kodexlabsio.github.io/konstruct/reference/python-api.html) for every question.

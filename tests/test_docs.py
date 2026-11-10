@@ -70,6 +70,7 @@ PUBLIC_RESULTS = {
     ],
     'analysis/verify.py': ['ModelResult', 'Verification'],
     'engine/build.py': ['BuildResult'],
+    'engine/trust.py': ['Trust'],
     'core/graph.py': ['Node', 'Edge', 'Step'],
     'analysis/explain.py': ['Step', 'Explanation'],
     'analysis/conflicts.py': ['Difference', 'Side', 'Conflict', 'Conflicts'],

@@ -213,6 +213,7 @@ def test_sql_files_and_views_without_dbt(tmp_path: Path) -> None:
     }
 
 
+@pytest.mark.usefixtures('trust_config')
 def test_konstruct_toml_configures_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / 'data').mkdir()
     make_warehouse(tmp_path / 'data' / 'app.duckdb')
@@ -314,6 +315,7 @@ def test_dbt_artefacts_and_profiles_nested_too_deeply_do_not_stop_the_build(tmp_
     assert (tmp_path / 'konstruct-out' / 'graph.json').is_file() and result.graph is not None
 
 
+@pytest.mark.usefixtures('trust_config')  # dbt would run if it were on PATH
 def test_dbt_project_without_artefacts_or_dbt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     shutil.copytree(
         Path(__file__).resolve().parents[1] / 'examples' / 'jaffle_shop',
@@ -345,6 +347,7 @@ def test_relation_index_suffixes_and_placeholders() -> None:
 # Services
 
 
+@pytest.mark.usefixtures('trust_config')
 @pytest.mark.postgres
 def test_postgres_warehouse_end_to_end(tmp_path: Path) -> None:
     import psycopg
@@ -379,6 +382,7 @@ def test_postgres_warehouse_end_to_end(tmp_path: Path) -> None:
             con.execute(f'drop schema {schema} cascade')
 
 
+@pytest.mark.usefixtures('trust_config')
 @pytest.mark.iceberg
 def test_iceberg_tables_join_sql_lineage(tmp_path: Path) -> None:
     from pyiceberg.catalog.sql import SqlCatalog

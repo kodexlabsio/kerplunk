@@ -10,7 +10,7 @@ an empty result.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -201,11 +201,12 @@ class _Adapter:
         return f'"{identifier}"'
 
 
-def _macro_text(paths: list[Path]) -> str:
+def _macro_text(paths: list[Path], keep: Callable[[Iterable[Path]], list[Path]] | None = None) -> str:
     texts: list[str] = []
     for base in paths:
         if base.is_dir():
-            texts.extend(p.read_text(encoding='utf-8', errors='replace') for p in sorted(base.rglob('*.sql')))
+            files = sorted(base.rglob('*.sql'))
+            texts.extend(p.read_text(encoding='utf-8', errors='replace') for p in (keep or list)(files))
     return '\n'.join(texts)
 
 
@@ -219,6 +220,7 @@ class Renderer:
         *,
         adapter_type: str | None = None,
         macro_paths: list[Path] | None = None,
+        keep: Callable[[Iterable[Path]], list[Path]] | None = None,
     ) -> None:
         self.manifest = manifest
         self.adapter_type = adapter_type or manifest.get('metadata', {}).get('adapter_type') or 'default'
@@ -242,12 +244,12 @@ class Renderer:
         packages_dir = project_root / 'dbt_packages'
         if packages_dir.is_dir():
             for package in sorted(p for p in packages_dir.iterdir() if p.is_dir()):
-                macros = self._load(_macro_text([package / 'macros']), context)
+                macros = self._load(_macro_text([package / 'macros'], keep), context)
                 self.packages[package.name] = _Namespace(macros)
                 for name, macro in macros.items():
                     self.macros.setdefault(name, macro)
         own = self._load(
-            _macro_text(macro_paths if macro_paths is not None else [project_root / 'macros']), context
+            _macro_text(macro_paths if macro_paths is not None else [project_root / 'macros'], keep), context
         )
         self.macros.update(own)
         if project_name:

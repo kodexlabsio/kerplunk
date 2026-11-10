@@ -28,6 +28,8 @@ from konstruct.core.sql import (
 from konstruct.engine.config import (
     Config,
     ConfigError,
+    UntrustedConfig,
+    dbt_projects,
     discover_dag_files,
     discover_dagster_files,
     discover_definitions_files,
@@ -105,7 +107,7 @@ class Cache:
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {'version': CACHE_VERSION, 'konstruct': __version__, 'entries': self.used}
-        self.path.write_text(jsonio.dumps(payload), encoding='utf-8')
+        jsonio.write_text(self.path, jsonio.dumps(payload))
 
 
 @dataclass
@@ -181,6 +183,8 @@ class Builder:
         self.sources: list[dict[str, str]] = []
         self.watched: set[str] = set()
         self.plugins = Plugins.for_config(config)
+        # Connections the repository's own configuration names but the user has not trusted.
+        self.untrusted: list[str] = []
 
     # Shared helpers
 
@@ -358,6 +362,17 @@ class Builder:
         self.load_definitions()
         self.load_ossie()
         self.load_usage()
+        if self.untrusted:
+            from konstruct.engine.trust import untrusted_warning
+
+            self.graph.warn(untrusted_warning(self.config, self.untrusted))
+        for directory, links in sorted(self.config.outside_links.items()):
+            # One warning per directory, however many inputs found the same links.
+            self.graph.warn(
+                f'{self.rel_path(directory)}: did not read {", ".join(sorted(links))}, which '
+                f'{"leads" if len(links) == 1 else "lead"} outside the project; '
+                'run `konstruct trust` after reviewing it'
+            )
         self.graph.meta['dialect'] = self.dialect
         self.graph.meta['default_catalog'] = self.default_catalog
         self.graph.meta['default_schema'] = self.default_schema
@@ -369,15 +384,22 @@ class Builder:
         return self.graph
 
     def load_dbt(self) -> list[dbt.DbtProject]:
-        if self.config.dbt_projects is not None:
-            projects = [p for root in self.config.dbt_projects if (p := dbt.read_project(root))]
-        else:
-            projects = [p for p in dbt.find_projects(self.config.root) if not self.config.excluded(p.root)]
+        projects = dbt_projects(self.config)
         self.loads: list[dbt.DbtLoad] = []
         for project in projects:
-            status = dbt.ensure_artefacts(project, run_dbt=self.config.run_dbt, graph=self.graph)
+            run_dbt, why_not = self.config.run_dbt, 'running dbt is disabled'
+            if run_dbt and dbt.artefacts_stale(project) and not self.config.trusted:
+                # dbt runs the repository's macros and models with the user's environment and
+                # profile, whatever the profile names, so only a trusted project runs it.
+                run_dbt, why_not = False, 'dbt is not run until the project is trusted'
+                self.untrusted.append(f'running dbt in {project.name}')
+            status = dbt.ensure_artefacts(project, run_dbt=run_dbt, graph=self.graph, why_not=why_not)
             self.watch(project.root / 'dbt_project.yml', *project.source_paths)
-            loaded = dbt.load(project, self.graph, dialect=self.config.dialect)
+            artefacts = [project.manifest_path, project.catalog_path]
+            if len(self.config.inside(artefacts)) < len(artefacts):
+                loaded = None  # the dbt artefacts link outside the project, which needs trust
+            else:
+                loaded = dbt.load(project, self.graph, dialect=self.config.dialect, keep=self.config.inside)
             entry = {
                 'input': 'dbt',
                 'name': project.name,
@@ -407,6 +429,23 @@ class Builder:
             try:
                 connector = warehouse.connector(self.config.root)
                 relations = connector.fetch()
+            except UntrustedConfig as error:
+                if warehouse.source == 'discovered':
+                    # Trust does not cover a file found in the tree, so the advice is the error's own.
+                    self.graph.warn(f'warehouse {warehouse.describe(self.config.root)}: {error}')
+                else:
+                    self.untrusted.append(warehouse.describe(self.config.root))
+                self.sources.append(
+                    {
+                        'input': warehouse.type,
+                        'name': warehouse.describe(self.config.root),
+                        'status': 'skipped',
+                        'note': str(error)
+                        if warehouse.source == 'discovered'
+                        else 'not trusted; run `konstruct trust`',
+                    }
+                )
+                continue
             except ConfigError:
                 raise
             except MissingDriver as error:
@@ -810,7 +849,9 @@ class Builder:
             for item in parsed:
                 dag = airflow.DagInfo.from_dict(item)
                 for task in dag.tasks.values():
-                    if task.sql_path and Path(task.sql_path).is_file():
+                    if task.sql_path and not self.config.inside([Path(task.sql_path)]):
+                        task.sql, task.sql_path = None, None  # a template outside the project
+                    elif task.sql_path and Path(task.sql_path).is_file():
                         task.sql = Path(task.sql_path).read_text(encoding='utf-8')
                         used_sql.add(Path(task.sql_path).resolve())
                         self.watch(Path(task.sql_path))
@@ -1041,6 +1082,10 @@ class Builder:
 
         settings = self.config.usage
         if not settings.enabled:
+            return
+        if not self.config.trusted:
+            # [usage] comes from the repository's own konstruct.toml, so it waits for trust too.
+            self.untrusted.append('query history ([usage])')
             return
         totals: dict[str, dict[str, Any]] = {}
         unmatched = 0
@@ -1536,7 +1581,7 @@ class Builder:
 
         self.vocabulary_files = set()
         paths = []
-        for path in self.config.vocabulary_paths:
+        for path in self.config.inside(self.config.vocabulary_paths):
             rel = self.rel_path(path)
             self.watch(path)
             if not path.is_file():
@@ -2239,6 +2284,19 @@ def repository_name(config: Config, path: Path, taken: Iterable[str]) -> str:
     return f'{path.name}-{number}'
 
 
+def _real_directory(base: Path, *parts: str) -> Path:
+    """``base`` joined with ``parts``, made as real directories: a symbolic link in the way is
+    removed first, so one committed inside the output directory cannot send outputs elsewhere."""
+    current = base
+    current.mkdir(parents=True, exist_ok=True)
+    for part in parts:
+        current = current / part
+        if current.is_symlink():
+            current.unlink()
+        current.mkdir(exist_ok=True)
+    return current
+
+
 def merge_repository(
     graph: Graph,
     config: Config,
@@ -2256,7 +2314,13 @@ def merge_repository(
     if not path.is_dir():
         graph.warn(f'repositories: {os.path.relpath(path, config.root)} is not a directory')
         return None
-    sub_config = load_config(path, config.out_dir / 'repositories' / name)
+    # The project's trust covers the repositories it lists: its fingerprint includes theirs.
+    sub_out = _real_directory(config.out_dir, 'repositories', name)
+    try:
+        sub_config = load_config(path, sub_out, trusted=config.trusted)
+    except UntrustedConfig as error:
+        # Name the repository: its konstruct.toml is not the one the user ran Konstruct on.
+        raise UntrustedConfig(f'repositories: {os.path.relpath(path, config.root)}: {error}') from error
     sub_config.override(**config.options)
     builder = Builder(sub_config, update=update)
     other = builder.run()

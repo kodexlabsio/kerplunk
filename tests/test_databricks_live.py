@@ -97,6 +97,7 @@ def test_metadata_matches_the_stub(schema: str) -> None:
     )
 
 
+@pytest.mark.usefixtures('trust_config')
 def test_build_and_view_lineage(schema: str, tmp_path: Path) -> None:
     (tmp_path / 'konstruct.toml').write_text(
         '[[warehouse]]\n'

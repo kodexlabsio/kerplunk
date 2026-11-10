@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from konstruct.core import jsonio
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
 
 LIST_LIMIT = 50
@@ -265,5 +266,5 @@ def render(graph: Graph) -> str:
 
 
 def write_report(graph: Graph, path: Path) -> Path:
-    path.write_text(render(graph), encoding='utf-8')
+    jsonio.write_text(path, render(graph))
     return path

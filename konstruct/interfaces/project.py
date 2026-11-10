@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from konstruct.analysis import query
+from konstruct.core import jsonio
 from konstruct.core.formats import document
 from konstruct.core.graph import Graph
 
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.verify import Engine, Verification
     from konstruct.engine.build import BuildResult
     from konstruct.engine.config import Config
+    from konstruct.engine.trust import Trust
     from konstruct.plugins.registry import Plugins
     from konstruct.semantics.ontology import Ontology
 
@@ -116,6 +118,31 @@ class Project:
     def has_graph(self) -> bool:
         """Whether a graph has been built (``graph.json`` exists)."""
         return self.graph_path.is_file()
+
+    def trust(self, *, revoke: bool = False) -> Trust:
+        """Trust the project's own connections and paths, as they are now, and let the build run dbt.
+
+        A repository's ``konstruct.toml`` and ``profiles.yml`` can name warehouses, read
+        environment variables into them and point outside the project, and dbt runs the
+        repository's macros and models. The build uses those settings, and runs dbt, only once
+        the project is trusted, and any change to the settings withdraws the trust until they
+        are trusted again. The record does not cover the dbt project's code. It is kept outside
+        the repository, in the user's configuration directory.
+
+        Args:
+            revoke: Remove the record instead.
+
+        Returns:
+            Whether the project is now trusted, the files the trust covers, the environment
+            variables their connections read and the dbt projects it lets the build run dbt in.
+
+        Example::
+
+            print(project.trust())  # after reviewing konstruct.toml and profiles.yml
+        """
+        from konstruct.engine import trust
+
+        return trust.revoke(self.path) if revoke else trust.trust(self.path)
 
     def config(self) -> Config:
         """The project's configuration: ``konstruct.toml`` (or ``[tool.konstruct]`` in
@@ -359,10 +386,8 @@ class Project:
 
         result = find_conflicts(self.graph, limit)
         if write:
-            (self.out_dir / 'CONFLICTS.md').write_text(result.markdown(), encoding='utf-8')
-            (self.out_dir / 'conflicts.json').write_text(
-                json.dumps(document(result), indent=1) + '\n', encoding='utf-8'
-            )
+            jsonio.write_text(self.out_dir / 'CONFLICTS.md', result.markdown())
+            jsonio.write_text(self.out_dir / 'conflicts.json', json.dumps(document(result), indent=1) + '\n')
         return result
 
     def ontology(self) -> Ontology:
@@ -589,12 +614,13 @@ class Project:
         result = verify(
             graph, self.root, target, seed=seed, max_rows=max_rows, only=list(models) if models else None
         )
-        if isinstance(target, str):
-            path = Path(target)
-            if not result.warehouse.startswith('postgres') and path.resolve().is_relative_to(
-                self.root.resolve()
-            ):
-                result.warehouse = str(path.resolve().relative_to(self.root.resolve()))
+        if isinstance(target, str) and not result.warehouse.startswith('postgres'):
+            path = Path(target).resolve()
+            # The project's own directory first: a graph copied with its project keeps the old root.
+            for base in (self.path, self.root.resolve()):
+                if path.is_relative_to(base):
+                    result.warehouse = str(path.relative_to(base))
+                    break
         if write:
             annotate(graph, result)
             graph.write(self.graph_path)
@@ -603,47 +629,78 @@ class Project:
                 write_html(graph, self.out_dir / 'graph.html')
             if (self.out_dir / 'ontology.yml').is_file():
                 derive_ontology(graph).write(self.out_dir / 'ontology.yml')
-            (self.out_dir / 'VERIFY.md').write_text(result.markdown(), encoding='utf-8')
-            (self.out_dir / 'verify.json').write_text(
-                json.dumps(document(result), indent=1) + '\n', encoding='utf-8'
-            )
+            jsonio.write_text(self.out_dir / 'VERIFY.md', result.markdown())
+            jsonio.write_text(self.out_dir / 'verify.json', json.dumps(document(result), indent=1) + '\n')
         return result
 
     def _remote_engine(self, kind: str) -> Engine:
         """A sampled engine for the configured Snowflake, BigQuery, Databricks or Trino warehouse."""
         from konstruct.analysis.verify import sampled_engine
-        from konstruct.engine.config import discover_warehouses
-        from konstruct.inputs.dbt import find_projects
+        from konstruct.engine.config import UntrustedConfig, dbt_projects, discover_warehouses
 
         config = self.config()
-        for warehouse in discover_warehouses(config, find_projects(config.root)):
+        for warehouse in discover_warehouses(config, dbt_projects(config)):
             if warehouse.type == kind:
                 try:
                     return sampled_engine(warehouse.connector(config.root), self.graph)
+                except UntrustedConfig as error:
+                    raise query.QueryError(f'cannot verify against {kind}: {error}') from error
                 except Exception as error:  # a missing extra or a refused connection
                     raise query.QueryError(f'cannot connect to {kind}: {error}') from error
         raise query.QueryError(f'no {kind} warehouse is configured')
 
     def _verification_warehouse(self) -> str:
-        """The DuckDB file the build read, or else the Postgres warehouse it connected to."""
-        for source in self.graph.meta.get('sources', []):
-            if source.get('input') == 'duckdb' and source.get('status') != 'failed':
-                path = Path(str(source['name']).removeprefix('duckdb ').strip())
-                return str(path if path.is_absolute() else self.root / path)
-        from konstruct.engine.config import discover_warehouses
-        from konstruct.inputs.dbt import find_projects
-        from konstruct.inputs.warehouse import PostgresConnector
+        """The DuckDB file the build read, or else the Postgres warehouse it read.
+
+        graph.json only says which DuckDB file the build read; the file is opened only when the
+        configuration, with trust as it is recorded now, still allows it, since a graph.json can
+        be committed to the repository.
+        """
+        from konstruct.engine.config import UntrustedConfig, dbt_projects, discover_warehouses
+        from konstruct.inputs.warehouse import DuckDBConnector, PostgresConnector
 
         config = self.config()
-        for warehouse in discover_warehouses(config, find_projects(config.root)):
+        warehouses = discover_warehouses(config, dbt_projects(config))
+        refused: list[str] = []
+        allowed: set[Path] = set()
+        for warehouse in warehouses:
+            if warehouse.type == 'duckdb':
+                try:
+                    connector = warehouse.connector(config.root)
+                except UntrustedConfig as error:
+                    refused.append(str(error))
+                    continue
+                if isinstance(connector, DuckDBConnector):
+                    allowed.add(connector.path.resolve())
+        for source in self.graph.meta.get('sources', []):
+            # A source the build read has no status; 'skipped' and 'failed' were not read.
+            if source.get('input') == 'duckdb' and 'status' not in source and 'repository' not in source:
+                path = Path(str(source['name']).removeprefix('duckdb ').strip())
+                path = (path if path.is_absolute() else config.root / path).resolve()
+                if path in allowed:
+                    return str(path)
+        read = {
+            source['name']
+            for source in self.graph.meta.get('sources', [])
+            if source.get('input') in ('postgres', 'postgresql')
+            and 'status' not in source
+            and 'repository' not in source
+        }
+        for warehouse in warehouses:
+            # As for DuckDB, only a connection the last build read, still allowed now.
             if warehouse.type in ('postgres', 'postgresql'):
-                connector = warehouse.connector(config.root)
-                if isinstance(connector, PostgresConnector):
+                try:
+                    connector = warehouse.connector(config.root)
+                except UntrustedConfig as error:
+                    refused.append(str(error))
+                    continue
+                if isinstance(connector, PostgresConnector) and warehouse.describe(config.root) in read:
                     return connector.dsn
+        reason = f' ({"; ".join(refused)})' if refused else ''
         raise query.QueryError(
             'verification needs the models built in a DuckDB file or a Postgres database; none was '
-            'found (pass --warehouse PATH or a postgresql:// URL, or --warehouse snowflake, bigquery, '
-            'databricks or trino to check a sample of that warehouse)'
+            f'found{reason} (pass --warehouse PATH or a postgresql:// URL, or --warehouse snowflake, '
+            'bigquery, databricks or trino to check a sample of that warehouse)'
         )
 
     def diff(self, base: str | None = None, head: str | None = None) -> Diff:

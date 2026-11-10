@@ -14,6 +14,7 @@ from konstruct.core.formats import FormatError
 from konstruct.core.graph import Graph
 from konstruct.engine.config import (
     Config,
+    UntrustedConfig,
     WarehouseConfig,
     discover_dag_files,
     discover_dagster_files,
@@ -25,6 +26,7 @@ from konstruct.engine.config import (
     discover_sql_files,
     discover_warehouses,
     load_config,
+    read_config,
 )
 from konstruct.inputs import dbt
 
@@ -59,6 +61,8 @@ class Status:
     """Each installed plugin's components, with whether it runs for this project and why."""
     missing_plugins: list[str] = field(default_factory=list)
     """Distributions ``[plugins] enabled`` names that are not installed."""
+    trust: dict[str, Any] = field(default_factory=dict)
+    """Whether the project's own connections and paths are trusted (see ``konstruct trust``)."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -83,6 +87,7 @@ class Status:
             'repositories': self.repositories,
             'plugins': self.plugins,
             'missing_plugins': self.missing_plugins,
+            'trust': self.trust,
         }
 
     def lines(self) -> list[tuple[str, str]]:
@@ -93,6 +98,9 @@ class Status:
         """Each finding as a label, a sentence and its state: ``ok``, ``attention`` (something to
         do, such as a stale graph or a missing skill), or empty."""
         rows: list[tuple[str, str]] = [('config', self.config_file or 'none; inputs are discovered')]
+        if self.trust.get('refused'):
+            # The configuration needs trust before anything else can be found.
+            return [*((k, v, '') for k, v in rows), ('trust', self.trust['refused'], 'attention')]
         if self.dbt_projects:
             for project in self.dbt_projects:
                 rows.append(('dbt', f'{project["name"]} ({project["path"]}): {project["artefacts"]}'))
@@ -105,6 +113,16 @@ class Status:
         for warehouse in self.warehouses or [{'name': 'none found', 'source': ''}]:
             source = f' ({warehouse["source"]})' if warehouse.get('source') else ''
             rows.append(('warehouse', f'{warehouse["name"]}{source}'))
+        if self.trust.get('files') or self.trust.get('dbt_projects'):
+            covered = [*self.trust['files'], *(f'dbt in {p}' for p in self.trust.get('dbt_projects', []))]
+            files = ', '.join(covered)
+            state = {
+                'trusted': f'trusted: {files}',
+                'environment': f'trusted by KONSTRUCT_TRUST_CONFIG: {files}',
+                'changed': f'not trusted, changed since it was trusted: {files}; review them and run `konstruct trust`',
+            }.get(self.trust['state'], f'not trusted: {files}; run `konstruct trust` after reviewing them')
+            rows.append(('trust', state))
+            states[len(rows) - 1] = 'ok' if self.trust.get('trusted') else 'attention'
         rows.append(('airflow', _files(self.dag_files, 'DAG file')))
         if self.dagster_files:
             rows.append(('dagster', _files(self.dagster_files, 'Dagster file')))
@@ -241,7 +259,18 @@ def inspect(
     from konstruct.interfaces.project import find_out_dir
     from konstruct.plugins.registry import Plugins
 
-    config = load_config(path, out_dir)
+    try:
+        config = load_config(path, out_dir)
+    except UntrustedConfig as error:
+        from konstruct.engine.trust import check
+
+        written = read_config(path, out_dir)
+        status = Status(
+            root=written.root,
+            config_file=_relative(written.config_file, written.root) if written.config_file else None,
+        )
+        status.trust = {**check(path).to_dict(), 'refused': f'not trusted: {error}'}
+        return status
     config.override(plugins=plugins)
     registry = Plugins.for_config(config)
     root = config.root
@@ -266,6 +295,10 @@ def inspect(
             {'name': project.name, 'path': _relative(project.root, root), 'artefacts': artefacts}
         )
     status.dbt_on_path = shutil.which('dbt') is not None
+    if follow:
+        from konstruct.engine.trust import check
+
+        status.trust = check(root).to_dict()
     status.warehouses = [
         {'type': w.type, 'name': w.describe(root), 'source': w.source}
         for w in discover_warehouses(config, projects)

@@ -8,7 +8,7 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
 from pathlib import Path
@@ -139,10 +139,17 @@ def artefacts_stale(project: DbtProject) -> bool:
     return _newest_source_mtime(project) > project.manifest_path.stat().st_mtime
 
 
-def ensure_artefacts(project: DbtProject, *, run_dbt: bool, graph: Graph) -> str:
+def ensure_artefacts(
+    project: DbtProject, *, run_dbt: bool, graph: Graph, why_not: str = 'running dbt is disabled'
+) -> str:
     """Run ``dbt docs generate`` (or ``dbt parse``) when the artefacts are missing or stale.
-
     Returns what happened, for the build summary.
+
+    Args:
+        project: The dbt project.
+        run_dbt: Whether dbt may run.
+        graph: The graph that receives the warnings.
+        why_not: Why dbt is not run when ``run_dbt`` is false, for the warning and the summary.
     """
     if not artefacts_stale(project):
         return 'artefacts up to date'
@@ -150,10 +157,10 @@ def ensure_artefacts(project: DbtProject, *, run_dbt: bool, graph: Graph) -> str
     state = 'missing' if missing else 'older than the project files'
     if not run_dbt:
         if missing:
-            graph.warn(f'dbt: {project.name}: target/manifest.json is missing and running dbt is disabled')
-            return 'no manifest; running dbt is disabled'
+            graph.warn(f'dbt: {project.name}: target/manifest.json is missing and {why_not}')
+            return f'no manifest; {why_not}'
         graph.warn(f'dbt: {project.name}: target/manifest.json is {state}; using it anyway')
-        return 'manifest is stale; running dbt is disabled'
+        return f'manifest is stale; {why_not}'
     dbt = shutil.which('dbt')
     if dbt is None:
         graph.warn(
@@ -336,8 +343,15 @@ def render_refs(raw: str, manifest: dict[str, Any]) -> str:
     return strip_templating(_SOURCE.sub(source, _REF.sub(ref, raw)))
 
 
-def load(project: DbtProject, graph: Graph, *, dialect: str | None) -> DbtLoad | None:
-    """Add a dbt project's nodes, columns, tests and exposures to ``graph``."""
+def load(
+    project: DbtProject,
+    graph: Graph,
+    *,
+    dialect: str | None,
+    keep: Callable[[Iterable[Path]], list[Path]] | None = None,
+) -> DbtLoad | None:
+    """Add a dbt project's nodes, columns, tests and exposures to ``graph``. ``keep`` chooses
+    which macro files may be read to render uncompiled models (by default, all)."""
     manifest = _read_json(project.manifest_path)
     if manifest is None:
         graph.warn(f'dbt: {project.name}: no readable manifest at {project.manifest_path}')
@@ -396,7 +410,7 @@ def load(project: DbtProject, graph: Graph, *, dialect: str | None) -> DbtLoad |
         elif raw and item.get('language', 'sql') == 'sql':
             if renderer is None:
                 macro_paths = [p for p in project.source_paths if 'macro' in p.name]
-                renderer = Renderer(project.root, manifest, macro_paths=macro_paths or None)
+                renderer = Renderer(project.root, manifest, macro_paths=macro_paths or None, keep=keep)
             sql = render_model(raw, renderer, lambda text: render_refs(text, manifest))
             models.append(ModelSql(node.id, relation, sql, False, upstream))
 

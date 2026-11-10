@@ -408,6 +408,7 @@ def test_a_sampled_remote_warehouse_confirms_the_same_lineage(project: Project) 
     assert smaller.models[0].rows < 178
 
 
+@pytest.mark.usefixtures('trust_config')
 def test_each_input_is_read_once_per_run(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     (project.root / 'second.sql').write_text(
         'create table main.second as select id, amount + 1 as more from raw.orders'
@@ -491,6 +492,7 @@ def test_remote_names_are_quoted() -> None:
     assert DbApiSource(None, 'databricks').table(('raw', 'select')) == '`raw`.`select`'
 
 
+@pytest.mark.usefixtures('trust_config')
 def test_a_remote_warehouse_that_is_not_configured_or_has_no_driver(
     project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -152,6 +152,15 @@ def _print_build(
     console.print(console.ui.render(lines))
 
 
+# trust
+
+
+def cmd_trust(args: argparse.Namespace, console: Console) -> int:
+    result = Project(args.path or args.project).trust(revoke=args.revoke)
+    _emit(console, result, args.json)
+    return 0
+
+
 # status and init
 
 
@@ -420,7 +429,7 @@ class _ExportFormats:
 # Parser
 
 GROUPS = (
-    ('Build', ('build', 'status', 'init', 'open')),
+    ('Build', ('build', 'status', 'trust', 'init', 'open')),
     ('Lineage', ('impact', 'trace', 'path', 'explain', 'history')),
     ('Explore', ('search', 'describe', 'list', 'query', 'export')),
     ('Business meaning', ('define', 'ontology', 'conflicts')),
@@ -449,6 +458,11 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
     'status': (
         ('konstruct status', 'what Konstruct finds here, and whether the graph is current'),
         ('konstruct status --json', 'the same as JSON'),
+    ),
+    'trust': (
+        ('konstruct trust', 'after reviewing the project: use its connections, run its dbt'),
+        ('konstruct trust --revoke', 'stop trusting it'),
+        ('konstruct build --trust-config', 'trust it for one command, in CI on a reviewed branch'),
     ),
     'init': (
         ('konstruct init', 'write konstruct.toml from what discovery finds'),
@@ -726,6 +740,12 @@ def _common() -> _Parser:
         help='never colour the output (NO_COLOR is also respected)',
     )
     common.add_argument(
+        '--trust-config',
+        action='store_true',
+        default=argparse.SUPPRESS,
+        help='trust the project for this command, as KONSTRUCT_TRUST_CONFIG=1 does',
+    )
+    common.add_argument(
         '-v', '--verbose', action='store_true', default=argparse.SUPPRESS, help='log progress to stderr'
     )
     common.add_argument(
@@ -799,6 +819,12 @@ def parser() -> argparse.ArgumentParser:
     build.add_argument('--strict', action='store_true', help='exit with status 1 if there are warnings')
     build.add_argument('--json', action='store_true', help='print a JSON summary instead of text')
     build.set_defaults(func=cmd_build)
+
+    trust = add('trust', "after review, use the project's own connections and run its dbt")
+    trust.add_argument('path', nargs='?', help='project directory (default: -C or the current directory)')
+    trust.add_argument('--revoke', action='store_true', help='stop trusting it')
+    trust.add_argument('--json', action='store_true', help='print JSON instead of text')
+    trust.set_defaults(func=cmd_trust)
 
     status = add('status', 'show what Konstruct finds here and whether the graph is up to date')
     status.add_argument('--json', action='store_true', help='print JSON instead of text')
@@ -1037,13 +1063,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         _help_style = dataclasses.replace(_help_style, width=80)
     arguments = parser()
     args = arguments.parse_args(_given)
-    for name, default in (
+    from konstruct.engine.trust import trusting
+
+    defaults = (
         ('project', '.'),
         ('no_color', False),
         ('verbose', False),
         ('quiet', False),
         ('no_plugins', False),
-    ):
+        ('trust_config', False),
+    )
+    for name, default in defaults:
         if not hasattr(args, name):
             setattr(args, name, default)
     console = Console(colour=False if args.no_color else None, quiet=args.quiet, verbose=args.verbose)
@@ -1056,7 +1086,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         stream=sys.stderr,
     )
     try:
-        code: int = args.func(args, console)
+        with trusting(args.trust_config):
+            code: int = args.func(args, console)
     except Exception as error:
         # The error types are imported only when one is raised: importing them up front would
         # load the whole build (and sqlglot) for every command, `--help` included.
