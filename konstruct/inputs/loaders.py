@@ -86,6 +86,7 @@ LOADERS: dict[str, Loader] = {
         _loader('dms', 'AWS DMS'),
         _loader('datastream', 'Google Datastream'),
         _loader('openflow', 'Snowflake Openflow'),
+        _loader('lakeflow', 'Databricks Lakeflow Connect'),
         _loader('matillion', 'Matillion Data Loader'),
         _loader('rivery', 'Rivery (Boomi Data Integration)'),
         _loader('polytomic', 'Polytomic'),

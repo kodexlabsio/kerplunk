@@ -56,6 +56,9 @@ LOADER_OF = {
     'terraform': 'terraform',
     'kafka_connect': 'kafka_connect',
     'estuary': 'estuary',
+    'sling': 'sling',
+    'lakeflow': 'lakeflow',
+    'dms': 'dms',
 }
 """The loader each format configures (a Terraform module can configure several)."""
 COMPANIONS = {'meltano': ('plugins/extractors/*.lock', 'plugins/loaders/*.lock')}
@@ -216,6 +219,12 @@ def _url_system(url: str) -> tuple[str | None, str | None]:
 # Formats
 
 
+_SLING_REQUIRED = frozenset({'source', 'target', 'streams'})
+_SLING_KEYS = _SLING_REQUIRED | {'defaults', 'env', 'hooks'}
+"""The top-level keys of a Sling replication
+(https://docs.slingdata.io/concepts/replication/structure); its streams name an ``object``."""
+
+
 def kind_of(path: str, text: str) -> str | None:
     """The configuration format of a file, from its path in the project and a look at its text,
     or None."""
@@ -238,6 +247,16 @@ def kind_of(path: str, text: str) -> str | None:
         r'^(captures|materializations):', text, re.MULTILINE
     ):
         return 'estuary'
+    if lower.endswith(('.yaml', '.yml')) and 'ingestion_definition:' in text:
+        return 'lakeflow'
+    if (
+        lower.endswith(('.yaml', '.yml'))
+        and _SLING_REQUIRED
+        <= set(re.findall(r'^([A-Za-z_][\w-]*)[ \t]*:', text, re.MULTILINE))
+        <= _SLING_KEYS
+        and re.search(r'^[ \t]+object[ \t]*:', text, re.MULTILINE)
+    ):
+        return 'sling'
     if lower.endswith(('.yaml', '.yml')) and re.search(
         r'^definition_type:\s*(connection|source|destination)\b', text, re.MULTILINE
     ):
@@ -245,6 +264,8 @@ def kind_of(path: str, text: str) -> str | None:
     if lower.endswith('.json'):
         if '"connector.class"' in text:
             return 'kafka_connect'
+        if '"rule-type"' in text and '"object-locator"' in text:
+            return 'dms'
         if '"syncCatalog"' in text or all(
             f'"{key}"' in text for key in ('sourceId', 'destinationId', 'configurations')
         ):
@@ -1570,6 +1591,278 @@ def _read_estuary(text: str, context: _Context) -> None:
             )
 
 
+# Sling
+
+
+def _fill(template: str, values: dict[str, str]) -> str:
+    """A Sling object name with its runtime variables (``{stream_table}``) filled in."""
+    return re.sub(r'\{(\w+)\}', lambda m: values[m.group(1)], template)
+
+
+def _read_sling(text: str, context: _Context) -> None:
+    """A Sling replication (https://docs.slingdata.io/concepts/replication): each stream from
+    the source connection into the object its runtime variables name."""
+    data = _yaml(text, context)
+    if data is None:
+        return
+    source = _slug(_name(data.get('source'), 'sling'))
+    task = f'{_name(data.get("source"), "source")} to {_name(data.get("target"), "target")}'
+    defaults = data.get('defaults') or {}
+    for key, spec in (data.get('streams') or {}).items():
+        spec = {**defaults, **(spec or {})}
+        stream = str(key)
+        if spec.get('disabled'):
+            continue
+        if '*' in stream:
+            context.problem(0, f'stream {stream} is a wildcard, so the tables it lands are not known')
+            continue
+        if spec.get('sql'):
+            context.problem(0, f'stream {stream} runs its own SQL, which Konstruct does not follow')
+            continue
+        template = spec.get('object')
+        if not isinstance(template, str):
+            context.problem(0, f'stream {stream} has no object')
+            continue
+        is_file = '://' in stream
+        schema, _, table = (
+            ('', '', PurePosixPath(stream.split('://', 1)[1]).stem) if is_file else stream.rpartition('.')
+        )
+        values = {
+            'stream_schema': schema,
+            'stream_table': table,
+            'stream_name': table,
+            'stream_full_name': stream,
+            'stream_file_name': table,
+            # The target connection's own schema is not in the file: the object is found by name.
+            'target_schema': '',
+        }
+        for name in ('stream_schema', 'stream_table'):
+            values[f'{name}_lower'] = values[name].lower()
+            values[f'{name}_upper'] = values[name].upper()
+        unresolved = [v for v in re.findall(r'\{(\w+)\}', template) if v not in values]
+        if unresolved:
+            context.problem(
+                0, f'stream {stream}: {{{unresolved[0]}}} in its object is known only at run time'
+            )
+            continue
+        landed = _fill(template, values).strip('.')
+        columns = [c for c in _strings(spec.get('select')) if not c.startswith('-')]
+        context.feed(
+            'sling',
+            task,
+            (source, *([stream] if is_file else [schema, table])),
+            tuple(landed.split('.')),
+            columns=_direct(columns),
+        )
+
+
+# Databricks Lakeflow Connect
+
+
+def _read_lakeflow(text: str, context: _Context) -> None:
+    """Lakeflow Connect pipelines in a Databricks Asset Bundle: each ingestion pipeline's table
+    objects, from its connection (or its gateway's) into the destination tables."""
+    data = _yaml(text, context)
+    if data is None:
+        return
+    pipelines = ((data.get('resources') or {}).get('pipelines') or {}) if isinstance(data, dict) else {}
+    for key, pipeline in pipelines.items():
+        definition = (pipeline or {}).get('ingestion_definition')
+        if not isinstance(definition, dict):
+            continue
+        connection = definition.get('connection_name')
+        gateway = re.search(
+            r'resources\.pipelines\.([A-Za-z0-9_-]+)\.', _name(definition.get('ingestion_gateway_id'), '')
+        )
+        if not connection and gateway:
+            gateway_spec = (pipelines.get(gateway.group(1)) or {}).get('gateway_definition') or {}
+            connection = gateway_spec.get('connection_name')
+        system = _slug(_name(connection, str(key)))
+        name = _name(pipeline.get('name'), str(key))
+        for item in definition.get('objects') or []:
+            table = (item or {}).get('table')
+            if isinstance(table, dict) and table.get('source_table'):
+                configuration = table.get('table_configuration') or {}
+                context.feed(
+                    'lakeflow',
+                    name,
+                    (system, table.get('source_catalog'), table.get('source_schema'), table['source_table']),
+                    (
+                        table.get('destination_catalog'),
+                        table.get('destination_schema'),
+                        table.get('destination_table') or table['source_table'],
+                    ),
+                    columns=_direct(_strings(configuration.get('include_columns'))),
+                )
+            elif isinstance((item or {}).get('schema'), dict):
+                context.problem(
+                    0,
+                    f'{name} ingests every table of {item["schema"].get("source_schema")}, which it does not list',
+                )
+
+
+# AWS DMS
+
+
+def _like(pattern: Any, value: str) -> bool:
+    """Whether a value matches a DMS name pattern, in which ``%`` matches any run of characters,
+    ignoring case. The pieces between wildcards are found in order, leftmost first, so the time
+    is linear in the value rather than a regular expression's backtracking."""
+    pieces = (pattern if isinstance(pattern, str) else '').lower().split('%')
+    value = value.lower()
+    if len(pieces) == 1:
+        return value == pieces[0]
+    first, *middle, last = pieces
+    end = len(value) - len(last)
+    if end < len(first) or not value.startswith(first) or not value.endswith(last):
+        return False
+    position = len(first)
+    for piece in middle:
+        found = value.find(piece, position, end)
+        if found < 0:
+            return False
+        position = found + len(piece)
+    return True
+
+
+def _locates(locator: dict[str, Any], schema: str, table: str | None = None) -> bool:
+    """Whether a DMS object locator (``%`` matches anything) names a schema and table."""
+    return _like(locator.get('schema-name', '%'), schema) and (
+        table is None or _like(locator.get('table-name', '%'), table)
+    )
+
+
+MAX_DMS_CHECKS = 1_000_000
+"""The most pairings of a selected table with a rule that names tables by pattern that Konstruct
+checks in one task's mappings."""
+
+
+class _DmsRules:
+    """A task's rules, split once: selections, and transformations by what they change, those
+    that name one schema or table by name looked up, those with ``%`` checked in turn."""
+
+    def __init__(self, rules: list[dict[str, Any]]) -> None:
+        self.includes: list[dict[str, Any]] = []
+        self.excluded: set[tuple[str, str]] = set()
+        self.patterns: dict[str, list[tuple[int, dict[str, Any]]]] = {}
+        self.exact: dict[tuple[str, str, str | None], list[tuple[int, dict[str, Any]]]] = {}
+        for position, rule in enumerate(rules):
+            locator = rule.get('object-locator')
+            locator = locator if isinstance(locator, dict) else {}
+            schema, table = locator.get('schema-name', '%'), locator.get('table-name', '%')
+            if rule.get('rule-type') == 'selection':
+                if rule.get('rule-action') == 'include':
+                    self.includes.append(rule)
+                elif rule.get('rule-action') == 'exclude':
+                    if _plain(schema) and _plain(table):
+                        self.excluded.add((schema.lower(), table.lower()))
+                    else:
+                        self.patterns.setdefault('exclude', []).append((position, rule))
+            elif rule.get('rule-type') == 'transformation':
+                target = str(rule.get('rule-target'))
+                named = None if target == 'schema' else table
+                if _plain(schema) and (named is None or _plain(named)):
+                    key = (target, schema.lower(), named.lower() if named is not None else None)
+                    self.exact.setdefault(key, []).append((position, rule))
+                else:
+                    self.patterns.setdefault(target, []).append((position, rule))
+
+    def checks(self) -> int:
+        """How many pairings of a selected table with a pattern rule reading the task takes."""
+        return len(self.includes) * sum(len(rules) for rules in self.patterns.values())
+
+    def excludes(self, schema: str, table: str) -> bool:
+        return (schema.lower(), table.lower()) in self.excluded or any(
+            _locates(r.get('object-locator') or {}, schema, table)
+            for _, r in self.patterns.get('exclude', [])
+        )
+
+    def transformations(self, target: str, schema: str, table: str | None) -> list[dict[str, Any]]:
+        """The transformation rules for a schema (``table`` None), a table or its columns, in the
+        order the task applies them."""
+        found = self.exact.get((target, schema.lower(), table.lower() if table is not None else None), [])
+        found = found + [
+            (position, rule)
+            for position, rule in self.patterns.get(target, [])
+            if _locates(rule.get('object-locator') or {}, schema, table)
+        ]
+        return [rule for _, rule in sorted(found, key=lambda pair: pair[0])]
+
+
+def _plain(name: Any) -> bool:
+    """Whether a DMS locator's name is a name, not a pattern."""
+    return isinstance(name, str) and '%' not in name
+
+
+def _dms_name(rules: list[dict[str, Any]], name: str) -> str:
+    """A schema's or table's name after the transformation rules for it."""
+    for rule in rules:
+        action, value = rule.get('rule-action'), rule.get('value')
+        value = value if isinstance(value, str) else ''
+        if action == 'rename':
+            name = value
+        elif action == 'add-prefix':
+            name = value + name
+        elif action == 'add-suffix':
+            name = name + value
+        elif action == 'remove-prefix' and name.lower().startswith(value.lower()):
+            name = name[len(value) :]
+        elif action == 'remove-suffix' and value and name.lower().endswith(value.lower()):
+            name = name[: -len(value)]
+        elif action == 'convert-lowercase':
+            name = name.lower()
+        elif action == 'convert-uppercase':
+            name = name.upper()
+    return name
+
+
+def _read_dms(text: str, context: _Context) -> None:
+    """A DMS task's table mappings: each table a selection rule includes by name, renamed as its
+    transformation rules say, and the columns they rename."""
+    try:
+        data = json.loads(text)
+    except ValueError as error:
+        context.problem(0, f'cannot read JSON: {error}')
+        return
+    rules = _DmsRules(
+        [r for r in (data.get('rules') or [] if isinstance(data, dict) else []) if isinstance(r, dict)]
+    )
+    if rules.checks() > MAX_DMS_CHECKS:
+        context.problem(
+            0,
+            f'its {len(rules.includes):,} selections and rules that name tables by pattern make more than '
+            f'{MAX_DMS_CHECKS:,} pairs to check, so its tables are not known',
+        )
+        return
+    task = PurePosixPath(context.path).stem
+    for rule in rules.includes:
+        locator = rule.get('object-locator') or {}
+        schema, table = str(locator.get('schema-name', '%')), str(locator.get('table-name', '%'))
+        if '%' in schema or '%' in table:
+            context.problem(
+                0,
+                f'rule {rule.get("rule-name")} selects {schema}.{table} by pattern, so its tables are not known',
+            )
+            continue
+        if rules.excludes(schema, table):
+            continue
+        renamed = [
+            (r.get('value'), (r.get('object-locator') or {}).get('column-name'), 'direct')
+            for r in rules.transformations('column', schema, table)
+            if r.get('rule-action') == 'rename'
+        ]
+        context.feed(
+            'dms',
+            task,
+            (_slug(task), schema, table),
+            (
+                _dms_name(rules.transformations('schema', schema, None), schema),
+                _dms_name(rules.transformations('table', schema, table), table),
+            ),
+            columns=[(str(a), str(b), c) for a, b, c in renamed if _plain(a) and _plain(b)],
+        )
+
+
 READERS: dict[str, Callable[[str, _Context], None]] = {
     'dlt': _read_dlt,
     'dlt_schema': _read_dlt_schema,
@@ -1578,6 +1871,9 @@ READERS: dict[str, Callable[[str, _Context], None]] = {
     'airbyte_api': _read_airbyte_api,
     'kafka_connect': _read_kafka_connect,
     'estuary': _read_estuary,
+    'sling': _read_sling,
+    'lakeflow': _read_lakeflow,
+    'dms': _read_dms,
 }
 GROUP_READERS: dict[str, Callable[[list[tuple[str, str]], _Context], None]] = {
     'meltano': _read_meltano_project,

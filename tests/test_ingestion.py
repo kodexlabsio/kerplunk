@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -311,6 +312,26 @@ def test_a_singer_catalog_and_state() -> None:
         ('log4j.properties', 'log4j.rootLogger=INFO\n', None),
         ('flow.yaml', 'captures: {}\n', 'estuary'),
         ('orders.flow.yaml', 'collections: {}\n', None),
+        (
+            'replication.yaml',
+            'source: PG\ntarget: SF\ndefaults:\n  object: raw.{stream_table}\nstreams: {}\n',
+            'sling',
+        ),
+        # A media relay's configuration: a source, a target and streams, but not Sling's.
+        (
+            'relay.yaml',
+            'source: rtsp://camera/1\ntarget: rtmp://cdn/live\nstreams:\n  front:\n    bitrate: 4000\n'
+            'transcode: true\n',
+            None,
+        ),
+        (
+            'relay.yml',
+            'source: rtsp://camera/1\ntarget: rtmp://cdn/live\nstreams:\n  front:\n    codec: h264\n',
+            None,
+        ),
+        ('sources.yml', 'version: 2\nsources:\n  - name: app\n    loader: fivetran\n', None),
+        ('ingestion.yml', 'resources:\n  pipelines:\n    a:\n      ingestion_definition: {}\n', 'lakeflow'),
+        ('mapping.json', '{"rules": [{"rule-type": "selection", "object-locator": {}}]}', 'dms'),
     ],
 )
 def test_discovery_reads_only_the_formats_it_knows(name: str, text: str, kind: str | None) -> None:
@@ -1576,3 +1597,356 @@ def test_discovered_streams_add_no_tables(tmp_path: Path) -> None:
     (tmp_path / 'flows' / 'flow.yaml').write_text(FLOW)
     graph = Project(tmp_path).build(run_dbt=False).graph
     assert [n for n in graph.nodes if n.startswith(('system.', 'task.'))] == []
+
+
+SLING = """
+source: APP_PG
+target: WAREHOUSE
+defaults:
+  mode: incremental
+  object: raw.{stream_schema}_{stream_table}
+streams:
+  public.orders:
+  public.customers:
+    object: '{target_schema}.customers'
+    select: [id, email, -password]
+  public.audit:
+    disabled: true
+  public.*:
+  finance.ledger:
+    sql: select * from finance.ledger where year > 2020
+    object: raw.ledger
+  public.events:
+    object: raw.{run_timestamp}_events
+  file://exports/rates.csv:
+    object: raw.{stream_file_name}
+"""
+
+
+def test_a_sling_replication() -> None:
+    reading = read('sling', 'replication.yaml', SLING)
+    assert [(f.task, f.source, f.target, f.columns) for f in reading.feeds] == [
+        ('APP_PG to WAREHOUSE', ('app_pg', 'public', 'orders'), ('raw', 'public_orders'), ()),
+        (
+            'APP_PG to WAREHOUSE',
+            ('app_pg', 'public', 'customers'),
+            ('customers',),
+            (('id', 'id', 'direct'), ('email', 'email', 'direct')),
+        ),
+        ('APP_PG to WAREHOUSE', ('app_pg', 'file://exports/rates.csv'), ('raw', 'rates'), ()),
+    ]
+    assert reading.problems == [
+        'replication.yaml: stream public.* is a wildcard, so the tables it lands are not known',
+        'replication.yaml: stream finance.ledger runs its own SQL, which Konstruct does not follow',
+        'replication.yaml: stream public.events: {run_timestamp} in its object is known only at run time',
+    ]
+    nothing = read('sling', 'r.yaml', 'source: A\ntarget: B\nstreams:\n  a.b:\n')
+    assert nothing.problems == ['r.yaml: stream a.b has no object']
+
+
+BUNDLE = """
+resources:
+  pipelines:
+    sfdc:
+      name: salesforce_ingestion
+      catalog: main
+      ingestion_definition:
+        connection_name: salesforce_conn
+        objects:
+          - table:
+              source_schema: objects
+              source_table: Account
+              destination_catalog: main
+              destination_schema: salesforce
+          - table:
+              source_schema: objects
+              source_table: Opportunity
+              destination_catalog: main
+              destination_schema: salesforce
+              destination_table: opportunities
+              table_configuration:
+                include_columns: [Id, Amount]
+          - schema:
+              source_schema: reports
+              destination_catalog: main
+              destination_schema: salesforce
+    gateway:
+      gateway_definition:
+        connection_name: sqlserver_conn
+    erp:
+      ingestion_definition:
+        ingestion_gateway_id: ${resources.pipelines.gateway.id}
+        objects:
+          - table: {source_catalog: erp, source_schema: dbo, source_table: invoices, destination_catalog: main, destination_schema: erp}
+    plain:
+      libraries: [{notebook: {path: ./etl.py}}]
+"""
+
+
+def test_lakeflow_connect_pipelines_in_a_bundle() -> None:
+    reading = read('lakeflow', 'resources/ingestion.yml', BUNDLE)
+    assert [(f.task, f.source, f.target, f.columns) for f in reading.feeds] == [
+        (
+            'salesforce_ingestion',
+            ('salesforce_conn', 'objects', 'Account'),
+            ('main', 'salesforce', 'Account'),
+            (),
+        ),
+        (
+            'salesforce_ingestion',
+            ('salesforce_conn', 'objects', 'Opportunity'),
+            ('main', 'salesforce', 'opportunities'),
+            (('Id', 'Id', 'direct'), ('Amount', 'Amount', 'direct')),
+        ),
+        ('erp', ('sqlserver_conn', 'erp', 'dbo', 'invoices'), ('main', 'erp', 'invoices'), ()),
+    ]
+    assert reading.problems == [
+        'resources/ingestion.yml: salesforce_ingestion ingests every table of reports, which it does not list'
+    ]
+
+
+DMS = {
+    'rules': [
+        {
+            'rule-type': 'selection',
+            'rule-id': '1',
+            'rule-name': '1',
+            'object-locator': {'schema-name': 'sales', 'table-name': 'orders'},
+            'rule-action': 'include',
+        },
+        {
+            'rule-type': 'selection',
+            'rule-id': '2',
+            'rule-name': '2',
+            'object-locator': {'schema-name': 'sales', 'table-name': 'customers'},
+            'rule-action': 'include',
+        },
+        {
+            'rule-type': 'selection',
+            'rule-id': '3',
+            'rule-name': '3',
+            'object-locator': {'schema-name': 'hr', 'table-name': '%'},
+            'rule-action': 'include',
+        },
+        {
+            'rule-type': 'selection',
+            'rule-id': '4',
+            'rule-name': '4',
+            'object-locator': {'schema-name': 'sales', 'table-name': 'customers'},
+            'rule-action': 'exclude',
+        },
+        {
+            'rule-type': 'transformation',
+            'rule-id': '5',
+            'rule-name': '5',
+            'rule-target': 'schema',
+            'object-locator': {'schema-name': 'sales'},
+            'rule-action': 'rename',
+            'value': 'raw_sales',
+        },
+        {
+            'rule-type': 'transformation',
+            'rule-id': '6',
+            'rule-name': '6',
+            'rule-target': 'table',
+            'object-locator': {'schema-name': 'sales', 'table-name': '%'},
+            'rule-action': 'add-prefix',
+            'value': 'dms_',
+        },
+        {
+            'rule-type': 'transformation',
+            'rule-id': '7',
+            'rule-name': '7',
+            'rule-target': 'table',
+            'object-locator': {'schema-name': '%', 'table-name': '%'},
+            'rule-action': 'convert-lowercase',
+        },
+        {
+            'rule-type': 'transformation',
+            'rule-id': '8',
+            'rule-name': '8',
+            'rule-target': 'column',
+            'object-locator': {'schema-name': 'sales', 'table-name': 'orders', 'column-name': 'AMT'},
+            'rule-action': 'rename',
+            'value': 'amount',
+        },
+    ]
+}
+
+
+def test_dms_table_mappings() -> None:
+    reading = read('dms', 'dms/orders-task.json', json.dumps(DMS))
+    assert [(f.task, f.source, f.target, f.columns) for f in reading.feeds] == [
+        (
+            'orders-task',
+            ('orders_task', 'sales', 'orders'),
+            ('raw_sales', 'dms_orders'),
+            (('amount', 'AMT', 'direct'),),
+        )
+    ]
+    assert reading.problems == [
+        'dms/orders-task.json: rule 3 selects hr.% by pattern, so its tables are not known'
+    ]
+    from konstruct.inputs.ingestion import _dms_name
+
+    rules = [
+        {
+            'rule-type': 'transformation',
+            'rule-target': 'table',
+            'object-locator': {},
+            'rule-action': action,
+            'value': value,
+        }
+        for action, value in [
+            ('add-suffix', '_x'),
+            ('remove-prefix', 'T_'),
+            ('remove-suffix', '_x'),
+            ('convert-uppercase', ''),
+        ]
+    ]
+    assert _dms_name(rules, 't_orders') == 'ORDERS'
+
+
+@pytest.mark.parametrize(
+    ('kind', 'path', 'text'),
+    [
+        ('sling', 'replication.yaml', NESTED_YAML),
+        ('sling', 'replication.yaml', 'source: a\ntarget: b\nstreams: {x: 3}'),
+        ('lakeflow', 'databricks.yml', NESTED_YAML),
+        ('lakeflow', 'databricks.yml', 'resources: 3\ningestion_definition: x'),
+        (
+            'lakeflow',
+            'databricks.yml',
+            f'{ALIASES}resources: {{pipelines: {{p: {{name: *i, ingestion_definition: {{}}}}}}}}',
+        ),
+        (
+            'sling',
+            'replication.yaml',
+            f'{ALIASES}source: a\ntarget: b\nstreams: {{x.y: {{object: o, select: *i}}}}',
+        ),
+        ('dms', 'mappings.json', '{"rules": ' + '[' * 100_000 + ']' * 100_000 + '}'),
+        ('dms', 'mappings.json', '{"rules": 3}'),
+    ],
+)
+def test_a_malformed_replication_bundle_or_mapping_is_a_problem(kind: str, path: str, text: str) -> None:
+    reading = read(kind, path, text)
+    assert reading.feeds == []
+    assert len(reading.problems) == 1 and reading.problems[0].startswith(f'{path}: ')
+
+
+def test_a_lakeflow_destination_from_a_bundle_variable_is_not_a_name() -> None:
+    reading = read(
+        'lakeflow',
+        'databricks.yml',
+        BUNDLE.replace('destination_schema: salesforce', 'destination_schema: ${var.schema}'),
+    )
+    # The other pipeline's table is still read.
+    assert [f.target for f in reading.feeds] == [('main', 'erp', 'invoices')]
+    assert (
+        reading.problems.count(
+            'databricks.yml: salesforce_ingestion: ${var.schema} is not a literal name, so the feed is left out'
+        )
+        == 2
+    )
+
+
+def test_dms_patterns_match_in_linear_time() -> None:
+    """A selection pattern of many wildcards against a long name would backtrack for hours as a
+    regular expression."""
+    import time
+
+    rules = {
+        'rules': [
+            {
+                'rule-type': 'selection',
+                'rule-id': '1',
+                'rule-name': '1',
+                'rule-action': 'include',
+                'object-locator': {'schema-name': 'app', 'table-name': 'orders'},
+            },
+            {
+                'rule-type': 'selection',
+                'rule-id': '2',
+                'rule-name': '2',
+                'rule-action': 'exclude',
+                'object-locator': {'schema-name': 'app', 'table-name': '%a' * 30 + '%b'},
+            },
+        ]
+    }
+    start = time.process_time()
+    reading = read('dms', 'mappings.json', json.dumps(rules).replace('orders', 'a' * 1_000))
+    assert time.process_time() - start < 1
+    assert [f.target for f in reading.feeds] == [('app', 'a' * 1_000)]
+
+
+def test_dms_mappings_with_thousands_of_rules() -> None:
+    """Selections and transformations that name their tables are looked up, not each checked
+    against every other; patterns against thousands of selections are a problem."""
+    import time
+
+    def rule(kind: str, schema: str, table: str, **more: str) -> dict[str, Any]:
+        return {'rule-type': kind, 'object-locator': {'schema-name': schema, 'table-name': table}, **more}
+
+    named = [rule('selection', 's', f't{i}', **{'rule-action': 'include'}) for i in range(3_000)]
+    named += [
+        rule(
+            'transformation',
+            's',
+            f't{i}',
+            **{'rule-target': 'table', 'rule-action': 'add-prefix', 'value': 'x_'},
+        )
+        for i in range(3_000)
+    ]
+    start = time.process_time()
+    reading = read('dms', 'mappings.json', json.dumps({'rules': named}))
+    assert time.process_time() - start < 2
+    assert len(reading.feeds) == 3_000 and reading.feeds[0].target == ('s', 'x_t0')
+    patterns = named[:3_000] + [
+        rule(
+            'transformation',
+            's',
+            f'%u{i}',
+            **{'rule-target': 'table', 'rule-action': 'add-prefix', 'value': 'x_'},
+        )
+        for i in range(500)
+    ]
+    reading = read('dms', 'mappings.json', json.dumps({'rules': patterns}))
+    assert reading.feeds == []
+    assert reading.problems == [
+        'mappings.json: its 3,000 selections and rules that name tables by pattern make more than 1,000,000 '
+        'pairs to check, so its tables are not known'
+    ]
+
+
+@pytest.mark.parametrize(
+    ('pattern', 'value', 'matches'),
+    [
+        ('%', '', True),
+        ('orders', 'ORDERS', True),
+        ('ord%', 'orders', True),
+        ('%ers', 'orders', True),
+        ('o%r%s', 'orders', True),
+        ('o%x%s', 'orders', False),
+        ('ab%ba', 'aba', False),
+        ('a%a', 'a', False),
+        ('%%', 'x', True),
+    ],
+)
+def test_a_dms_wildcard(pattern: str, value: str, matches: bool) -> None:
+    from konstruct.inputs.ingestion import _like
+
+    assert _like(pattern, value) is matches
+
+
+def test_a_lakeflow_bundle_lands_in_the_warehouse_catalog(tmp_path: Path) -> None:
+    (tmp_path / 'resources').mkdir()
+    (tmp_path / 'resources' / 'ingestion.yml').write_text(BUNDLE)
+    (tmp_path / 'konstruct.toml').write_text('[ingestion]\npaths = ["resources"]\n')
+    graph = Project(tmp_path).build(run_dbt=False).graph
+    landed = graph.nodes['table.main.salesforce.opportunities']
+    assert landed.attrs['loaded_by'] == 'lakeflow'
+    assert [c.name for c in graph.columns_of(landed.id)] == ['Id', 'Amount']
+    assert ('task.lakeflow.salesforce_ingestion', landed.id) in {(e.source, e.target) for e in graph.edges}
+    assert graph.warnings == [
+        'lakeflow: resources/ingestion.yml: salesforce_ingestion ingests every table of reports, which it does not list'
+    ]
