@@ -44,6 +44,7 @@ async def _exercise(client: Client) -> None:
         'diff',
         'gate',
         'mutation_test',
+        'why',
     }
     assert all(t.description and t.input_schema for t in tools.tools)
     impact = structured(await client.call_tool('impact', {'ref': 'stg_payments.amount'}))
@@ -167,6 +168,7 @@ def test_marks_repository_text_as_untrusted(jaffle_built_graph: Path) -> None:
         ('path', {'start': 'raw_orders', 'end': 'orders'}),
         ('query', {'question': 'what breaks if stg_payments.amount changes'}),
         ('mutation_test', {'models': ['orders'], 'max_mutants': 2}),
+        ('why', {'column': 'customer_ltv.lifetime_value', 'where': {'customer_id': '3'}, 'limit': 5}),
     ]
 
     async def main() -> None:
@@ -351,3 +353,14 @@ def test_the_prompt_preface_names_the_servers_tools(tmp_path: Path) -> None:
     named = re.findall(r'`(\w+)`', PROMPT_PREFACE.split(')', 1)[0])
     tools = [t.name for t in anyio.run(build_server(tmp_path).list_tools)]
     assert sorted(named) == sorted(tools)
+
+
+def test_why_without_a_row_names_the_where_argument(tmp_path: Path) -> None:
+    async def main() -> None:
+        async with Client(build_server(tmp_path)) as client:
+            result = await client.call_tool('why', {'column': 'ltv.total', 'where': {}})
+            assert (
+                result.is_error and '`where`' in str(result.content) and '--where' not in str(result.content)
+            )
+
+    anyio.run(main)

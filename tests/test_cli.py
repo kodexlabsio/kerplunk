@@ -267,6 +267,24 @@ def test_verify_needs_a_duckdb_warehouse(tmp_path: Path, capsys: pytest.CaptureF
     )
 
 
+def test_verify_why(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from .test_why import make_project
+
+    make_project(tmp_path)
+    base = ['verify', '-C', str(tmp_path), '--warehouse', str(tmp_path / 'shop.duckdb')]
+    code, out, _ = run(capsys, *base, '--why', 'ltv.total', '--where', 'customer_id=1')
+    assert code == 0 and out.startswith('ltv.total where customer_id = 1: 35\n  = SUM(orders.amount)')
+    assert 'Contributing rows (3)' in out and "ltv: WHERE o.status <> 'void'" in out
+    assert 'Run read-only against shop.duckdb' in out
+    code, out, _ = run(capsys, *base, '--why', 'ltv.total', '--where', 'customer_id=1', '-n', '1', '--json')
+    data = json.loads(out)
+    assert code == 0 and data['value'] == 35 and len(data['contributions']) == 1 and data['capped'] is True
+    code, _, err = run(capsys, *base, '--where', 'customer_id=1')
+    assert code == 2 and '--where picks the row for --why' in err
+    code, _, err = run(capsys, *base, '--why', 'ltv.total', '--where', 'customer_id')
+    assert code == 1 and "--where takes column=value, not 'customer_id'" in err
+
+
 def test_verify_mutate(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     from .test_mutation import make_shop
 

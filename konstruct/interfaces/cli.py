@@ -294,13 +294,18 @@ def cmd_verify(args: argparse.Namespace, console: Console) -> int:
     project = _ready(_project(args), args, console)
     if args.mutate:
         return _mutate(project, args, console)
+    if args.why:
+        return _why(project, args, console)
+    if args.where:
+        console.error('--where picks the row for --why; give the column with --why COLUMN')
+        return 2
     if not args.json:
         console.info(
             'perturbing inputs and rerunning models; this reads the warehouse but never writes to it'
         )
     with console.progress('Verifying the lineage against the data'):
         result = project.verify(
-            warehouse=args.warehouse, seed=args.seed, max_rows=args.rows, models=args.model
+            warehouse=args.warehouse, seed=args.seed, max_rows=args.rows or 10000, models=args.model
         )
     _emit(console, result, args.json)
     if not args.json:
@@ -339,6 +344,19 @@ def _mutate(project: Project, args: argparse.Namespace, console: Console) -> int
         extra = f', and the report to {args.markdown}' if args.markdown else ''
         console.print('\n' + console.ui.line(Text((f'{wrote}{extra}.', 'dim'))))
     return 0 if result.checked else 1
+
+
+def _why(project: Project, args: argparse.Namespace, console: Console) -> int:
+    """`verify --why`: the source rows behind one value."""
+    from konstruct.analysis.why import parse_where
+
+    where = parse_where(args.where or [])
+    with console.progress(f'Tracing the rows behind {args.why}'):
+        result = project.why(
+            args.why, where, warehouse=args.warehouse, limit=args.limit, max_rows=_rows(args, 1_000_000)
+        )
+    _emit(console, result, args.json)
+    return 0
 
 
 def cmd_gate(args: argparse.Namespace, console: Console) -> int:
@@ -606,6 +624,10 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ('konstruct verify -m orders --strict', 'one model; exit 1 on an unexplained influence'),
         ('konstruct verify --warehouse snowflake --rows 2000', 'a sample of the configured Snowflake'),
         ('konstruct verify --mutate -m orders', "would orders' dbt tests catch a wrong change to it?"),
+        (
+            'konstruct verify --why customer_ltv.lifetime_value --where customer_id=3',
+            'the source rows behind one value, each with its share',
+        ),
     ),
     'open': (
         ('konstruct open', 'graph.html in the default browser'),
@@ -1094,7 +1116,7 @@ def parser() -> argparse.ArgumentParser:
         default=10000,
         action=_StoreGiven,
         metavar='N',
-        help='rows copied per input (default 10000, or 1000 with --mutate)',
+        help='rows copied per input (default 10000, 1000 with --mutate, 1000000 with --why)',
     )
     verify.add_argument(
         '--warehouse',
@@ -1127,6 +1149,29 @@ def parser() -> argparse.ArgumentParser:
         '--no-suggest', action='store_true', help='do not look for a test that kills each survivor'
     )
     mutating.add_argument('--markdown', metavar='FILE', help='also write the report as markdown to FILE')
+    tracing = verify.add_argument_group(
+        'the rows behind a value', 'with --why: which source rows make up one value, and which were left out'
+    )
+    tracing.add_argument(
+        '--why',
+        metavar='COLUMN',
+        help='list the source rows behind one value of COLUMN (e.g. customer_ltv.lifetime_value), each '
+        'with its share, and the related rows a filter or join left out',
+    )
+    tracing.add_argument(
+        '--where',
+        action='append',
+        metavar='COLUMN=VALUE',
+        help='the row of the model whose value to explain, by an output column (repeatable)',
+    )
+    tracing.add_argument(
+        '-n',
+        '--limit',
+        type=int,
+        default=50,
+        metavar='N',
+        help='the most rows listed in each table (default 50)',
+    )
     _query_options(verify)
     verify.set_defaults(func=cmd_verify)
 

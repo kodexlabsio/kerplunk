@@ -36,5 +36,9 @@
  "mcp search text": "string, required",
  "mcp trace": "tool",
  "mcp trace max_depth": "integer|null = None",
- "mcp trace ref": "string, required"
+ "mcp trace ref": "string, required",
+ "mcp why": "tool",
+ "mcp why column": "string, required",
+ "mcp why limit": "integer = 50",
+ "mcp why where": "object, required"
 }

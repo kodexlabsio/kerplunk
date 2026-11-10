@@ -49,7 +49,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import sqlglot
 from sqlglot import exp
@@ -61,6 +61,9 @@ from konstruct.analysis.query import QueryError, resolve_one
 from konstruct.analysis.verify import Candidate, Engine, candidates, engine_for, rewrite
 from konstruct.core.graph import Graph, Node
 from konstruct.semantics.ontology import id_like
+
+if TYPE_CHECKING:
+    from konstruct.interfaces.layout import Style
 
 DECOMPOSABLE = ('SUM', 'COUNT', 'AVG', 'MIN', 'MAX')
 """The aggregates whose value can be split into one share per input row."""
@@ -100,7 +103,7 @@ class SourceRow:
 
     def text(self) -> str:
         names = self.shown or list(self.values)[:3]
-        cells = ' '.join(f'{n}={_show(self.values.get(n))}' for n in names)
+        cells = ' '.join(f'{n}={show_value(self.values.get(n))}' for n in names)
         return f'{self.relation} {cells}'.rstrip()
 
     def to_dict(self) -> dict[str, Any]:
@@ -226,7 +229,7 @@ class Why:
     def explanation(self) -> list[str]:
         """A few sentences on how the rows make up the value."""
         lines: list[str] = []
-        key = _key_text(self.where)
+        key = key_text(self.where)
         if self.matches == 0:
             reach = '; the rows below reach the step that computes the value' if self.contributors else ''
             lines.append(f'No row of {self._model()} has {key}{reach}.')
@@ -241,28 +244,30 @@ class Why:
             elif not self.contributors:
                 lines.append(f'No rows reach {aggregate.sql}.')
             elif function == 'SUM':
-                lines.append(f'{aggregate.sql} adds up {rows}: their addends total {_show(aggregate.total)}.')
+                lines.append(
+                    f'{aggregate.sql} adds up {rows}: their addends total {show_value(aggregate.total)}.'
+                )
             elif function == 'COUNT':
                 lines.append(f'{aggregate.sql} counts {aggregate.count} of {rows}.')
             elif function == 'AVG':
                 lines.append(
                     f'{aggregate.sql} averages {_plural(aggregate.count, "value")}: '
-                    f'{_show(aggregate.addends)} / {aggregate.count} = {_show(aggregate.total)}.'
+                    f'{show_value(aggregate.addends)} / {aggregate.count} = {show_value(aggregate.total)}.'
                 )
             else:
                 winner = 'largest' if function == 'MAX' else 'smallest'
                 lines.append(
-                    f'{aggregate.sql} takes the {winner} of {rows}: {_show(aggregate.total)}, marked *.'
+                    f'{aggregate.sql} takes the {winner} of {rows}: {show_value(aggregate.total)}, marked *.'
                 )
         if not self.aggregates and self.contributors:
             lines.append(f'The value is computed row by row, from {rows}.')
         if self.consistent is True and not self.aggregates:
-            lines.append(f'The row gives the value, {_show(self.value)}.')
+            lines.append(f'The row gives the value, {show_value(self.value)}.')
         elif self.consistent is True:
-            lines.append(f'The shares add up to the value, {_show(self.value)}.')
+            lines.append(f'The shares add up to the value, {show_value(self.value)}.')
         elif self.consistent is False:
             lines.append(
-                f'The shares do not add up to the value, {_show(self.value)}: '
+                f'The shares do not add up to the value, {show_value(self.value)}: '
                 'something on the way changes it (see the notes).'
             )
         if self.exclusions:
@@ -296,45 +301,19 @@ class Why:
             'seconds': round(self.seconds, 3),
         }
 
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import show, why_lines
+
+        return show(why_lines, self, style)
+
     def __str__(self) -> str:
-        head = f'{self.label} where {_key_text(self.where)}'
-        lines = [f'{head}: {_show(self.value)}' if self.matches else f'{head}: no such row']
-        if self.expression:
-            lines.append(f'  = {self.expression}')
-        if self.composed and self.composed != self.expression:
-            lines.append(f'  = {self.composed}  (in terms of sources)')
-        lines += ['', *self.explanation()]
-        if self.contributions:
-            headers = [a.function for a in self.aggregates] or ['value']
-            table = [
-                [
-                    ('* ' if c.chosen else '') + ', '.join(_show(v) for v in c.values),
-                    '; '.join(r.text() for r in c.rows),
-                ]
-                for c in self.contributions
-            ]
-            width = max(len(row[0]) for row in [['/'.join(headers)], *table])
-            lines += ['', f'Contributing rows ({self.contributors})']
-            lines.append(f'  {"/".join(headers).rjust(width)}  rows')
-            lines += [f'  {share.rjust(width)}  {rows}' for share, rows in table]
-            if self.contributors > len(self.contributions):
-                lines.append(
-                    f'  showing {len(self.contributions)} of {self.contributors}; raise the limit to see more'
-                )
-        if self.excluded:
-            rows = [e.row.text() for e in self.excluded]
-            width = max(len(r) for r in rows)
-            lines += ['', f'Left out ({self.exclusions})']
-            lines += [f'  {row.ljust(width)}  {e.reason}' for row, e in zip(rows, self.excluded, strict=True)]
-            if self.exclusions > len(self.excluded):
-                lines.append(
-                    f'  showing {len(self.excluded)} of {self.exclusions}; raise the limit to see more'
-                )
-        lines += ['', f'Run read-only against {self.warehouse} in {self.seconds:.2f}s.']
-        return '\n'.join(lines)
+        return self.text()
 
 
-def _key_text(where: Mapping[str, str]) -> str:
+def key_text(where: Mapping[str, str]) -> str:
+    """The key as words: ``customer_id = 42 and month = 2024-01``."""
     return ' and '.join(f'{k} = {v}' for k, v in where.items())
 
 
@@ -342,7 +321,8 @@ def _plural(count: int, word: str) -> str:
     return f'{count} {word}{"" if count == 1 else "s"}'
 
 
-def _show(value: Any) -> str:
+def show_value(value: Any) -> str:
+    """A value as the text shows it."""
     if value is None:
         return 'null'
     if isinstance(value, float):
@@ -376,6 +356,11 @@ def _sum(values: Sequence[Any]) -> Any:
     for v in present[1:]:
         total = total + v
     return total
+
+
+def _article(word: str) -> str:
+    """``a`` or ``an`` before ``word``, a join keyword such as ``ANTI`` or ``SEMI``."""
+    return 'an' if word[:1] in 'AEIOU' else 'a'
 
 
 def parse_where(items: Sequence[str]) -> dict[str, str]:
@@ -504,7 +489,7 @@ def _normalise(tree: exp.Expr) -> None:
         for join in select.args.get('joins') or []:
             kind = (join.kind or '').upper()
             if kind in ('SEMI', 'ANTI'):
-                raise _Unsupported(f'a {kind} JOIN in {model}')
+                raise _Unsupported(f'{_article(kind)} {kind} JOIN in {model}')
         distinct = select.args.get('distinct')
         on = distinct.args.get('on') if isinstance(distinct, exp.Distinct) else None
         if on is None:
@@ -941,7 +926,7 @@ class _Rewriter:
         for index, join in enumerate(select.args.get('joins') or [], start=1):
             side = (join.side or '').upper()
             if side in ('RIGHT', 'FULL'):
-                raise _Unsupported(f'a {side} JOIN in {_model(select)}')
+                raise _Unsupported(f'{_article(side)} {side} JOIN in {_model(select)}')
             on = join.args.get('on')
             if on is None:
                 if not join.args.get('using'):
@@ -1382,7 +1367,7 @@ class _Run:
         result.matches = len(values)
         if len(values) > 1:
             raise QueryError(
-                f'{len(values)} rows of {_model(plan.top)} match {_key_text(result.where)}; '
+                f'{len(values)} rows of {_model(plan.top)} match {key_text(result.where)}; '
                 'add --where conditions until one row matches'
             )
         result.value = values[0] if values else None
@@ -1510,7 +1495,7 @@ class _Run:
         provenance = [(rewriter.instances[n], index[f'__kp_r{n}']) for n in rewritten.provenance]
         if len({tuple(row[i] for i in group_at) for row in rows}) > 1:
             raise QueryError(
-                f'{_key_text(self.result.where)} picks more than one group of {_model(plan.anchor)}; '
+                f'{key_text(self.result.where)} picks more than one group of {_model(plan.anchor)}; '
                 'add --where conditions on the other grouping columns'
             )
         terms: dict[tuple[Any, ...], tuple[list[Any], list[tuple[str, Any]]]] = {}

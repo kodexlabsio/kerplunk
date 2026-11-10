@@ -92,6 +92,7 @@ PUBLIC_RESULTS = {
         'MutationTesting',
     ],
     'core/mutate.py': ['Mutant', 'MutantSet'],
+    'analysis/why.py': ['SourceRow', 'Contribution', 'Exclusion', 'Aggregate', 'Why'],
     'engine/build.py': ['BuildResult'],
     'engine/trust.py': ['Trust'],
     'core/graph.py': ['Node', 'Edge', 'Step'],

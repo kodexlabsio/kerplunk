@@ -56,6 +56,7 @@ if TYPE_CHECKING:
         Walk,
     )
     from konstruct.analysis.verify import Verification
+    from konstruct.analysis.why import Why
     from konstruct.engine.trust import Trust
     from konstruct.interfaces.status import Status
     from konstruct.semantics.ontology import Ontology
@@ -712,6 +713,46 @@ def mutation_lines(result: MutationTesting, style: Style) -> Lines:
             )
         if len(unused) > 20:
             lines.append(Text((f'  and {len(unused) - 20} more in MUTATION.md', 'dim')))
+    return lines
+
+
+def why_lines(result: Why, style: Style) -> Lines:
+    from konstruct.analysis.why import key_text, show_value
+
+    head = Text((f'{result.label} where {key_text(result.where)}', 'subject'), ': ')
+    head.append((show_value(result.value), 'accent') if result.matches else ('no such row', 'warn'))
+    lines = [head]
+    if result.expression:
+        lines += formula(style, result.expression)
+    if result.composed and result.composed != result.expression:
+        lines += formula(style, result.composed)
+        lines[-1].append(('  (in terms of sources)', 'dim'))
+    lines.append(blank())
+    for line in result.explanation():
+        lines += _summary(style, line)
+    if result.contributions:
+        heading = '/'.join(a.function for a in result.aggregates) or 'value'
+        rows: list[list[Cell]] = [
+            [
+                ('* ' if c.chosen else '') + ', '.join(show_value(v) for v in c.values),
+                '; '.join(r.text() for r in c.rows),
+            ]
+            for c in result.contributions
+        ]
+        lines += [blank(), section('Contributing rows', result.contributors)]
+        lines += table(style, rows, right=[0], headers=[heading, 'rows'], cap=None)
+        if result.contributors > len(result.contributions):
+            shown = (
+                f'  showing {len(result.contributions)} of {result.contributors}; raise the limit to see more'
+            )
+            lines.append(Text((shown, 'dim')))
+    if result.excluded:
+        left: list[list[Cell]] = [[e.row.text(), Text((e.reason, 'warn'))] for e in result.excluded]
+        lines += [blank(), section('Left out', result.exclusions), *table(style, left, cap=None)]
+        if result.exclusions > len(result.excluded):
+            shown = f'  showing {len(result.excluded)} of {result.exclusions}; raise the limit to see more'
+            lines.append(Text((shown, 'dim')))
+    lines += [blank(), Text((f'Run read-only against {result.warehouse} in {result.seconds:.2f}s.', 'dim'))]
     return lines
 
 

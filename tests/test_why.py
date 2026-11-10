@@ -878,3 +878,10 @@ def test_why_on_postgres_leaves_nothing_behind(tmp_path: Path) -> None:
     finally:
         with psycopg.connect(dsn, autocommit=True) as pg:
             pg.execute(f'drop schema if exists {schema} cascade')
+
+
+def test_a_refused_join_is_named_with_its_article() -> None:
+    from konstruct.analysis.why import _article
+
+    named = [f'{_article(kind)} {kind} JOIN' for kind in ('ANTI', 'SEMI', 'FULL')]
+    assert named == ['an ANTI JOIN', 'a SEMI JOIN', 'a FULL JOIN']

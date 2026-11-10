@@ -297,7 +297,8 @@ build, check and show the graph, and \cmd{konstruct trust} trusts a project's ow
 path}, \cmd{konstruct search}, \cmd{konstruct describe}, \cmd{konstruct list} and \cmd{konstruct
 query} walk and find it; \cmd{konstruct explain} and \cmd{konstruct history} give a column's
 formula and when it changed; \cmd{konstruct verify} checks lineage against data, and with
-\cmd{--mutate} whether a model's dbt tests fail on small changes to its SQL;
+\cmd{--mutate} whether a model's dbt tests fail on small changes to its SQL, and with
+\cmd{--why} the source rows behind one value with each row's share;
 \cmd{konstruct diff} and \cmd{konstruct gate} review changes; \cmd{konstruct define},
 \cmd{konstruct ontology} and \cmd{konstruct conflicts} answer what things mean;
 \cmd{konstruct export} writes OpenLineage events (\cmd{openlineage}), Mermaid (\cmd{mermaid}),
@@ -311,7 +312,7 @@ formulas, terms, verification results and usage.
 \paragraph{Grounding agents} \cmd{konstruct mcp} runs a Model Context Protocol server with
 \mcpTools{} tools: \cmd{impact}, \cmd{trace}, \cmd{path}, \cmd{search}, \cmd{describe},
 \cmd{query}, \cmd{explain}, \cmd{history}, \cmd{define}, \cmd{conflicts}, \cmd{ontology},
-\cmd{diff}, \cmd{gate} and \cmd{mutation\_test}. Answers are the same structured results the Python API returns, so an
+\cmd{diff}, \cmd{gate}, \cmd{mutation\_test} and \cmd{why}. Answers are the same structured results the Python API returns, so an
 agent learns a column's formula, its sources, which of its edges the data confirmed, the approved
 definition of the business term it holds, its owner and the entities it touches, before it writes
 a query that joins or aggregates. The server rereads the graph whenever it changes, and

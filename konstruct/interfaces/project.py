@@ -15,7 +15,7 @@ Example::
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.history import History
     from konstruct.analysis.mutation import MutationTesting
     from konstruct.analysis.verify import Engine, Verification
+    from konstruct.analysis.why import Why
     from konstruct.engine.build import BuildResult
     from konstruct.engine.config import Config
     from konstruct.engine.trust import Trust
@@ -691,6 +692,50 @@ class Project:
             self.out_dir.mkdir(parents=True, exist_ok=True)
             jsonio.write_text(self.out_dir / 'MUTATION.md', result.markdown())
             jsonio.write_text(self.out_dir / 'mutation.json', json.dumps(document(result), indent=1) + '\n')
+        return result
+
+    def why(
+        self,
+        column: str,
+        where: Mapping[str, str],
+        *,
+        warehouse: str | Path | None = None,
+        limit: int = 50,
+        max_rows: int = 1_000_000,
+    ) -> Why:
+        """The source rows behind one value of a column, each with its share, and the related rows
+        a filter or a join left out, with the reason.
+
+        The value is the row of the column's model that ``where`` picks (``{'customer_id': '42'}``).
+        Runs read-only in verify's engines: the model's SQL is composed down to source tables, each
+        source is copied for the key alone where that is exact, and the computing step is rerun with
+        each row carrying the ids of its source rows.
+
+        Args:
+            column: A column, such as ``customer_ltv.lifetime_value``.
+            where: Output columns of the model and the values that pick one row.
+            warehouse: As for :meth:`verify`.
+            limit: The most rows listed in each table.
+            max_rows: The most rows copied from any source.
+
+        Returns:
+            The value, its contributing rows with their shares, and the rows left out.
+
+        Raises:
+            konstruct.QueryError: The column is not built by SQL that verify can rerun, the key does
+                not lead to the rows that compute it, or the SQL is of a shape whose rows cannot be
+                traced.
+
+        Example::
+
+            result = project.why('customer_ltv.lifetime_value', {'customer_id': '3'})
+            result.value, [c.values for c in result.contributions]
+        """
+        from konstruct.analysis.why import why
+
+        target = self._target(warehouse)
+        result = why(self.graph, self.root, target, column, dict(where), limit=limit, max_rows=max_rows)
+        result.warehouse = self._shown(target, result.warehouse)
         return result
 
     def _target(self, warehouse: str | Path | None) -> str | Engine:

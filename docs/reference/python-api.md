@@ -32,7 +32,7 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 | `konstruct.inputs` | `dbt`, `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `warehouse`, `usage` |
 | `konstruct.engine` | `build`, `config`, `worker` |
 | `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `ossie`, `registry` |
-| `konstruct.analysis` | `query`, `explain`, `conflicts`, `diff`, `gate`, `verify`, `mutation`, `history` |
+| `konstruct.analysis` | `query`, `explain`, `conflicts`, `diff`, `gate`, `verify`, `mutation`, `why`, `history` |
 | `konstruct.outputs` | `report`, `html`, `export` |
 | `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
 | `konstruct.plugins` | `api` (the plugin API: protocols and types), `registry` (finding, enabling and loading plugins) |
@@ -151,6 +151,9 @@ tests = project.mutate(models=['orders'], max_mutants=10)
 print(tests.score)  # killed / (killed + survived)
 for survivor in tests.models[0].survivors:
     print(survivor.mutant.description, survivor.suggestions[:1])
+
+rows = project.why('customer_ltv.lifetime_value', {'customer_id': '3'})
+print(rows.value, [c.values for c in rows.contributions])
 ```
 
 ```{eval-rst}
@@ -158,6 +161,7 @@ for survivor in tests.models[0].survivors:
 .. automethod:: konstruct.Project.gate
 .. automethod:: konstruct.Project.verify
 .. automethod:: konstruct.Project.mutate
+.. automethod:: konstruct.Project.why
 .. automethod:: konstruct.Project.export
 ```
 
@@ -338,6 +342,25 @@ for survivor in tests.models[0].survivors:
    :members:
 
 .. autofunction:: konstruct.core.mutate.mutants
+```
+
+### The Rows Behind a Value
+
+```{eval-rst}
+.. autoclass:: konstruct.analysis.why.Why
+   :members:
+
+.. autoclass:: konstruct.analysis.why.Contribution
+   :members:
+
+.. autoclass:: konstruct.analysis.why.Exclusion
+   :members:
+
+.. autoclass:: konstruct.analysis.why.SourceRow
+   :members:
+
+.. autoclass:: konstruct.analysis.why.Aggregate
+   :members:
 ```
 
 ### Builds
