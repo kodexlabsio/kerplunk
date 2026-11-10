@@ -28,6 +28,20 @@ def test_the_mcp_reference_lists_every_tool() -> None:
     assert listed == tools
 
 
+def test_the_mcp_reference_lists_every_prompt_and_resource(tmp_path: Path) -> None:
+    import anyio
+
+    from konstruct.interfaces.mcp_server import build_server
+
+    server = build_server(tmp_path)
+    prompts = {p.name for p in anyio.run(server.list_prompts)}
+    resources = {str(r.uri) for r in anyio.run(server.list_resources)}
+    page = (ROOT / 'docs' / 'reference' / 'mcp.md').read_text()
+    rows = {line.split('|')[1].strip() for line in page.splitlines() if line.startswith('| ')}
+    assert prompts and prompts <= rows
+    assert resources and resources <= rows
+
+
 def test_every_command_has_a_row_in_the_cli_reference() -> None:
     import argparse
 

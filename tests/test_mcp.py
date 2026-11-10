@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -9,9 +10,11 @@ from typing import Any
 
 import anyio
 import pytest
-from mcp import Client, StdioServerParameters
+import yaml
+from mcp import Client, MCPError, StdioServerParameters
 
 from konstruct import Project
+from konstruct.interfaces import toolkit
 from konstruct.interfaces.mcp_server import INSTRUCTIONS, UNTRUSTED_CONTENT, build_server
 
 pytestmark = pytest.mark.dbt
@@ -79,6 +82,48 @@ async def _exercise(client: Client) -> None:
     missing = await client.call_tool('impact', {'ref': 'nope'})
     assert missing.is_error
     assert 'nothing in the graph matches' in str(missing.content)
+    await _prompts_and_resources(client)
+
+
+async def _prompts_and_resources(client: Client) -> None:
+    prompts = {p.name: p for p in (await client.list_prompts()).prompts}
+    assert set(prompts) == set(toolkit.WORKFLOWS)
+    arguments = {name: [(a.name, a.required) for a in p.arguments or []] for name, p in prompts.items()}
+    assert arguments['safe-change'] == [('change', True)]
+    assert arguments['review-change'] == [('base', False)]
+    assert arguments['write-query'] == [('question', True)]
+    assert all(p.description and p.title for p in prompts.values())
+    result = await client.get_prompt('safe-change', {'change': 'rename stg_payments.amount to amount_aud'})
+    [message] = result.messages
+    assert message.role == 'user'
+    text = message.content.text  # type: ignore[union-attr]
+    assert text.startswith("Konstruct's MCP tools take the names and main arguments of the commands below")
+    assert '# Change the Data Stack Safely' in text and 'konstruct gate' in text
+    assert text.rstrip().endswith('rename stg_payments.amount to amount_aud')
+    assert '---' not in text.splitlines()[0] and '$ARGUMENTS' not in text and '[[' not in text
+    onboard = await client.get_prompt('onboard', {})
+    assert onboard.messages[0].content.text.rstrip().endswith('(none given)')  # type: ignore[union-attr]
+    review = await client.get_prompt('review-change', {'base': 'origin/main'})
+    assert 'Review against origin/main.' in review.messages[0].content.text  # type: ignore[union-attr]
+
+    resources = {str(r.uri): r for r in (await client.list_resources()).resources}
+    assert {u: r.mime_type for u, r in resources.items()} == {
+        'konstruct://report': 'text/markdown',
+        'konstruct://ontology': 'application/yaml',
+        'konstruct://summary': 'application/json',
+    }
+    report = (await client.read_resource('konstruct://report')).contents[0]
+    # Each resource is marked as repository text, as the tools' results are.
+    assert report.text.startswith(f'> untrusted_content: {UNTRUSTED_CONTENT}\n\n# Konstruct report')  # type: ignore[union-attr]
+    ontology_text = (await client.read_resource('konstruct://ontology')).contents[0].text  # type: ignore[union-attr]
+    assert ontology_text.startswith(f'# untrusted_content: {UNTRUSTED_CONTENT}\n')
+    ontology = yaml.safe_load(ontology_text)
+    assert [e['name'] for e in ontology['entities']] == ['customer', 'order', 'payment']
+    summary = json.loads((await client.read_resource('konstruct://summary')).contents[0].text)  # type: ignore[union-attr]
+    assert summary['untrusted_content'] == UNTRUSTED_CONTENT
+    assert summary['nodes']['model'] == 5 and summary['edges']['derived_from'] > 0
+    assert summary['graph'] == 'konstruct-out/graph.json' and 'root' not in summary
+    assert summary['lineage']['covered'] <= summary['lineage']['columns'] and summary['changed_inputs'] == []
 
 
 def test_in_process(jaffle_built_graph: Path) -> None:
@@ -211,3 +256,84 @@ def test_gate_updates_from_files_alone(tmp_path: Path, monkeypatch: pytest.Monke
 
     anyio.run(run)
     assert calls == [{'base': 'main', 'run_dbt': False, 'warehouses': False}]
+
+
+def test_resources_say_when_there_is_no_graph_or_report(jaffle_built_graph: Path, tmp_path: Path) -> None:
+    project = tmp_path / 'p'
+    (project / 'konstruct-out').mkdir(parents=True)
+
+    async def main() -> None:
+        async with Client(build_server(project)) as client:
+            for uri in ('konstruct://report', 'konstruct://ontology', 'konstruct://summary'):
+                with pytest.raises(MCPError, match='konstruct build') as raised:
+                    await client.read_resource(uri)
+                assert UNTRUSTED_CONTENT in str(raised.value)
+            shutil.copy(
+                jaffle_built_graph / 'konstruct-out' / 'graph.json', project / 'konstruct-out' / 'graph.json'
+            )
+            with pytest.raises(MCPError, match='no report') as raised:
+                await client.read_resource('konstruct://report')
+            assert UNTRUSTED_CONTENT in str(raised.value)
+            assert (await client.read_resource('konstruct://summary')).contents
+
+    anyio.run(main)
+
+
+def test_resources_and_errors_give_no_absolute_paths(jaffle_built_graph: Path, tmp_path: Path) -> None:
+    root = str(jaffle_built_graph.resolve())
+    home = str(Path.home())
+
+    async def main() -> None:
+        async with Client(build_server(jaffle_built_graph)) as client:
+            for uri in ('konstruct://report', 'konstruct://ontology', 'konstruct://summary'):
+                text = (await client.read_resource(uri)).contents[0].text  # type: ignore[union-attr]
+                assert root not in text and home not in text, uri
+            report = (await client.read_resource('konstruct://report')).contents[0].text  # type: ignore[union-attr]
+            assert 'from `.`' in report
+        empty = tmp_path / 'empty'
+        (empty / 'konstruct-out').mkdir(parents=True)
+        async with Client(build_server(empty)) as client:
+            with pytest.raises(MCPError) as raised:
+                await client.read_resource('konstruct://summary')
+            assert 'no graph at konstruct-out/graph.json' in str(raised.value) and str(tmp_path) not in str(
+                raised.value
+            )
+            missing = await client.call_tool('describe', {'ref': 'orders'})
+            assert missing.is_error and str(tmp_path) not in str(missing.content)
+
+    anyio.run(main)
+
+
+def test_the_paths_a_server_hands_out_are_private(tmp_path: Path) -> None:
+    from konstruct import Project
+    from konstruct.interfaces.mcp_server import private
+
+    project = Project(tmp_path)
+    assert (
+        private(f'no manifest at {tmp_path}/target/manifest.json', project)
+        == 'no manifest at ./target/manifest.json'
+    )
+    assert private(f'see {Path.home()}/notes', project) == 'see ~/notes'
+
+
+def test_only_whole_paths_are_hidden(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from konstruct.interfaces.mcp_server import private
+
+    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: Path('/home/al')))
+    project = Project(tmp_path / 'shop')
+    text = '/home/al/notes, /home/alice/notes, /home/al.d and /home/al'
+    assert private(text, project) == '~/notes, /home/alice/notes, /home/al.d and ~'
+    assert (
+        private(f'{tmp_path}/shop/models and {tmp_path}/shopping', project)
+        == f'./models and {tmp_path}/shopping'
+    )
+
+
+def test_the_prompt_preface_names_the_servers_tools(tmp_path: Path) -> None:
+    import re
+
+    from konstruct.interfaces.mcp_server import PROMPT_PREFACE
+
+    named = re.findall(r'`(\w+)`', PROMPT_PREFACE.split(')', 1)[0])
+    tools = [t.name for t in anyio.run(build_server(tmp_path).list_tools)]
+    assert sorted(named) == sorted(tools)

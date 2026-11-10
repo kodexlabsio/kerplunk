@@ -1,24 +1,29 @@
 """`konstruct mcp`: a stdio MCP server over the graph in konstruct-out.
 
 The server rereads graph.json whenever it changes, so `konstruct build --update` in another
-terminal is picked up without restarting the agent.
+terminal is picked up without restarting the agent. Besides its tools it offers the workflows of
+Konstruct's skills as prompts, and the report, the ontology and a summary of the graph as
+resources.
 """
 
 from __future__ import annotations
 
 import inspect
+import json
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from mcp.server import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 
 from konstruct import __version__
 from konstruct.analysis.query import QueryError
 from konstruct.core.formats import FormatError, document
 from konstruct.engine.config import ConfigError
+from konstruct.interfaces import toolkit
 from konstruct.interfaces.project import Project
 from konstruct.plugins.registry import describe as describe_error
 from konstruct.semantics.ontology import name_matches
@@ -47,21 +52,99 @@ def _untrusted_error(message: str) -> ToolError:
     return ToolError(f'{message} ({UNTRUSTED_CONTENT})')
 
 
+def _untrusted_resource_error(message: str) -> ResourceError:
+    """A resource error whose message quotes repository text (a path konstruct.toml can set)."""
+    return ResourceError(f'{message} ({UNTRUSTED_CONTENT})')
+
+
+RESOURCES_NOTE = """
+The resources hold the build's report, the ontology and a summary of the graph."""
+PROMPTS_NOTE = """
+The prompts give whole workflows (a safe change, a review, reconciling two numbers, writing a
+query)."""
+
+PROMPT_PREFACE = """\
+Konstruct's MCP tools take the names and main arguments of the commands below (`impact`, `trace`,
+`describe`, `explain`, `define`, `ontology`, `conflicts`, `history`, `path`, `search`, `diff`,
+`gate` and `query`) and return what the command returns with `--json`; use them where you can.
+Run the others (`konstruct build`, `status`, `list`, `verify` and `export`) in a shell. The
+`konstruct://report`, `konstruct://ontology` and `konstruct://summary` resources hold the build's
+REPORT.md, the ontology and a summary of the graph.
+
+"""
+
+
+def workflow(name: str, request: str) -> str:
+    """A skill's workflow as an MCP prompt's text, with the user's request in place."""
+    body = toolkit.split(toolkit.skill(name, 'prompt')).body
+    return PROMPT_PREFACE + body.replace('$ARGUMENTS', request.strip() or '(none given)')
+
+
+def private(text: str, project: Project) -> str:
+    """``text`` with the project's own directory as ``.`` and the home directory as ``~``, so what
+    the server hands an agent does not reveal where the project or the user's files are. A
+    directory is replaced only as a whole path: with a home of ``/home/al``, ``/home/alice`` is
+    left as it is."""
+    roots = {str(p) for p in (project.root, project.root.resolve(), project.path, project.path.resolve())}
+    home = str(Path.home())
+    replacements = [(root, '.') for root in sorted(roots, key=len, reverse=True)]
+    if len(home) > 1:
+        replacements.append((home, '~'))
+    for old, new in replacements:
+        # A Windows path in JSON text has its backslashes doubled.
+        for spelling in {old, old.replace('\\', '\\\\')}:
+            text = re.sub(re.escape(spelling) + r'(?![\w.-])', new, text)
+    return text
+
+
+def _shown(path: Path, project: Project) -> str:
+    """A path as an agent should see it: relative to the project, or with ``~`` for home."""
+    with_root = path.resolve()
+    root = project.root.resolve()
+    return (
+        with_root.relative_to(root).as_posix()
+        if with_root.is_relative_to(root)
+        else private(str(path), project)
+    )
+
+
+def summary(project: Project) -> dict[str, Any]:
+    """What the graph holds: its inputs, nodes and edges by kind, lineage coverage and warnings,
+    as `konstruct build --json` reports them, and whether inputs changed since it was built."""
+    from konstruct.outputs.report import analyse
+
+    graph = project.graph
+    findings = analyse(graph)
+    stats = graph.stats()
+    return {
+        'graph': _shown(project.graph_path, project),
+        'inputs': graph.meta.get('sources', []),
+        'nodes': {k: v for k, v in sorted(stats.items()) if not k.startswith('edge:')},
+        'edges': {k[5:]: v for k, v in sorted(stats.items()) if k.startswith('edge:')},
+        'lineage': {'covered': findings.lineage_covered, 'columns': findings.lineage_total},
+        'warnings': [private(w, project) for w in graph.warnings],
+        'changed_inputs': project.changed_inputs(),
+    }
+
+
 def build_server(root: Path, *, plugins: bool = True) -> MCPServer:
     project = Project(root, plugins=plugins)
-    server = MCPServer('konstruct', version=__version__, instructions=INSTRUCTIONS)
+    instructions = INSTRUCTIONS + RESOURCES_NOTE + PROMPTS_NOTE
+    server = MCPServer('konstruct', version=__version__, instructions=instructions)
 
     def run(func: Callable[..., Any], *args: Any) -> dict[str, Any]:
         if not project.has_graph():
-            # The path is the configured out_dir, which the repository's konstruct.toml can set.
             raise _untrusted_error(
-                f'no graph at {project.graph_path}; run `konstruct build` in the project first'
+                f'no graph at {_shown(project.graph_path, project)}; run `konstruct build` in the project first'
             )
         try:
             result: dict[str, Any] = document(func(*args))
         except (QueryError, FormatError) as error:
             raise _untrusted_error(str(error)) from error
         return {'untrusted_content': UNTRUSTED_CONTENT, **result}
+
+    _prompts(server)
+    _resources(server, project)
 
     @server.tool()
     def impact(ref: str, max_depth: int | None = None) -> dict[str, Any]:
@@ -204,6 +287,100 @@ def build_server(root: Path, *, plugins: bool = True) -> MCPServer:
             # keep the rest, Konstruct's own included, from being served.
             log.warning('%s: tool %r is left out: %s', plugin.label, name, describe_error(error))
     return server
+
+
+def _description(name: str) -> str:
+    return str(toolkit.split(toolkit.skill(name, 'prompt')).meta['description'])
+
+
+def _prompts(server: MCPServer) -> None:
+    """One prompt per workflow skill, named as the skill is, each taking the user's request."""
+
+    @server.prompt(
+        'safe-change', title='Change the data stack safely', description=_description('safe-change')
+    )
+    def safe_change(change: str) -> str:
+        return workflow('safe-change', change)
+
+    @server.prompt('review-change', title='Review a data change', description=_description('review-change'))
+    def review_change(base: str = '') -> str:
+        return workflow('review-change', f'Review against {base}.' if base.strip() else '')
+
+    @server.prompt('reconcile', title='Explain why two numbers differ', description=_description('reconcile'))
+    def reconcile(numbers: str) -> str:
+        return workflow('reconcile', numbers)
+
+    @server.prompt('write-query', title='Write a correct query', description=_description('write-query'))
+    def write_query(question: str) -> str:
+        return workflow('write-query', question)
+
+    @server.prompt(
+        'define-terms', title='Document and define terms', description=_description('define-terms')
+    )
+    def define_terms(term: str = '') -> str:
+        return workflow('define-terms', term)
+
+    @server.prompt('onboard', title='Onboard to a data repository', description=_description('onboard'))
+    def onboard(focus: str = '') -> str:
+        return workflow('onboard', focus)
+
+    @server.prompt(
+        'export-semantic-layer',
+        title='Export to a semantic layer',
+        description=_description('export-semantic-layer'),
+    )
+    def export_semantic_layer(output: str = '') -> str:
+        return workflow('export-semantic-layer', output)
+
+
+def _resources(server: MCPServer, project: Project) -> None:
+    def ready() -> None:
+        if not project.has_graph():
+            raise _untrusted_resource_error(
+                f'no graph at {_shown(project.graph_path, project)}; run `konstruct build` in the project first'
+            )
+
+    @server.resource(
+        'konstruct://report',
+        name='report',
+        title='REPORT.md',
+        description='The build report: inputs and counts, the most used columns, business terms, orphans, '
+        'untested models, columns with no lineage and warnings.',
+        mime_type='text/markdown',
+    )
+    def report() -> str:
+        ready()
+        path = project.out_dir / 'REPORT.md'
+        if not path.is_file():
+            raise _untrusted_resource_error(f'no report at {_shown(path, project)}; run `konstruct build`')
+        return f'> untrusted_content: {UNTRUSTED_CONTENT}\n\n' + private(
+            path.read_text(encoding='utf-8'), project
+        )
+
+    @server.resource(
+        'konstruct://ontology',
+        name='ontology',
+        title='The ontology',
+        description='The entities with their keys, the measures with their formulas composed to source, '
+        'the relationships between entities and any broken rules, as ontology.yml.',
+        mime_type='application/yaml',
+    )
+    def ontology_resource() -> str:
+        ready()
+        return f'# untrusted_content: {UNTRUSTED_CONTENT}\n' + private(project.ontology().to_yaml(), project)
+
+    @server.resource(
+        'konstruct://summary',
+        name='summary',
+        title='Graph summary',
+        description='What the graph holds: inputs, nodes and edges by kind, lineage coverage, warnings, '
+        'and the inputs changed since the last build.',
+        mime_type='application/json',
+    )
+    def summary_resource() -> str:
+        ready()
+        data = {'untrusted_content': UNTRUSTED_CONTENT, **summary(project)}
+        return private(json.dumps(data, indent=2), project)
 
 
 def serve(root: Path, *, plugins: bool = True) -> None:
