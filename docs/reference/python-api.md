@@ -33,6 +33,7 @@ script can move between them freely. A name that matches nothing, or several thi
 | `konstruct.analysis` | `query`, `explain`, `conflicts`, `diff`, `gate`, `verify`, `history` |
 | `konstruct.outputs` | `report`, `html`, `export` |
 | `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
+| `konstruct.plugins` | `api` (the plugin API: protocols and types), `registry` (finding, enabling and loading plugins) |
 
 ## Opening and Building a Project
 
@@ -56,6 +57,7 @@ if not project.has_graph() or project.changed_inputs():
 .. automethod:: konstruct.Project.has_graph
 .. automethod:: konstruct.Project.changed_inputs
 .. automethod:: konstruct.Project.config
+.. automethod:: konstruct.Project.plugins
 .. autoproperty:: konstruct.Project.graph
 .. autoproperty:: konstruct.Project.root
 .. autoproperty:: konstruct.Project.graph_path
@@ -388,6 +390,79 @@ These are stable enough to build on, but `Project` is the supported entry point.
    :members:
 
 .. autofunction:: konstruct.engine.build.build
+```
+
+## Plugins
+
+The plugin API (see [Writing a Plugin](../guide/plugins.md)): what a plugin provides for each
+entry-point group, and what Konstruct gives it. Everything here is imported from
+`konstruct.plugins`.
+
+```{eval-rst}
+.. autodata:: konstruct.plugins.api.API_VERSION
+
+.. autodata:: konstruct.plugins.api.RESERVED_NODE_ATTRS
+   :no-value:
+
+.. autodata:: konstruct.plugins.api.PLUGIN_NODE_ATTRS
+
+.. autodata:: konstruct.plugins.api.RESERVED_EDGE_ATTRS
+   :no-value:
+
+.. autodata:: konstruct.plugins.api.MAX_DEPTH
+
+.. autoclass:: konstruct.plugins.InputPlugin
+   :members:
+
+.. autoclass:: konstruct.plugins.InputFile
+   :members:
+
+.. autoclass:: konstruct.plugins.InputContext
+   :members:
+
+.. autoclass:: konstruct.plugins.Fragment
+   :members:
+
+.. autoclass:: konstruct.plugins.PluginNode
+   :members:
+
+.. autoclass:: konstruct.plugins.PluginEdge
+   :members:
+
+.. autoclass:: konstruct.plugins.Relation
+   :members:
+
+.. autoclass:: konstruct.plugins.Column
+   :members:
+
+.. autoclass:: konstruct.plugins.Sql
+   :members:
+
+.. autoclass:: konstruct.plugins.Source
+   :members:
+
+.. autoclass:: konstruct.plugins.ExportPlugin
+   :members:
+
+.. autoclass:: konstruct.plugins.ExportRequest
+   :members:
+
+.. autoclass:: konstruct.plugins.CheckPlugin
+   :members:
+
+.. autoclass:: konstruct.plugins.CheckContext
+   :members:
+
+.. autoclass:: konstruct.plugins.ToolsPlugin
+   :members:
+
+.. autoclass:: konstruct.plugins.Plugins
+   :members: plugins, missing, off, problems, discover, for_config, builtin, get, group, installed, names, tools
+
+.. autoclass:: konstruct.plugins.Plugin
+   :members:
+
+.. autoexception:: konstruct.plugins.PluginError
 ```
 
 ## Errors

@@ -1,0 +1,20 @@
+# The tickets of an in-house help desk, as its pipelines land them.
+name: helpdesk
+description: Help desk tickets
+schemas: ['*helpdesk*']
+match:
+  ticket|tickets: [id, status, requester_id, created_at]
+  user|users: [id, email, role]
+terms:
+  - name: Support ticket
+    kind: entity
+    definition: A request for help from a customer, opened by its requester and worked to a status.
+    columns: [ticket.id]
+  - name: Support requester
+    kind: entity
+    definition: The person who opened a ticket; an end user, an agent or an administrator.
+    columns: [user.id]
+  - name: Ticket status
+    kind: term
+    definition: Where a ticket is in its life (new, open, pending, hold, solved or closed).
+    columns: [ticket.status]

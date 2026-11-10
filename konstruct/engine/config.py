@@ -27,6 +27,9 @@ Example ``konstruct.toml``::
     [ossie]
     paths = ["semantic/"]                 # Apache Ossie models; default: every *.ossie.yaml
 
+    [plugins]
+    enabled = ["konstruct-yaml-pipelines"] # installed plugins this project runs; default: none
+
     [usage]                               # column usage from query history (off by default)
     enabled = true                        # Snowflake, BigQuery and Databricks warehouses
     days = 90
@@ -219,6 +222,10 @@ class Config:
     discover_warehouses: bool = True
     config_file: Path | None = None
     usage: UsageSettings = field(default_factory=lambda: _usage_settings({}))
+    plugins: list[str] = field(default_factory=list)
+    """The installed plugins this project runs, by distribution name (``[plugins] enabled``)."""
+    use_plugins: bool = True
+    """Whether plugins run at all; ``--no-plugins`` turns them off."""
     sections: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Every table of the configuration file as written, such as ``[looker]``, so an input finds
     its own settings by its name."""
@@ -227,10 +234,19 @@ class Config:
     to every repository built into the graph, not only this one."""
 
     def override(
-        self, *, run_dbt: bool | None = None, warehouses: bool = True, dialect: str | None = None
+        self,
+        *,
+        run_dbt: bool | None = None,
+        warehouses: bool = True,
+        dialect: str | None = None,
+        plugins: bool = True,
     ) -> None:
         """Apply build options over the configuration files: ``run_dbt=False`` never runs dbt,
-        ``warehouses=False`` connects to no warehouse, ``dialect`` replaces the detected one."""
+        ``warehouses=False`` connects to no warehouse, ``dialect`` replaces the detected one and
+        ``plugins=False`` runs no plugins."""
+        if not plugins:
+            self.use_plugins = False
+            self.options['plugins'] = False
         if run_dbt is not None:
             self.run_dbt = run_dbt
             self.options['run_dbt'] = run_dbt
@@ -279,21 +295,51 @@ def _flag(data: dict[str, Any], key: str, where: str, default: bool) -> bool:
     return value
 
 
-def _packs(data: dict[str, Any]) -> list[str] | None:
+def _packs(data: dict[str, Any], plugins: list[str]) -> list[str] | None:
     if 'packs' not in data:
         return None
+    from konstruct.plugins.registry import Plugins
     from konstruct.semantics.registry import load_packs
 
     packs = data['packs']
     if not isinstance(packs, list) or not all(isinstance(p, str) for p in packs):
         raise ConfigError('[ontologies] packs must be a list of pack names')
-    known = {p.name for p in load_packs()}
+    # What the project names is checked against what it enables, whether or not plugins are turned
+    # off for this run (--no-plugins, KONSTRUCT_NO_PLUGINS), so the switches cannot make a valid
+    # configuration invalid; a pack that is then not loaded is a build warning. Reading a pack
+    # directory runs no code.
+    registry = Plugins.discover(plugins, environment=False) if plugins else None
+    known = {p.name for p in load_packs(plugins=registry)}
     unknown = sorted(set(packs) - known)
     if unknown:
         raise ConfigError(
             f'[ontologies] packs: no pack named {unknown[0]!r} (there are {", ".join(sorted(known))})'
         )
     return list(packs)
+
+
+def _plugins(data: Any) -> list[str]:
+    enabled = data.get('enabled', []) if isinstance(data, dict) else None
+    if not isinstance(enabled, list) or not all(isinstance(p, str) for p in enabled):
+        raise ConfigError('[plugins] enabled is a list of distribution names: enabled = ["konstruct-x"]')
+    return list(enabled)
+
+
+def enabled_plugins(text: str, *, pyproject: bool = False) -> list[str]:
+    """The distributions ``[plugins] enabled`` lists in the text of a ``konstruct.toml``, or of a
+    ``pyproject.toml``'s ``[tool.konstruct]`` with ``pyproject``.
+
+    Raises:
+        ConfigError: The text is not TOML, or the list is not one of names.
+    """
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        raise ConfigError(f'not TOML: {error}') from error
+    if pyproject:
+        tool = data.get('tool', {}).get('konstruct')
+        data = tool if isinstance(tool, dict) else {}
+    return _plugins(data.get('plugins', {}))
 
 
 def _usage_settings(data: dict[str, Any]) -> UsageSettings:
@@ -340,6 +386,7 @@ def load_config(root: Path, out_dir: Path | None = None) -> Config:
     if not isinstance(repositories, list) or not all(isinstance(p, str) for p in repositories):
         # A [repositories] table would otherwise be read as a list of its keys.
         raise ConfigError('repositories is a list of paths: repositories = ["../marketing"]')
+    plugins = _plugins(data.get('plugins', {}))
     config = Config(
         root=root,
         out_dir=(out_dir or root / str(data.get('out_dir', 'konstruct-out'))).resolve(),
@@ -364,7 +411,7 @@ def load_config(root: Path, out_dir: Path | None = None) -> Config:
         powerbi_paths=[root / p for p in data.get('powerbi', {}).get('paths', [])]
         if 'paths' in data.get('powerbi', {})
         else None,
-        ontology_packs=_packs(data.get('ontologies', {})),
+        ontology_packs=_packs(data.get('ontologies', {}), plugins),
         sql_paths=list(sql['paths']) if 'paths' in sql else None,
         usage=_usage_settings(data.get('usage', {})),
         fivetran_lineage=_flag(data.get('fivetran', {}), 'lineage', '[fivetran] lineage', True),
@@ -383,6 +430,7 @@ def load_config(root: Path, out_dir: Path | None = None) -> Config:
         else None,
         discover_warehouses=bool(data.get('discover_warehouses', True)),
         config_file=config_file,
+        plugins=plugins,
         sections={k: v for k, v in data.items() if isinstance(v, dict)},
     )
     return config

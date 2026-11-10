@@ -38,7 +38,7 @@ from konstruct import __version__
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
 from konstruct.core.sql import PARSE_ERRORS
 from konstruct.plugins.api import API_VERSION, ExportRequest
-from konstruct.plugins.registry import BUILTINS
+from konstruct.plugins.registry import BUILTINS, describe
 
 if TYPE_CHECKING:
     from konstruct.plugins.registry import Plugins
@@ -89,6 +89,8 @@ def export(
     if plugin is None:
         names = [p.name for p in registry.plugins if p.group == 'exports' and p.enabled]
         raise ExportError(f'unknown export format {fmt!r}; choose from {", ".join(names)}')
+    if not plugin.enabled:
+        raise ExportError(f'export format {fmt!r} comes from {plugin.distribution}, which {plugin.reason}')
     request = ExportRequest(
         select=select,
         keep=frozenset(_selection(graph, select)) if select is not None else None,
@@ -97,8 +99,18 @@ def export(
         job_namespace=job_namespace,
         event_time=event_time,
     )
-    text: str = plugin.loaded.export(graph, request)
-    return text
+    if plugin.builtin:
+        text: Any = plugin.loaded.export(graph, request)
+    else:
+        try:
+            text = plugin.loaded.export(graph, request)
+        except ExportError:
+            raise
+        except Exception as error:
+            raise ExportError(f'{plugin.label} raised {describe(error)}') from error
+        if not isinstance(text, str):
+            raise ExportError(f'{plugin.label} returned {type(text).__name__}, not text')
+    return str(text)
 
 
 class BuiltinFormat:

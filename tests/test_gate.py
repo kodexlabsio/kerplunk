@@ -186,7 +186,10 @@ def test_the_build_options_reach_the_update(repo: Path, monkeypatch: pytest.Monk
 
     monkeypatch.setattr(Project, 'build', build)
     assert main(['gate', '-C', str(repo), '--base', 'HEAD', '--no-dbt', '--no-warehouse', '-q']) == 0
-    assert calls == [{'update': True, 'run_dbt': False, 'warehouses': False}]
+    # The update builds with the project's configuration, widened by the plugins the base enables.
+    assert [{k: v for k, v in c.items() if k != 'config'} for c in calls] == [
+        {'update': True, 'run_dbt': False, 'warehouses': False}
+    ]
     calls.clear()
     assert main(['gate', '-C', str(repo), '--base', 'HEAD', '--no-update', '-q']) == 0
     assert calls == []

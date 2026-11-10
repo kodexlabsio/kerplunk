@@ -52,6 +52,7 @@ guide/conflicts
 guide/usage
 guide/exporting
 guide/agents
+guide/plugins
 ```
 
 ```{toctree}

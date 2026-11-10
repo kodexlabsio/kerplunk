@@ -23,18 +23,21 @@ check is, and :func:`gate` runs every check the registry has.
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from konstruct.analysis.conflicts import Conflicts
 from konstruct.analysis.diff import Diff, RelationChange
 from konstruct.core.graph import Graph, column_id
-from konstruct.plugins.api import API_VERSION, CheckContext, Finding
+from konstruct.plugins.api import API_VERSION, CheckContext, Finding, finding_problem, one_line
+from konstruct.plugins.registry import describe
 
 if TYPE_CHECKING:
     from konstruct.interfaces.layout import Style
-    from konstruct.plugins.registry import Plugins
+    from konstruct.plugins.registry import Plugin, Plugins
 
 __all__ = ['RULES', 'Finding', 'Gate', 'gate']
 
@@ -87,8 +90,8 @@ class Gate:
         if self.findings:
             lines += ['', '| Rule | Finding | Fix |', '|---|---|---|']
             for finding in self.findings:
-                where = f' (`{finding.path}`)' if finding.path else ''
-                lines.append(f'| `{finding.rule}` | {finding.message}{where} | {finding.fix} |')
+                where = f' (`{_cell(finding.path)}`)' if finding.path else ''
+                lines.append(f'| `{finding.rule}` | {_cell(finding.message)}{where} | {_cell(finding.fix)} |')
         return '\n'.join(lines) + '\n'
 
     def to_dict(self) -> dict[str, Any]:
@@ -99,6 +102,11 @@ class Gate:
             'summary': self.summary(),
             'findings': [{**asdict(f), 'fix': f.fix} for f in self.findings],
         }
+
+
+def _cell(text: str) -> str:
+    """``text`` in a markdown table cell, where a ``|`` would end the cell."""
+    return text.replace('|', '\\|')
 
 
 def _changed_columns(graph: Graph, diff: Diff) -> dict[str, RelationChange]:
@@ -135,15 +143,78 @@ def _name(graph: Graph, node_id: str, fallback: str) -> str:
 
 def gate(graph: Graph, diff: Diff, conflicts: Conflicts, *, plugins: Plugins | None = None) -> Gate:
     """The gate for ``diff``, given the graph and the conflicts at the head: every check that
-    ``plugins`` (default: Konstruct's own checks) runs."""
+    ``plugins`` (default: Konstruct's own checks) runs. A plugin's check that raises, returns
+    something other than findings or cannot be loaded fails the gate with a finding that says so."""
     from konstruct.plugins.registry import Plugins
 
     registry = plugins or Plugins.builtin()
     result = Gate(base=diff.shown_base, changed=len(diff.source_files))
     context = CheckContext(graph=graph, diff=diff, conflicts=conflicts)
     for plugin in registry.group('checks'):
-        result.findings += plugin.loaded.check(context)
+        result.findings += _run(plugin, context)
+    for plugin in registry.failed('checks'):
+        result.findings.append(_failure(plugin, f'cannot run: {plugin.error}'))
     return result
+
+
+def plugins_at(root: Path, base: str | None) -> list[str]:
+    """The plugins the project's configuration enables at ``base`` (default: the merge base with
+    main, as for :func:`konstruct.analysis.diff.diff`); empty when it enables none there or the
+    file cannot be read. The gate runs these checks as well as the head's, so a change cannot
+    turn off a check that would judge it."""
+    from konstruct.analysis.diff import default_base, file_at, resolve_ref
+    from konstruct.engine.config import ConfigError, enabled_plugins
+
+    top = subprocess.run(
+        ['git', '-C', str(root), 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=False
+    )
+    if top.returncode != 0:
+        return []
+    repository = Path(top.stdout.strip())
+    ref = resolve_ref(root, base) if base else default_base(root)
+    prefix = root.resolve().relative_to(repository.resolve())
+    for name, pyproject in (('konstruct.toml', False), ('pyproject.toml', True)):
+        text = file_at(repository, ref, (prefix / name).as_posix())
+        if text is None:
+            continue
+        try:
+            found = enabled_plugins(text, pyproject=pyproject)
+        except ConfigError:
+            return []
+        # As load_config does: konstruct.toml wins, then [tool.konstruct] in pyproject.toml.
+        if found or not pyproject:
+            return found
+    return []
+
+
+def _run(plugin: Plugin, context: CheckContext) -> list[Finding]:
+    if plugin.builtin:
+        found: list[Finding] = plugin.loaded.check(context)
+        return found
+    try:
+        found = plugin.loaded.check(context)
+    except Exception as error:
+        return [_failure(plugin, f'raised {describe(error)}')]
+    if not isinstance(found, list) or any(finding_problem(f) is not None for f in found):
+        return [_failure(plugin, 'returned something other than findings, each with a rule, message and fix')]
+    # One line each, as the text, the markdown table and the JSON show them.
+    return [
+        Finding(
+            f'{plugin.name}.{one_line(f.rule)}',
+            one_line(f.message),
+            one_line(f.path) if f.path is not None else None,
+            one_line(f.fix),
+        )
+        for f in found
+    ]
+
+
+def _failure(plugin: Plugin, what: str) -> Finding:
+    return Finding(
+        f'{plugin.name}.failed',
+        f'the gate check from {plugin.distribution} {plugin.version} {what}',
+        fix='Fix or upgrade the plugin.',
+    )
 
 
 @dataclass(frozen=True)

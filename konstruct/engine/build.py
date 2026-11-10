@@ -41,7 +41,8 @@ from konstruct.engine.config import (
 )
 from konstruct.inputs import airflow, dagster, dbt
 from konstruct.inputs.warehouse import MissingDriver, RelationMeta
-from konstruct.plugins.registry import Plugin, Plugins
+from konstruct.plugins.api import briefly, json_problem, one_line
+from konstruct.plugins.registry import Plugin, PluginError, Plugins, describe
 from konstruct.semantics import definitions
 
 if TYPE_CHECKING:
@@ -52,6 +53,16 @@ progress = logging.getLogger('konstruct.progress')
 """Counts within a stage (``12 of 40 models``), for the CLI's spinner; quieter than ``log``."""
 
 CACHE_VERSION = 1
+
+BUILTIN_COUNTS = frozenset(
+    {
+        'airflow_dags', 'dagster_assets', 'dagster_ops', 'dbt_models', 'dbt_projects', 'definitions',
+        'fivetran_source_tables', 'landed_tables', 'ontology_pack_terms', 'ossie_metrics',
+        'powerbi_tables', 'spark_jobs', 'spark_statements', 'sql_files', 'warehouses',
+    }
+)  # fmt: skip
+"""The counts the build itself gives in :attr:`BuildResult.inputs`, which an input's counts
+(``<input>_<key>``) may not take, whether or not this build gives them."""
 
 
 class Cache:
@@ -169,7 +180,7 @@ class Builder:
         # One entry per input, for the build summary and `konstruct status`.
         self.sources: list[dict[str, str]] = []
         self.watched: set[str] = set()
-        self.plugins = Plugins.builtin()
+        self.plugins = Plugins.for_config(config)
 
     # Shared helpers
 
@@ -1196,14 +1207,18 @@ class Builder:
             self.graph.meta['ossie_authored_relationships'] = authored_relationships
 
     def load_inputs(self, schema_key: str) -> None:
-        """Every input in the plugin registry, each read into a fragment and merged."""
+        """Every input in the plugin registry, Konstruct's own (Looker) first, then the inputs of
+        the plugins the project enables, each read into a fragment and merged."""
         for plugin in self.plugins.group('inputs'):
             self.read_input(plugin, schema_key)
+        for problem in self.plugins.problems:
+            self.graph.warn(f'plugins: {problem}')
 
     def read_input(self, plugin: Plugin, schema_key: str) -> None:
         """One input: its files found by its patterns (or ``[<name>] paths``), read by the input
-        and merged into the graph. A fragment that is not valid is a bug, and raises."""
-        from konstruct.plugins.api import InputContext, InputFile
+        and merged into the graph. A plugin that raises or returns an invalid fragment is
+        reported and merges nothing; one of Konstruct's own that does is a bug and raises."""
+        from konstruct.plugins.api import Fragment, InputContext, InputFile
 
         name, reader = plugin.name, plugin.loaded
         patterns = list(reader.patterns)
@@ -1220,7 +1235,26 @@ class Builder:
                 self.graph.warn(f'{name}: cannot read {rel}: {error}')
 
         def cached(key: tuple[Any, ...], compute: Callable[[], Any]) -> Any:
-            return self.cache.get_or_compute(Cache.key(name, plugin.version, *key), compute)
+            def checked() -> Any:
+                value = compute()
+                # The cache is written at the end of the build: a value it cannot hold must fail
+                # this plugin now, inside its own error handling, and never be stored.
+                problem = json_problem(value)
+                if problem is not None:
+                    raise PluginError(f'context.cached({briefly(key)}): the value {problem}')
+                # As an update reads it back, so a cold build sees the same value (lists, not
+                # tuples).
+                return jsonio.loads(jsonio.dumps(value))
+
+            # The key is hashed as JSON: a part JSON cannot hold would hash by its repr, which
+            # can differ from one run to the next and miss the cache without a word.
+            problem = json_problem(list(key)) if isinstance(key, tuple) else 'is not a tuple'
+            if problem is not None:
+                raise PluginError(f'context.cached({briefly(key)}): the key {problem}')
+            stored = self.cache.get_or_compute(Cache.key(name, plugin.version, *key), checked)
+            # A copy on every call: a plugin that changes what it is given must not change what
+            # the cache keeps, or each --update would build on the last one's changes.
+            return jsonio.loads(jsonio.dumps(stored))
 
         context = InputContext(
             root=self.config.root,
@@ -1228,32 +1262,56 @@ class Builder:
             options=self.config.sections.get(name, {}),
             cached=cached,
         )
-        fragment = reader.read(files, context)
-        problems = fragment.problems()
+        if plugin.builtin:
+            fragment = reader.read(files, context)
+            problems = fragment.problems()
+        else:
+            try:
+                fragment = reader.read(files, context)
+                problems = (
+                    fragment.problems() if isinstance(fragment, Fragment) else ['read returned no Fragment']
+                )
+            except Exception as error:
+                self.plugin_failed(plugin, f'raised {describe(error)}')
+                return
         if problems:
-            raise AssertionError(
-                f'{plugin.label} returned a fragment that is not valid: {"; ".join(problems)}'
-            )
-        self.merge_fragment(name, fragment, schema_key)
+            more = f' and {len(problems) - 3} more' if len(problems) > 3 else ''
+            message = f'returned a fragment that is not valid: {"; ".join(problems[:3])}{more}'
+            if plugin.builtin:
+                raise AssertionError(f'{plugin.label} {message}')
+            self.plugin_failed(plugin, message)
+            return
+        self.merge_fragment(plugin, fragment, schema_key)
 
-    def merge_fragment(self, name: str, fragment: Fragment, schema_key: str) -> None:
+    def plugin_failed(self, plugin: Plugin, what: str) -> None:
+        self.graph.warn(f'plugins: {plugin.label} {what}; the build goes on without it')
+        self.sources.append(
+            {'input': plugin.name, 'name': plugin.distribution, 'status': 'failed', 'detail': what}
+        )
+
+    def merge_fragment(self, plugin: Plugin, fragment: Fragment, schema_key: str) -> None:
         """Add a valid fragment to the graph: its nodes under ``<name>.``, its relations and
-        columns resolved to the graph's, its SQL analysed for lineage, all with origin ``name``."""
+        columns resolved to the graph's, its SQL analysed for lineage, all with the input's name
+        as their origin."""
         from konstruct.plugins.api import Relation
 
+        name = plugin.name
         for warning in fragment.warnings:
-            self.graph.warn(f'{name}: {warning}')
+            self.graph.warn(f'{name}: {one_line(warning)}')
         nodes = {}
         for item in fragment.nodes:
             nodes[item.id] = self.graph.add_node(
                 Node(
                     id=f'{name}.{item.id}',
                     kind=item.kind,  # type: ignore[arg-type]
-                    name=item.name,
+                    # One line, so a name cannot start a heading in REPORT.md or break a label.
+                    name=one_line(item.name),
                     description=item.description,
                     path=item.path,
                     origins=[name],
-                    attrs=dict(item.attrs),
+                    # As graph.json reads back (lists, not tuples), so the graph a build returns
+                    # is the one it writes.
+                    attrs=jsonio.loads(jsonio.dumps(item.attrs)),
                 )
             )
         # Whether a relation's columns were known before a node's edges added any, per node.
@@ -1272,7 +1330,7 @@ class Builder:
                     where = f'{reader.path}: ' if reader is not None and reader.path else ''
                     who = repr(reader.name) if reader is not None else 'an edge'
                     default = f'{where}{who} reads {point.relation}.{point.name}, which is not a known column'
-                    self.graph.warn(f'{name}: {edge.missing or default}')
+                    self.graph.warn(f'{name}: {one_line(edge.missing or default)}')
                     return None
                 column = self.column(relation, point.name, name)
             return column.id
@@ -1281,7 +1339,8 @@ class Builder:
             source = end(edge.source, edge.target, edge)
             target = end(edge.target, edge.source, edge) if source is not None else None
             if source is not None and target is not None:
-                self.graph.add_edge(source, target, edge.kind, origin=name, **edge.attrs)  # type: ignore[arg-type]
+                attrs = jsonio.loads(jsonio.dumps(edge.attrs))
+                self.graph.add_edge(source, target, edge.kind, origin=name, **attrs)  # type: ignore[arg-type]
         for sql in fragment.sql:
             task = nodes[sql.task] if sql.task else None
             label = f'{name} {sql.path}'
@@ -1307,9 +1366,23 @@ class Builder:
                     via=task.id if task is not None else sql.path,
                 )
         for source_line in fragment.sources:
-            self.sources.append({'input': name, 'path': source_line.path, 'detail': source_line.detail})
+            self.sources.append(
+                {'input': name, 'path': one_line(source_line.path), 'detail': one_line(source_line.detail)}
+            )
         for key, count in fragment.counts.items():
-            self.inputs[f'{name}_{key}'] = count
+            # Each count is named <input>_<key>, so a_b's c and a's b_c would be one count.
+            joined = f'{name}_{key}'
+            taken = (
+                "one of Konstruct's own counts"
+                if joined in BUILTIN_COUNTS
+                else 'already a count'
+                if joined in self.inputs
+                else None
+            )
+            if taken is not None:
+                self.graph.warn(f'plugins: {plugin.label} count {key!r} is left out: {joined} is {taken}')
+                continue
+            self.inputs[joined] = count
 
     def load_powerbi(self) -> None:
         """Power BI semantic models (TMDL) as exposures: each table reads the warehouse tables its
@@ -1413,7 +1486,13 @@ class Builder:
                 columns.update(c.name.lower() for c in self.graph.columns_of(node.id))
                 if node.attrs.get('loaded_by'):
                     loaded.setdefault(schema, set()).add(table)
-        packs = registry.load_packs(self.config.ontology_packs, plugins=self.plugins)
+        problems: list[str] = []
+        packs = registry.load_packs(self.config.ontology_packs, plugins=self.plugins, problems=problems)
+        for problem in [*problems, *self.plugins.problems]:
+            self.graph.warn(f'plugins: {problem}')
+        for name in sorted(set(self.config.ontology_packs or []) - {p.name for p in packs}):
+            reason = self.plugins.off or 'no loaded pack has that name'
+            self.graph.warn(f'ontologies: pack {name!r} is not bound: {reason}')
         matches = registry.find(packs, schemas, loaded)
         suffixes = registry.suffixes(matches)
         found: list[definitions.Term] = []

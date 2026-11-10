@@ -1,0 +1,33 @@
+# An example Konstruct plugin. Install it beside Konstruct, which comes from its repository (it is
+# not on PyPI, and a bare `konstruct` requirement could resolve to another package of that name):
+#   uv pip install "konstruct @ git+https://github.com/kodexlabsio/konstruct" -e examples/plugin
+# then enable it in a project's konstruct.toml with [plugins] enabled = ["konstruct-yaml-pipelines"].
+[project]
+name = "konstruct-yaml-pipelines"
+version = "0.1.0"
+description = "An example Konstruct plugin: YAML pipelines as an input, a gate check, an ontology pack and an MCP tool."
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = ["konstruct @ git+https://github.com/kodexlabsio/konstruct", "pyyaml>=6.0"]
+
+[project.entry-points."konstruct.inputs"]
+pipelines = "konstruct_yaml_pipelines:PIPELINES"
+
+[project.entry-points."konstruct.checks"]
+pipelines = "konstruct_yaml_pipelines:OWNERS"
+
+[project.entry-points."konstruct.packs"]
+pipelines = "konstruct_yaml_pipelines.packs"
+
+[project.entry-points."konstruct.mcp_tools"]
+pipelines = "konstruct_yaml_pipelines:TOOLS"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["konstruct_yaml_pipelines"]

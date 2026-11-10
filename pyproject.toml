@@ -130,7 +130,7 @@ skip-magic-trailing-comma = false
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["konstruct", "tests", "paper"]
+files = ["konstruct", "tests", "paper", "examples/plugin"]
 exclude = ["^tests/fixtures/"]
 warn_unreachable = true
 

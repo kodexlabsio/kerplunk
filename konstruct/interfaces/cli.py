@@ -15,7 +15,7 @@ import re
 import sys
 import textwrap
 import webbrowser
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -25,17 +25,19 @@ from konstruct.interfaces.layout import Style, Text, paragraph, wrap
 from konstruct.interfaces.layout import command as command_lines
 from konstruct.interfaces.project import OUT_DIR, Project, find_out_dir
 from konstruct.interfaces.render import build_lines
+from konstruct.plugins.registry import BUILTINS
 
 __all__ = ['OUT_DIR', 'find_out_dir', 'main', 'parser']
 
+BUILTIN_FORMATS = tuple(name for name, _ in BUILTINS['exports'])
 NODE_KINDS = ('source', 'table', 'column', 'model', 'seed', 'snapshot', 'dag', 'task', 'test', 'exposure')
 
 
 def _project(args: argparse.Namespace) -> Project:
     if getattr(args, 'graph', None):
         graph = Path(args.graph).resolve()
-        return Project(graph.parent.parent, out_dir=graph.parent)
-    return Project(args.project)
+        return Project(graph.parent.parent, out_dir=graph.parent, plugins=not args.no_plugins)
+    return Project(args.project, plugins=not args.no_plugins)
 
 
 def _ready(
@@ -95,7 +97,10 @@ def cmd_build(args: argparse.Namespace, console: Console) -> int:
         return 1
     config = load_config(root, Path(args.out) if args.out else None)
     config.override(
-        run_dbt=False if args.no_dbt else None, warehouses=not args.no_warehouse, dialect=args.dialect
+        run_dbt=False if args.no_dbt else None,
+        warehouses=not args.no_warehouse,
+        dialect=args.dialect,
+        plugins=not args.no_plugins,
     )
     progress = console.progress(f'Building {config.root}')
     if not args.json and not progress.enabled:
@@ -151,7 +156,7 @@ def _print_build(
 def cmd_status(args: argparse.Namespace, console: Console) -> int:
     from konstruct.interfaces.status import inspect
 
-    status = inspect(Path(args.project))
+    status = inspect(Path(args.project), plugins=not args.no_plugins)
     _emit(console, status, args.json)
     return 0
 
@@ -384,8 +389,30 @@ def cmd_install(args: argparse.Namespace, console: Console) -> int:
 def cmd_mcp(args: argparse.Namespace, console: Console) -> int:
     from konstruct.interfaces.mcp_server import serve
 
-    serve(Path(args.project))
+    serve(Path(args.project), plugins=not args.no_plugins)
     return 0
+
+
+def cmd_plugins(args: argparse.Namespace, console: Console) -> int:
+    _emit(console, _project(args).plugins().load_all(), args.json)
+    return 0
+
+
+class _ExportFormats:
+    """The export formats, Konstruct's own and those of installed plugins. Installed plugins are
+    looked up only for a name that is not Konstruct's, so other commands, and exports in
+    Konstruct's own formats, do not read the installed distributions here."""
+
+    def _names(self) -> list[str]:
+        from konstruct.plugins.registry import Plugins
+
+        return Plugins.discover().names('exports')
+
+    def __contains__(self, name: object) -> bool:
+        return name in BUILTIN_FORMATS or name in self._names()
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._names())
 
 
 # Parser
@@ -397,6 +424,7 @@ GROUPS = (
     ('Business meaning', ('define', 'ontology', 'conflicts')),
     ('Changes', ('diff', 'gate', 'verify')),
     ('Agents', ('install', 'mcp')),
+    ('Plugins', ('plugins',)),
 )
 """The commands in ``konstruct --help``, grouped by what they are for."""
 
@@ -498,6 +526,10 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ('konstruct install --target . --mcp', 'into this repository, with the MCP server'),
     ),
     'mcp': (('konstruct mcp', 'run by an agent from its configuration, not by hand'),),
+    'plugins': (
+        ('konstruct plugins', 'installed plugins, and whether each runs for this project'),
+        ('konstruct plugins --json', 'the same as JSON'),
+    ),
 }
 
 NAMES = """\
@@ -697,6 +729,12 @@ def _common() -> _Parser:
     common.add_argument(
         '-q', '--quiet', action='store_true', default=argparse.SUPPRESS, help='no progress messages on stderr'
     )
+    common.add_argument(
+        '--no-plugins',
+        action='store_true',
+        default=argparse.SUPPRESS,
+        help='run no plugins, whatever konstruct.toml enables (KONSTRUCT_NO_PLUGINS=1 also does)',
+    )
     return common
 
 
@@ -869,9 +907,11 @@ def parser() -> argparse.ArgumentParser:
     )
     exporting.add_argument(
         'format',
-        choices=['openlineage', 'mermaid', 'dot', 'csv', 'ossie'],
+        choices=_ExportFormats(),
+        # A metavar, so that argparse does not list the choices, which would look for installed
+        # plugins whenever the parser is built.
         metavar='FORMAT',
-        help='openlineage, mermaid, dot, csv or ossie',
+        help=f'{", ".join(BUILTIN_FORMATS)}, or a format a plugin adds',
     )
     exporting.add_argument('-o', '--output', metavar='FILE', help='write to FILE instead of stdout')
     exporting.add_argument(
@@ -979,6 +1019,10 @@ def parser() -> argparse.ArgumentParser:
 
     mcp = add('mcp', 'run the MCP server on stdio (for agent configuration, not interactive use)')
     mcp.set_defaults(func=cmd_mcp)
+
+    plugins = add('plugins', 'list installed plugins and whether each runs for this project')
+    plugins.add_argument('--json', action='store_true', help='print JSON instead of text')
+    plugins.set_defaults(func=cmd_plugins)
     return root
 
 
@@ -991,7 +1035,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         _help_style = dataclasses.replace(_help_style, width=80)
     arguments = parser()
     args = arguments.parse_args(_given)
-    for name, default in (('project', '.'), ('no_color', False), ('verbose', False), ('quiet', False)):
+    for name, default in (
+        ('project', '.'),
+        ('no_color', False),
+        ('verbose', False),
+        ('quiet', False),
+        ('no_plugins', False),
+    ):
         if not hasattr(args, name):
             setattr(args, name, default)
     console = Console(colour=False if args.no_color else None, quiet=args.quiet, verbose=args.verbose)

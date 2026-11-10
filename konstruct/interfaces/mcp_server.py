@@ -6,6 +6,8 @@ terminal is picked up without restarting the agent.
 
 from __future__ import annotations
 
+import inspect
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -15,8 +17,12 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from konstruct import __version__
 from konstruct.analysis.query import QueryError
+from konstruct.engine.config import ConfigError
 from konstruct.interfaces.project import Project
+from konstruct.plugins.registry import describe as describe_error
 from konstruct.semantics.ontology import name_matches
+
+log = logging.getLogger(__name__)
 
 INSTRUCTIONS = """\
 Konstruct answers questions about this repository's data stack: dbt models, sources, tests and
@@ -40,8 +46,8 @@ def _untrusted_error(message: str) -> ToolError:
     return ToolError(f'{message} ({UNTRUSTED_CONTENT})')
 
 
-def build_server(root: Path) -> MCPServer:
-    project = Project(root)
+def build_server(root: Path, *, plugins: bool = True) -> MCPServer:
+    project = Project(root, plugins=plugins)
     server = MCPServer('konstruct', version=__version__, instructions=INSTRUCTIONS)
 
     def run(func: Callable[..., Any], *args: Any) -> dict[str, Any]:
@@ -180,8 +186,22 @@ def build_server(root: Path) -> MCPServer:
         lineage when the question asks for it. Prefer the specific tools when you know the name."""
         return run(project.query, question)
 
+    # The tools of the plugins the project enables, each named <plugin>_<tool>. The server answers
+    # from graph.json, so a konstruct.toml it cannot read costs only the plugins' tools.
+    try:
+        tools = project.plugins().tools(project)
+    except ConfigError as error:
+        log.warning('no plugin tools: %s', error)
+        tools = []
+    for name, function, plugin in tools:
+        try:
+            server.add_tool(function, name=name, description=inspect.getdoc(function))
+        except Exception as error:
+            # One tool the server cannot describe (a parameter type with no JSON schema) must not
+            # keep the rest, Konstruct's own included, from being served.
+            log.warning('%s: tool %r is left out: %s', plugin.label, name, describe_error(error))
     return server
 
 
-def serve(root: Path) -> None:
-    build_server(root).run('stdio')
+def serve(root: Path, *, plugins: bool = True) -> None:
+    build_server(root, plugins=plugins).run('stdio')

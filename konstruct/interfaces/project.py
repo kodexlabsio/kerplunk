@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.verify import Engine, Verification
     from konstruct.engine.build import BuildResult
     from konstruct.engine.config import Config
+    from konstruct.plugins.registry import Plugins
     from konstruct.semantics.ontology import Ontology
 
 OUT_DIR = 'konstruct-out'
@@ -80,8 +81,13 @@ class Project:
         print(project.explain('orders.amount').composed)
     """
 
-    def __init__(self, path: str | Path = '.', *, out_dir: str | Path | None = None) -> None:
+    def __init__(
+        self, path: str | Path = '.', *, out_dir: str | Path | None = None, plugins: bool = True
+    ) -> None:
         self.path = Path(path).resolve()
+        self.use_plugins = plugins
+        """Whether the plugins ``konstruct.toml`` enables run; ``False`` is ``--no-plugins``."""
+        self._plugins: Plugins | None = None
         if out_dir is not None:
             self.out_dir = Path(out_dir).resolve()
         else:
@@ -117,7 +123,24 @@ class Project:
         """
         from konstruct.engine.config import load_config
 
-        return load_config(self.path, self.out_dir)
+        config = load_config(self.path, self.out_dir)
+        config.override(plugins=self.use_plugins)
+        return config
+
+    def plugins(self) -> Plugins:
+        """The plugin registry for this project: Konstruct's own inputs, export formats, gate checks
+        and ontology packs, and every installed plugin with whether it runs here and why.
+
+        Example::
+
+            for plugin in project.plugins().installed():
+                print(plugin.distribution, plugin.group, plugin.name, plugin.enabled, plugin.reason)
+        """
+        from konstruct.plugins.registry import Plugins
+
+        if self._plugins is None:
+            self._plugins = Plugins.for_config(self.config())
+        return self._plugins
 
     def build(
         self,
@@ -153,7 +176,7 @@ class Project:
         from konstruct.engine.build import build
 
         config = config or self.config()
-        config.override(run_dbt=run_dbt, warehouses=warehouses, dialect=dialect)
+        config.override(run_dbt=run_dbt, warehouses=warehouses, dialect=dialect, plugins=self.use_plugins)
         result = build(config, update=update)
         self.out_dir = config.out_dir
         self._graph = result.graph
@@ -468,8 +491,9 @@ class Project:
 
         Args:
             fmt: ``openlineage`` (JSON lines of static ``JobEvent`` objects with schema and column
-                lineage facets), ``mermaid``, ``dot``, ``csv`` (one row per column edge) or ``ossie``
-                (the ontology as an Apache Ossie semantic model).
+                lineage facets), ``mermaid``, ``dot``, ``csv`` (one row per column edge), ``ossie``
+                (the ontology as an Apache Ossie semantic model), or a format a plugin the project
+                enables adds.
             select: Only the lineage, both directions, of this table or column.
             columns: For ``mermaid`` and ``dot``, draw columns and column lineage.
             namespace: For ``openlineage``, the dataset namespace (default ``<dialect>://konstruct``).
@@ -479,8 +503,8 @@ class Project:
 
         Raises:
             konstruct.outputs.export.ExportError: ``fmt`` is not one of the formats, ``select`` is given
-                with ``ossie``, or the ontology has no entities or measures to export as Ossie.
-                It is a ``ValueError``.
+                with ``ossie``, the ontology has no entities or measures to export as Ossie, or a
+                plugin's format failed. It is a ``ValueError``.
             konstruct.QueryError: ``select`` matches nothing or several things.
 
         Example::
@@ -491,7 +515,9 @@ class Project:
         from konstruct.outputs.export import export
 
         node = query.resolve_one(self.graph, select) if select else None
-        return export(self.graph, fmt, select=node, columns=columns, namespace=namespace)
+        return export(
+            self.graph, fmt, select=node, columns=columns, namespace=namespace, plugins=self.plugins()
+        )
 
     def list(self, kinds: list[str] | None = None) -> query.Listing:
         """Every node of the given kinds.
@@ -662,7 +688,10 @@ class Project:
         :meth:`diff` does, and reports what stops the change: a removed column something still
         reads, an approved term whose meaning changes (in definitions.yml or through a column it
         names), and a column the change alters that computes a business idea differently from
-        another (as :meth:`conflicts` finds). Each finding says what to do about it.
+        another (as :meth:`conflicts` finds), and the findings of the gate checks of the plugins
+        the project enables. The plugins enabled at ``base`` run as well as those enabled now,
+        in the update and in the checks, so a change cannot turn off a plugin that judges it.
+        Each finding says what to do about it.
 
         Args:
             base: The commit to compare with. By default, the merge base with ``main``.
@@ -678,11 +707,18 @@ class Project:
                 for finding in result.findings:
                     print(finding.rule, finding.message, finding.fix)
         """
-        from konstruct.analysis.gate import gate
+        from konstruct.analysis.gate import gate, plugins_at
+        from konstruct.plugins.registry import Plugins
 
+        # The plugins the base enables run too, its inputs in the update and its checks in the
+        # gate: a change that takes a plugin out of konstruct.toml is still judged by it.
+        config = self.config()
+        head = config.plugins
+        config.plugins = list(dict.fromkeys([*head, *plugins_at(self.root, base)]))
         if update:
-            self.build(update=True, run_dbt=run_dbt, warehouses=warehouses)
-        return gate(self.graph, self.diff(base=base), self.conflicts())
+            self.build(update=True, run_dbt=run_dbt, warehouses=warehouses, config=config)
+        checks = self.plugins() if config.plugins == head else Plugins.for_config(config)
+        return gate(self.graph, self.diff(base=base), self.conflicts(), plugins=checks)
 
     def query(self, question: str, depth: int = 1) -> query.QueryResult:
         """Answer a question in words with the nodes it is about and their connections.

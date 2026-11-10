@@ -54,6 +54,10 @@ class Status:
     graph: dict[str, Any] = field(default_factory=dict)
     skills: list[str] = field(default_factory=list)
     repositories: list[dict[str, Any]] = field(default_factory=list)
+    plugins: list[dict[str, Any]] = field(default_factory=list)
+    """Each installed plugin's components, with whether it runs for this project and why."""
+    missing_plugins: list[str] = field(default_factory=list)
+    """Distributions ``[plugins] enabled`` names that are not installed."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -76,6 +80,8 @@ class Status:
             'graph': self.graph,
             'skills': self.skills,
             'repositories': self.repositories,
+            'plugins': self.plugins,
+            'missing_plugins': self.missing_plugins,
         }
 
     def lines(self) -> list[tuple[str, str]]:
@@ -123,6 +129,15 @@ class Status:
                 )
         for repository in self.repositories:
             rows.append(('repository', f'{repository["name"]} ({repository["path"]}): {repository["found"]}'))
+        by_distribution: dict[str, list[dict[str, Any]]] = {}
+        for plugin in self.plugins:
+            by_distribution.setdefault(plugin['distribution'], []).append(plugin)
+        for distribution, parts in by_distribution.items():
+            provides = ', '.join(f'{p["group"].replace("_", " ")} {p["name"]}' for p in parts)
+            state = 'enabled' if any(p['enabled'] for p in parts) else parts[0]['reason']
+            rows.append(('plugin', f'{distribution} {parts[0]["version"]} ({provides}): {state}'))
+        for name in self.missing_plugins:
+            rows.append(('plugin', f'{name}: enabled in konstruct.toml, but not installed'))
         graph = self.graph
         if graph.get('exists'):
             state = (
@@ -209,14 +224,23 @@ def _sql_used_by(dag_files: list[Path]) -> set[Path]:
 
 
 def inspect(
-    path: Path, out_dir: Path | None = None, home: Path | None = None, *, follow: bool = True
+    path: Path,
+    out_dir: Path | None = None,
+    home: Path | None = None,
+    *,
+    follow: bool = True,
+    plugins: bool = True,
 ) -> Status:
     """What Konstruct finds at ``path``; with ``follow``, also in each repository it lists, though
-    not in theirs, as the build does not follow them."""
+    not in theirs, as the build does not follow them. Installed plugins are listed with whether
+    the project enables them, without loading any (``konstruct plugins`` loads them)."""
     from konstruct.engine.build import changed_inputs, repository_name
     from konstruct.interfaces.project import find_out_dir
+    from konstruct.plugins.registry import Plugins
 
     config = load_config(path, out_dir)
+    config.override(plugins=plugins)
+    registry = Plugins.for_config(config)
     root = config.root
     status = Status(
         root=root, config_file=_relative(config.config_file, root) if config.config_file else None
@@ -253,6 +277,8 @@ def inspect(
     status.dagster_files = [_relative(p, root) for p in discover_dagster_files(config)]
     status.ossie_files = [_relative(p, root) for p in discover_ossie_files(config)]
     status.vocabulary_files = [_relative(p, root) for p in config.vocabulary_paths if p.is_file()]
+    status.plugins = [p.to_dict() for p in registry.installed()]
+    status.missing_plugins = registry.missing
 
     out = out_dir or find_out_dir(root)
     names: list[str] = []

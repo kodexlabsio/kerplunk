@@ -253,6 +253,7 @@ Try the [live demo](https://kodexlabsio.github.io/konstruct/demo/): the viewer f
 - Python: `konstruct.Project`, with [typed results](https://kodexlabsio.github.io/konstruct/reference/python-api.html) for every question.
 - A browser: `graph.html`, [one offline file](https://kodexlabsio.github.io/konstruct/guide/viewer.html) with the lineage, formulas, business terms, verification results and usage, with `REPORT.md` and `ontology.yml` beside it for reading in a repository.
 - Other tools: `konstruct export` writes OpenLineage events, Mermaid, Graphviz DOT, CSV and Apache Ossie ([exporting](https://kodexlabsio.github.io/konstruct/guide/exporting.html)).
+- Plugins: installed Python packages add inputs, export formats, gate checks, ontology packs and MCP tools through entry points, each run only when a project enables it in `konstruct.toml`; `konstruct plugins` lists them ([writing a plugin](https://kodexlabsio.github.io/konstruct/guide/plugins.html)).
 
 ## Documentation
 

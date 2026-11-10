@@ -296,8 +296,10 @@ formula and when it changed; \cmd{konstruct verify} checks lineage against data;
 \cmd{konstruct diff} and \cmd{konstruct gate} review changes; \cmd{konstruct define},
 \cmd{konstruct ontology} and \cmd{konstruct conflicts} answer what things mean;
 \cmd{konstruct export} writes OpenLineage events (\cmd{openlineage}), Mermaid (\cmd{mermaid}),
-Graphviz (\cmd{dot}), CSV (\cmd{csv}) and Apache Ossie (\cmd{ossie}); and \cmd{konstruct install}
-and \cmd{konstruct mcp} connect coding agents. The Python API, \cmd{konstruct.Project}, returns
+Graphviz (\cmd{dot}), CSV (\cmd{csv}) and Apache Ossie (\cmd{ossie}); \cmd{konstruct plugins}
+lists the installed plugins, which add inputs, export formats, gate checks, ontology packs and
+MCP tools, and whether each runs; and \cmd{konstruct install} and \cmd{konstruct mcp} connect
+coding agents. The Python API, \cmd{konstruct.Project}, returns
 typed results for each question, and \cmd{graph.html} is one offline file with the lineage,
 formulas, terms, verification results and usage.
 

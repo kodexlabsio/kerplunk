@@ -223,22 +223,40 @@ def _all() -> tuple[Pack, ...]:
     return tuple(Pack(**item) for item in read_index())
 
 
-def load_packs(names: list[str] | None = None, *, plugins: Plugins | None = None) -> list[Pack]:
+def load_packs(
+    names: list[str] | None = None, *, plugins: Plugins | None = None, problems: list[str] | None = None
+) -> list[Pack]:
     """The packs of every pack directory in ``plugins`` (default: Konstruct's own), all of them or
-    those named. Konstruct's own directory is read through its index."""
+    those named. Konstruct's own directory is read through its index. A pack whose name an earlier
+    directory already has is left out, and a plugin's file that cannot be read too, each with a
+    line added to ``problems`` when it is given."""
     from konstruct.plugins.registry import Plugins
 
     packs: list[Pack] = []
+    problems = problems if problems is not None else []
+    seen: dict[str, str] = {}
     for plugin in (plugins or Plugins.builtin()).group('packs'):
         if plugin.builtin:
             found = list(_all())
         else:
-            found = [
-                read_pack(yaml.safe_load(path.read_text(encoding='utf-8')) or {}, path.stem, 'hand-written')
-                for path in sorted(Path(plugin.loaded).glob('*.yml'))
-            ]
-            found = [replace(pack, source=plugin.distribution) for pack in found]
-        packs += [p for p in found if names is None or p.name in names]
+            found = []
+            for path in sorted(Path(plugin.loaded).glob('*.yml')):
+                try:
+                    data = yaml.safe_load(path.read_text(encoding='utf-8')) or {}
+                    pack = read_pack(data, path.stem, 'hand-written')
+                except (OSError, yaml.YAMLError, AttributeError, TypeError) as error:
+                    problems.append(f'{plugin.label}: cannot read {path.name}: {error}')
+                    continue
+                found.append(replace(pack, source=plugin.distribution))
+        for pack in found:
+            if pack.name in seen:
+                problems.append(
+                    f'{plugin.label}: pack {pack.name!r} is already provided by {seen[pack.name]}'
+                )
+                continue
+            seen[pack.name] = plugin.distribution
+            if names is None or pack.name in names:
+                packs.append(pack)
     return packs
 
 
