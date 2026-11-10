@@ -16,7 +16,9 @@ models through CTEs, with a manifest, a catalog and Airflow DAGs. For each size 
   search, a query, a path from the 11th model to the deepest and a describe of the deepest
   model, and one run of conflicts over every candidate column;
 * the formula identity test: translating every column's composed formula into the core's
-  program, then fingerprinting all of them and grouping them by fingerprint.
+  program, then fingerprinting all of them and grouping them by fingerprint;
+* how long graph.html takes to show its overview and to draw its full lineage graph in headless
+  Chromium, when Playwright's Chromium is installed.
 
 It also measures start-up: the CPU time of ``konstruct --help`` and of ``konstruct status`` on
 the largest project, each in a fresh process.
@@ -87,6 +89,38 @@ def identity(graph: Graph) -> tuple[int, float, float]:
     return len(columns), translated, time.perf_counter() - started
 
 
+def render_times(page_path: Path) -> tuple[float | None, float | None]:
+    """Seconds for graph.html to show its overview, and its full lineage graph, in headless
+    Chromium (medians of three loads); None when Playwright's Chromium is not installed."""
+    try:
+        from playwright.sync_api import Error, sync_playwright
+    except ImportError:
+        return None, None
+    opened: list[float] = []
+    drawn: list[float] = []
+    with sync_playwright() as playwright:
+        try:
+            # KONSTRUCT_BROWSER_CHANNEL=chrome uses an installed Google Chrome, as the tests do.
+            browser = playwright.chromium.launch(channel=os.environ.get('KONSTRUCT_BROWSER_CHANNEL') or None)
+        except Error:
+            return None, None
+        for _ in range(3):
+            page = browser.new_page(viewport={'width': 1600, 'height': 900})
+            started = time.perf_counter()
+            page.goto(page_path.as_uri())
+            page.wait_for_selector('#page h1', timeout=120_000)
+            opened.append(time.perf_counter() - started)
+            page.close()
+            page = browser.new_page(viewport={'width': 1600, 'height': 900})
+            started = time.perf_counter()
+            page.goto(page_path.as_uri() + '#/lineage')
+            page.wait_for_selector('#nodes [data-id]', timeout=120_000)
+            drawn.append(time.perf_counter() - started)
+            page.close()
+        browser.close()
+    return statistics.median(opened), statistics.median(drawn)
+
+
 def measure(models: int) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix='konstruct-bench-') as directory:
         root = Path(directory)
@@ -113,6 +147,7 @@ def measure(models: int) -> dict[str, Any]:
         walk = project.impact('raw_m008' if models > 8 else 'raw_m000')
         startup = {} if models != max(SIZES) else measure_startup(root)
         formulas, translate, fingerprint = identity(loaded)
+        opened, drawn = render_times(project.out_dir / 'graph.html')
         return {
             'models': models,
             'columns': sum(1 for n in graph.nodes.values() if n.kind == 'column'),
@@ -142,6 +177,8 @@ def measure(models: int) -> dict[str, Any]:
             'formulas': formulas,
             'identity_translate_s': round(translate, 2),
             'identity_fingerprint_ms': round(1000 * fingerprint, 1),
+            'viewer_open_s': None if opened is None else round(opened, 2),
+            'viewer_lineage_s': None if drawn is None else round(drawn, 2),
         }
 
 
@@ -202,15 +239,20 @@ def markdown(rows: list[dict[str, Any]]) -> str:
     lines = [
         '| Models | Columns | Column edges | Cold build | `--update`, no change | `--update`, one model edited '
         '| impact | trace | explain | text of a large impact | graph.html | Hook, no change '
-        '| Hook, one model edited |',
-        '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
+        '| Hook, one model edited | Page opens | Full lineage drawn |',
+        '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
     ]
+
+    def seconds(value: float | None) -> str:
+        return 'n/a' if value is None else f'{value} s'
+
     for r in rows:
         lines.append(
             f'| {r["models"]:,} | {r["columns"]:,} | {r["column_edges"]:,} | {r["cold_build_s"]} s '
             f'| {r["update_unchanged_s"]} s | {r["update_one_model_s"]} s | {r["impact_ms"]} ms '
             f'| {r["trace_ms"]} ms | {r["explain_ms"]} ms | {r["render_ms"]} ms ({r["render_lines"]:,} lines) '
-            f'| {r["graph_html_mb"]} MB | {r["hook_unchanged_s"]} s | {r["hook_one_model_s"]} s |'
+            f'| {r["graph_html_mb"]} MB | {r["hook_unchanged_s"]} s | {r["hook_one_model_s"]} s '
+            f'| {seconds(r["viewer_open_s"])} | {seconds(r["viewer_lineage_s"])} |'
         )
     lines += [
         '',
