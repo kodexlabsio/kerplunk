@@ -20,11 +20,12 @@ from konstruct.analysis.verify import (
     PostgresEngine,
     SampledEngine,
     Verification,
-    _rewrite,
     _sample_type,
     annotate,
     claims,
+    quote,
     read_only_query,
+    rewrite,
     verify,
 )
 from konstruct.core.graph import Graph, column_id
@@ -180,9 +181,23 @@ def test_queries_that_only_read_are_run(sql: str) -> None:
 
 
 def test_every_run_goes_through_the_read_only_check() -> None:
-    # Every statement verify runs is printed by _rewrite, so a second statement never reaches an engine.
+    # Every statement verify runs is printed by rewrite, so a second statement never reaches an engine.
     with pytest.raises(ValueError, match='2 statements'):
-        _rewrite("select id from raw.orders; copy (select 42) to 'out.csv'", {}, None, None)
+        rewrite("select id from raw.orders; copy (select 42) to 'out.csv'", {}, None, None)
+
+
+def test_rewrite_points_inputs_at_copies_and_quote_escapes() -> None:
+    """The two helpers other verify modes build on: rewrite keeps each table's alias, and quote
+    doubles an embedded double quote."""
+    sql, reads = rewrite(
+        'with w as (select id from raw.orders o) select * from w join raw.items on true',
+        {'raw.orders': 'scratch_0'},
+        None,
+        None,
+    )
+    assert sql == 'WITH w AS (SELECT id FROM scratch_0 AS o) SELECT * FROM w JOIN raw.items ON TRUE'
+    assert reads == {'raw.orders', 'raw.items'}
+    assert quote('a"b') == '"a""b"'
 
 
 @pytest.mark.postgres

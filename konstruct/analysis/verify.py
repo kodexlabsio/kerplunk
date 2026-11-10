@@ -314,7 +314,8 @@ def claims(graph: Graph, node: Node) -> tuple[set[tuple[str, str]], set[str]]:
 # Running
 
 
-def _quote(name: str) -> str:
+def quote(name: str) -> str:
+    """``name`` as a double-quoted SQL identifier, with any double quote in it doubled."""
     return '"' + name.replace('"', '""') + '"'
 
 
@@ -347,7 +348,7 @@ def read_only_query(sql: str, dialect: str = 'duckdb') -> exp.Query:
     return tree
 
 
-def _rewrite(
+def rewrite(
     sql: str,
     mapping: dict[str, str],
     catalog: str | None,
@@ -355,8 +356,14 @@ def _rewrite(
     dialect: str = 'duckdb',
     write: str | None = None,
 ) -> tuple[str, set[str]]:
-    """Point every input table at a scratch copy; return the SQL, in ``write`` (by default the
-    dialect it is read in), and the relations it reads."""
+    """Point every input table of the query ``sql`` at a scratch copy.
+
+    Each table whose relation key (resolved against ``catalog`` and ``schema``) is in ``mapping``
+    is replaced by the relation given for it, keeping its alias. The query must pass
+    :func:`read_only_query`, so the SQL returned is always one query that reads. Returns that SQL,
+    printed in ``write`` (by default ``dialect``, the dialect it is read in), and the relation keys
+    of every table it reads.
+    """
     tree = read_only_query(sql, dialect)
     ctes = {cte.alias_or_name.lower() for cte in tree.find_all(exp.CTE)}
     seen: set[str] = set()
@@ -448,7 +455,7 @@ def _targets(column: str, dtype: str) -> list[tuple[tuple[str, ...], str]]:
 
 
 def _reference(path: tuple[str, ...], prefix: str = '') -> str:
-    return prefix + '.'.join(_quote(p) for p in path)
+    return prefix + '.'.join(quote(p) for p in path)
 
 
 def _rebuild(path: tuple[str, ...], value: str, prefix: str = '') -> str:
@@ -456,7 +463,7 @@ def _rebuild(path: tuple[str, ...], value: str, prefix: str = '') -> str:
     if len(path) == 1:
         return value
     inner = _rebuild(path[1:], value, prefix=f'{_reference(path[:1], prefix)}.') if len(path) > 2 else value
-    return f'struct_update({_reference(path[:1], prefix)}, {_quote(path[1])} := {inner})'
+    return f'struct_update({_reference(path[:1], prefix)}, {quote(path[1])} := {inner})'
 
 
 def _overlaps(source: str, other: str) -> bool:
@@ -532,7 +539,7 @@ class DuckDBEngine(Engine):
         if len(parts) != 3 or parts[0] != self.database:
             raise LookupError(f'input {key} is not in the warehouse {self.database}')
         scratch = f'kp.in{index}'
-        source = '.'.join(_quote(p) for p in parts)
+        source = '.'.join(quote(p) for p in parts)
         self.con.execute(f'CREATE TABLE {scratch} AS SELECT * FROM {source} LIMIT {int(max_rows)}')
         return scratch, [(row[0], row[1]) for row in self.con.execute(f'DESCRIBE {scratch}').fetchall()]
 
@@ -545,7 +552,7 @@ class DuckDBEngine(Engine):
         strategy: str,
         rng: random.Random,
     ) -> str | None:
-        quoted = _quote(path[0])
+        quoted = quote(path[0])
         if strategy == 'shuffle':
             salt = rng.randint(1, 2**31)
             self.con.execute(
@@ -626,7 +633,7 @@ class PostgresEngine(Engine):
         if len(parts) != 3 or parts[0] != self.database:
             raise LookupError(f'input {key} is not in the database {self.database}')
         scratch = f'kp_in{index}'
-        source = '.'.join(_quote(p) for p in parts[1:])
+        source = '.'.join(quote(p) for p in parts[1:])
         self._savepoint(f'CREATE TEMP TABLE {scratch} AS SELECT * FROM {source} LIMIT {int(max_rows)}')
         self.tables.append(scratch)
         return scratch, self._columns(scratch)
@@ -649,21 +656,21 @@ class PostgresEngine(Engine):
         if strategy == 'shuffle':
             salt = rng.randint(1, 2**31)
             listed = ', '.join(
-                f'perm.__kp_v AS {_quote(name)}' if name == column else f'base.{_quote(name)}'
+                f'perm.__kp_v AS {quote(name)}' if name == column else f'base.{quote(name)}'
                 for name, _ in columns
             )
             sql = (
                 f'CREATE TEMP TABLE kp_mut AS WITH base AS (SELECT *, row_number() OVER () AS __kp_rn FROM {scratch}), '
                 f"perm AS (SELECT __kp_v, row_number() OVER (ORDER BY md5(__kp_i::text || '{salt}')) AS __kp_rn "
-                f'FROM (SELECT {_quote(column)} AS __kp_v, row_number() OVER () AS __kp_i FROM {scratch}) AS x) '
+                f'FROM (SELECT {quote(column)} AS __kp_v, row_number() OVER () AS __kp_i FROM {scratch}) AS x) '
                 f'SELECT {listed} FROM base JOIN perm USING (__kp_rn) ORDER BY base.__kp_rn'
             )
         else:
-            expression = _mutation(_quote(column), dtype, strategy, rng, cast='CAST')
+            expression = _mutation(quote(column), dtype, strategy, rng, cast='CAST')
             if expression is None:
                 return None
             listed = ', '.join(
-                f'{expression} AS {_quote(name)}' if name == column else _quote(name) for name, _ in columns
+                f'{expression} AS {quote(name)}' if name == column else quote(name) for name, _ in columns
             )
             sql = f'CREATE TEMP TABLE kp_mut AS SELECT {listed} FROM {scratch}'
         try:
@@ -932,7 +939,7 @@ class SampledEngine(DuckDBEngine):
         for i, (name, dtype) in enumerate(columns):
             if dtype != 'VARCHAR' and not self._fits(dtype, [row[i] for row in rows]):
                 columns[i] = (name, 'VARCHAR')
-        listed = ', '.join(f'{_quote(name)} {dtype}' for name, dtype in columns)
+        listed = ', '.join(f'{quote(name)} {dtype}' for name, dtype in columns)
         converted = [tuple(_for_duckdb(v, columns[i][1]) for i, v in enumerate(row)) for row in rows]
         try:
             self.con.execute(f'CREATE TABLE {table} ({listed})')
@@ -1078,7 +1085,7 @@ def _verify_one(
     node = candidate.node
     claimed, references = claims(graph, node)
     dialect, write = engine.read_dialect, engine.dialect
-    _, inputs = _rewrite(
+    _, inputs = rewrite(
         candidate.sql, {}, candidate.default_catalog, candidate.default_schema, dialect, write
     )
     mapping: dict[str, str] = {}
@@ -1086,7 +1093,7 @@ def _verify_one(
     engine.start()
     for index, key in enumerate(sorted(inputs)):
         mapping[key], columns[key] = engine.copy(key, index, max_rows)
-    query, _ = _rewrite(
+    query, _ = rewrite(
         candidate.sql, mapping, candidate.default_catalog, candidate.default_schema, dialect, write
     )
     names, baseline = engine.run(query)
@@ -1112,7 +1119,7 @@ def _verify_one(
                         continue
                     if mutated is None:
                         continue
-                    perturbed, _ = _rewrite(
+                    perturbed, _ = rewrite(
                         candidate.sql,
                         {**mapping, key: mutated},
                         candidate.default_catalog,
