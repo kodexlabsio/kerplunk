@@ -1,0 +1,41 @@
+name: Dependency audit
+
+# Checks every lock file in the repository against the OSV vulnerability database with
+# osv-scanner, and fails on a known vulnerability: uv.lock, viewer/pnpm-lock.yaml, and the Rust
+# core's Cargo.lock once it is in the repository, as the scan finds lock files wherever they are.
+# A vulnerability that does not affect Konstruct is ignored in the osv-scanner.toml beside its lock
+# file (viewer/osv-scanner.toml), with the reason and a date to look at it again. The daily run
+# catches advisories published for versions that are already locked.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '29 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only a pull request's superseded runs are cancelled, so a push never cancels a scheduled run.
+concurrency:
+  group: osv-scanner-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  scan:
+    name: Known vulnerabilities in the locked dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The image is pinned to its digest, like the service containers, and updated by hand.
+      - name: Scan the lock files
+        run: >-
+          docker run --rm -v "$PWD:/src:ro" -w /src
+          ghcr.io/google/osv-scanner:v2.7.0@sha256:4f3b7e2c64b9d38a5febc5a7e4a3dfef1d1362f726dea7a2ef4762b46469fcd0
+          scan source --recursive .

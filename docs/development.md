@@ -180,6 +180,8 @@ The zizmor workflow audits the workflows, `action.yml`, the Dependabot configura
 
 CodeQL scans the Python package, the viewer's TypeScript, the workflows and `action.yml` (and the Rust core once its sources are in the repository) with the `security-extended` queries, weekly and on every pull request and push to `main`, and reports to code scanning. It uses an advanced setup, so code scanning's default setup stays off for the repository.
 
+The Dependency audit workflow checks every lock file in the repository (`uv.lock`, `viewer/pnpm-lock.yaml`, and a `Cargo.lock` wherever one is) against the OSV database with [osv-scanner](https://google.github.io/osv-scanner/), daily and on every pull request and push to `main`, and fails on a known vulnerability. A vulnerability that does not affect Konstruct is ignored in the `osv-scanner.toml` beside its lock file, with the reason and a date to look at it again.
+
 ```mermaid
 graph LR
     subgraph "Source Control"
