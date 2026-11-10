@@ -18,6 +18,7 @@ from typing import Any
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError, ToolError
+from mcp.types import ToolAnnotations
 
 from konstruct import __version__
 from konstruct.analysis.query import QueryError, SearchMode
@@ -128,6 +129,28 @@ def summary(project: Project) -> dict[str, Any]:
     }
 
 
+# Every tool declares all four MCP hints, so a host can tell the user what a call does before it
+# runs: whether it changes anything, whether that can destroy anything, whether a repeat changes
+# more, and whether it reaches beyond the project.
+READS = ToolAnnotations(
+    read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
+)
+"""Answers from graph.json and the repository alone, and writes nothing."""
+UPDATES_OUTPUTS = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False
+)
+"""Writes only Konstruct's own outputs in konstruct-out/, the same files for the same project."""
+READS_WAREHOUSE = ToolAnnotations(
+    read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True
+)
+"""Runs the models' SQL read-only against the warehouse the project names, and writes nothing."""
+PLUGIN_TOOL = ToolAnnotations(
+    read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=True
+)
+"""A plugin's tool, whose behaviour Konstruct cannot know: the MCP specification's cautious
+defaults, stated explicitly."""
+
+
 def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> MCPServer:
     """The server over the graph of the project at ``root``. ``plugins=False`` serves no plugin's
     tools. ``prompts=False`` leaves out the workflow prompts and the instruction that names them,
@@ -151,7 +174,7 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
         _prompts(server)
     _resources(server, project)
 
-    @server.tool()
+    @server.tool(annotations=READS)
     def impact(ref: str, max_depth: int | None = None) -> dict[str, Any]:
         """Everything downstream of a table, model or column (e.g. `orders` or `orders.amount`):
         derived columns, relations, models that join or filter on it, tests, exposures, the
@@ -159,14 +182,14 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
         renaming, dropping or changing it."""
         return run(project.impact, ref, max_depth)
 
-    @server.tool()
+    @server.tool(annotations=READS)
     def trace(ref: str, max_depth: int | None = None) -> dict[str, Any]:
         """Everything upstream of a table, model or column: the source columns it is derived from,
         each marked direct (passed through or renamed) or transformed, the tasks that build it and
         the business entities involved."""
         return run(project.trace, ref, max_depth)
 
-    @server.tool()
+    @server.tool(annotations=UPDATES_OUTPUTS)
     def search(
         text: str, limit: int = 20, kinds: list[str] | None = None, mode: SearchMode = 'keyword'
     ) -> dict[str, Any]:
@@ -177,13 +200,13 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
         when the words of a question may not be the names in the project."""
         return run(project.search, text, limit, kinds, mode)
 
-    @server.tool()
+    @server.tool(annotations=READS)
     def describe(ref: str) -> dict[str, Any]:
         """One node in detail: description, path, columns with types and descriptions, tests,
         immediate upstream and downstream neighbours, and for tasks what they run."""
         return run(project.describe, ref)
 
-    @server.tool()
+    @server.tool(annotations=READS)
     def conflicts(limit: int = 20) -> dict[str, Any]:
         """Columns that appear to measure the same business idea (by name, synonyms or a shared
         business term) but are computed differently: each pair with its formula in terms of
@@ -191,7 +214,7 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
         the file each lives in, ranked by how much depends on them downstream."""
         return run(project.conflicts, limit)
 
-    @server.tool()
+    @server.tool(annotations=READS)
     def define(ref: str) -> dict[str, Any]:
         """The business definition of a term, by name or synonym (e.g. `lifetime value`), or the
         terms that define a column (e.g. `customers.customer_lifetime_value`): the agreed wording,
@@ -200,7 +223,7 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
         so the answer follows the approved definition and its required filters."""
         return run(project.define, ref)
 
-    @server.tool()
+    @server.tool(annotations=READS)
     def ontology(name: str | None = None) -> dict[str, Any]:
         """The business objects (entities, such as customer or order, with their keys and the
         relations holding one row each), the measures (business terms with a formula, each bound
@@ -226,7 +249,7 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
             ],
         }
 
-    @server.tool()
+    @server.tool(annotations=READS)
     def explain(ref: str) -> dict[str, Any]:
         """What a column is, as SQL: its expression with CTEs and aliases inlined, the same formula
         composed down to source columns, and step by step the expression of each column on the
@@ -234,19 +257,19 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
         number calculated?" or before changing a calculation."""
         return run(project.explain, ref)
 
-    @server.tool()
+    @server.tool(annotations=READS)
     def history(ref: str, limit: int = 50) -> dict[str, Any]:
         """When a column's formula changed in git history, with each commit's author and date,
         and every change to the status, approval, owner or definition of the business terms bound
         to it. Use to answer "when did this number's calculation change, and who approved it?\"."""
         return run(lambda r: project.history(r, limit=limit), ref)
 
-    @server.tool()
+    @server.tool(annotations=READS)
     def path(start: str, end: str) -> dict[str, Any]:
         """The shortest connection between two nodes, following data flow where possible."""
         return run(project.path_between, start, end)
 
-    @server.tool()
+    @server.tool(annotations=READS)
     def diff(base: str | None = None, head: str | None = None) -> dict[str, Any]:
         """What the current branch changes, column by column, compared with `base` (a commit, or a
         date such as 2026-10-01 for the last commit before its start; default: the merge base with
@@ -260,7 +283,7 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
         except DiffError as error:
             raise _untrusted_error(str(error)) from error
 
-    @server.tool()
+    @server.tool(annotations=UPDATES_OUTPUTS)
     def gate(base: str | None = None) -> dict[str, Any]:
         """The check a change must pass before you open a pull request: brings the graph up to date
         with the working tree and reports removed columns something still reads, approved
@@ -276,7 +299,7 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
         except DiffError as error:
             raise _untrusted_error(str(error)) from error
 
-    @server.tool()
+    @server.tool(annotations=READS_WAREHOUSE)
     def mutation_test(
         models: list[str] | None = None,
         max_mutants: int = 30,
@@ -296,7 +319,7 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
             )
         )
 
-    @server.tool()
+    @server.tool(annotations=READS_WAREHOUSE)
     def why(column: str, where: dict[str, str], limit: int = 50) -> dict[str, Any]:
         """The source rows behind one value of a column, such as one customer's lifetime value:
         `where` maps output columns of the column's model to the values that pick one row (e.g.
@@ -310,7 +333,7 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
             )
         return run(lambda: project.why(column, where, limit=limit))
 
-    @server.tool()
+    @server.tool(annotations=READS)
     def query(question: str) -> dict[str, Any]:
         """A free-text question: the best-matching nodes and their connections, plus impact or
         lineage when the question asks for it. Prefer the specific tools when you know the name."""
@@ -329,7 +352,9 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
             log.warning('%s: tool %r is left out: Konstruct has a tool of that name', plugin.label, name)
             continue
         try:
-            server.add_tool(function, name=name, description=inspect.getdoc(function))
+            server.add_tool(
+                function, name=name, description=inspect.getdoc(function), annotations=PLUGIN_TOOL
+            )
         except Exception as error:
             # One tool the server cannot describe (a parameter type with no JSON schema) must not
             # keep the rest, Konstruct's own included, from being served.

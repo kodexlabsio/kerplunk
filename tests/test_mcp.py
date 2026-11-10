@@ -47,6 +47,16 @@ async def _exercise(client: Client) -> None:
         'why',
     }
     assert all(t.description and t.input_schema for t in tools.tools)
+    # Every tool states all four hints as booleans, as hosts and directories require.
+    hints = ('read_only_hint', 'destructive_hint', 'idempotent_hint', 'open_world_hint')
+    for tool in tools.tools:
+        assert tool.annotations is not None, tool.name
+        assert all(type(getattr(tool.annotations, hint)) is bool for hint in hints), tool.name
+    annotated = {t.name: t.annotations for t in tools.tools if t.annotations is not None}
+    # search saves its index and gate brings graph.json up to date; everything else writes nothing.
+    assert {n for n, a in annotated.items() if not a.read_only_hint} == {'search', 'gate'}
+    assert not any(a.destructive_hint for a in annotated.values())
+    assert {n for n, a in annotated.items() if a.open_world_hint} == {'mutation_test', 'why'}
     impact = structured(await client.call_tool('impact', {'ref': 'stg_payments.amount'}))
     assert impact['exposures'][0]['label'] == 'customer_dashboard'
     trace = structured(await client.call_tool('trace', {'ref': 'orders.amount', 'max_depth': 1}))
