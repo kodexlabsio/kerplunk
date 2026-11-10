@@ -1,0 +1,3 @@
+# The built viewer is generated from viewer/ by `pnpm build`; mark it so GitHub's language
+# statistics and diffs treat it as generated output rather than source.
+konstruct/outputs/viewer.html linguist-generated=true
