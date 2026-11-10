@@ -290,3 +290,21 @@ def test_primary_key_constraints() -> None:
     assert dbt._primary_key({'columns': {'id': {'constraints': [{'type': 'unique'}]}}}) == []
     both = {'columns': {c: {'constraints': [{'type': 'primary_key'}]} for c in ('order_id', 'line')}}
     assert dbt._primary_key(both) == ['order_id', 'line']
+
+
+def test_dbt_runs_with_its_usage_statistics_off(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / 'dbt_project.yml').write_text('name: nothing\n')
+    project = dbt.find_projects(tmp_path)[0]
+    seen: list[dict[str, str]] = []
+
+    def run(*args: Any, **kwargs: Any) -> Any:
+        seen.append(kwargs['env'])
+        raise FileNotFoundError
+
+    monkeypatch.setattr('shutil.which', lambda name: '/bin/dbt')
+    monkeypatch.setattr('subprocess.run', run)
+    monkeypatch.setenv('DBT_SEND_ANONYMOUS_USAGE_STATS', 'true')
+    with pytest.raises(FileNotFoundError):
+        dbt.ensure_artefacts(project, run_dbt=True, graph=Graph())
+    assert seen[0]['DBT_SEND_ANONYMOUS_USAGE_STATS'] == 'false'
+    assert seen[0]['DO_NOT_TRACK'] == '1'

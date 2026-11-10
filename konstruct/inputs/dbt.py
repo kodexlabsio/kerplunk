@@ -162,6 +162,10 @@ def ensure_artefacts(project: DbtProject, *, run_dbt: bool, graph: Graph) -> str
         )
         return f'manifest is {state} and dbt is not on PATH'
     env = dict(os.environ)
+    # Konstruct makes no network requests of its own beyond the warehouses; dbt's anonymous usage
+    # events would be one, so they are turned off for the runs Konstruct starts.
+    env['DBT_SEND_ANONYMOUS_USAGE_STATS'] = 'false'
+    env['DO_NOT_TRACK'] = '1'
     if (project.root / 'profiles.yml').is_file() and 'DBT_PROFILES_DIR' not in env:
         env['DBT_PROFILES_DIR'] = str(project.root)
     for command in (['docs', 'generate'], ['parse']):
