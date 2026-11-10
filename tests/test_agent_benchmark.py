@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 import textwrap
 import time
@@ -255,3 +256,71 @@ def test_runs_that_an_agent_could_contaminate_are_refused(tmp_path: Path) -> Non
         benchmark.main([str(root), '--agent', command, '--out', str(out), '--dbt-run'])
     # Each copy is its own git repository, so lookups for instructions stop there.
     assert (out / 'baseline' / 'shop001' / '.git').is_dir()
+
+
+def test_the_general_arm_has_only_the_general_skill(tmp_path: Path) -> None:
+    root = spider(tmp_path / 'spider2-dbt')
+    benchmark = load()
+    out = tmp_path / 'runs'
+    command = f'{sys.executable} -c pass {{prompt}}'
+    arms = ['konstruct', 'konstruct-general']
+    assert (
+        benchmark.main(
+            [str(root), '--agent', command, '--out', str(out), '--only', 'shop001', '--arms', *arms]
+        )
+        == 0
+    )
+    full = out / 'konstruct' / 'shop001' / '.claude' / 'skills'
+    general = out / 'konstruct-general' / 'shop001' / '.claude' / 'skills'
+    assert (full / 'konstruct-safe-change' / 'SKILL.md').is_file()
+    assert [p.name for p in general.iterdir()] == ['konstruct']
+    assert not list((out / 'konstruct-general' / 'shop001' / '.claude' / 'agents').glob('*.md'))
+    # Nothing installed in the general arm points at a workflow skill it does not have.
+    from konstruct.interfaces import toolkit
+
+    workflow = re.compile('konstruct-(' + '|'.join(toolkit.WORKFLOWS) + ')')
+    for path in (out / 'konstruct-general' / 'shop001').rglob('*'):
+        if path.is_file() and path.suffix in ('.md', '.mdc', '.json', '.toml'):
+            assert not workflow.search(path.read_text()), path
+    summary = (out / 'summary.md').read_text()
+    assert (
+        '| konstruct-general | 0 | 1 |' in summary
+        and '| Instance | konstruct | konstruct-general |' in summary
+    )
+
+
+def test_install_for_writes_the_named_agents_files(tmp_path: Path) -> None:
+    root = spider(tmp_path / 'spider2-dbt')
+    benchmark = load()
+    out = tmp_path / 'runs'
+    command = f'{sys.executable} -c pass {{prompt}}'
+    args = [str(root), '--agent', command, '--out', str(out), '--only', 'shop001', '--arms', 'konstruct']
+    assert benchmark.main([*args, '--install-for', 'codex']) == 0
+    project = out / 'konstruct' / 'shop001'
+    assert (project / '.agents' / 'skills' / 'konstruct' / 'SKILL.md').is_file()
+    assert 'konstruct:start' in (project / 'AGENTS.md').read_text()
+    assert not (project / '.claude').exists()
+    assert json.loads((out / 'config.json').read_text())['install_for'] == ['codex']
+
+
+def test_the_general_arm_with_mcp_offers_no_workflow_prompts(tmp_path: Path) -> None:
+    root = spider(tmp_path / 'spider2-dbt')
+    benchmark = load()
+    out = tmp_path / 'runs'
+    command = f'{sys.executable} -c pass {{prompt}}'
+    args = [
+        str(root),
+        '--agent',
+        command,
+        '--out',
+        str(out),
+        '--only',
+        'shop001',
+        '--arms',
+        'konstruct-general',
+    ]
+    assert benchmark.main([*args, '--mcp']) == 0
+    server = json.loads((out / 'konstruct-general' / 'shop001' / '.mcp.json').read_text())['mcpServers'][
+        'konstruct'
+    ]
+    assert server['args'] == ['mcp', '--path', '.', '--no-prompts']

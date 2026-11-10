@@ -6,8 +6,13 @@ runs the same agent command on both copies with the same prompt:
 
 * ``baseline``: the project as the benchmark ships it;
 * ``konstruct``: the same project after ``konstruct build`` and ``konstruct install --target``, so
-  the graph and the ``/konstruct`` skill (and, with ``--mcp``, the MCP server) are there for the
-  agent to find. The prompt does not mention Konstruct.
+  the graph, the Konstruct skills (and, with ``--mcp``, the MCP server) are there for the agent to
+  find. The prompt does not mention Konstruct;
+* ``konstruct-general``, run only when ``--arms`` names it: the same, with only the general
+  ``konstruct`` skill, so comparing it with ``konstruct`` measures what the workflow skills add.
+
+``--install-for`` names the agents ``konstruct install`` writes for (``--agent``; default both, for
+Claude Code and Cursor), such as ``codex`` when the agent command runs Codex.
 
 As in the benchmark's own protocol, the agent runs ``dbt run`` itself and the project's DuckDB
 file is scored as the agent leaves it (``--dbt-run`` runs ``dbt run`` once more afterwards). The
@@ -55,7 +60,8 @@ from typing import Any
 
 import yaml
 
-ARMS = ('baseline', 'konstruct')
+ARMS = ('baseline', 'konstruct', 'konstruct-general')
+DEFAULT_ARMS = ('baseline', 'konstruct')
 # Files and directories an agent reads instructions or settings from, in a directory or above it.
 INSTRUCTIONS = ('.git', 'CLAUDE.md', 'CLAUDE.local.md', '.claude', 'AGENTS.md')
 # The benchmark's reference agent gives its hints in a system prompt; these say the same.
@@ -185,7 +191,9 @@ def konstruct_command() -> str:
     return found
 
 
-def prepare(task: Task, arm: str, spider: Path, out: Path, *, mcp: bool, timeout: float) -> Path:
+def prepare(
+    task: Task, arm: str, spider: Path, out: Path, *, mcp: bool, timeout: float, install_for: list[str]
+) -> Path:
     """A fresh copy of the task's project as its own git repository, with Konstruct set up in it
     for the konstruct arm. A Konstruct setup that fails stops the run: scoring it as a failure
     would count a harness problem against one arm."""
@@ -199,16 +207,28 @@ def prepare(task: Task, arm: str, spider: Path, out: Path, *, mcp: bool, timeout
     if mcp and arm == 'baseline':
         # The same agent command, which names the MCP configuration, must be valid in both arms.
         (project / '.mcp.json').write_text('{"mcpServers": {}}\n')
-    if arm == 'konstruct':
+    if arm != 'baseline':
         log = out / arm / f'{task.instance_id}.konstruct.log'
         konstruct = konstruct_command()
-        for step in (
-            [konstruct, 'build', '.', '-q'],
-            [konstruct, 'install', '--target', '.', '--agent', 'both', *(['--mcp'] if mcp else [])],
-        ):
+        steps = [[konstruct, 'build', '.', '-q']]
+        if arm == 'konstruct':
+            steps.append(
+                [konstruct, 'install', '--target', '.', '--agent', *install_for, *(['--mcp'] if mcp else [])]
+            )
+        for step in steps:
             if run(step, project, log, timeout) != 0:
                 raise SystemExit(f'{task.instance_id}: `konstruct {shlex.join(step[1:3])}` failed; see {log}')
+        if arm == 'konstruct-general':
+            general_only(project, install_for, mcp=mcp)
     return project
+
+
+def general_only(project: Path, agents: list[str], *, mcp: bool) -> None:
+    """Install only the general ``konstruct`` skill, rendered without its references to the
+    workflow skills, and the instructions without them, so nothing points at what is missing."""
+    from konstruct.interfaces.skill import install
+
+    install(agents=agents, project=project, mcp=mcp, workflows=False)
 
 
 def attempt(
@@ -222,8 +242,9 @@ def attempt(
     mcp: bool,
     dbt_run: bool,
     timeout: float,
+    install_for: list[str],
 ) -> Result:
-    project = prepare(task, arm, spider, out, mcp=mcp, timeout=timeout)
+    project = prepare(task, arm, spider, out, mcp=mcp, timeout=timeout, install_for=install_for)
     database = result_database(project, task.gold)
     prompt = PROMPT.format(instruction=task.instruction.strip(), database=database)
     logs = out / arm
@@ -248,10 +269,11 @@ def attempt(
     return result
 
 
-def summary(results: list[Result], tasks: list[Task]) -> str:
+def summary(results: list[Result], tasks: list[Task], arms: tuple[str, ...] = DEFAULT_ARMS) -> str:
     wanted = {t.instance_id for t in tasks}
+    arms = tuple(a for a in ARMS if a in arms or any(r.arm == a for r in results))
     by_arm = {
-        arm: {r.instance_id: r for r in results if r.arm == arm and r.instance_id in wanted} for arm in ARMS
+        arm: {r.instance_id: r for r in results if r.arm == arm and r.instance_id in wanted} for arm in arms
     }
     lines = [
         '# Spider 2.0-DBT with and without Konstruct',
@@ -259,15 +281,15 @@ def summary(results: list[Result], tasks: list[Task]) -> str:
         '| Arm | Solved | Of | Rate |',
         '|---|---|---|---|',
     ]
-    for arm in ARMS:
+    for arm in arms:
         done = by_arm[arm]
         solved = sum(1 for r in done.values() if r.score == 1)
         rate = f'{solved / len(done):.1%}' if done else '-'
         lines.append(f'| {arm} | {solved} | {len(done)} | {rate} |')
-    lines += ['', '| Instance | ' + ' | '.join(ARMS) + ' |', '|---|' + '---|' * len(ARMS)]
+    lines += ['', '| Instance | ' + ' | '.join(arms) + ' |', '|---|' + '---|' * len(arms)]
     for task in tasks:
         cells = []
-        for arm in ARMS:
+        for arm in arms:
             result = by_arm[arm].get(task.instance_id)
             cells.append('-' if result is None else ('solved' if result.score == 1 else 'failed'))
         lines.append(f'| {task.instance_id} | ' + ' | '.join(cells) + ' |')
@@ -284,7 +306,20 @@ def main(argv: list[str] | None = None) -> int:
         '--out', type=Path, help='where to write the runs (default: a new temporary directory)'
     )
     parser.add_argument('--only', nargs='+', metavar='ID', help='only these instances')
-    parser.add_argument('--arms', nargs='+', choices=ARMS, default=list(ARMS), help='which arms to run')
+    parser.add_argument(
+        '--arms',
+        nargs='+',
+        choices=ARMS,
+        default=list(DEFAULT_ARMS),
+        help='which arms to run (default: baseline konstruct)',
+    )
+    parser.add_argument(
+        '--install-for',
+        nargs='+',
+        default=['both'],
+        metavar='AGENT',
+        help='the agents `konstruct install` writes for (default: both, Claude Code and Cursor)',
+    )
     parser.add_argument(
         '--mcp', action='store_true', help='also register the MCP server in the konstruct arm'
     )
@@ -312,6 +347,8 @@ def main(argv: list[str] | None = None) -> int:
     matcher = load_matcher(spider)
     out.mkdir(parents=True, exist_ok=True)
     config = {'agent': args.agent, 'mcp': args.mcp, 'dbt_run': args.dbt_run, 'timeout': args.timeout}
+    if args.install_for != ['both']:
+        config['install_for'] = args.install_for
     config_path = out / 'config.json'
     if config_path.is_file() and json.loads(config_path.read_text()) != config:
         raise SystemExit(f'{out} holds a run with other options ({config_path}); choose another --out')
@@ -333,12 +370,13 @@ def main(argv: list[str] | None = None) -> int:
                 mcp=args.mcp,
                 dbt_run=args.dbt_run,
                 timeout=args.timeout,
+                install_for=args.install_for,
             )
             results.append(result)
             with log.open('a', encoding='utf-8') as f:
                 f.write(json.dumps(asdict(result)) + '\n')
             print(f'{task.instance_id} {arm}: {"solved" if result.score == 1 else "failed"}', file=sys.stderr)
-    (out / 'summary.md').write_text(summary(results, tasks), encoding='utf-8')
+    (out / 'summary.md').write_text(summary(results, tasks, tuple(args.arms)), encoding='utf-8')
     print(f'{out}\n\n' + (out / 'summary.md').read_text(encoding='utf-8'))
     return 0
 
