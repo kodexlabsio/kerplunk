@@ -132,13 +132,16 @@ impl SearchIndex {
     }
 
     fn word_numbers(&mut self, text: &str) -> Vec<u32> {
+        // Looked up before it is inserted, so only a new word is copied into the vocabulary.
         let mut numbers: Vec<u32> = words(text)
-            .map(|word| {
-                let next = graph::ordinal(self.vocabulary.len());
-                *self.vocabulary.entry(word.into()).or_insert_with(|| {
+            .map(|word| match self.vocabulary.get(word) {
+                Some(&number) => number,
+                None => {
+                    let next = graph::ordinal(self.vocabulary.len());
+                    self.vocabulary.insert(word.into(), next);
                     self.frequency.push(0);
                     next
-                })
+                }
             })
             .collect();
         numbers.sort_unstable();
