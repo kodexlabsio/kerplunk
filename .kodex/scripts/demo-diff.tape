@@ -6,7 +6,7 @@ Output docs/images/demo-diff.gif
 Set Shell "bash"
 Set FontSize 14
 Set Width 1300
-Set Height 820
+Set Height 600
 Set Padding 18
 Set Theme "Builtin Dark"
 Set TypingSpeed 40ms
