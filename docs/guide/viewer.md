@@ -9,7 +9,7 @@ The viewer is a documentation site for the data stack, built from the graph: a p
 ## The Layout
 
 - **The top bar** has the project name, where you are, search (`Ctrl K`), the full lineage graph, the language, the theme and the keyboard shortcuts.
-- **The navigation** on the left lists the pages (overview, lineage, browse, glossary, ontology, conflicts, tests, usage and warnings) and four trees: the **project** by dbt package and folder with sources and exposures, the **database** by schema, the **pipelines** by DAG and task, and the **business** vocabulary of terms and entities. Type in the filter box to narrow a tree.
+- **The navigation** on the left lists the pages (overview, lineage, map, browse, glossary, ontology, conflicts, tests, usage and warnings) and four trees: the **project** by dbt package and folder with sources and exposures, the **database** by schema, the **pipelines** by DAG and task, and the **business** vocabulary of terms and entities. Type in the filter box to narrow a tree.
 - **The page** in the middle describes what you opened.
 - **The lineage graph** is docked beneath pages about one thing, showing its lineage; drag the bar between them to resize it, press `L` to hide it, or open it full screen.
 
@@ -60,6 +60,20 @@ With **Columns** on, the graph is a column-level map of the selection:
 
 ![The lineage graph full screen with every table expanded to its columns, column edges coloured by transform](../images/graph-columns.png)
 
+## The Map
+
+The **Map** page draws the whole project at once: every source, seed, snapshot, table, model, task and exposure as a card listing its columns, with the edges between them, in the same left-to-right layers and order as the lineage graph. Far out, the column names give way to a bar per column. The layout is the same each time for the same graph.
+
+![The map of jaffle_shop: every seed, model, task and exposure as a card with its columns, the orders model in focus with its lineage lit, beside the list of nodes and a summary of the project](../images/graph-map.png)
+
+- **Moving around.** Drag to pan, scroll or pinch to zoom about the pointer, and **Fit** shows everything. Clicking a card opens its page, and clicking one of its columns opens the column's page; the browser's back button returns to the map with that card in focus.
+- **Lineage.** Focusing a card, from the keyboard, the search box or the list, lights everything upstream and downstream of it and dims the rest.
+- **Search.** The search box finds a table, model or task by name and moves the map to it.
+- **Filters and labels.** The kind buttons take a kind of node off the map and out of the list; **Labels** hides the text.
+- **List and summary.** The list beside the map has every node shown, each with a link to its page; it is one stop for `Tab`, after the map, and the arrow keys move through it. The summary gives each package's share of the nodes, how many nodes have no edges, and how many models have no tests, as the overview and the tests page count them. Labels draw from a glyph atlas of a fixed size: when a project's names need more characters than it holds, the summary says how many are left out.
+
+The map needs a browser with WebGPU, which browsers run on Metal, Vulkan or Direct3D 12. Without it, the map page says so and links to the lineage graph, and every other page works as before. A project whose map needs a larger buffer than the graphics device allows gets a message naming both sizes.
+
 ## Search
 
 `Ctrl K` (or `/`) opens search across models, sources, columns, tasks, DAGs, tests, exposures, business terms and entities. Words match anywhere in a name, or as letters in order (`stgpay` finds `stg_payments`); exact names, synonyms and word starts rank first. Filter with `kind:model`, `tag:nightly` or `package:shop` in the query or the kind buttons, and press `Tab` to change the kind. `Enter` opens a result's page, `Shift+Enter` shows it on the lineage graph, and typing `>` lists commands such as going to a page or switching the theme.
@@ -73,14 +87,15 @@ With **Columns** on, the graph is a column-level map of the selection:
 | `Shift L` | Lineage full screen, and back |
 | `?` | Keyboard shortcuts |
 | `Esc` | Close a dialog or leave full screen |
-| Arrow keys | In the graph, move upstream, downstream and within a layer; in trees and lists, move and open |
-| `Enter`, `Space` | In the graph, open the node's page or highlight its impact path |
+| Arrow keys | In the graph and on the map, move upstream, downstream and within a layer; in trees and lists, move and open |
+| `Enter`, `Space` | In the graph, open the node's page or highlight its impact path; on the map, `Enter` opens the focused node's page and `Esc` clears the focus |
 | `E`, `Delete` | In the graph, show one more level around the node, or exclude it |
-| `F`, `C`, `+`, `-` | In the graph, fit, show every column, zoom |
+| `F`, `C`, `+`, `-` | In the graph, fit, show every column, zoom; on the map, `F`, `+` and `-` fit and zoom |
+| `Home`, `0` | On the map, go to the first node, or fit the whole map |
 
 ## Accessibility
 
-The viewer's tests check it against axe-core's rules for WCAG 2.2 levels A and AA, in both themes and at 200% zoom, and drive it from the keyboard. It has landmarks and headings for each page, works entirely from the keyboard with a visible focus, labels its controls for screen readers, and keeps text at a contrast of at least 4.5:1. The lineage graph can be operated with the arrow keys, announces each node it moves to, and has a text alternative listing what is upstream and downstream of the current node. Edge kinds differ in line pattern as well as colour, animation stops when the system asks for reduced motion, and the layout works at 200% zoom and on narrow screens.
+The viewer's tests check it against axe-core's rules for WCAG 2.2 levels A and AA, in both themes and at 200% zoom, and drive it from the keyboard. It has landmarks and headings for each page, works entirely from the keyboard with a visible focus, labels its controls for screen readers, and keeps text at a contrast of at least 4.5:1. The lineage graph can be operated with the arrow keys, announces each node it moves to, and has a text alternative listing what is upstream and downstream of the current node. The map has a name and a description of its keys, announces each node the arrow keys move to with the number of nodes upstream and downstream of it, and lists the nodes it shows as text beside it. Edge kinds differ in line pattern as well as colour, animation stops when the system asks for reduced motion, and the layout works at 200% zoom and on narrow screens.
 
 ## Language
 
@@ -103,6 +118,6 @@ Without `explain.json` the page shows the graph, its descriptions and tests, but
 
 ## Size and Performance
 
-The page itself is about 635 kB (220 kB compressed), of which about 260 kB is the translations; the graph and its SQL are added to that. On the generated projects of [Performance](../performance.md), a 1,000-model page shows its overview in about a second and draws its full lineage graph in about 2.5 seconds. Themes are dark and light, following the system setting, switchable from the top bar.
+The page itself is about 715 kB (240 kB compressed), of which about 290 kB is the translations; the graph and its SQL are added to that. On the generated projects of [Performance](../performance.md), a 1,000-model page shows its overview in about a second and draws its full lineage graph in about 2.5 seconds. Themes are dark and light, following the system setting, switchable from the top bar.
 
 The viewer's source is in `viewer/`; see [Development](../development.md) for how it is built and tested.
