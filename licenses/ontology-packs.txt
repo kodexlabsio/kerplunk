@@ -1,6 +1,6 @@
 The licences of the repositories the generated ontology packs are made from, other than those
-under the Apache License 2.0 (Apache-2.0.txt), as konstruct/semantics/ontologies/SOURCES.json
-lists them.
+under the Apache License 2.0 (ontology-packs-apache-2.0.txt), as
+konstruct/semantics/ontologies/SOURCES.json lists them.
 
 ====================================================================================================
 https://github.com/0bserver07/tap-gmail-incremental (MIT)

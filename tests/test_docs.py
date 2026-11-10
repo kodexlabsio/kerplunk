@@ -203,3 +203,22 @@ def test_the_citation_agrees_with_the_package_metadata() -> None:
     assert citation['repository-code'] == project['urls']['Homepage']
     assert citation['keywords'] == project['keywords']
     assert 'version' not in citation and 'date-released' not in citation
+
+
+def test_the_licence_texts_are_named_for_what_they_cover() -> None:
+    licences = ROOT / 'licenses'
+    # Konstruct's own licence is the root LICENSE, linked so the directory holds every text.
+    assert (licences / 'konstruct.txt').is_symlink()
+    assert (licences / 'konstruct.txt').readlink() == Path('..') / 'LICENSE'
+    assert sorted(p.name for p in licences.iterdir()) == [
+        'jetbrains-mono.txt',
+        'konstruct.txt',
+        'manrope.txt',
+        'ontology-packs-apache-2.0.txt',
+        'ontology-packs.txt',
+    ]
+    # The notice beside the packs and the README name the files as they are.
+    notice = ' '.join((ROOT / 'konstruct' / 'semantics' / 'ontologies' / 'NOTICE').read_text().split())
+    readme = (ROOT / 'README.md').read_text()
+    for name in ('ontology-packs-apache-2.0.txt', 'ontology-packs.txt'):
+        assert name in notice and f'`{name}`' in readme

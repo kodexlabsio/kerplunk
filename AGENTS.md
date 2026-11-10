@@ -30,6 +30,7 @@ Action and a single offline HTML page.
 | `examples/jaffle_shop` | dbt Labs' jaffle_shop_duckdb (Apache-2.0) with a DAG and `definitions.yml` |
 | `.kodex/scripts/` | Project scripts: commit rules, services, benchmark, agent benchmark, compatibility snapshots, demo tapes, viewer build check |
 | `claude-code-plugin/` | The Claude Code plugin, rendered from `konstruct/interfaces/toolkit/` by `.kodex/scripts/build_plugin.py` and listed in `.claude-plugin/marketplace.json` (`konstruct/plugins/` is Konstruct's own plugin system) |
+| `licenses/` | The licence texts the sdist and wheel carry, each named for what it covers: `konstruct.txt` (a link to `LICENSE`), `ontology-packs-apache-2.0.txt` and `ontology-packs.txt` (written by `generate_packs.py`), `manrope.txt`, `jetbrains-mono.txt` |
 | `action.yml` | The GitHub Action |
 
 ## Commands

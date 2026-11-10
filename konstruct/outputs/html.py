@@ -2,8 +2,8 @@
 
 The viewer is a Svelte and TypeScript app in ``viewer/`` at the root of the repository. Its build
 (``pnpm build``) writes ``konstruct/outputs/viewer.html``: one file with the script, the styles and the
-Manrope and JetBrains Mono fonts (SIL Open Font License; the licences are in ``licenses/``)
-inlined. Konstruct fills its two placeholders with
+Manrope and JetBrains Mono fonts (SIL Open Font License; the licences are ``licenses/manrope.txt`` and
+``licenses/jetbrains-mono.txt``) inlined. Konstruct fills its two placeholders with
 ``Graph.to_dict()`` and with what the viewer shows beside the graph: each column's formula and each
 relation's conditions from :mod:`konstruct.analysis.explain`, the SQL files that define models and
 tasks (and dbt's compiled SQL when ``target/compiled`` has it), the ontology from

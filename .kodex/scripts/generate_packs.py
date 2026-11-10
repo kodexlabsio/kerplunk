@@ -4,7 +4,7 @@ Reads four kinds of source, each under a permissive licence, and writes one pack
 into ``konstruct/semantics/ontologies/generated/``. It then rebuilds ``ontologies/index.json.gz``
 (every pack, hand-written and generated, merged), the pack list in
 ``docs/guide/ontology-packs.md``, ``ontologies/SOURCES.json`` (each repository read, with its URL,
-licence and commit), ``ontologies/NOTICE`` and ``licenses/ontology-pack-sources.txt`` (the texts of
+licence and commit), ``ontologies/NOTICE`` and ``licenses/ontology-packs.txt`` (the texts of
 the licences among them other than Apache-2.0):
 
 * Fivetran's dbt packages (https://github.com/fivetran, Apache-2.0): the tables Fivetran lands for
@@ -64,7 +64,7 @@ OUT = registry.PACKS / 'generated'
 DOCS = ROOT / 'docs' / 'guide' / 'ontology-packs.md'
 SOURCES = registry.PACKS / 'SOURCES.json'
 NOTICE = registry.PACKS / 'NOTICE'
-LICENCES = ROOT / 'licenses' / 'ontology-pack-sources.txt'
+LICENCES = ROOT / 'licenses' / 'ontology-packs.txt'
 WORD_LIST = ROOT / 'tests' / 'fixtures' / 'pack_words.txt'
 PERMISSIVE = ('MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause')
 LOADERS = ('fivetran', 'singer', 'dlt')
@@ -2147,8 +2147,8 @@ def write_sources(used: dict[str, list[Origin]], hub: Path | None, words: Path |
     rule = '=' * 100
     LICENCES.write_text(
         'The licences of the repositories the generated ontology packs are made from, other than those\n'
-        'under the Apache License 2.0 (Apache-2.0.txt), as konstruct/semantics/ontologies/SOURCES.json\n'
-        'lists them.\n\n'
+        'under the Apache License 2.0 (ontology-packs-apache-2.0.txt), as\n'
+        'konstruct/semantics/ontologies/SOURCES.json lists them.\n\n'
         + '\n\n'.join(
             f'{rule}\n{url} ({licence})\n{rule}\n\n{text}' for url, (licence, text) in sorted(texts.items())
         )
@@ -2174,7 +2174,7 @@ def write_notice(sources: list[dict[str, Any]], texts: list[str]) -> None:
     taps = sorted({e['licence'] for e in sources if e['loader'] == 'singer'}, key=rank)
     kept = sorted(texts, key=rank)
     texts_of = (
-        f', and ontology-pack-sources.txt for each repository under {_licences(kept, "or")}, with its '
+        f', and ontology-packs.txt for each repository under {_licences(kept, "or")}, with its '
         'copyright notice'
         if kept
         else ''
@@ -2183,7 +2183,7 @@ def write_notice(sources: list[dict[str, Any]], texts: list[str]) -> None:
         'The generated packs in generated/ are made by .kodex/scripts/generate_packs.py from published, '
         'permissively licensed connector schemas. SOURCES.json lists every repository they are made '
         'from, with its URL, licence, commit and the packs it contributes to; the licence texts are in '
-        f"the repository's licenses/ directory (Apache-2.0.txt{texts_of}). No Airbyte connector is read: "
+        f"the repository's licenses/ directory (ontology-packs-apache-2.0.txt{texts_of}). No Airbyte connector is read: "
         "Airbyte's repository is under the Elastic License 2.0.",
         "- Fivetran's dbt packages (https://github.com/fivetran, the dbt_* repositories), Copyright "
         'Fivetran Inc., licensed under the Apache License, Version 2.0. Table and column names, the '

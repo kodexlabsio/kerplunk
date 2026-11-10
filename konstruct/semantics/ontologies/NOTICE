@@ -1,9 +1,9 @@
 The generated packs in generated/ are made by .kodex/scripts/generate_packs.py from published,
 permissively licensed connector schemas. SOURCES.json lists every repository they are made from,
 with its URL, licence, commit and the packs it contributes to; the licence texts are in the
-repository's licenses/ directory (Apache-2.0.txt, and ontology-pack-sources.txt for each repository
-under the MIT licence, with its copyright notice). No Airbyte connector is read: Airbyte's
-repository is under the Elastic License 2.0.
+repository's licenses/ directory (ontology-packs-apache-2.0.txt, and ontology-packs.txt for each
+repository under the MIT licence, with its copyright notice). No Airbyte connector is read:
+Airbyte's repository is under the Elastic License 2.0.
 
 - Fivetran's dbt packages (https://github.com/fivetran, the dbt_* repositories), Copyright Fivetran
   Inc., licensed under the Apache License, Version 2.0. Table and column names, the tables their
