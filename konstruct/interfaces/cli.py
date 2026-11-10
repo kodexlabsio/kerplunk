@@ -681,11 +681,6 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    from konstruct.analysis.query import QueryError
-    from konstruct.engine.config import ConfigError
-    from konstruct.interfaces.skill import InstallError
-    from konstruct.outputs.export import ExportError
-
     arguments = parser()
     args = arguments.parse_args(argv)
     for name, default in (('project', '.'), ('no_color', False), ('verbose', False), ('quiet', False)):
@@ -702,19 +697,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     try:
         code: int = args.func(args, console)
-    except QueryError as error:
-        console.error(str(error), hint=error.hint, suggestions=error.suggestions)
-        return 1
-    except (ConfigError, InstallError, ExportError) as error:
-        console.error(str(error))
-        return 1
+    except Exception as error:
+        # The error types are imported only when one is raised: importing them up front would
+        # load the whole build (and sqlglot) for every command, `--help` included.
+        from konstruct.analysis.query import QueryError
+        from konstruct.engine.config import ConfigError
+        from konstruct.interfaces.skill import InstallError
+        from konstruct.outputs.export import ExportError
+
+        if isinstance(error, QueryError):
+            console.error(str(error), hint=error.hint, suggestions=error.suggestions)
+            return 1
+        if isinstance(error, (ConfigError, InstallError, ExportError)):
+            console.error(str(error))
+            return 1
+        if isinstance(error, BrokenPipeError):
+            # The reader went away (`konstruct list | head`); stop quietly, as other tools do.
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+            return 0
+        raise
     except KeyboardInterrupt:
         return 130
-    except BrokenPipeError:
-        # The reader went away (`konstruct list | head`); stop quietly, as other tools do.
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, sys.stdout.fileno())
-        return 0
     return code
 
 
