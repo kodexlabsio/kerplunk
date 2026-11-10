@@ -47,7 +47,7 @@ Action and a single offline HTML page.
 - `uv run .kodex/scripts/benchmark.py 500`: before and after changes to the build, SQL analysis
   or formulas.
 - `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` and
-  `cargo test`, at the repository root: the Rust core. CI also checks it with Rust 1.88, its
+  `cargo test`, at the repository root: the Rust core. CI also checks it with Rust 1.95, its
   `rust-version`. `uv sync` and `uv run` rebuild the extension after a change under
   `src/`, so the Python tests run against it.
 - `uv run python paper/generate.py`, then `cd paper && latexmk -pdf konstruct.tex`: the paper.

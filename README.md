@@ -157,7 +157,7 @@ Konstruct is not on PyPI yet; install it from GitHub with [uv](https://docs.astr
 uv tool install git+https://github.com/kodexlabsio/konstruct
 ```
 
-This builds Konstruct's Rust core, so it needs a [Rust toolchain](https://rustup.rs/) (1.88 or
+This builds Konstruct's Rust core, so it needs a [Rust toolchain](https://rustup.rs/) (1.95 or
 newer); each [release](https://github.com/kodexlabsio/konstruct/releases) also has wheels for
 Linux, macOS and Windows that do not. Konstruct runs on x86_64, aarch64, riscv64, ppc64le, s390x
 and loongarch64.

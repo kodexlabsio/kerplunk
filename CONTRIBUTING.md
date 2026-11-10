@@ -22,7 +22,7 @@ An ontology pack describes the entities, keys, measures and relationships of a s
 
 ## Making a Change
 
-The [Development section of the README](https://kodexlabsio.github.io/konstruct/development.html) covers setting up, the test suite and the commands. You need [uv](https://docs.astral.sh/uv/) and a stable [Rust toolchain](https://rustup.rs/) (1.88 or newer): `uv sync` builds Konstruct's Rust core with maturin. In short:
+The [Development section of the README](https://kodexlabsio.github.io/konstruct/development.html) covers setting up, the test suite and the commands. You need [uv](https://docs.astral.sh/uv/) and a stable [Rust toolchain](https://rustup.rs/) (1.95 or newer): `uv sync` builds Konstruct's Rust core with maturin. In short:
 
 ```bash
 uv sync

@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 for the project)
-- A stable [Rust toolchain](https://rustup.rs/), 1.88 or newer, for the Rust core; uv fetches maturin itself
+- A stable [Rust toolchain](https://rustup.rs/), 1.95 or newer, for the Rust core; uv fetches maturin itself
 - Docker, for the Postgres and Iceberg integration tests
 - Node.js 24 (see `.nvmrc`) and [pnpm](https://pnpm.io/), only to work on the graph viewer
 - [vhs](https://github.com/charmbracelet/vhs), only to re-record the demo GIFs

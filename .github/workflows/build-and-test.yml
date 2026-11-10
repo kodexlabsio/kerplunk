@@ -87,11 +87,16 @@ jobs:
       - name: Tests
         run: cargo test --locked
 
-      # rust-version in Cargo.toml, which installing from source needs at least.
+      # rust-version in Cargo.toml, which installing from source needs at least, on every
+      # architecture: global_asm! is stable on powerpc64 only from 1.95.
       - name: Check the oldest supported Rust
         run: |
-          rustup toolchain install 1.88 --profile minimal
-          cargo +1.88 check --locked --all-targets --all-features
+          targets="x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu riscv64gc-unknown-linux-gnu"
+          targets="$targets powerpc64le-unknown-linux-gnu s390x-unknown-linux-gnu loongarch64-unknown-linux-gnu"
+          rustup toolchain install 1.95 --profile minimal --target ${targets// /,}
+          for target in $targets; do
+            cargo +1.95 check --locked --all-targets --all-features --target "$target"
+          done
 
       # The assembly takes 64-bit pointers, so a 32-bit ABI on a supported architecture is
       # refused at compile time rather than built.

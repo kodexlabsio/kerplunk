@@ -7,7 +7,7 @@ uv tool install git+https://github.com/kodexlabsio/konstruct
 ```
 
 Konstruct is Python with a compiled core in Rust, so installing from GitHub builds that core and
-needs a [Rust toolchain](https://rustup.rs/) (1.88 or newer) on the machine: `curl --proto
+needs a [Rust toolchain](https://rustup.rs/) (1.95 or newer) on the machine: `curl --proto
 '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` installs one. GitHub's hosted runners have one
 already. To install without Rust, use a release's wheel (below). Konstruct runs on x86_64,
 aarch64 (arm64), riscv64, ppc64le, s390x (IBM z13 or later) and loongarch64 processors, on Python
