@@ -39,6 +39,8 @@ eval "$(.kodex/scripts/services.sh up)"
 uv run pytest --cov
 ```
 
+The `Makefile` at the root runs the same commands by name: `make install` sets up, `make check` runs the formatters' checks, the linters and the Python, Rust and viewer tests, and `make` alone lists every target.
+
 A pull request is ready when:
 
 1. **It has tests.** A lineage fix comes with a test that fails without it, preferably as a small SQL case in `tests/test_sql.py`. A change to what Konstruct claims about lineage should also hold under `konstruct verify` (`tests/test_verify.py`). Coverage must stay at or above 90%.

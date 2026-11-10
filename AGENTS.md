@@ -33,6 +33,10 @@ Action and a single offline HTML page.
 
 ## Commands
 
+The root `Makefile` runs these by name (`make` lists its targets): `install`, `build`, `format`,
+`format-check`, `lint`, `lint-fix`, `test`, `docs`, `paper`, `bench`, and `check` (format-check,
+lint and test). A target that runs several tools runs them all and fails if any failed.
+
 - `uv sync` then `uv run pre-commit install`: set up.
 - `uv run pytest`: the tests. `eval "$(.kodex/scripts/services.sh up)"` first for Postgres,
   Iceberg REST and the BigQuery emulator; `uv run pytest --cov` must stay at or above 90%.
@@ -59,7 +63,7 @@ Action and a single offline HTML page.
 
 Run the tests, ruff, mypy and, for viewer changes, `pnpm check` and `pnpm test`, and for Rust
 changes `cargo fmt --check`, Clippy with `-D warnings` and `cargo test`, before finishing a
-change.
+change; `make check` runs all of them.
 
 ## Rules
 

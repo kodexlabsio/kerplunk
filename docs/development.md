@@ -167,6 +167,20 @@ Pre-commit hooks check formatting and types and rebuild the page when `viewer/` 
 
 ## Other Commands
 
+The `Makefile` at the root runs the commands on this page by name; `make` alone lists its targets. The targets that run several tools run each of them and fail if any failed, so one run reports every problem.
+
+| Target | Runs |
+|--------|------|
+| `make install` | `uv sync`, `pnpm install` and `uv run pre-commit install` |
+| `make build` | `uv sync` (which builds the Rust core), then `pnpm build` |
+| `make format`, `make format-check` | Ruff, rustfmt and Prettier, writing or only checking |
+| `make lint`, `make lint-fix` | Ruff, mypy, Clippy with `-D warnings` and `pnpm check`; `lint-fix` applies the fixes Ruff and Clippy can make |
+| `make test` | `uv run pytest`, `cargo test` and `pnpm test` |
+| `make check` | `format-check`, `lint` and `test` |
+| `make docs` | `sphinx-build -W` for this documentation |
+| `make paper` | `paper/generate.py` and `latexmk`, as below |
+| `make bench` | `.kodex/scripts/benchmark.py 500` and `cargo bench --bench core` |
+
 - `uv run ruff check`, `uv run ruff format`, `uv run mypy`: lint, format and type check (strict)
 - `uv run .kodex/scripts/prepare_example.py`: build the example warehouse
 - `uv run python paper/generate.py`, then `latexmk -pdf konstruct.tex` in `paper/`: measure every result of Konstruct the paper quotes and build the PDF (TeX Live with `latexmk`, `texlive-latex-extra`, `texlive-fonts-recommended` and `texlive-science`); `--only` reruns some sections and `--sizes` sets the benchmark's project sizes
