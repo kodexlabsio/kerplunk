@@ -1,9 +1,9 @@
-"""Write the Claude Code plugin in plugins/konstruct from the toolkit texts in the package.
+"""Write the Claude Code plugin in claude-code-plugin/ from the toolkit texts in the package.
 
 The plugin's skills, commands, subagent, hook and MCP configuration are rendered from
 konstruct/interfaces/toolkit, the same texts `konstruct install` writes, so the two never drift.
 Run it after changing a toolkit text and commit the result; tests/test_toolkit.py fails while
-plugins/konstruct is out of date.
+claude-code-plugin/ is out of date.
 
     uv run .kodex/scripts/build_plugin.py           # write the plugin
     uv run .kodex/scripts/build_plugin.py --check   # exit 1 if it is out of date
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from konstruct.interfaces.toolkit import plugin_files
 
-PLUGIN = Path(__file__).resolve().parents[2] / 'plugins' / 'konstruct'
+PLUGIN = Path(__file__).resolve().parents[2] / 'claude-code-plugin'
 
 
 def stale(directory: Path = PLUGIN) -> list[str]:
@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         out_of_date = stale()
         for path in out_of_date:
             print(
-                f'plugins/konstruct/{path} is out of date; run .kodex/scripts/build_plugin.py',
+                f'claude-code-plugin/{path} is out of date; run .kodex/scripts/build_plugin.py',
                 file=sys.stderr,
             )
         return 1 if out_of_date else 0

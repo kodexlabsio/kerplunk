@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "konstruct",
-      "source": "./plugins/konstruct",
+      "source": "./claude-code-plugin",
       "description": "Skills for safe data changes, reviews, reconciling numbers, correct queries, definitions, onboarding and semantic layer exports; slash commands; a data-reviewer subagent; the Konstruct MCP server; and a hook that runs konstruct gate after SQL and dbt YAML edits.",
       "category": "data",
       "tags": ["dbt", "sql", "lineage", "data", "ontology"]

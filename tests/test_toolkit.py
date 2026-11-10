@@ -149,8 +149,8 @@ def test_the_marketplace_lists_the_plugin() -> None:
     marketplace = json.loads((REPO / '.claude-plugin' / 'marketplace.json').read_text())
     assert marketplace['name'] == 'konstruct' and marketplace['owner']['name']
     [entry] = marketplace['plugins']
-    assert entry['name'] == 'konstruct' and entry['source'] == './plugins/konstruct'
-    manifest = json.loads((REPO / 'plugins' / 'konstruct' / '.claude-plugin' / 'plugin.json').read_text())
+    assert entry['name'] == 'konstruct' and entry['source'] == './claude-code-plugin'
+    manifest = json.loads((REPO / 'claude-code-plugin' / '.claude-plugin' / 'plugin.json').read_text())
     assert manifest['name'] == 'konstruct' and manifest['license'] == 'MIT'
     # The plugin's version is the package's, which the release script sets in both.
     assert manifest['version'] == __version__

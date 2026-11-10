@@ -241,7 +241,7 @@ def write(version: str, changes: str) -> None:
         encoding='utf-8',
     )
     # The Claude Code plugin carries the package's version, so a release keeps it current.
-    plugin = ROOT / 'plugins' / 'konstruct' / '.claude-plugin' / 'plugin.json'
+    plugin = ROOT / 'claude-code-plugin' / '.claude-plugin' / 'plugin.json'
     if plugin.is_file():
         plugin.write_text(
             re.sub(

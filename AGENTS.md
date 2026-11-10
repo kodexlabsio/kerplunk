@@ -29,6 +29,7 @@ Action and a single offline HTML page.
 | `tests/` | pytest suites, golden files in `tests/golden/` (the interface snapshots in `tests/golden/interfaces/`), fixtures in `tests/fixtures/`, the compatibility corpus in `tests/compat/` |
 | `examples/jaffle_shop` | dbt Labs' jaffle_shop_duckdb (Apache-2.0) with a DAG and `definitions.yml` |
 | `.kodex/scripts/` | Project scripts: commit rules, services, benchmark, agent benchmark, compatibility snapshots, demo tapes, viewer build check |
+| `claude-code-plugin/` | The Claude Code plugin, rendered from `konstruct/interfaces/toolkit/` by `.kodex/scripts/build_plugin.py` and listed in `.claude-plugin/marketplace.json` (`konstruct/plugins/` is Konstruct's own plugin system) |
 | `action.yml` | The GitHub Action |
 
 ## Commands

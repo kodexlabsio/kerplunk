@@ -171,7 +171,7 @@ def _json(data: dict[str, Any]) -> str:
 
 
 def plugin_files() -> dict[str, str]:
-    """Every file of the Claude Code plugin in ``plugins/konstruct``, by path inside it.
+    """Every file of the Claude Code plugin in ``claude-code-plugin/``, by path inside it.
 
     The plugin is built from the same texts as ``konstruct install``, so the two cannot drift;
     ``.kodex/scripts/build_plugin.py`` writes it and a test checks it is current. Its version is
