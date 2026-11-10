@@ -32,11 +32,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Beside this script: one definition of a breaking commit for the commit check and the release.
+from check_commit_message import BREAKING_FOOTER, HEADER, is_breaking
+
 ROOT = Path(__file__).resolve().parents[2]
 RELEASABLE = {'feat': 'Feat', 'fix': 'Fix', 'refactor': 'Refactor', 'perf': 'Perf'}
 ORDER = ['BREAKING CHANGE', 'Feat', 'Fix', 'Refactor', 'Perf']
-HEADER = re.compile(r'^(?P<type>\w+)(?:\((?P<scope>[^()]*)\))?(?P<breaking>!)?: (?P<subject>.+)$')
-BREAKING_FOOTER = re.compile(r'^BREAKING[ -]CHANGE: (?P<text>.+(?:\n(?!\n).+)*)', re.MULTILINE)
 VERSION_LINE = re.compile(r'^version = "(?P<version>[^"]+)"$', re.MULTILINE)
 SECTION = re.compile(r'^## v(?P<version>\d+\.\d+\.\d+) \(', re.MULTILINE)
 
@@ -76,11 +77,6 @@ def commits_since(tag: str, base: str) -> list[Commit]:
             subject, _, body = record.strip('\n').partition('\x00')
             found.append((subject, body))
     return found
-
-
-def is_breaking(subject: str, body: str) -> bool:
-    match = HEADER.match(subject)
-    return bool(match and match['breaking']) or bool(BREAKING_FOOTER.search(body))
 
 
 def releasable(commits: list[Commit]) -> list[Commit]:

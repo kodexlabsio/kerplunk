@@ -12,6 +12,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / '.kodex' / 'scripts' / 'prepare_r
 
 
 def _load() -> ModuleType:
+    sys.path.insert(0, str(SCRIPT.parent))  # for check_commit_message, which it imports
     spec = importlib.util.spec_from_file_location('prepare_release', SCRIPT)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

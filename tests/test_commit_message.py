@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -94,7 +97,10 @@ def test_human_co_author_is_allowed() -> None:
     assert ccm.check('feat(dbt): Add x\n\nCo-authored-by: Sam Smith <sam@example.com>') == []
 
 
-def test_main_reads_a_message_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_reads_a_message_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)  # outside a repository, so no staged snapshots to compare
     good = tmp_path / 'good'
     good.write_text('feat(cli): Add the build command\n')
     bad = tmp_path / 'bad'
@@ -102,3 +108,333 @@ def test_main_reads_a_message_file(tmp_path: Path, capsys: pytest.CaptureFixture
     assert ccm.main([str(good)]) == 0
     assert ccm.main([str(bad)]) == 1
     assert 'sentence case' in capsys.readouterr().err
+
+
+# Interface snapshots
+
+
+SNAPSHOT = {
+    'konstruct impact': 'command',
+    'konstruct impact --depth': 'option int',
+    'json impact .total': 'int',
+    'json impact .target.path': 'null|str',
+    'json impact .columns': 'list',
+    'json impact .columns[]': 'object',
+    'json impact .columns[].id': 'str',
+}
+
+
+@pytest.mark.parametrize(
+    ('after', 'broken'),
+    [
+        ({**SNAPSHOT, 'konstruct impact --json': 'flag'}, []),
+        ({**SNAPSHOT, 'json impact .target.path': 'str'}, []),
+        ({**SNAPSHOT, 'json impact .total': 'int|null'}, []),
+        # Emptied to only null: a scalar, a list and an object, with what they held.
+        ({**SNAPSHOT, 'json impact .total': 'null'}, ['.total changes from']),
+        (
+            {k: v for k, v in SNAPSHOT.items() if k != 'json impact .columns[].id'}
+            | {'json impact .columns': 'null', 'json impact .columns[]': 'null'},
+            ['.columns changes from', '.columns[] changes from', '.columns[].id is removed'],
+        ),
+        (
+            {k: v for k, v in SNAPSHOT.items() if k != 'json impact .target.path'}
+            | {'json impact .target': 'null'},
+            ['.target.path is removed'],
+        ),
+        ({**SNAPSHOT, 'json impact .target.path': 'null'}, ['.target.path changes from']),
+        # A type readers have not seen breaks them; one the example no longer shows does not.
+        ({**SNAPSHOT, 'json impact .total': 'int|str'}, ['.total changes from']),
+        ({**SNAPSHOT, 'json impact .target.path': 'null|object|str'}, ['.target.path changes from']),
+        ({**SNAPSHOT, 'konstruct trace': 'command', 'konstruct trace <0>': 'positional str, required'}, []),
+        # The example no longer fills .columns: the change may as well be the code's, so it breaks.
+        (
+            {k: v for k, v in SNAPSHOT.items() if not k.startswith('json impact .columns[]')},
+            ['.columns[] is removed', '.columns[].id is removed'],
+        ),
+        (
+            {k: v for k, v in SNAPSHOT.items() if k != 'json impact .columns[].id'},
+            ['.columns[].id is removed'],
+        ),
+        (
+            {k: v for k, v in SNAPSHOT.items() if not k.startswith('json impact .columns')},
+            ['.columns is removed', '.columns[] is removed', '.columns[].id is removed'],
+        ),
+        ({k: v for k, v in SNAPSHOT.items() if k != 'konstruct impact --depth'}, ['--depth is removed']),
+        ({**SNAPSHOT, 'konstruct impact --depth': 'option str'}, ['--depth changes from']),
+        ({**SNAPSHOT, 'json impact .total': 'str'}, ['.total changes from']),
+        ({**SNAPSHOT, 'konstruct impact <0>': 'positional str, required'}, ['<0> is added']),
+        ({**SNAPSHOT, 'konstruct impact <0>': 'positional str, 2 values, required'}, ['<0> is added']),
+    ],
+)
+def test_interface_breaks(after: dict[str, str], broken: list[str]) -> None:
+    found = ccm.interface_breaks(SNAPSHOT, after)
+    assert len(found) == len(broken) and all(b in f for b, f in zip(broken, found, strict=True)), found
+
+
+ENTRIES = {
+    'konstruct impact <0>': 'positional str, required',
+    'konstruct impact <1>': 'positional str, one or more, required',
+    'konstruct impact --select': 'option str, required',
+    'konstruct impact <2>': 'positional str, 2 values, required',
+    'konstruct impact --select default': 'None',
+    'mcp impact ref': 'string, required',
+    'mcp impact max_depth': 'integer|null = None',
+    'python konstruct.Project.impact ref': '#0 str, required',
+    'python konstruct.Project.impact max_depth': '#1 int | None = None',
+    'python konstruct.Project.impact into': 'keyword dict[str, int | None] | None = None',
+    'python konstruct.Project.impact ->': 'Impact',
+    'python konstruct.Impact.total': 'field int',
+    'action input path': 'required',
+}
+
+
+@pytest.mark.parametrize(
+    ('changed', 'broken'),
+    [
+        # Required made optional: every call that worked still works.
+        ({'konstruct impact <0>': 'positional str, optional'}, False),
+        ({'konstruct impact <0>': 'positional str, any number'}, False),
+        ({'konstruct impact <1>': 'positional str, any number'}, False),
+        ({'konstruct impact <1>': 'positional str, optional'}, True),
+        ({'konstruct impact <0>': 'positional str, one or more, required'}, False),
+        ({'konstruct impact <0>': 'positional int, required'}, True),
+        ({'konstruct impact <0>': 'positional str, 2 values, required'}, True),
+        ({'konstruct impact <1>': 'positional str, 2 values, required'}, True),
+        ({'konstruct impact <2>': 'positional str, any number'}, False),
+        ({'konstruct impact <2>': 'positional str, one or more, required'}, False),
+        ({'konstruct impact <2>': 'positional str, optional'}, True),
+        ({'konstruct impact --select default': "'orders'"}, True),
+        ({'konstruct impact --select': 'option str'}, False),
+        ({'konstruct impact --select': 'option int'}, True),
+        ({'mcp impact ref': 'string = None'}, False),
+        ({'mcp impact ref': 'null|string = None'}, False),
+        ({'python konstruct.Project.impact ref': "#0 str = 'orders'"}, False),
+        ({'action input path': "= '.'"}, False),
+        # Widened types: every value that was accepted still is.
+        ({'mcp impact ref': 'array of string|string, required'}, False),
+        ({'mcp impact max_depth': 'integer|null|string = None'}, False),
+        ({'python konstruct.Project.impact ref': '#0 str | Path, required'}, False),
+        (
+            {
+                'python konstruct.Project.impact into': 'keyword dict[str, int | None] | list[str] | None = None'
+            },
+            False,
+        ),
+        # Narrowed types, moved or reordered parameters, changed defaults and outputs break.
+        ({'mcp impact max_depth': 'integer = None'}, True),
+        ({'mcp impact max_depth': 'integer|null = 3'}, True),
+        ({'python konstruct.Project.impact max_depth': '#1 int = 0'}, True),
+        ({'python konstruct.Project.impact max_depth': '#2 int | None = None'}, True),
+        ({'python konstruct.Project.impact max_depth': 'keyword int | None = None'}, True),
+        ({'python konstruct.Project.impact max_depth': '#1 int | None, required'}, True),
+        ({'python konstruct.Project.impact ->': 'Impact | None'}, True),
+        ({'python konstruct.Impact.total': 'field int | None'}, True),
+    ],
+)
+def test_entries_that_accept_more_are_compatible(changed: dict[str, str], broken: bool) -> None:
+    assert bool(ccm.interface_breaks(ENTRIES, ENTRIES | changed)) is broken
+
+
+def test_uncovered_fields_are_told_apart_from_removed_ones() -> None:
+    after = {k: v for k, v in SNAPSHOT.items() if not k.startswith('json impact .columns[]')}
+    assert ccm.uncovered('json impact .columns[].id', after)
+    assert not ccm.uncovered(
+        'json impact .columns[].id', {k: v for k, v in SNAPSHOT.items() if 'id' not in k}
+    )
+    assert not ccm.uncovered('konstruct impact --depth', {})
+    assert ccm.uncovered('json impact .target.path', {'json impact .target': 'null'})
+    assert not ccm.uncovered('json impact .target.path', {'json impact .target': 'null|object'})
+    assert ccm.uncovered('json graph.json .meta.x', {'json graph.json .meta': 'null'})
+
+
+@pytest.mark.parametrize(
+    ('subject', 'body', 'marks'),
+    [
+        ('feat(cli)!: Drop x', '', (True, False)),
+        ('feat(cli): Drop x', 'Why.\n\nBREAKING CHANGE: Scripts drop x.', (False, True)),
+        ('feat(cli)!: Drop x', 'BREAKING-CHANGE: Scripts drop x.', (True, True)),
+        ('feat(cli): Add x', 'Nothing breaks.', (False, False)),
+    ],
+)
+def test_breaking_marks(subject: str, body: str, marks: tuple[bool, bool]) -> None:
+    assert ccm.breaking_marks(subject, body) == marks
+    assert ccm.is_breaking(subject, body) == any(marks)
+
+
+def _commit(root: Path, message: str, snapshot: dict[str, str]) -> None:
+    path = root / 'tests' / 'golden' / 'interfaces' / 'cli.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(snapshot))
+    for args in (['add', '-A'], ['commit', '-qm', message]):
+        _git(root, *args)
+
+
+def _git(root: Path, *args: str) -> None:
+    env = {'GIT_AUTHOR_NAME': 'Ada', 'GIT_AUTHOR_EMAIL': 'ada@example.com'}
+    env |= {'GIT_COMMITTER_NAME': 'Ada', 'GIT_COMMITTER_EMAIL': 'ada@example.com', 'PATH': os.environ['PATH']}
+    subprocess.run(['git', '-C', str(root), '-c', 'commit.gpgsign=false', *args], env=env, check=True)
+
+
+def test_a_commit_that_breaks_an_interface_must_say_so_twice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _git(tmp_path, 'init', '-q', '-b', 'main')
+    monkeypatch.chdir(tmp_path)
+    _commit(tmp_path, 'test: Record the interfaces', SNAPSHOT)
+    assert ccm.main(['--rev-range', 'HEAD']) == 0  # the root commit only adds
+    _commit(tmp_path, 'feat(cli): Add an option', {**SNAPSHOT, 'konstruct impact --json': 'flag'})
+    assert ccm.main(['--rev-range', 'HEAD~1..HEAD']) == 0
+    smaller = {k: v for k, v in SNAPSHOT.items() if k != 'konstruct impact --depth'}
+    for message in (
+        'feat(cli): Drop an option',
+        'feat(cli)!: Drop an option',
+        'feat(cli): Drop an option\n\nBREAKING CHANGE: Scripts drop --depth.',
+    ):
+        _commit(tmp_path, message, smaller)
+        assert ccm.main(['--rev-range', 'HEAD~1..HEAD']) == 1
+        assert 'cli: konstruct impact --depth is removed' in capsys.readouterr().err
+        _git(tmp_path, 'reset', '-q', '--hard', 'HEAD~1')
+    _commit(tmp_path, 'feat(cli)!: Drop an option\n\nBREAKING CHANGE: Scripts drop --depth.', smaller)
+    assert ccm.main(['--rev-range', 'HEAD~1..HEAD']) == 0
+
+
+def _merge(root: Path, merged: dict[str, str] | None = None) -> None:
+    """Merge the branch side into main without committing, with ``merged`` as the snapshot (the
+    one git merges when None)."""
+    _git(root, 'checkout', '-q', 'main')
+    _git(root, 'merge', '-q', '--no-ff', '--no-commit', 'side')
+    if merged is not None:
+        (root / 'tests' / 'golden' / 'interfaces' / 'cli.json').write_text(json.dumps(merged))
+        _git(root, 'add', '-A')
+
+
+def _notes(root: Path) -> None:
+    notes = root / 'notes.txt'
+    notes.write_text(f'{notes.read_text() if notes.exists() else ""}unrelated\n')
+    _git(root, 'add', '-A')
+    _git(root, 'commit', '-qm', 'docs: Add notes')
+
+
+@pytest.fixture
+def branched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A repository with the snapshot on main, and a branch side started from it."""
+    _git(tmp_path, 'init', '-q', '-b', 'main')
+    monkeypatch.chdir(tmp_path)
+    _commit(tmp_path, 'test: Record the interfaces', SNAPSHOT)
+    _git(tmp_path, 'branch', 'side')
+    return tmp_path
+
+
+SMALLER = {k: v for k, v in SNAPSHOT.items() if k != 'konstruct impact --depth'}
+
+
+def _check(rev_range: str, capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
+    code = ccm.main(['--rev-range', rev_range])
+    return code, capsys.readouterr().err
+
+
+def test_a_merge_commit_is_refused_and_the_range_checked_as_a_whole(
+    branched: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The side branch changed --depth, and the merge drops it: the merge is refused, and the
+    range from its merge base still shows the removal."""
+    start = subprocess.run(
+        ['git', 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    _git(branched, 'checkout', '-q', 'side')
+    _commit(
+        branched,
+        'feat(cli): Take a number for --depth',
+        {**SNAPSHOT, 'konstruct impact --depth': 'option int|str'},
+    )
+    _git(branched, 'checkout', '-q', 'main')
+    _notes(branched)
+    _merge(branched, SMALLER)
+    assert ccm.staged_breaks() == ['cli: konstruct impact --depth is removed']
+    message = branched / 'message'
+    message.write_text('Merge branch side\n')
+    assert ccm.main([str(message)]) == 1
+    assert ccm.MERGES in capsys.readouterr().err  # the commit-msg hook refuses the merge
+    _git(branched, 'commit', '-qm', 'Merge branch side')
+    code, err = _check(f'{start}..HEAD', capsys)
+    assert code == 1 and ccm.MERGES in err
+    assert 'the range as a whole' in err and 'cli: konstruct impact --depth is removed' in err
+
+
+def test_a_merge_onto_an_unrelated_first_parent_is_refused_and_the_range_checked(
+    branched: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A first parent with no snapshots, and no history in common, cannot hide the removal."""
+    blob = subprocess.run(
+        ['git', 'hash-object', '-w', '--stdin'],
+        input='unrelated\n',
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    tree = subprocess.run(
+        ['git', 'mktree'],
+        input=f'100644 blob {blob}\tnotes.txt\n',
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    env = {'GIT_AUTHOR_NAME': 'Ada', 'GIT_AUTHOR_EMAIL': 'ada@example.com', 'PATH': os.environ['PATH']}
+    env |= {'GIT_COMMITTER_NAME': 'Ada', 'GIT_COMMITTER_EMAIL': 'ada@example.com'}
+
+    def commit(*args: str) -> str:
+        return subprocess.run(
+            ['git', 'commit-tree', *args], capture_output=True, text=True, check=True, env=env
+        ).stdout.strip()
+
+    orphan = commit(tree, '-m', 'docs: Add notes')
+    _commit(branched, 'feat(cli): Stage the change', SMALLER)
+    merge = commit('HEAD^{tree}', '-p', orphan, '-p', 'HEAD~1', '-m', 'Merge an unrelated history')
+    code, err = _check(f'HEAD~1..{merge}', capsys)
+    assert code == 1 and ccm.MERGES in err
+    assert 'the range as a whole' in err and 'cli: konstruct impact --depth is removed' in err
+
+
+def test_a_range_s_net_break_is_excused_by_a_commit_that_marks_it(
+    branched: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _commit(branched, 'feat(cli)!: Drop --depth\n\nBREAKING CHANGE: Scripts drop --depth.', SMALLER)
+    _commit(branched, 'docs(cli): Say so', SMALLER | {'konstruct impact --json': 'flag'})
+    assert _check('HEAD~2..HEAD', capsys) == (0, '')
+
+
+def test_renaming_a_snapshot_cannot_hide_a_change_to_it(branched: Path) -> None:
+    folder = branched / 'tests' / 'golden' / 'interfaces'
+    (folder / 'cli.json').rename(folder / 'commands.json')
+    (folder / 'commands.json').write_text(
+        json.dumps({k: v for k, v in SNAPSHOT.items() if k != 'konstruct impact --depth'})
+    )
+    _git(branched, 'add', '-A')
+    assert 'cli: konstruct impact --depth is removed' in ccm.staged_breaks()
+    _git(branched, 'commit', '-qm', 'test: Rename the snapshot')
+    assert 'cli: konstruct impact --depth is removed' in ccm.broken_interfaces('HEAD')
+
+
+def test_a_message_file_is_checked_against_the_staged_snapshots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The commit-msg hook compares the index with HEAD, so it refuses what CI would."""
+    _git(tmp_path, 'init', '-q', '-b', 'main')
+    monkeypatch.chdir(tmp_path)
+    message = tmp_path / 'message'
+    path = tmp_path / 'tests' / 'golden' / 'interfaces' / 'cli.json'
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(SNAPSHOT))
+    _git(tmp_path, 'add', '-A')
+    message.write_text('test: Record the interfaces\n')
+    assert ccm.main([str(message)]) == 0  # a root commit only adds
+    _git(tmp_path, 'commit', '-qm', 'test: Record the interfaces')
+    path.write_text(json.dumps({k: v for k, v in SNAPSHOT.items() if k != 'konstruct impact --depth'}))
+    message.write_text('feat(cli): Drop an option\n')
+    assert ccm.main([str(message)]) == 0  # not staged yet
+    _git(tmp_path, 'add', '-A')
+    assert ccm.main([str(message)]) == 1
+    assert 'cli: konstruct impact --depth is removed' in capsys.readouterr().err
+    message.write_text('feat(cli)!: Drop an option\n\nBREAKING CHANGE: Scripts drop --depth.\n')
+    assert ccm.main([str(message)]) == 0

@@ -48,7 +48,7 @@ def repo(tmp_path: Path) -> Path:
     work = tmp_path / 'work'
     (work / 'konstruct').mkdir(parents=True)
     (work / '.kodex' / 'scripts').mkdir(parents=True)
-    for script in ('prepare_release.py', 'plan_release.sh'):
+    for script in ('prepare_release.py', 'check_commit_message.py', 'plan_release.sh'):
         shutil.copy(SCRIPTS / script, work / '.kodex' / 'scripts' / script)
     set_version(work, '0.11.1')
     (work / 'CHANGELOG.md').write_text('## v0.11.1 (2026-11-08)\n\n### Fix\n\n- Older fix\n')
