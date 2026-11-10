@@ -201,7 +201,7 @@ def test_find_out_dir_looks_upwards(tmp_path: Path) -> None:
 
 def test_no_command_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
     code, out, _ = run(capsys)
-    assert code == 2 and 'usage: konstruct' in out and 'examples:' in out
+    assert code == 2 and 'Usage: konstruct <command>' in out and '\nExamples\n' in out
 
 
 def test_colour(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -245,7 +245,7 @@ def test_version_and_help() -> None:
         'install',
         'mcp',
     ):
-        assert f'    {command}' in help_text
+        assert re.search(rf'^  {command} +\w', help_text, re.M)
     assert '--refresh' in cli('impact', '--help') and '-C DIR' in cli('impact', '--help')
 
 
@@ -330,3 +330,21 @@ def test_diff_and_gate_take_json_and_history_takes_n() -> None:
     assert root.parse_args(['gate', '--json']).json
     assert root.parse_args(['history', 'orders.amount', '-n', '5']).limit == 5
     assert not root.parse_args(['diff']).json
+
+
+@pytest.mark.parametrize('args', [['--help'], ['impact', '--help'], []])
+def test_help_loads_neither_the_build_nor_the_sql_parser(args: list[str]) -> None:
+    code = (
+        'import sys\n'
+        'from konstruct.interfaces.cli import main\n'
+        'try:\n'
+        f'    main({args!r})\n'
+        'except SystemExit:\n'
+        '    pass\n'
+        "print(sorted(m for m in ('sqlglot', 'konstruct.engine.build', 'konstruct.analysis.explain') "
+        'if m in sys.modules))\n'
+    )
+    shown = subprocess.run(
+        [sys.executable, '-c', code], capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+    assert shown[-1] == '[]'

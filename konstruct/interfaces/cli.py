@@ -7,18 +7,22 @@ error, 3 when ``path`` finds no connection.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import logging
 import os
+import re
 import sys
+import textwrap
 import webbrowser
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from konstruct import __version__
-from konstruct.interfaces.console import Console
-from konstruct.interfaces.layout import Text
+from konstruct.interfaces.console import Console, style_for
+from konstruct.interfaces.layout import Style, Text, paragraph, wrap
+from konstruct.interfaces.layout import command as command_lines
 from konstruct.interfaces.project import OUT_DIR, Project, find_out_dir
 from konstruct.interfaces.render import build_lines
 
@@ -386,10 +390,290 @@ def cmd_mcp(args: argparse.Namespace, console: Console) -> int:
 
 # Parser
 
+GROUPS = (
+    ('Build', ('build', 'status', 'init', 'open')),
+    ('Lineage', ('impact', 'trace', 'path', 'explain', 'history')),
+    ('Explore', ('search', 'describe', 'list', 'query', 'export')),
+    ('Business meaning', ('define', 'ontology', 'conflicts')),
+    ('Changes', ('diff', 'gate', 'verify')),
+    ('Agents', ('install', 'mcp')),
+)
+"""The commands in ``konstruct --help``, grouped by what they are for."""
 
-def _common() -> argparse.ArgumentParser:
+EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
+    '': (
+        ('konstruct build', 'build the graph for the current directory'),
+        ('konstruct status', 'what Konstruct finds here; is the graph current?'),
+        ('konstruct impact orders.amount', 'what breaks if orders.amount changes'),
+        ('konstruct trace customers.lifetime_value', 'where a value comes from'),
+        ('konstruct explain customers.lifetime_value', 'its formula, down to source columns'),
+        ('konstruct diff --base origin/main', 'what this branch changes and breaks, column by column'),
+        ('konstruct gate', 'the check to pass before opening a pull request'),
+        ('konstruct install', 'add /konstruct to Claude Code and Cursor'),
+    ),
+    'build': (
+        ('konstruct build', 'build the graph for the current directory'),
+        ('konstruct build -u', 'reuse the analyses of unchanged inputs'),
+        ('konstruct build --no-dbt --strict', 'never run dbt, and fail on any warning'),
+    ),
+    'status': (
+        ('konstruct status', 'what Konstruct finds here, and whether the graph is current'),
+        ('konstruct status --json', 'the same as JSON'),
+    ),
+    'init': (
+        ('konstruct init', 'write konstruct.toml from what discovery finds'),
+        ('konstruct init --stdout', 'print it instead'),
+    ),
+    'impact': (
+        ('konstruct impact orders.amount', 'what breaks if orders.amount changes'),
+        ('konstruct impact stg_orders --depth 2', 'two hops downstream of a model'),
+        ('konstruct impact orders.amount --json', 'the same as JSON, for scripts'),
+    ),
+    'trace': (
+        ('konstruct trace customers.lifetime_value', 'the source columns a value comes from'),
+        ('konstruct trace orders --depth 1', 'the direct inputs of a model'),
+    ),
+    'path': (('konstruct path raw_payments customer_dashboard', 'how a seed reaches a dashboard'),),
+    'search': (
+        ('konstruct search lifetime value', 'names and descriptions that match'),
+        ('konstruct search -k column -n 5 amount', 'the five best matching columns'),
+    ),
+    'describe': (
+        ('konstruct describe orders', 'columns, tests and neighbours of a model'),
+        ('konstruct describe orders.amount', 'one column, with its formula'),
+        ('konstruct describe my_dag.load_orders', 'a DAG task'),
+    ),
+    'conflicts': (
+        ('konstruct conflicts', 'columns that compute one idea in different ways'),
+        ('konstruct conflicts --format markdown --no-write', 'as markdown, writing nothing'),
+        ('konstruct conflicts --fail-on-conflict', 'exit 1 on a conflict, for CI'),
+    ),
+    'define': (
+        ('konstruct define lifetime value', 'a term, by name or synonym'),
+        ('konstruct define orders.amount', 'the terms bound to a column'),
+    ),
+    'ontology': (
+        ('konstruct ontology', 'entities, measures and relationships'),
+        ('konstruct ontology --format yaml', 'the ontology.yml the build writes'),
+        ('konstruct ontology --strict', 'exit 1 on a rule violation'),
+    ),
+    'explain': (('konstruct explain customers.lifetime_value', 'its formula, down to source columns'),),
+    'history': (
+        ('konstruct history customers.lifetime_value', 'formula changes and approvals'),
+        ('konstruct history orders.amount -n 200', 'read further back'),
+    ),
+    'list': (
+        ('konstruct list', 'tables, models, sources, seeds and snapshots'),
+        ('konstruct list tasks dags', 'the orchestration'),
+    ),
+    'query': (
+        ('konstruct query what breaks if I change payment_method', 'impact, from a question'),
+        ('konstruct query where does lifetime value come from', 'lineage, from a question'),
+    ),
+    'export': (
+        ('konstruct export mermaid -s orders --columns', 'a Mermaid diagram of one model'),
+        ('konstruct export openlineage -o lineage.json', 'OpenLineage events for a catalogue'),
+        ('konstruct export ossie -o model.yml', 'the ontology as an Apache Ossie model'),
+    ),
+    'diff': (
+        ('konstruct diff', 'this branch against its merge base with main'),
+        ('konstruct diff --base origin/main --format markdown', 'for a pull request comment'),
+        ('dbt build --select $(konstruct diff --format selector)', 'build only what the change needs'),
+    ),
+    'gate': (
+        ('konstruct gate', 'the check to pass before opening a pull request'),
+        ('konstruct gate --base origin/main --json-file gate.json', 'in CI, keeping the result'),
+    ),
+    'verify': (
+        ('konstruct verify', 'check every model in the discovered warehouse'),
+        ('konstruct verify -m orders --strict', 'one model; exit 1 on an unexplained influence'),
+        ('konstruct verify --warehouse snowflake --rows 2000', 'a sample of the configured Snowflake'),
+    ),
+    'open': (
+        ('konstruct open', 'graph.html in the default browser'),
+        ('konstruct open --print-only', 'print its file URL'),
+    ),
+    'install': (
+        ('konstruct install', 'the skill for Claude Code and Cursor, in your home directory'),
+        ('konstruct install --target . --mcp', 'into this repository, with the MCP server'),
+    ),
+    'mcp': (('konstruct mcp', 'run by an agent from its configuration, not by hand'),),
+}
+
+NAMES = """\
+Names can be a table (orders, main.orders), a column (orders.amount), a dbt unique id or a
+DAG task (dag_id.task_id). Query commands build the graph first if it does not exist yet."""
+
+DOCS = 'https://kodexlabsio.github.io/konstruct/'
+
+_help_style = Style()
+"""How help and usage errors are drawn: set from stdout when the command line is read."""
+
+
+def _examples(name: str) -> str:
+    """A command's examples, aligned, for its help and the documentation. The heading ends in
+    ``::`` so that the reference renders them as a literal block; help shows ``Examples:``."""
+    rows = EXAMPLES.get(name, ())
+    width = max((len(command) for command, _ in rows), default=0)
+    lines = [f'  {command.ljust(width)}  {comment}' for command, comment in rows]
+    return 'Examples::\n\n' + '\n'.join(lines)
+
+
+class _Help(argparse.RawDescriptionHelpFormatter):
+    """argparse's layout with capitalised, bold section headings and a wider option column."""
+
+    def __init__(self, prog: str) -> None:
+        # argparse can run one column past the width it is given.
+        width = min(_help_style.width or 100, 100) - 1
+        super().__init__(prog, max_help_position=min(32, width // 3), width=width)
+
+    def start_section(self, heading: str | None) -> None:
+        shown = heading[:1].upper() + heading[1:] if heading else heading
+        super().start_section(_help_style.paint(shown, 'title') if shown else shown)
+
+    def add_usage(self, usage: Any, actions: Any, groups: Any, prefix: str | None = None) -> None:
+        # The prefix stays plain here: argparse measures it to indent the usage lines, and escape
+        # codes would count as columns. format_help colours it afterwards.
+        super().add_usage(usage, actions, groups, 'Usage: ' if prefix is None else prefix)
+
+    def format_help(self) -> str:
+        text = super().format_help()
+        if text.startswith('Usage: '):
+            text = _help_style.paint('Usage:', 'title') + text[len('Usage:') :]
+        return text
+
+    def _fill_text(self, text: str, width: int, indent: str) -> str:
+        # Example blocks: the heading bold, the comments dim.
+        out = []
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            if line == 'Examples::':
+                out.append(indent + _help_style.paint('Examples:', 'title'))
+            elif not line and index and lines[index - 1] == 'Examples::':
+                continue
+            elif line.startswith('  konstruct') or line.startswith('  dbt '):
+                command, _, comment = line[2:].partition('  ')
+                shown = f'{indent}  {_help_style.paint(command, "accent")}'
+                if len(indent) + len(line) <= width:
+                    out.append(f'{shown}  {_help_style.paint(comment, "dim")}')
+                else:
+                    # Too narrow for both: the comment goes under its command, and a command too
+                    # long for the line breaks between words, as a shell continues it.
+                    style = Style(width=width)
+                    out += [
+                        indent + _help_style.paint(part.plain, 'accent')
+                        for part in command_lines(style, command)
+                    ]
+                    out += [
+                        _help_style.paint(part, 'dim')
+                        for part in textwrap.wrap(
+                            comment.strip(),
+                            width,
+                            initial_indent=indent + '      ',
+                            subsequent_indent=indent + '      ',
+                        )
+                    ]
+            else:
+                out += textwrap.wrap(line, width, initial_indent=indent, subsequent_indent=indent) or ['']
+        return '\n'.join(out) + '\n'
+
+
+class _Parser(argparse.ArgumentParser):
+    """A parser whose usage errors say what is wrong, suggest a near name, and point to help."""
+
+    def error(self, message: str) -> NoReturn:
+        import difflib
+
+        hint = None
+        choice = re.search(r"invalid choice: '([^']*)' \(choose from (.*)\)", message)
+        if choice:
+            given = choice.group(1)
+            # Python 3.12.8 and later list the choices without quotes.
+            options = [option.strip().strip("'") for option in choice.group(2).split(',')]
+            close = difflib.get_close_matches(given, options, n=3, cutoff=0.5)
+            what = 'command' if self.prog == 'konstruct' else 'choice'
+            message = f'unknown {what} {given!r}'
+            hint = f'did you mean {" or ".join(close)}?' if close else f'choose from {", ".join(options)}'
+        prog = self.prog
+        if message.startswith('unrecognized arguments') and prog == 'konstruct':
+            # argparse reports an unknown option from the top-level parser; the help that lists
+            # the options is the command's own.
+            named = next((a for a in _given if a in _COMMANDS), None)
+            prog = f'konstruct {named}' if named else prog
+        ui = style_for(sys.stderr, False if _no_colour() else None)
+        lines = [f'{ui.paint("konstruct: error:", "error+strong")} {message}']
+        if hint:
+            lines.append(f'  {hint}')
+        lines.append(f'  run {ui.paint(f"{prog} --help", "accent")} for its options and examples')
+        self.exit(2, '\n'.join(lines) + '\n')
+
+
+class _Root(_Parser):
+    """The top-level parser, whose help lists the commands by group."""
+
+    def format_help(self) -> str:
+        ui = _help_style
+        choices: dict[str, str] = {}
+        for action in self._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                choices = {a.dest: a.help or '' for a in action._choices_actions}
+        lines = [
+            Text(('Konstruct', 'title'), ' ', (__version__, 'dim')),
+            *paragraph(
+                ui,
+                'Column-level lineage for dbt, SQL, Airflow and Dagster, for people and coding agents.',
+                indent=0,
+            ),
+            Text(),
+            Text(('Usage:', 'title'), ' konstruct ', ('<command>', 'accent'), ' [options]'),
+        ]
+        width = max(len(n) for n in choices)
+        for title, names in GROUPS:
+            lines += [Text(), Text((title, 'title'))]
+            for name in names:
+                if name in choices:
+                    lead = Text('  ', (name.ljust(width), 'accent'), '  ')
+                    lines += wrap(ui, Text(choices[name]), first=lead, hanging=width + 4)
+        options = [
+            ('-C, --project DIR', 'project directory (default: the current directory)'),
+            ('--no-color', 'never colour the output (NO_COLOR is also respected)'),
+            ('-q, --quiet', 'no progress messages on stderr'),
+            ('-v, --verbose', 'log progress to stderr'),
+            ('-h, --help', "show this help, or a command's with konstruct <command> --help"),
+            ('--version', 'print the version'),
+        ]
+        lines += [Text(), Text(('Options', 'title'))]
+        flags = max(len(flag) for flag, _ in options)
+        for flag, about in options:
+            lines += wrap(
+                ui, Text(about), first=Text('  ', (flag.ljust(flags), 'accent'), '  '), hanging=flags + 4
+            )
+        lines += [Text(), Text(('Examples', 'title'))]
+        commands = max(len(c) for c, _ in EXAMPLES[''])
+        for example, about in EXAMPLES['']:
+            if ui.width is None or 4 + commands + len(about) <= ui.width:
+                lines.append(Text('  ', (example.ljust(commands), 'accent'), '  ', (about, 'dim')))
+            else:
+                lines.append(Text('  ', (example, 'accent')))
+                lines += paragraph(ui, Text((about, 'dim')), indent=6)
+        lines += [Text(), *paragraph(ui, ' '.join(NAMES.split()), indent=0)]
+        lines += [Text(), Text('Documentation: ', (DOCS, 'accent'), whole=True)]
+        return ui.render(lines) + '\n'
+
+
+_given: list[str] = []
+"""The command line being read, for usage errors, which argparse raises before it is parsed."""
+
+_COMMANDS = frozenset(name for _, names in GROUPS for name in names)
+
+
+def _no_colour() -> bool:
+    return any(a in ('--no-color', '--no-colour') for a in _given)
+
+
+def _common() -> _Parser:
     """Options every command accepts, before or after its name."""
-    common = argparse.ArgumentParser(add_help=False)
+    common = _Parser(add_help=False)
     common.add_argument(
         '-C',
         '--project',
@@ -427,42 +711,39 @@ def _query_options(command: argparse.ArgumentParser) -> None:
     command.add_argument('--no-build', action='store_true', help='fail rather than build a missing graph')
 
 
-EPILOG = """\
-examples:
-  konstruct build                          build the graph for the current directory
-  konstruct status                         what Konstruct finds here; is the graph current?
-  konstruct impact orders.amount           what breaks if orders.amount changes
-  konstruct trace customers.lifetime_value where a value comes from
-  konstruct path raw_payments customer_dashboard
-  konstruct search lifetime value
-  konstruct list models
-  konstruct diff --base origin/main        what this branch changes and breaks, column by column
-  konstruct gate                           the check to pass before opening a pull request
-  konstruct verify                         check the lineage against the data
-  konstruct install                        add /konstruct to Claude Code and Cursor
+EPILOG = f"""\
+{_examples('')}
 
-Names can be a table (orders, main.orders), a column (orders.amount), a dbt unique id or a
-DAG task (dag_id.task_id). Query commands build the graph first if it does not exist yet.
-Run `konstruct <command> --help` for a command's options.
+{NAMES}
+Run ``konstruct <command> --help`` for a command's options and examples.
 """
 
 
 def parser() -> argparse.ArgumentParser:
     common = _common()
-    root = argparse.ArgumentParser(
+    root = _Root(
         prog='konstruct',
         description='Turn a data stack (dbt, SQL, Airflow, warehouse and Iceberg metadata) into a '
         'queryable graph with column-level lineage, for people and coding agents.',
         epilog=EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=_Help,
         parents=[common],
     )
     root.add_argument('--version', action='version', version=f'konstruct {__version__}')
-    commands = root.add_subparsers(dest='command', metavar='<command>', title='commands')
+    commands = root.add_subparsers(
+        dest='command', metavar='<command>', title='commands', parser_class=_Parser
+    )
 
     def add(name: str, help_text: str) -> argparse.ArgumentParser:
         description = help_text[:1].upper() + help_text[1:] + '.'
-        return commands.add_parser(name, help=help_text, description=description, parents=[common])
+        return commands.add_parser(
+            name,
+            help=help_text,
+            description=description,
+            epilog=_examples(name) if name in EXAMPLES else None,
+            formatter_class=_Help,
+            parents=[common],
+        )
 
     build = add('build', 'build konstruct-out/graph.json, REPORT.md, graph.html and ontology.yml')
     build.add_argument('path', nargs='?', help='project directory (default: -C or the current directory)')
@@ -522,7 +803,9 @@ def parser() -> argparse.ArgumentParser:
 
     conflicting = add('conflicts', 'columns that compute the same business idea in different ways')
     conflicting.add_argument('-n', '--limit', type=int, metavar='N', help='at most N conflicts')
-    conflicting.add_argument('--format', choices=['text', 'markdown'], default='text')
+    conflicting.add_argument(
+        '--format', choices=['text', 'markdown'], default='text', metavar='FORMAT', help='text or markdown'
+    )
     conflicting.add_argument(
         '--no-write', action='store_true', help='do not write CONFLICTS.md and conflicts.json'
     )
@@ -540,7 +823,9 @@ def parser() -> argparse.ArgumentParser:
     defining.set_defaults(func=cmd_define)
 
     ontological = add('ontology', 'the entities, measures and relationships derived from the data stack')
-    ontological.add_argument('--format', choices=['text', 'yaml'], default='text')
+    ontological.add_argument(
+        '--format', choices=['text', 'yaml'], default='text', metavar='FORMAT', help='text or yaml'
+    )
     ontological.add_argument(
         '--strict', action='store_true', help='exit with status 1 if any ontology rule is broken'
     )
@@ -555,7 +840,6 @@ def parser() -> argparse.ArgumentParser:
     historical = add('history', "when a column's formula changed, and who approved the terms bound to it")
     historical.add_argument('ref', metavar='COLUMN', help='e.g. customers.lifetime_value')
     historical.add_argument(
-        '-n',
         '-n',
         '--limit',
         type=int,
@@ -583,7 +867,12 @@ def parser() -> argparse.ArgumentParser:
         'export',
         'the graph as OpenLineage, Mermaid, Graphviz DOT or CSV, or the ontology as an Apache Ossie model',
     )
-    exporting.add_argument('format', choices=['openlineage', 'mermaid', 'dot', 'csv', 'ossie'])
+    exporting.add_argument(
+        'format',
+        choices=['openlineage', 'mermaid', 'dot', 'csv', 'ossie'],
+        metavar='FORMAT',
+        help='openlineage, mermaid, dot, csv or ossie',
+    )
     exporting.add_argument('-o', '--output', metavar='FILE', help='write to FILE instead of stdout')
     exporting.add_argument(
         '-s',
@@ -610,8 +899,10 @@ def parser() -> argparse.ArgumentParser:
     diff.add_argument(
         '--format',
         choices=['text', 'markdown', 'json', 'selector'],
+        metavar='FORMAT',
         default='text',
-        help='markdown suits a pull request comment; selector prints only the dbt --select',
+        help='text, markdown, json or selector: markdown suits a pull request comment, and selector '
+        'prints only the dbt selection',
     )
     diff.add_argument('--json', action='store_true', help='print JSON instead of text')
     diff.add_argument('--json-file', metavar='FILE', help='also write the result as JSON to FILE (for CI)')
@@ -627,7 +918,13 @@ def parser() -> argparse.ArgumentParser:
     gate_.add_argument(
         '--base', metavar='REF', help='commit or date to compare with (default: the merge base with main)'
     )
-    gate_.add_argument('--format', choices=['text', 'markdown', 'json'], default='text')
+    gate_.add_argument(
+        '--format',
+        choices=['text', 'markdown', 'json'],
+        default='text',
+        metavar='FORMAT',
+        help='text, markdown or json',
+    )
     gate_.add_argument('--json', action='store_true', help='print JSON instead of text')
     gate_.add_argument('--json-file', metavar='FILE', help='also write the result as JSON to FILE (for CI)')
     gate_.add_argument('--graph', metavar='FILE', help='use this graph.json instead of finding konstruct-out')
@@ -674,7 +971,9 @@ def parser() -> argparse.ArgumentParser:
     install.add_argument(
         '--target', metavar='DIR', help='install into this repository, not your home directory'
     )
-    install.add_argument('--mcp', action='store_true', help='also register the MCP server (with --target)')
+    install.add_argument(
+        '--mcp', action='store_true', help='also register the MCP server in the target repository'
+    )
     install.add_argument('--force', action='store_true', help='replace a skill that was edited by hand')
     install.set_defaults(func=cmd_install)
 
@@ -684,14 +983,20 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    global _help_style, _given
+    _given = list(sys.argv[1:] if argv is None else argv)
+    _help_style = style_for(sys.stdout, False if _no_colour() else None)
+    if _help_style.width is None:
+        # Help is prose: piped, it keeps the 80 columns argparse would give it.
+        _help_style = dataclasses.replace(_help_style, width=80)
     arguments = parser()
-    args = arguments.parse_args(argv)
+    args = arguments.parse_args(_given)
     for name, default in (('project', '.'), ('no_color', False), ('verbose', False), ('quiet', False)):
         if not hasattr(args, name):
             setattr(args, name, default)
     console = Console(colour=False if args.no_color else None, quiet=args.quiet, verbose=args.verbose)
     if not getattr(args, 'func', None):
-        arguments.print_help()
+        console.print(arguments.format_help().rstrip())
         return 2
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,

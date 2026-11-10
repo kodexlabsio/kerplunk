@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from konstruct.interfaces import cli
 from konstruct.interfaces import console as console_module
 from konstruct.interfaces.cli import main
 from konstruct.interfaces.console import Console, colour_enabled, style_for, terminal_width, unicode_enabled
@@ -335,6 +336,45 @@ def test_a_wrong_name_says_what_it_may_have_meant(
     assert err[2] == '  try `konstruct search orders amout`'
 
 
+def test_a_mistyped_command_is_corrected(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as stop:
+        main(['imapct', 'orders'])
+    assert stop.value.code == 2
+    err = capsys.readouterr().err.splitlines()
+    assert err == [
+        "konstruct: error: unknown command 'imapct'",
+        '  did you mean impact?',
+        '  run konstruct --help for its options and examples',
+    ]
+
+
+@pytest.mark.parametrize('choices', ["'impact', 'trace'", 'impact, trace'])
+def test_a_mistyped_command_is_corrected_whether_python_quotes_the_choices(
+    choices: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from konstruct.interfaces.cli import _Parser
+
+    with pytest.raises(SystemExit):
+        _Parser(prog='konstruct').error(f"argument command: invalid choice: 'imapct' (choose from {choices})")
+    assert capsys.readouterr().err.splitlines()[1] == '  did you mean impact?'
+
+
+def test_help_groups_the_commands_and_each_command_has_examples(capsys: pytest.CaptureFixture[str]) -> None:
+    help_text = cli.parser().format_help()
+    for title, names in cli.GROUPS:
+        assert f'\n{title}\n' in help_text
+        for name in names:
+            assert re.search(rf'^  {name} +\w', help_text, re.M)
+    commands = {name for _, names in cli.GROUPS for name in names}
+    parser = cli.parser()
+    subparsers = next(a for a in parser._actions if a.dest == 'command')
+    assert commands == set(subparsers.choices)  # type: ignore[arg-type]
+    for name, sub in subparsers.choices.items():  # type: ignore[union-attr]
+        text = sub.format_help()
+        assert '\nExamples:\n  konstruct' in text or name == 'diff', name
+        assert text.startswith('Usage: konstruct')
+
+
 # Less common results, built directly
 
 
@@ -571,3 +611,35 @@ def test_the_spinner_restores_the_cursor_on_sigterm(clean_env: pytest.MonkeyPatc
     assert stop.value.code == 128 + signal.SIGTERM
     assert console.err.getvalue().endswith('\x1b[?25h')
     assert signal.getsignal(signal.SIGTERM) == before
+
+
+@pytest.mark.parametrize('args', [['impact', '--help'], ['--help'], ['diff', '--help']])
+def test_help_fits_a_narrow_terminal(
+    args: list[str], clean_env: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from konstruct.interfaces.layout import width_of
+
+    screen = Terminal()
+    clean_env.setattr(sys, 'stdout', screen)
+    clean_env.setenv('COLUMNS', '40')
+    with pytest.raises(SystemExit):
+        main(args)
+    lines = [ESCAPE.sub('', line) for line in screen.getvalue().splitlines()]
+    too_wide = [line for line in lines if width_of(line) > 40 and 'kodexlabsio.github.io' not in line]
+    # argparse's own usage block is the only thing allowed to run over, by an option's width.
+    assert all(line.strip().startswith('[') for line in too_wide), too_wide
+
+
+def test_usage_errors_honour_no_color_and_name_the_commands_help(
+    clean_env: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    clean_env.setenv('FORCE_COLOR', '1')
+    with pytest.raises(SystemExit):
+        main(['--no-color', 'imapct', 'orders'])
+    assert '\x1b' not in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        main(['--no-color', 'impact', 'orders', '--bogus'])
+    assert capsys.readouterr().err.splitlines() == [
+        'konstruct: error: unrecognized arguments: --bogus',
+        '  run konstruct impact --help for its options and examples',
+    ]
