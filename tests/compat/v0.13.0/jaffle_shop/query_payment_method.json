@@ -1,0 +1,363 @@
+{
+ "format_version": 1,
+ "question": "what breaks if I change payment_method",
+ "matches": [
+  {
+   "id": "term.payment_method",
+   "kind": "term",
+   "label": "Payment method",
+   "name": "Payment method",
+   "path": "definitions.yml",
+   "description": "How a payment was made, as recorded by the payment provider.",
+   "status": "draft"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#payment_method",
+   "kind": "column",
+   "label": "raw_payments.payment_method",
+   "name": "payment_method",
+   "relation_kind": "seed",
+   "path": "seeds/raw_payments.csv",
+   "data_type": "VARCHAR"
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "column",
+   "label": "stg_payments.payment_method",
+   "name": "payment_method",
+   "relation_kind": "model",
+   "path": "models/staging/stg_payments.sql",
+   "data_type": "VARCHAR"
+  }
+ ],
+ "edges": [
+  {
+   "source": "term.payment_method",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "defines",
+   "source_label": "Payment method",
+   "target_label": "stg_payments.payment_method"
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments#payment_method",
+   "target": "seed.jaffle_shop.raw_payments#payment_method",
+   "kind": "derived_from",
+   "source_label": "stg_payments.payment_method",
+   "target_label": "raw_payments.payment_method",
+   "transform": "direct"
+  },
+  {
+   "source": "test.jaffle_shop.accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card.3c3820f278",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "tests",
+   "source_label": "accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card",
+   "target_label": "stg_payments.payment_method"
+  },
+  {
+   "source": "model.jaffle_shop.orders#credit_card_amount",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "derived_from",
+   "source_label": "orders.credit_card_amount",
+   "target_label": "stg_payments.payment_method",
+   "transform": "transformed"
+  },
+  {
+   "source": "model.jaffle_shop.orders#coupon_amount",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "derived_from",
+   "source_label": "orders.coupon_amount",
+   "target_label": "stg_payments.payment_method",
+   "transform": "transformed"
+  },
+  {
+   "source": "model.jaffle_shop.orders#bank_transfer_amount",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "derived_from",
+   "source_label": "orders.bank_transfer_amount",
+   "target_label": "stg_payments.payment_method",
+   "transform": "transformed"
+  },
+  {
+   "source": "model.jaffle_shop.orders#gift_card_amount",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "derived_from",
+   "source_label": "orders.gift_card_amount",
+   "target_label": "stg_payments.payment_method",
+   "transform": "transformed"
+  }
+ ],
+ "neighbours": [
+  {
+   "id": "model.jaffle_shop.orders#bank_transfer_amount",
+   "kind": "column",
+   "label": "orders.bank_transfer_amount",
+   "name": "bank_transfer_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by bank transfer"
+  },
+  {
+   "id": "model.jaffle_shop.orders#coupon_amount",
+   "kind": "column",
+   "label": "orders.coupon_amount",
+   "name": "coupon_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by coupon"
+  },
+  {
+   "id": "model.jaffle_shop.orders#credit_card_amount",
+   "kind": "column",
+   "label": "orders.credit_card_amount",
+   "name": "credit_card_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by credit card"
+  },
+  {
+   "id": "model.jaffle_shop.orders#gift_card_amount",
+   "kind": "column",
+   "label": "orders.gift_card_amount",
+   "name": "gift_card_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by gift card"
+  },
+  {
+   "id": "test.jaffle_shop.accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card.3c3820f278",
+   "kind": "test",
+   "label": "accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card",
+   "name": "accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card",
+   "path": "models/staging/schema.yml"
+  }
+ ],
+ "impact": {
+  "direction": "downstream",
+  "target": {
+   "id": "seed.jaffle_shop.raw_payments#payment_method",
+   "kind": "column",
+   "label": "raw_payments.payment_method",
+   "name": "payment_method",
+   "relation_kind": "seed",
+   "path": "seeds/raw_payments.csv",
+   "data_type": "VARCHAR"
+  },
+  "columns": [
+   {
+    "id": "model.jaffle_shop.stg_payments#payment_method",
+    "kind": "column",
+    "label": "stg_payments.payment_method",
+    "name": "payment_method",
+    "relation_kind": "model",
+    "path": "models/staging/stg_payments.sql",
+    "data_type": "VARCHAR",
+    "depth": 1,
+    "via": "derived_from",
+    "transform": "direct"
+   },
+   {
+    "id": "model.jaffle_shop.orders#bank_transfer_amount",
+    "kind": "column",
+    "label": "orders.bank_transfer_amount",
+    "name": "bank_transfer_amount",
+    "relation_kind": "model",
+    "path": "models/orders.sql",
+    "data_type": "DOUBLE",
+    "description": "Amount of the order (AUD) paid for by bank transfer",
+    "depth": 2,
+    "via": "derived_from",
+    "transform": "transformed"
+   },
+   {
+    "id": "model.jaffle_shop.orders#coupon_amount",
+    "kind": "column",
+    "label": "orders.coupon_amount",
+    "name": "coupon_amount",
+    "relation_kind": "model",
+    "path": "models/orders.sql",
+    "data_type": "DOUBLE",
+    "description": "Amount of the order (AUD) paid for by coupon",
+    "depth": 2,
+    "via": "derived_from",
+    "transform": "transformed"
+   },
+   {
+    "id": "model.jaffle_shop.orders#credit_card_amount",
+    "kind": "column",
+    "label": "orders.credit_card_amount",
+    "name": "credit_card_amount",
+    "relation_kind": "model",
+    "path": "models/orders.sql",
+    "data_type": "DOUBLE",
+    "description": "Amount of the order (AUD) paid for by credit card",
+    "depth": 2,
+    "via": "derived_from",
+    "transform": "transformed"
+   },
+   {
+    "id": "model.jaffle_shop.orders#gift_card_amount",
+    "kind": "column",
+    "label": "orders.gift_card_amount",
+    "name": "gift_card_amount",
+    "relation_kind": "model",
+    "path": "models/orders.sql",
+    "data_type": "DOUBLE",
+    "description": "Amount of the order (AUD) paid for by gift card",
+    "depth": 2,
+    "via": "derived_from",
+    "transform": "transformed"
+   }
+  ],
+  "relations": [
+   {
+    "id": "model.jaffle_shop.orders",
+    "kind": "model",
+    "label": "orders",
+    "name": "orders",
+    "path": "models/orders.sql",
+    "description": "This table has basic information about orders, as well as some derived facts based on payments"
+   },
+   {
+    "id": "model.jaffle_shop.stg_payments",
+    "kind": "model",
+    "label": "stg_payments",
+    "name": "stg_payments",
+    "path": "models/staging/stg_payments.sql"
+   }
+  ],
+  "joins_and_filters": [],
+  "filtered_by": [],
+  "tests": [
+   {
+    "id": "test.jaffle_shop.accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card.3c3820f278",
+    "kind": "test",
+    "label": "accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card",
+    "name": "accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card",
+    "path": "models/staging/schema.yml",
+    "depth": 2,
+    "via": "tests"
+   },
+   {
+    "id": "test.jaffle_shop.not_null_orders_bank_transfer_amount.7743500c49",
+    "kind": "test",
+    "label": "not_null_orders_bank_transfer_amount",
+    "name": "not_null_orders_bank_transfer_amount",
+    "path": "models/schema.yml",
+    "depth": 3,
+    "via": "tests"
+   },
+   {
+    "id": "test.jaffle_shop.not_null_orders_coupon_amount.ab90c90625",
+    "kind": "test",
+    "label": "not_null_orders_coupon_amount",
+    "name": "not_null_orders_coupon_amount",
+    "path": "models/schema.yml",
+    "depth": 3,
+    "via": "tests"
+   },
+   {
+    "id": "test.jaffle_shop.not_null_orders_credit_card_amount.d3ca593b59",
+    "kind": "test",
+    "label": "not_null_orders_credit_card_amount",
+    "name": "not_null_orders_credit_card_amount",
+    "path": "models/schema.yml",
+    "depth": 3,
+    "via": "tests"
+   },
+   {
+    "id": "test.jaffle_shop.not_null_orders_gift_card_amount.413a0d2d7a",
+    "kind": "test",
+    "label": "not_null_orders_gift_card_amount",
+    "name": "not_null_orders_gift_card_amount",
+    "path": "models/schema.yml",
+    "depth": 3,
+    "via": "tests"
+   }
+  ],
+  "exposures": [
+   {
+    "id": "exposure.jaffle_shop.customer_dashboard",
+    "kind": "exposure",
+    "label": "customer_dashboard",
+    "name": "customer_dashboard",
+    "path": "models/exposures.yml",
+    "description": "Weekly view of customers, their orders and lifetime value.",
+    "depth": 3,
+    "via": "feeds"
+   }
+  ],
+  "tasks": [
+   {
+    "id": "task.jaffle_shop_daily.dbt_run_staging",
+    "kind": "task",
+    "label": "jaffle_shop_daily.dbt_run_staging",
+    "name": "dbt_run_staging",
+    "path": "dags/jaffle_shop_daily.py",
+    "depth": 2,
+    "via": "runs",
+    "command": "run"
+   },
+   {
+    "id": "task.jaffle_shop_daily.dbt_run_marts",
+    "kind": "task",
+    "label": "jaffle_shop_daily.dbt_run_marts",
+    "name": "dbt_run_marts",
+    "path": "dags/jaffle_shop_daily.py",
+    "depth": 3,
+    "via": "runs",
+    "command": "run"
+   }
+  ],
+  "terms": [
+   {
+    "id": "term.payment_method",
+    "kind": "term",
+    "label": "Payment method",
+    "name": "Payment method",
+    "path": "definitions.yml",
+    "description": "How a payment was made, as recorded by the payment provider.",
+    "status": "draft"
+   }
+  ],
+  "entities": {
+   "order": [
+    "orders"
+   ],
+   "payment": [
+    "stg_payments"
+   ]
+  },
+  "total": 16,
+  "summary": "5 columns, 2 relations, 5 tests, 1 exposure, 2 tasks and 1 business term downstream."
+ },
+ "definitions": [
+  {
+   "name": "Payment method",
+   "definition": "How a payment was made, as recorded by the payment provider.",
+   "status": "draft",
+   "synonyms": [],
+   "columns": [
+    {
+     "id": "model.jaffle_shop.stg_payments#payment_method",
+     "kind": "column",
+     "label": "stg_payments.payment_method",
+     "name": "payment_method",
+     "relation_kind": "model",
+     "path": "models/staging/stg_payments.sql",
+     "data_type": "VARCHAR"
+    }
+   ],
+   "filters": [],
+   "related": [],
+   "broader": [],
+   "narrower": [],
+   "path": "definitions.yml",
+   "line": 49,
+   "id": "term.payment_method"
+  }
+ ]
+}

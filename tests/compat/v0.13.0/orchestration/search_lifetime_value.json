@@ -1,0 +1,54 @@
+{
+ "format_version": 1,
+ "query": "lifetime value",
+ "results": [
+  {
+   "id": "term.customer_lifetime_value",
+   "kind": "term",
+   "label": "Customer lifetime value",
+   "name": "Customer lifetime value",
+   "path": "definitions.yml",
+   "description": "Total value of every payment a customer has made, across all orders and payment methods, in Australian dollars.",
+   "score": 48.74,
+   "status": "approved"
+  },
+  {
+   "id": "model.jaffle_shop.customers#customer_lifetime_value",
+   "kind": "column",
+   "label": "customers.customer_lifetime_value",
+   "name": "customer_lifetime_value",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "DOUBLE",
+   "score": 20.81
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#lifetime_value",
+   "kind": "column",
+   "label": "customer_ltv.lifetime_value",
+   "name": "lifetime_value",
+   "relation_kind": "table",
+   "data_type": "DOUBLE",
+   "score": 20.81
+  },
+  {
+   "id": "term.order_amount",
+   "kind": "term",
+   "label": "Order amount",
+   "name": "Order amount",
+   "path": "definitions.yml",
+   "description": "Total of all payments recorded against an order, in Australian dollars.",
+   "score": 15.12,
+   "status": "approved"
+  },
+  {
+   "id": "task.dagster.reporting/customer_ltv",
+   "kind": "task",
+   "label": "reporting.reporting/customer_ltv",
+   "name": "reporting/customer_ltv",
+   "path": "orchestration/definitions.py",
+   "description": "Lifetime value per customer, from the customers model.",
+   "score": 3.47
+  }
+ ]
+}

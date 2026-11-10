@@ -1,0 +1,2661 @@
+{
+ "format_version": 1,
+ "meta": {
+  "konstruct_version": "0.13.0",
+  "root": "<root>",
+  "dialect": "duckdb",
+  "default_catalog": "jaffle_shop",
+  "default_schema": "main",
+  "inputs": {
+   "dbt_projects": 1,
+   "warehouses": 1,
+   "dbt_models": 5,
+   "airflow_dags": 1,
+   "dagster_assets": 0,
+   "dagster_ops": 0,
+   "sql_files": 0,
+   "definitions": 5
+  },
+  "sources": [
+   {
+    "input": "dbt",
+    "name": "jaffle_shop",
+    "path": ".",
+    "note": "ran dbt docs generate",
+    "detail": "5 models, 3 seeds, 20 tests, 1 exposure"
+   },
+   {
+    "input": "duckdb",
+    "name": "duckdb jaffle_shop.duckdb",
+    "detail": "9 relations",
+    "note": "dbt profile jaffle_shop"
+   },
+   {
+    "input": "airflow",
+    "path": "dags/jaffle_shop_daily.py",
+    "detail": "1 DAG, 6 tasks"
+   },
+   {
+    "input": "definitions",
+    "path": "definitions.yml",
+    "detail": "5 terms"
+   }
+  ],
+  "watched": [
+   "dags/jaffle_shop_daily.py",
+   "dags/sql/customer_ltv.sql",
+   "dbt_project.yml",
+   "definitions.yml",
+   "models",
+   "seeds",
+   "target/catalog.json",
+   "target/manifest.json"
+  ]
+ },
+ "nodes": [
+  {
+   "id": "dag.jaffle_shop_daily",
+   "kind": "dag",
+   "name": "jaffle_shop_daily",
+   "description": "Daily jaffle_shop run: load seeds, build the dbt models, test them, then refresh reporting.",
+   "path": "dags/jaffle_shop_daily.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "schedule": "@daily",
+    "tags": [
+     "jaffle_shop"
+    ],
+    "line": 11
+   }
+  },
+  {
+   "id": "exposure.jaffle_shop.customer_dashboard",
+   "kind": "exposure",
+   "name": "customer_dashboard",
+   "description": "Weekly view of customers, their orders and lifetime value.",
+   "path": "models/exposures.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "type": "dashboard",
+    "label": "Customer dashboard",
+    "maturity": "medium",
+    "owner": "Analytics"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers",
+   "kind": "model",
+   "name": "customers",
+   "relation": "jaffle_shop.main.customers",
+   "description": "This table has basic information about a customer, as well as some derived facts based on a customer's orders",
+   "path": "models/customers.sql",
+   "origins": [
+    "airflow",
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "customers"
+    ],
+    "materialized": "table",
+    "tags": [],
+    "dbt_name": "customers",
+    "checksum": "bca921cdf53692cbf7922e8044bb47df3d0cedd21afc25b37193db6291962b71",
+    "table_type": "table",
+    "in_warehouse": true,
+    "conditions": [
+     "GROUP BY: jaffle_shop.main.stg_orders.customer_id",
+     "LEFT JOIN ON: jaffle_shop.main.stg_customers.customer_id = jaffle_shop.main.stg_orders.customer_id",
+     "LEFT JOIN ON: jaffle_shop.main.stg_payments.order_id = jaffle_shop.main.stg_orders.order_id"
+    ],
+    "nullable": {
+     "jaffle_shop.main.stg_payments": "LEFT",
+     "jaffle_shop.main.stg_orders": "LEFT"
+    },
+    "entities": [
+     "customer"
+    ]
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#customer_id",
+   "kind": "column",
+   "name": "customer_id",
+   "parent": "model.jaffle_shop.customers",
+   "description": "This is a unique identifier for a customer",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.stg_customers.customer_id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#customer_lifetime_value",
+   "kind": "column",
+   "name": "customer_lifetime_value",
+   "parent": "model.jaffle_shop.customers",
+   "data_type": "DOUBLE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "SUM(jaffle_shop.main.stg_payments.amount)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#first_name",
+   "kind": "column",
+   "name": "first_name",
+   "parent": "model.jaffle_shop.customers",
+   "description": "Customer's first name. PII.",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.stg_customers.first_name"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#first_order",
+   "kind": "column",
+   "name": "first_order",
+   "parent": "model.jaffle_shop.customers",
+   "description": "Date (UTC) of a customer's first order",
+   "data_type": "DATE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "MIN(jaffle_shop.main.stg_orders.order_date)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#last_name",
+   "kind": "column",
+   "name": "last_name",
+   "parent": "model.jaffle_shop.customers",
+   "description": "Customer's last name. PII.",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.stg_customers.last_name"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#most_recent_order",
+   "kind": "column",
+   "name": "most_recent_order",
+   "parent": "model.jaffle_shop.customers",
+   "description": "Date (UTC) of a customer's most recent order",
+   "data_type": "DATE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "MAX(jaffle_shop.main.stg_orders.order_date)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#number_of_orders",
+   "kind": "column",
+   "name": "number_of_orders",
+   "parent": "model.jaffle_shop.customers",
+   "description": "Count of the number of orders a customer has placed",
+   "data_type": "BIGINT",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "COUNT(jaffle_shop.main.stg_orders.order_id)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#total_order_amount",
+   "kind": "column",
+   "name": "total_order_amount",
+   "parent": "model.jaffle_shop.customers",
+   "description": "Total value (AUD) of a customer's orders",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "documented_only": true
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders",
+   "kind": "model",
+   "name": "orders",
+   "relation": "jaffle_shop.main.orders",
+   "description": "This table has basic information about orders, as well as some derived facts based on payments",
+   "path": "models/orders.sql",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "orders"
+    ],
+    "materialized": "table",
+    "tags": [],
+    "dbt_name": "orders",
+    "checksum": "60c17722f35983a7948bd24f39bec8509719babcfe50316750c1a63eaebd4995",
+    "table_type": "table",
+    "in_warehouse": true,
+    "conditions": [
+     "GROUP BY: jaffle_shop.main.stg_payments.order_id",
+     "LEFT JOIN ON: jaffle_shop.main.stg_orders.order_id = jaffle_shop.main.stg_payments.order_id"
+    ],
+    "nullable": {
+     "jaffle_shop.main.stg_payments": "LEFT"
+    },
+    "entities": [
+     "order"
+    ]
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#amount",
+   "kind": "column",
+   "name": "amount",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Total amount (AUD) of the order",
+   "data_type": "DOUBLE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "SUM(jaffle_shop.main.stg_payments.amount)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#bank_transfer_amount",
+   "kind": "column",
+   "name": "bank_transfer_amount",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Amount of the order (AUD) paid for by bank transfer",
+   "data_type": "DOUBLE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "SUM(CASE WHEN jaffle_shop.main.stg_payments.payment_method = 'bank_transfer' THEN jaffle_shop.main.stg_payments.amount ELSE 0 END)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#coupon_amount",
+   "kind": "column",
+   "name": "coupon_amount",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Amount of the order (AUD) paid for by coupon",
+   "data_type": "DOUBLE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "SUM(CASE WHEN jaffle_shop.main.stg_payments.payment_method = 'coupon' THEN jaffle_shop.main.stg_payments.amount ELSE 0 END)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#credit_card_amount",
+   "kind": "column",
+   "name": "credit_card_amount",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Amount of the order (AUD) paid for by credit card",
+   "data_type": "DOUBLE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "SUM(CASE WHEN jaffle_shop.main.stg_payments.payment_method = 'credit_card' THEN jaffle_shop.main.stg_payments.amount ELSE 0 END)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#customer_id",
+   "kind": "column",
+   "name": "customer_id",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Foreign key to the customers table",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.stg_orders.customer_id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#gift_card_amount",
+   "kind": "column",
+   "name": "gift_card_amount",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Amount of the order (AUD) paid for by gift card",
+   "data_type": "DOUBLE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "SUM(CASE WHEN jaffle_shop.main.stg_payments.payment_method = 'gift_card' THEN jaffle_shop.main.stg_payments.amount ELSE 0 END)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#order_date",
+   "kind": "column",
+   "name": "order_date",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Date (UTC) that the order was placed",
+   "data_type": "DATE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.stg_orders.order_date"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#order_id",
+   "kind": "column",
+   "name": "order_id",
+   "parent": "model.jaffle_shop.orders",
+   "description": "This is a unique identifier for an order",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.stg_orders.order_id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#status",
+   "kind": "column",
+   "name": "status",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Orders can be one of the following statuses:\n\n| status         | description                                                                                                            |\n|----------------|------------------------------------------------------------------------------------------------------------------------|\n| placed         | The order has been placed but has not yet left the warehouse                                                           |\n| shipped        | The order has ben shipped to the customer and is currently in transit                                                  |\n| completed      | The order has been received by the customer                                                                            |\n| return_pending | The customer has indicated that they would like to return the order, but it has not yet been received at the warehouse |\n| returned       | The order has been returned by the customer and received at the warehouse                                              |",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.stg_orders.status"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_customers",
+   "kind": "model",
+   "name": "stg_customers",
+   "relation": "jaffle_shop.main.stg_customers",
+   "path": "models/staging/stg_customers.sql",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "staging",
+     "stg_customers"
+    ],
+    "materialized": "view",
+    "tags": [],
+    "dbt_name": "stg_customers",
+    "checksum": "3725e5b3ea920a683f86eff94c164cc14a764fdcc29d3cb2d2cde5f728caad20",
+    "table_type": "view",
+    "in_warehouse": true,
+    "entities": [
+     "customer"
+    ]
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_customers#customer_id",
+   "kind": "column",
+   "name": "customer_id",
+   "parent": "model.jaffle_shop.stg_customers",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_customers.id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_customers#first_name",
+   "kind": "column",
+   "name": "first_name",
+   "parent": "model.jaffle_shop.stg_customers",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_customers.first_name"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_customers#last_name",
+   "kind": "column",
+   "name": "last_name",
+   "parent": "model.jaffle_shop.stg_customers",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_customers.last_name"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders",
+   "kind": "model",
+   "name": "stg_orders",
+   "relation": "jaffle_shop.main.stg_orders",
+   "path": "models/staging/stg_orders.sql",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "staging",
+     "stg_orders"
+    ],
+    "materialized": "view",
+    "tags": [],
+    "dbt_name": "stg_orders",
+    "checksum": "ad8a5c6db10184816bf2c01a4cb5fb765b170135624ca2e6b3d4863923947d42",
+    "table_type": "view",
+    "in_warehouse": true,
+    "entities": [
+     "order"
+    ]
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders#customer_id",
+   "kind": "column",
+   "name": "customer_id",
+   "parent": "model.jaffle_shop.stg_orders",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_orders.user_id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders#order_date",
+   "kind": "column",
+   "name": "order_date",
+   "parent": "model.jaffle_shop.stg_orders",
+   "data_type": "DATE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_orders.order_date"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "column",
+   "name": "order_id",
+   "parent": "model.jaffle_shop.stg_orders",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_orders.id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders#status",
+   "kind": "column",
+   "name": "status",
+   "parent": "model.jaffle_shop.stg_orders",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_orders.status"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments",
+   "kind": "model",
+   "name": "stg_payments",
+   "relation": "jaffle_shop.main.stg_payments",
+   "path": "models/staging/stg_payments.sql",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "staging",
+     "stg_payments"
+    ],
+    "materialized": "view",
+    "tags": [],
+    "dbt_name": "stg_payments",
+    "checksum": "8a4ab0678fcb894c991a3526963caf37c810cc6f94d8e1bbd9d503c73225d3ed",
+    "table_type": "view",
+    "in_warehouse": true,
+    "entities": [
+     "payment"
+    ]
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#amount",
+   "kind": "column",
+   "name": "amount",
+   "parent": "model.jaffle_shop.stg_payments",
+   "data_type": "DOUBLE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_payments.amount / 100"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#order_id",
+   "kind": "column",
+   "name": "order_id",
+   "parent": "model.jaffle_shop.stg_payments",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_payments.order_id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#payment_id",
+   "kind": "column",
+   "name": "payment_id",
+   "parent": "model.jaffle_shop.stg_payments",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_payments.id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "column",
+   "name": "payment_method",
+   "parent": "model.jaffle_shop.stg_payments",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_payments.payment_method"
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_customers",
+   "kind": "seed",
+   "name": "raw_customers",
+   "relation": "jaffle_shop.main.raw_customers",
+   "path": "seeds/raw_customers.csv",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "raw_customers"
+    ],
+    "materialized": "seed",
+    "tags": [],
+    "dbt_name": "raw_customers",
+    "checksum": "357d173dda65a741ad97d6683502286cc2655bb396ab5f4dfad12b8c39bd2a63",
+    "table_type": "table",
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_customers#first_name",
+   "kind": "column",
+   "name": "first_name",
+   "parent": "seed.jaffle_shop.raw_customers",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_customers#id",
+   "kind": "column",
+   "name": "id",
+   "parent": "seed.jaffle_shop.raw_customers",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_customers#last_name",
+   "kind": "column",
+   "name": "last_name",
+   "parent": "seed.jaffle_shop.raw_customers",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders",
+   "kind": "seed",
+   "name": "raw_orders",
+   "relation": "jaffle_shop.main.raw_orders",
+   "path": "seeds/raw_orders.csv",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "raw_orders"
+    ],
+    "materialized": "seed",
+    "tags": [],
+    "dbt_name": "raw_orders",
+    "checksum": "6228dde8e17b9621f35c13e272ec67d3ff55b55499433f47d303adf2be72c17f",
+    "table_type": "table",
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders#id",
+   "kind": "column",
+   "name": "id",
+   "parent": "seed.jaffle_shop.raw_orders",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders#order_date",
+   "kind": "column",
+   "name": "order_date",
+   "parent": "seed.jaffle_shop.raw_orders",
+   "data_type": "DATE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders#status",
+   "kind": "column",
+   "name": "status",
+   "parent": "seed.jaffle_shop.raw_orders",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders#user_id",
+   "kind": "column",
+   "name": "user_id",
+   "parent": "seed.jaffle_shop.raw_orders",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments",
+   "kind": "seed",
+   "name": "raw_payments",
+   "relation": "jaffle_shop.main.raw_payments",
+   "path": "seeds/raw_payments.csv",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "raw_payments"
+    ],
+    "materialized": "seed",
+    "tags": [],
+    "dbt_name": "raw_payments",
+    "checksum": "6de0626a8db9c1750eefd1b2e17fac4c2a4b9f778eb50532d8b377b90de395e6",
+    "table_type": "table",
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#amount",
+   "kind": "column",
+   "name": "amount",
+   "parent": "seed.jaffle_shop.raw_payments",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#id",
+   "kind": "column",
+   "name": "id",
+   "parent": "seed.jaffle_shop.raw_payments",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#order_id",
+   "kind": "column",
+   "name": "order_id",
+   "parent": "seed.jaffle_shop.raw_payments",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#payment_method",
+   "kind": "column",
+   "name": "payment_method",
+   "parent": "seed.jaffle_shop.raw_payments",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "table",
+   "name": "customer_ltv",
+   "relation": "jaffle_shop.reporting.customer_ltv",
+   "origins": [
+    "airflow",
+    "duckdb"
+   ],
+   "attrs": {
+    "table_type": "table",
+    "in_warehouse": true,
+    "conditions": [
+     "WHERE: jaffle_shop.main.customers.customer_lifetime_value > 0"
+    ]
+   }
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#customer_id",
+   "kind": "column",
+   "name": "customer_id",
+   "parent": "table.jaffle_shop.reporting.customer_ltv",
+   "data_type": "INTEGER",
+   "origins": [
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.customers.customer_id"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#first_name",
+   "kind": "column",
+   "name": "first_name",
+   "parent": "table.jaffle_shop.reporting.customer_ltv",
+   "data_type": "VARCHAR",
+   "origins": [
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.customers.first_name"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#lifetime_value",
+   "kind": "column",
+   "name": "lifetime_value",
+   "parent": "table.jaffle_shop.reporting.customer_ltv",
+   "data_type": "DOUBLE",
+   "origins": [
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.customers.customer_lifetime_value"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#number_of_orders",
+   "kind": "column",
+   "name": "number_of_orders",
+   "parent": "table.jaffle_shop.reporting.customer_ltv",
+   "data_type": "BIGINT",
+   "origins": [
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.customers.number_of_orders"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#segment",
+   "kind": "column",
+   "name": "segment",
+   "parent": "table.jaffle_shop.reporting.customer_ltv",
+   "data_type": "VARCHAR",
+   "origins": [
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "CASE WHEN jaffle_shop.main.customers.number_of_orders >= 3 THEN 'loyal' ELSE 'new' END"
+   }
+  },
+  {
+   "id": "task.jaffle_shop_daily.build_customer_ltv",
+   "kind": "task",
+   "name": "build_customer_ltv",
+   "path": "dags/jaffle_shop_daily.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "jaffle_shop_daily",
+    "operator": "SQLExecuteQueryOperator",
+    "line": 24,
+    "sql_path": "dags/sql/customer_ltv.sql"
+   }
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_run_marts",
+   "kind": "task",
+   "name": "dbt_run_marts",
+   "path": "dags/jaffle_shop_daily.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "jaffle_shop_daily",
+    "operator": "BashOperator",
+    "line": 21,
+    "bash_command": "cd /opt/airflow/jaffle_shop && dbt run --select customers orders"
+   }
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_run_staging",
+   "kind": "task",
+   "name": "dbt_run_staging",
+   "path": "dags/jaffle_shop_daily.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "jaffle_shop_daily",
+    "operator": "BashOperator",
+    "line": 20,
+    "bash_command": "cd /opt/airflow/jaffle_shop && dbt run --select staging"
+   }
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_seed",
+   "kind": "task",
+   "name": "dbt_seed",
+   "path": "dags/jaffle_shop_daily.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "jaffle_shop_daily",
+    "operator": "BashOperator",
+    "line": 19,
+    "bash_command": "cd /opt/airflow/jaffle_shop && dbt seed"
+   }
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_test",
+   "kind": "task",
+   "name": "dbt_test",
+   "path": "dags/jaffle_shop_daily.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "jaffle_shop_daily",
+    "operator": "BashOperator",
+    "line": 22,
+    "bash_command": "cd /opt/airflow/jaffle_shop && dbt test"
+   }
+  },
+  {
+   "id": "task.jaffle_shop_daily.notify_crm",
+   "kind": "task",
+   "name": "notify_crm",
+   "description": "Tell the CRM that lifetime values have been refreshed.",
+   "path": "dags/jaffle_shop_daily.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "jaffle_shop_daily",
+    "operator": "@task",
+    "line": 31
+   }
+  },
+  {
+   "id": "term.completed_order",
+   "kind": "term",
+   "name": "Completed order",
+   "description": "An order the customer has received and not returned.",
+   "path": "definitions.yml",
+   "origins": [
+    "definitions"
+   ],
+   "attrs": {
+    "status": "agreed",
+    "owner": {
+     "name": "Tom Okafor",
+     "role": "Operations Manager"
+    },
+    "grain": "one row per order",
+    "columns": [
+     "orders.status"
+    ],
+    "filters": [
+     "orders.status = 'completed'"
+    ],
+    "line": 32
+   }
+  },
+  {
+   "id": "term.customer",
+   "kind": "term",
+   "name": "Customer",
+   "description": "A person with an account, whether or not they have ordered.",
+   "path": "definitions.yml",
+   "origins": [
+    "definitions"
+   ],
+   "attrs": {
+    "synonyms": [
+     "shopper"
+    ],
+    "status": "approved",
+    "owner": {
+     "name": "Tom Okafor",
+     "role": "Operations Manager"
+    },
+    "approved": "2026-11-02",
+    "grain": "one row per customer",
+    "columns": [
+     "customers.customer_id"
+    ],
+    "line": 40
+   }
+  },
+  {
+   "id": "term.customer_lifetime_value",
+   "kind": "term",
+   "name": "Customer lifetime value",
+   "description": "Total value of every payment a customer has made, across all orders and payment methods, in Australian dollars.",
+   "path": "definitions.yml",
+   "origins": [
+    "definitions"
+   ],
+   "attrs": {
+    "synonyms": [
+     "lifetime value",
+     "LTV",
+     "CLV"
+    ],
+    "status": "approved",
+    "owner": {
+     "name": "Priya Shah",
+     "role": "Head of Finance"
+    },
+    "approved": "2026-10-30",
+    "grain": "one row per customer",
+    "columns": [
+     "customers.customer_lifetime_value",
+     "customer_ltv.lifetime_value"
+    ],
+    "unit": "currency",
+    "currency": "AUD",
+    "related": [
+     "Order amount",
+     "Customer"
+    ],
+    "exceptions": "Refunds are not netted off; returned orders still count.",
+    "line": 5
+   }
+  },
+  {
+   "id": "term.order_amount",
+   "kind": "term",
+   "name": "Order amount",
+   "description": "Total of all payments recorded against an order, in Australian dollars.",
+   "path": "definitions.yml",
+   "origins": [
+    "definitions"
+   ],
+   "attrs": {
+    "synonyms": [
+     "order value",
+     "order total"
+    ],
+    "status": "approved",
+    "owner": {
+     "name": "Priya Shah",
+     "role": "Head of Finance"
+    },
+    "approved": "2026-10-30",
+    "grain": "one row per order",
+    "columns": [
+     "orders.amount"
+    ],
+    "unit": "currency",
+    "currency": "AUD",
+    "related": [
+     "Completed order"
+    ],
+    "line": 20
+   }
+  },
+  {
+   "id": "term.payment_method",
+   "kind": "term",
+   "name": "Payment method",
+   "description": "How a payment was made, as recorded by the payment provider.",
+   "path": "definitions.yml",
+   "origins": [
+    "definitions"
+   ],
+   "attrs": {
+    "status": "draft",
+    "columns": [
+     "stg_payments.payment_method"
+    ],
+    "line": 49
+   }
+  },
+  {
+   "id": "test.jaffle_shop.accepted_values_orders_status__placed__shipped__completed__return_pending__returned.be6b5b5ec3",
+   "kind": "test",
+   "name": "accepted_values_orders_status__placed__shipped__completed__return_pending__returned",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "accepted_values",
+    "severity": "ERROR",
+    "column": "status"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.accepted_values_stg_orders_status__placed__shipped__completed__return_pending__returned.080fb20aad",
+   "kind": "test",
+   "name": "accepted_values_stg_orders_status__placed__shipped__completed__return_pending__returned",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "accepted_values",
+    "severity": "ERROR",
+    "column": "status"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card.3c3820f278",
+   "kind": "test",
+   "name": "accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "accepted_values",
+    "severity": "ERROR",
+    "column": "payment_method"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_customers_customer_id.5c9bf9911d",
+   "kind": "test",
+   "name": "not_null_customers_customer_id",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "customer_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_amount.106140f9fd",
+   "kind": "test",
+   "name": "not_null_orders_amount",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "amount"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_bank_transfer_amount.7743500c49",
+   "kind": "test",
+   "name": "not_null_orders_bank_transfer_amount",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "bank_transfer_amount"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_coupon_amount.ab90c90625",
+   "kind": "test",
+   "name": "not_null_orders_coupon_amount",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "coupon_amount"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_credit_card_amount.d3ca593b59",
+   "kind": "test",
+   "name": "not_null_orders_credit_card_amount",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "credit_card_amount"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_customer_id.c5f02694af",
+   "kind": "test",
+   "name": "not_null_orders_customer_id",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "customer_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_gift_card_amount.413a0d2d7a",
+   "kind": "test",
+   "name": "not_null_orders_gift_card_amount",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "gift_card_amount"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_order_id.cf6c17daed",
+   "kind": "test",
+   "name": "not_null_orders_order_id",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "order_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_stg_customers_customer_id.e2cfb1f9aa",
+   "kind": "test",
+   "name": "not_null_stg_customers_customer_id",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "customer_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_stg_orders_order_id.81cfe2fe64",
+   "kind": "test",
+   "name": "not_null_stg_orders_order_id",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "order_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_stg_payments_payment_id.c19cc50075",
+   "kind": "test",
+   "name": "not_null_stg_payments_payment_id",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "payment_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.relationships_orders_customer_id__customer_id__ref_customers_.c6ec7f58f2",
+   "kind": "test",
+   "name": "relationships_orders_customer_id__customer_id__ref_customers_",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "relationships",
+    "severity": "ERROR",
+    "column": "customer_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.unique_customers_customer_id.c5af1ff4b1",
+   "kind": "test",
+   "name": "unique_customers_customer_id",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "unique",
+    "severity": "ERROR",
+    "column": "customer_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.unique_orders_order_id.fed79b3a6e",
+   "kind": "test",
+   "name": "unique_orders_order_id",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "unique",
+    "severity": "ERROR",
+    "column": "order_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.unique_stg_customers_customer_id.c7614daada",
+   "kind": "test",
+   "name": "unique_stg_customers_customer_id",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "unique",
+    "severity": "ERROR",
+    "column": "customer_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.unique_stg_orders_order_id.e3b841c71a",
+   "kind": "test",
+   "name": "unique_stg_orders_order_id",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "unique",
+    "severity": "ERROR",
+    "column": "order_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.unique_stg_payments_payment_id.3744510712",
+   "kind": "test",
+   "name": "unique_stg_payments_payment_id",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "unique",
+    "severity": "ERROR",
+    "column": "payment_id"
+   }
+  }
+ ],
+ "edges": [
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#order_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#customer_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#order_date",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#status",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#credit_card_amount",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#coupon_amount",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#bank_transfer_amount",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#gift_card_amount",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#amount",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders",
+   "target": "model.jaffle_shop.orders",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments",
+   "target": "model.jaffle_shop.orders",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#customer_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#first_name",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#last_name",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#first_order",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#most_recent_order",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#number_of_orders",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#customer_lifetime_value",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#total_order_amount",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers",
+   "target": "model.jaffle_shop.customers",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders",
+   "target": "model.jaffle_shop.customers",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments",
+   "target": "model.jaffle_shop.customers",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments",
+   "target": "model.jaffle_shop.stg_payments#payment_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments",
+   "target": "model.jaffle_shop.stg_payments#order_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments",
+   "target": "model.jaffle_shop.stg_payments#amount",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_payments",
+   "target": "model.jaffle_shop.stg_payments",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers",
+   "target": "model.jaffle_shop.stg_customers#customer_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers",
+   "target": "model.jaffle_shop.stg_customers#first_name",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers",
+   "target": "model.jaffle_shop.stg_customers#last_name",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_customers",
+   "target": "model.jaffle_shop.stg_customers",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders",
+   "target": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders",
+   "target": "model.jaffle_shop.stg_orders#customer_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders",
+   "target": "model.jaffle_shop.stg_orders#order_date",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders",
+   "target": "model.jaffle_shop.stg_orders#status",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_orders",
+   "target": "model.jaffle_shop.stg_orders",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "seed.jaffle_shop.raw_payments",
+   "target": "seed.jaffle_shop.raw_payments#id",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_payments",
+   "target": "seed.jaffle_shop.raw_payments#order_id",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_payments",
+   "target": "seed.jaffle_shop.raw_payments#payment_method",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_payments",
+   "target": "seed.jaffle_shop.raw_payments#amount",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_customers",
+   "target": "seed.jaffle_shop.raw_customers#id",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_customers",
+   "target": "seed.jaffle_shop.raw_customers#first_name",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_customers",
+   "target": "seed.jaffle_shop.raw_customers#last_name",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_orders",
+   "target": "seed.jaffle_shop.raw_orders#id",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_orders",
+   "target": "seed.jaffle_shop.raw_orders#user_id",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_orders",
+   "target": "seed.jaffle_shop.raw_orders#order_date",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_orders",
+   "target": "seed.jaffle_shop.raw_orders#status",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "exposure.jaffle_shop.customer_dashboard",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "exposure.jaffle_shop.customer_dashboard",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "test.jaffle_shop.unique_customers_customer_id.c5af1ff4b1",
+   "target": "model.jaffle_shop.customers#customer_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_customers_customer_id.5c9bf9911d",
+   "target": "model.jaffle_shop.customers#customer_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.unique_orders_order_id.fed79b3a6e",
+   "target": "model.jaffle_shop.orders#order_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_orders_order_id.cf6c17daed",
+   "target": "model.jaffle_shop.orders#order_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_orders_customer_id.c5f02694af",
+   "target": "model.jaffle_shop.orders#customer_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.relationships_orders_customer_id__customer_id__ref_customers_.c6ec7f58f2",
+   "target": "model.jaffle_shop.orders#customer_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.relationships_orders_customer_id__customer_id__ref_customers_.c6ec7f58f2",
+   "target": "model.jaffle_shop.customers#customer_id",
+   "kind": "tests",
+   "attrs": {
+    "role": "relationship target"
+   }
+  },
+  {
+   "source": "test.jaffle_shop.accepted_values_orders_status__placed__shipped__completed__return_pending__returned.be6b5b5ec3",
+   "target": "model.jaffle_shop.orders#status",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_orders_amount.106140f9fd",
+   "target": "model.jaffle_shop.orders#amount",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_orders_credit_card_amount.d3ca593b59",
+   "target": "model.jaffle_shop.orders#credit_card_amount",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_orders_coupon_amount.ab90c90625",
+   "target": "model.jaffle_shop.orders#coupon_amount",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_orders_bank_transfer_amount.7743500c49",
+   "target": "model.jaffle_shop.orders#bank_transfer_amount",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_orders_gift_card_amount.413a0d2d7a",
+   "target": "model.jaffle_shop.orders#gift_card_amount",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.unique_stg_customers_customer_id.c7614daada",
+   "target": "model.jaffle_shop.stg_customers#customer_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_stg_customers_customer_id.e2cfb1f9aa",
+   "target": "model.jaffle_shop.stg_customers#customer_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.unique_stg_orders_order_id.e3b841c71a",
+   "target": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_stg_orders_order_id.81cfe2fe64",
+   "target": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.accepted_values_stg_orders_status__placed__shipped__completed__return_pending__returned.080fb20aad",
+   "target": "model.jaffle_shop.stg_orders#status",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.unique_stg_payments_payment_id.3744510712",
+   "target": "model.jaffle_shop.stg_payments#payment_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_stg_payments_payment_id.c19cc50075",
+   "target": "model.jaffle_shop.stg_payments#payment_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card.3c3820f278",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "tests"
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv",
+   "target": "table.jaffle_shop.reporting.customer_ltv#customer_id",
+   "kind": "contains"
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv",
+   "target": "table.jaffle_shop.reporting.customer_ltv#first_name",
+   "kind": "contains"
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv",
+   "target": "table.jaffle_shop.reporting.customer_ltv#lifetime_value",
+   "kind": "contains"
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv",
+   "target": "table.jaffle_shop.reporting.customer_ltv#number_of_orders",
+   "kind": "contains"
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv",
+   "target": "table.jaffle_shop.reporting.customer_ltv#segment",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders#order_id",
+   "target": "seed.jaffle_shop.raw_orders#id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders#customer_id",
+   "target": "seed.jaffle_shop.raw_orders#user_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders#order_date",
+   "target": "seed.jaffle_shop.raw_orders#order_date",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders#status",
+   "target": "seed.jaffle_shop.raw_orders#status",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments#payment_id",
+   "target": "seed.jaffle_shop.raw_payments#id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments#order_id",
+   "target": "seed.jaffle_shop.raw_payments#order_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments#payment_method",
+   "target": "seed.jaffle_shop.raw_payments#payment_method",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments#amount",
+   "target": "seed.jaffle_shop.raw_payments#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#order_id",
+   "target": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#customer_id",
+   "target": "model.jaffle_shop.stg_orders#customer_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#order_date",
+   "target": "model.jaffle_shop.stg_orders#order_date",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#status",
+   "target": "model.jaffle_shop.stg_orders#status",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#credit_card_amount",
+   "target": "model.jaffle_shop.stg_payments#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#credit_card_amount",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#coupon_amount",
+   "target": "model.jaffle_shop.stg_payments#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#coupon_amount",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#bank_transfer_amount",
+   "target": "model.jaffle_shop.stg_payments#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#bank_transfer_amount",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#gift_card_amount",
+   "target": "model.jaffle_shop.stg_payments#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#gift_card_amount",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#amount",
+   "target": "model.jaffle_shop.stg_payments#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments#order_id",
+   "target": "model.jaffle_shop.orders",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders#order_id",
+   "target": "model.jaffle_shop.orders",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers#customer_id",
+   "target": "seed.jaffle_shop.raw_customers#id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers#first_name",
+   "target": "seed.jaffle_shop.raw_customers#first_name",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers#last_name",
+   "target": "seed.jaffle_shop.raw_customers#last_name",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#customer_id",
+   "target": "model.jaffle_shop.stg_customers#customer_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#first_name",
+   "target": "model.jaffle_shop.stg_customers#first_name",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#last_name",
+   "target": "model.jaffle_shop.stg_customers#last_name",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#first_order",
+   "target": "model.jaffle_shop.stg_orders#order_date",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#most_recent_order",
+   "target": "model.jaffle_shop.stg_orders#order_date",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#number_of_orders",
+   "target": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#customer_lifetime_value",
+   "target": "model.jaffle_shop.stg_payments#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders#customer_id",
+   "target": "model.jaffle_shop.customers",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments#order_id",
+   "target": "model.jaffle_shop.customers",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders#order_id",
+   "target": "model.jaffle_shop.customers",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers#customer_id",
+   "target": "model.jaffle_shop.customers",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "dag.jaffle_shop_daily",
+   "target": "task.jaffle_shop_daily.dbt_seed",
+   "kind": "runs"
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_seed",
+   "target": "seed.jaffle_shop.raw_payments",
+   "kind": "runs",
+   "attrs": {
+    "command": "seed"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_seed",
+   "target": "seed.jaffle_shop.raw_customers",
+   "kind": "runs",
+   "attrs": {
+    "command": "seed"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_seed",
+   "target": "seed.jaffle_shop.raw_orders",
+   "kind": "runs",
+   "attrs": {
+    "command": "seed"
+   }
+  },
+  {
+   "source": "dag.jaffle_shop_daily",
+   "target": "task.jaffle_shop_daily.dbt_run_staging",
+   "kind": "runs"
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_run_staging",
+   "target": "model.jaffle_shop.stg_payments",
+   "kind": "runs",
+   "attrs": {
+    "command": "run"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_run_staging",
+   "target": "model.jaffle_shop.stg_customers",
+   "kind": "runs",
+   "attrs": {
+    "command": "run"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_run_staging",
+   "target": "model.jaffle_shop.stg_orders",
+   "kind": "runs",
+   "attrs": {
+    "command": "run"
+   }
+  },
+  {
+   "source": "dag.jaffle_shop_daily",
+   "target": "task.jaffle_shop_daily.dbt_run_marts",
+   "kind": "runs"
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_run_marts",
+   "target": "model.jaffle_shop.orders",
+   "kind": "runs",
+   "attrs": {
+    "command": "run"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_run_marts",
+   "target": "model.jaffle_shop.customers",
+   "kind": "runs",
+   "attrs": {
+    "command": "run"
+   }
+  },
+  {
+   "source": "dag.jaffle_shop_daily",
+   "target": "task.jaffle_shop_daily.dbt_test",
+   "kind": "runs"
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.unique_customers_customer_id.c5af1ff4b1",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_customers_customer_id.5c9bf9911d",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.unique_orders_order_id.fed79b3a6e",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_orders_order_id.cf6c17daed",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_orders_customer_id.c5f02694af",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.relationships_orders_customer_id__customer_id__ref_customers_.c6ec7f58f2",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.accepted_values_orders_status__placed__shipped__completed__return_pending__returned.be6b5b5ec3",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_orders_amount.106140f9fd",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_orders_credit_card_amount.d3ca593b59",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_orders_coupon_amount.ab90c90625",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_orders_bank_transfer_amount.7743500c49",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_orders_gift_card_amount.413a0d2d7a",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.unique_stg_customers_customer_id.c7614daada",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_stg_customers_customer_id.e2cfb1f9aa",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.unique_stg_orders_order_id.e3b841c71a",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_stg_orders_order_id.81cfe2fe64",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.accepted_values_stg_orders_status__placed__shipped__completed__return_pending__returned.080fb20aad",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.unique_stg_payments_payment_id.3744510712",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_stg_payments_payment_id.c19cc50075",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card.3c3820f278",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "dag.jaffle_shop_daily",
+   "target": "task.jaffle_shop_daily.build_customer_ltv",
+   "kind": "runs"
+  },
+  {
+   "source": "task.jaffle_shop_daily.build_customer_ltv",
+   "target": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow",
+    "via": "task.jaffle_shop_daily.build_customer_ltv"
+   }
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv#customer_id",
+   "target": "model.jaffle_shop.customers#customer_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "airflow",
+    "via": "task.jaffle_shop_daily.build_customer_ltv"
+   }
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv#first_name",
+   "target": "model.jaffle_shop.customers#first_name",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "airflow",
+    "via": "task.jaffle_shop_daily.build_customer_ltv"
+   }
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv#lifetime_value",
+   "target": "model.jaffle_shop.customers#customer_lifetime_value",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "airflow",
+    "via": "task.jaffle_shop_daily.build_customer_ltv"
+   }
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv#number_of_orders",
+   "target": "model.jaffle_shop.customers#number_of_orders",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "airflow",
+    "via": "task.jaffle_shop_daily.build_customer_ltv"
+   }
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv#segment",
+   "target": "model.jaffle_shop.customers#number_of_orders",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "airflow",
+    "via": "task.jaffle_shop_daily.build_customer_ltv"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#customer_lifetime_value",
+   "target": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "airflow",
+    "via": "task.jaffle_shop_daily.build_customer_ltv"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "task.jaffle_shop_daily.build_customer_ltv",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow"
+   }
+  },
+  {
+   "source": "dag.jaffle_shop_daily",
+   "target": "task.jaffle_shop_daily.notify_crm",
+   "kind": "runs"
+  },
+  {
+   "source": "task.jaffle_shop_daily.notify_crm",
+   "target": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow",
+    "asset": "duckdb://jaffle_shop/reporting/customer_ltv"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_seed",
+   "target": "task.jaffle_shop_daily.dbt_run_staging",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_run_staging",
+   "target": "task.jaffle_shop_daily.dbt_run_marts",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_run_marts",
+   "target": "task.jaffle_shop_daily.dbt_test",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "task.jaffle_shop_daily.build_customer_ltv",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.jaffle_shop_daily.build_customer_ltv",
+   "target": "task.jaffle_shop_daily.notify_crm",
+   "kind": "precedes"
+  },
+  {
+   "source": "term.customer_lifetime_value",
+   "target": "model.jaffle_shop.customers#customer_lifetime_value",
+   "kind": "defines"
+  },
+  {
+   "source": "term.customer_lifetime_value",
+   "target": "table.jaffle_shop.reporting.customer_ltv#lifetime_value",
+   "kind": "defines"
+  },
+  {
+   "source": "term.order_amount",
+   "target": "model.jaffle_shop.orders#amount",
+   "kind": "defines"
+  },
+  {
+   "source": "term.completed_order",
+   "target": "model.jaffle_shop.orders#status",
+   "kind": "defines"
+  },
+  {
+   "source": "term.customer",
+   "target": "model.jaffle_shop.customers#customer_id",
+   "kind": "defines"
+  },
+  {
+   "source": "term.payment_method",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "defines"
+  },
+  {
+   "source": "term.customer_lifetime_value",
+   "target": "term.order_amount",
+   "kind": "relates_to"
+  },
+  {
+   "source": "term.customer_lifetime_value",
+   "target": "term.customer",
+   "kind": "relates_to"
+  },
+  {
+   "source": "term.order_amount",
+   "target": "term.completed_order",
+   "kind": "relates_to"
+  }
+ ],
+ "warnings": []
+}
