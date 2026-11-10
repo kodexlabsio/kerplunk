@@ -71,7 +71,7 @@ uv run pytest --cov                             # everything, with branch covera
 | Agent toolkit | `test_toolkit`, `test_skill`, `test_hook`, `test_mcp` | Every skill, command, rule and instruction text in the house style, with frontmatter each agent accepts and only real commands and options; what each skill says Konstruct prints, checked against the output of a real build of the example (impact, trace, explain, define, ontology, conflicts, diff, gate on a breaking change and on a changed approved term, verify, the Ossie export); the plugin in `plugins/konstruct` current with the package texts and the marketplace listing it; `install` for each agent in a project and in the home directory, managed sections that keep the user's text, refusing hand edits with nothing written, MCP registration in every configuration format; the hook on a breaking edit and on SQL or YAML it cannot read, from any directory of the session, never running dbt or opening a warehouse connection, leaving the user's graph as it was, and three hooks run at once; the MCP prompts and resources, with no absolute path in them |
 | Agent benchmark | `test_agent_benchmark` | The harness on a miniature Spider 2.0-DBT tree with a scripted agent: both arms, the same prompt, the graph and skills only in the Konstruct arms, the general-skill arm, `--install-for`, the database the profile writes, scoring, timeouts that stop what the agent started, refusing an output directory with instructions above it, and resuming |
 | Survey | `test_survey` | The public-project survey on local git repositories: a dbt project built through a generated DuckDB profile with file and network access off, one that is not dbt and one that does not clone, a project that cannot write outside its database or read the surveyor's environment, pinning by commit, the timeout, `env_var` profile names, the aggregate summary naming no project, and resuming |
-| Rust core | `src/`, `tests/properties.rs` (`cargo test`) | Walks, neighbours, paths and relation names against brute-force scans on generated graphs; search ranking, limits and kinds; FNV-1a 64 against its published vectors and precomputed hashes on every supported architecture |
+| Rust core | `src/`, `tests/properties.rs` (`cargo test`) | Walks, neighbours, paths and relation names against brute-force scans on generated graphs; search ranking, limits and kinds; FNV-1a 64 against its published vectors and precomputed hashes; word boundaries and substring search against byte-by-byte references on every short string, every byte value, every length to 300 at every alignment, megabyte inputs and strings that end at an unreadable page; each routine on every supported architecture |
 | Paper | `test_paper` | The paper names every command, MCP tool and export format, types no number outside a sentence that cites its source (every measurement is a generated macro), uses only macros `paper/generate.py` writes, and has no dashes |
 | Parity | `test_airflow_parity` | The static Airflow parser against Airflow's own DagBag (needs Airflow; see the file for the command) |
 | Fuzzing | `fuzz/` | Atheris (coverage-guided) harnesses for the readers of untrusted input: `fuzz_sql.py` (the SQL analysis, in each dialect), `fuzz_python.py` (the Airflow, Dagster and PySpark readers) and `fuzz_yaml.py` (definitions and Ossie files). Each reader must report what it cannot read and never raise. The Fuzz workflow runs each for two minutes on pull requests that change the package and twenty weekly; locally, `uv run --with atheris==3.1.0 python fuzz/fuzz_sql.py -max_total_time=60` (Linux; atheris has wheels for Linux only). A crash is fixed with a test for the input, as in `test_sql` and `test_build` |
@@ -103,6 +103,8 @@ Konstruct is one package of Python and Rust, built by [maturin](https://www.matu
 | `src/graph.rs` | The graph's edges in compressed sparse row form: impact and trace walks, the neighbours `describe` lists, and shortest paths (`konstruct.core.graph`) |
 | `src/names.rs` | Relations by every name they answer to, for name resolution (`Graph.resolve`) |
 | `src/search.rs` | Ranked word search (`search`, `query` and the hints for names that match nothing) |
+| `src/words/` | Where the words of names, descriptions and queries start and end, for search, hand-written in assembly for each supported architecture |
+| `src/substring/` | Whether a search word occurs in a label, and whether a key holds its escape character, hand-written in assembly for each supported architecture |
 | `src/fnv/` | FNV-1a 64, the hasher of the indexes' maps, hand-written in assembly for each supported architecture: x86_64, aarch64, riscv64, powerpc64le, s390x and loongarch64 |
 | `src/python.rs` | The PyO3 bindings, built with the `python` feature |
 | `tests/properties.rs` | Property tests against brute-force walks, paths and name scans on generated graphs |
@@ -113,6 +115,7 @@ The graph builds each index the first time a query needs it and keeps it until t
 cargo fmt
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test                   # unit and property tests, without Python
+cargo bench --bench core     # the indexes on a generated project of 2,000 models
 ```
 
 The other architectures' tests run under qemu-user in CI, each in a Debian container with that architecture's cross compiler. To run one locally, for example riscv64, install `qemu-user`, `gcc-riscv64-linux-gnu` and `libc6-dev-riscv64-cross`, then:
@@ -124,7 +127,7 @@ CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_RUNNER="qemu-riscv64 -L /usr/riscv64-li
 cargo test --target riscv64gc-unknown-linux-gnu
 ```
 
-To add a function, write it in the crate with its tests, export it in `src/python.rs`, describe it in `konstruct/_core.pyi`, delete the Python it replaces, and measure with `.kodex/scripts/benchmark.py` before and after. `uv build` makes the sdist and a wheel for the machine it runs on.
+To add a function, write it in the crate with its tests, export it in `src/python.rs`, describe it in `konstruct/_core.pyi`, delete the Python it replaces, and measure with `.kodex/scripts/benchmark.py` and `cargo bench --bench core` before and after. `uv build` makes the sdist and a wheel for the machine it runs on.
 
 ## The Agent Toolkit
 
@@ -199,7 +202,7 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/), che
 | `konstruct/outputs/` | `report.py` (REPORT.md), `html.py` (graph.html), `export.py` (the export formats), and `viewer.html`, the built graph viewer (generated by `pnpm build`; do not edit) |
 | `konstruct/interfaces/` | `project.py` (the Python API), `cli.py`, `console.py`, `status.py`, `mcp_server.py`, `skill.py` |
 | `konstruct/plugins/` | `api.py` (the plugin API: protocols, fragments and its version), `registry.py` (Konstruct's own components and installed plugins: finding, enabling and loading them) |
-| `Cargo.toml`, `src/` | The Rust core: graph walks and paths, name resolution, search and the FNV-1a hasher, built into `konstruct._core` |
+| `Cargo.toml`, `src/`, `benches/` | The Rust core: graph walks and paths, name resolution and search, with the FNV-1a hasher, word boundaries and substring search in assembly, built into `konstruct._core` |
 | `viewer/` | The graph viewer's source: Svelte 5 and TypeScript, built with Vite |
 | `action.yml` | The GitHub Action |
 | `examples/jaffle_shop` | dbt Labs' jaffle_shop_duckdb (Apache-2.0, see its NOTICE) with an Airflow DAG |
