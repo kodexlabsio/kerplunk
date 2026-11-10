@@ -39,6 +39,7 @@ SCOPES = {
     # Interfaces
     'cli',
     'mcp',
+    'plugins',
     'skill',
     # Project
     'examples',
