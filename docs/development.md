@@ -178,6 +178,8 @@ Every action in the workflows and in `action.yml` is pinned to a full commit SHA
 
 The zizmor workflow audits the workflows, `action.yml`, the Dependabot configuration and the pre-commit hooks with [zizmor](https://docs.zizmor.sh/) on every pull request (offline) and, with its online audits, on every push to `main` and weekly, and fails on any finding; a finding that is a deliberate choice carries a `# zizmor: ignore[<audit>]` comment beside it that says why. Its version is pinned in the workflow and updated by hand.
 
+CodeQL scans the Python package, the viewer's TypeScript, the workflows and `action.yml` (and the Rust core once its sources are in the repository) with the `security-extended` queries, weekly and on every pull request and push to `main`, and reports to code scanning. It uses an advanced setup, so code scanning's default setup stays off for the repository.
+
 ```mermaid
 graph LR
     subgraph "Source Control"

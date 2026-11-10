@@ -1,0 +1,84 @@
+name: CodeQL
+
+# CodeQL code scanning of Konstruct's own code: the Python package, the viewer's TypeScript,
+# the workflows and action.yml, and the Rust core once its sources are in the repository.
+# The results go to the Security tab and, on pull requests, to the pull request.
+#
+# Advanced setup: code scanning's default setup must stay off for the repository, as GitHub
+# rejects uploads from an advanced configuration while it is on.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '23 4 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only a pull request's superseded runs are cancelled, so a push never cancels a scheduled run.
+concurrency:
+  group: codeql-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  languages:
+    name: Languages to analyse
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      languages: ${{ steps.detect.outputs.languages }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # CodeQL fails a language with no source files, so Rust joins the matrix only once there is some.
+      - name: Detect the languages
+        id: detect
+        run: |
+          languages='"actions", "javascript-typescript", "python"'
+          if [ -n "$(git ls-files '*.rs')" ]; then
+            languages="${languages}, \"rust\""
+          fi
+          echo "languages=[${languages}]" >> "$GITHUB_OUTPUT"
+
+  analyze:
+    name: Analyse (${{ matrix.language }})
+    needs: languages
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read # the analysis reads the repository
+      security-events: write # upload the results to code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(needs.languages.outputs.languages) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Every language is analysed from source, without a build. The built viewer is generated
+      # from viewer/src, which is analysed instead; the fixtures and the example project are
+      # inputs that Konstruct reads, not code it runs.
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+          config: |
+            paths-ignore:
+              - konstruct/outputs/viewer.html
+              - tests/fixtures
+              - examples
+
+      - name: Analyse
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          category: /language:${{ matrix.language }}
