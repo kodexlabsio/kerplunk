@@ -17,6 +17,7 @@ from konstruct.analysis.query import QueryError
 from konstruct.analysis.verify import (
     BigQuerySource,
     DbApiSource,
+    DuckDBEngine,
     PostgresEngine,
     SampledEngine,
     Verification,
@@ -198,6 +199,27 @@ def test_rewrite_points_inputs_at_copies_and_quote_escapes() -> None:
     assert sql == 'WITH w AS (SELECT id FROM scratch_0 AS o) SELECT * FROM w JOIN raw.items ON TRUE'
     assert reads == {'raw.orders', 'raw.items'}
     assert quote('a"b') == '"a""b"'
+
+
+def test_a_copy_can_keep_only_the_rows_a_condition_picks(tmp_path: Path) -> None:
+    """A reader that needs one key's rows copies those alone, in every engine."""
+    path = tmp_path / 'w.duckdb'
+    con = duckdb.connect(str(path))
+    con.execute('create table orders as select i as id, i % 3 as customer_id from range(30) t(i)')
+    con.close()
+    engine = DuckDBEngine(path)
+    engine.start()
+    scratch, columns = engine.copy('w.main.orders', 0, 100, where='"customer_id" = \'1\'')
+    assert columns == [('id', 'BIGINT'), ('customer_id', 'BIGINT')]
+    assert engine.run(f'select count(*) from {scratch}')[1] == [(10,)]
+    whole, _ = engine.copy('w.main.orders', 1, 100)
+    assert engine.run(f'select count(*) from {whole}')[1] == [(30,)]
+    engine.close()
+    sampled = SampledEngine(DbApiSource(duckdb.connect(str(path), read_only=True), 'databricks'), 'sample')
+    sampled.start()
+    picked, _ = sampled.copy('w.main.orders', 0, 100, where='customer_id = 2')
+    assert sampled.run(f'select count(*) from {picked}')[1] == [(10,)]
+    sampled.close()
 
 
 @pytest.mark.postgres

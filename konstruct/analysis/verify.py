@@ -314,6 +314,10 @@ def claims(graph: Graph, node: Node) -> tuple[set[tuple[str, str]], set[str]]:
 # Running
 
 
+def _where(condition: str | None) -> str:
+    return f' WHERE {condition}' if condition else ''
+
+
 def quote(name: str) -> str:
     """``name`` as a double-quoted SQL identifier, with any double quote in it doubled."""
     return '"' + name.replace('"', '""') + '"'
@@ -484,7 +488,13 @@ class Engine:
     def start(self) -> None:
         """Clear scratch tables before the next model."""
 
-    def copy(self, key: str, index: int, max_rows: int) -> tuple[str, list[tuple[str, str]]]:
+    def copy(
+        self, key: str, index: int, max_rows: int, where: str | None = None
+    ) -> tuple[str, list[tuple[str, str]]]:
+        """Copy up to ``max_rows`` rows of the relation ``key`` into scratch table ``index``; return
+        the table's name and its columns with their types. ``where``, a condition over the
+        relation's columns in this engine's dialect, keeps only the rows it holds for: a reader that
+        needs the rows of one key copies those alone."""
         raise NotImplementedError
 
     def mutate(
@@ -534,13 +544,17 @@ class DuckDBEngine(Engine):
         self.con.execute('DROP SCHEMA IF EXISTS kp CASCADE')
         self.con.execute('CREATE SCHEMA kp')
 
-    def copy(self, key: str, index: int, max_rows: int) -> tuple[str, list[tuple[str, str]]]:
+    def copy(
+        self, key: str, index: int, max_rows: int, where: str | None = None
+    ) -> tuple[str, list[tuple[str, str]]]:
         parts = key.split('.')
         if len(parts) != 3 or parts[0] != self.database:
             raise LookupError(f'input {key} is not in the warehouse {self.database}')
         scratch = f'kp.in{index}'
         source = '.'.join(quote(p) for p in parts)
-        self.con.execute(f'CREATE TABLE {scratch} AS SELECT * FROM {source} LIMIT {int(max_rows)}')
+        self.con.execute(
+            f'CREATE TABLE {scratch} AS SELECT * FROM {source}{_where(where)} LIMIT {int(max_rows)}'
+        )
         return scratch, [(row[0], row[1]) for row in self.con.execute(f'DESCRIBE {scratch}').fetchall()]
 
     def mutate(
@@ -628,13 +642,17 @@ class PostgresEngine(Engine):
         ).fetchall()
         return [(str(r[0]), str(r[1])) for r in rows]
 
-    def copy(self, key: str, index: int, max_rows: int) -> tuple[str, list[tuple[str, str]]]:
+    def copy(
+        self, key: str, index: int, max_rows: int, where: str | None = None
+    ) -> tuple[str, list[tuple[str, str]]]:
         parts = key.split('.')
         if len(parts) != 3 or parts[0] != self.database:
             raise LookupError(f'input {key} is not in the database {self.database}')
         scratch = f'kp_in{index}'
         source = '.'.join(quote(p) for p in parts[1:])
-        self._savepoint(f'CREATE TEMP TABLE {scratch} AS SELECT * FROM {source} LIMIT {int(max_rows)}')
+        self._savepoint(
+            f'CREATE TEMP TABLE {scratch} AS SELECT * FROM {source}{_where(where)} LIMIT {int(max_rows)}'
+        )
         self.tables.append(scratch)
         return scratch, self._columns(scratch)
 
@@ -907,7 +925,10 @@ class SampledEngine(DuckDBEngine):
     def read_dialect(self) -> str:
         return self.remote
 
-    def copy(self, key: str, index: int, max_rows: int) -> tuple[str, list[tuple[str, str]]]:
+    def copy(
+        self, key: str, index: int, max_rows: int, where: str | None = None
+    ) -> tuple[str, list[tuple[str, str]]]:
+        # The sample is read whole from the warehouse, once; ``where`` picks from it in memory.
         parts = tuple(key.split('.'))
         if len(parts) not in (2, 3):
             raise LookupError(f'input {key} is not a schema.table or catalog.schema.table name')
@@ -922,7 +943,7 @@ class SampledEngine(DuckDBEngine):
         if isinstance(cached, Exception):
             raise cached
         scratch = f'kp.in{index}'
-        self.con.execute(f'CREATE TABLE {scratch} AS SELECT * FROM {cached}')
+        self.con.execute(f'CREATE TABLE {scratch} AS SELECT * FROM {cached}{_where(where)}')
         return scratch, [(r[0], r[1]) for r in self.con.execute(f'DESCRIBE {scratch}').fetchall()]
 
     def _load(self, key: str, parts: tuple[str, ...], max_rows: int) -> str:
