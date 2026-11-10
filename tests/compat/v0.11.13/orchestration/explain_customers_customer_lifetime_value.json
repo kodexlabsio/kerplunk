@@ -1,0 +1,42 @@
+{
+ "column": "model.jaffle_shop.customers#customer_lifetime_value",
+ "label": "customers.customer_lifetime_value",
+ "data_type": "DOUBLE",
+ "description": null,
+ "expression": "SUM(stg_payments.amount)",
+ "composed": "SUM(raw_payments.amount / 100)",
+ "sources": [
+  "raw_payments.amount"
+ ],
+ "complete": true,
+ "steps": [
+  {
+   "column": "model.jaffle_shop.customers#customer_lifetime_value",
+   "label": "customers.customer_lifetime_value",
+   "relation_kind": "model",
+   "expression": "SUM(stg_payments.amount)",
+   "conditions": [
+    "GROUP BY: stg_orders.customer_id",
+    "LEFT JOIN ON: stg_customers.customer_id = stg_orders.customer_id",
+    "LEFT JOIN ON: stg_payments.order_id = stg_orders.order_id"
+   ],
+   "inputs": [
+    "stg_payments.amount"
+   ]
+  },
+  {
+   "column": "model.jaffle_shop.stg_payments#amount",
+   "label": "stg_payments.amount",
+   "relation_kind": "model",
+   "expression": "raw_payments.amount / 100",
+   "inputs": [
+    "raw_payments.amount"
+   ]
+  },
+  {
+   "column": "seed.jaffle_shop.raw_payments#amount",
+   "label": "raw_payments.amount",
+   "relation_kind": "seed"
+  }
+ ]
+}

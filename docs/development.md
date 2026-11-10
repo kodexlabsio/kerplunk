@@ -43,6 +43,7 @@ uv run pytest --cov                             # everything, with branch covera
 | Golden files | `test_golden`, `tests/golden/` | The exact text of the CLI output and REPORT.md; regenerate with `KONSTRUCT_UPDATE_GOLDEN=1` and review the diff |
 | Terminal output | `test_terminal` | Colour and its off switches (`NO_COLOR`, `--no-color`, `TERM=dumb`), plain text in pipes, fitting tables and trees to the window, SQL highlighting, the build spinner, errors and grouped help |
 | Interfaces | `test_interfaces`, `test_formats`, `tests/golden/interfaces/` | What users build on, as a snapshot: the command line (commands, options with what each takes, positional arguments by position, choices) and its exit statuses, the shape of every `--json` document and of `graph.json` with each one's format version (from the example and small projects that fill every list, bar the few listed with a reason), the MCP tools' inputs, the Python API with each parameter's position, the `konstruct.toml` keys, the GitHub Action's inputs and outputs and the CSV columns; a newer `graph.json` refused with an upgrade message, and reported by `status`. A removed or changed entry fails, and so does a new one until the snapshot is regenerated with `KONSTRUCT_UPDATE_GOLDEN=1`; a deliberate removal is committed with both `!` after the type and a `BREAKING CHANGE:` footer. A JSON field breaks when it is removed, emptied to only `null` or given a type it did not hold (`null` aside, so `str` widened to `null\|str` passes, and so does a field showing fewer of its types); an entry that accepts more than it did is not a break: a required option, positional, MCP argument, Python parameter or Action input made optional, or an MCP argument or Python parameter that takes more types. A list the projects no longer fill, and a field they fill only with `null`, fail as missing coverage unless `EMPTY` or `UNFILLED` lists it with a reason, and the commit check counts the fields gone with them as removed. The command line records each positional's type and how many values it takes, and the default of every option that takes a value, `None` included |
+| Compatibility | `test_compat`, `tests/compat/` | The graphs each release built of the example and of an orchestration project (the example with the Dagster and Airflow fixtures), with the `--json` answers that release gave: this code reads each graph, answers every recorded command through the CLI and the MCP server with the same exit status and the same answer (new fields aside, and the deliberate differences listed in `tests/compat/allowed.yml` with their reasons), renders the report and the viewer, and reviews a change with `diff` as it does with its own graph; every release tagged from v0.11.13 up to the newest one in `releases.json` must be in the corpus (CI fetches the tags to check), so releases tagged before a batch fail no pull request |
 | Browser | `test_browser` | graph.html in Chromium: selection, column rows and edges, formulas, deep links, isolate, direction, filters, themes, search, hostile text, a 400-relation graph |
 | Usage | `test_usage` | The SQL sent to Snowflake, BigQuery and Databricks, query text parsing for BigQuery, usage on columns, in the report and describe, the daily cache, off by default, and missing permissions as a warning, against stub drivers in each vendor's row shapes |
 | Conflicts | `test_conflicts` | Two revenue definitions that differ by one filter (the pair, the filter and its file), different sources, ranking, grouping by business terms, copies left out, no false conflicts on the example |
@@ -73,6 +74,22 @@ uv run pytest --cov                             # everything, with branch covera
 | Paper | `test_paper` | The paper names every command, MCP tool and export format, types no number outside a sentence that cites its source (every measurement is a generated macro), uses only macros `paper/generate.py` writes, and has no dashes |
 | Parity | `test_airflow_parity` | The static Airflow parser against Airflow's own DagBag (needs Airflow; see the file for the command) |
 | Fuzzing | `fuzz/` | Atheris (coverage-guided) harnesses for the readers of untrusted input: `fuzz_sql.py` (the SQL analysis, in each dialect), `fuzz_python.py` (the Airflow, Dagster and PySpark readers) and `fuzz_yaml.py` (definitions and Ossie files). Each reader must report what it cannot read and never raise. The Fuzz workflow runs each for two minutes on pull requests that change the package and twenty weekly; locally, `uv run --with atheris==3.1.0 python fuzz/fuzz_sql.py -max_total_time=60` (Linux; atheris has wheels for Linux only). A crash is fixed with a test for the input, as in `test_sql` and `test_build` |
+
+After a release is tagged, the next batch adds it to the compatibility corpus; `prepare_release.py`
+refuses to prepare the next release, and its `--check` refuses a pull request that prepares one,
+until it is there (the release workflow's own release from above main, for changes that reached
+`main` without a batch, is not held to it):
+
+```bash
+uv run python .kodex/scripts/compat_snapshot.py --ref v0.12.5
+```
+
+The script builds the corpus projects with that release, from a git worktree with its own
+environment, and records it in `tests/compat/releases.json`. Its outputs go to
+`tests/compat/v0.12.5/`, unless they are the same as the newest release's apart from the version,
+in which case the release shares that folder. When `test_compat` then finds an older release's
+answer changed, the change is either a regression to fix or a deliberate one to list in
+`tests/compat/allowed.yml` with its reason.
 
 The dev dependencies include dbt-core and dbt-duckdb, so the dbt and end-to-end tests build a copy of the example project for real. In CI, `KONSTRUCT_REQUIRE_SERVICES=1` turns a missing service or browser into a failure rather than a skip, and `HYPOTHESIS_PROFILE=ci` runs more generated examples.
 

@@ -1,0 +1,373 @@
+{
+ "direction": "downstream",
+ "target": {
+  "id": "model.jaffle_shop.stg_payments#amount",
+  "kind": "column",
+  "label": "stg_payments.amount",
+  "name": "amount",
+  "relation_kind": "model",
+  "path": "models/staging/stg_payments.sql",
+  "data_type": "DOUBLE"
+ },
+ "columns": [
+  {
+   "id": "model.jaffle_shop.customers#customer_lifetime_value",
+   "kind": "column",
+   "label": "customers.customer_lifetime_value",
+   "name": "customer_lifetime_value",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "DOUBLE",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "transformed"
+  },
+  {
+   "id": "model.jaffle_shop.orders#amount",
+   "kind": "column",
+   "label": "orders.amount",
+   "name": "amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Total amount (AUD) of the order",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "transformed"
+  },
+  {
+   "id": "model.jaffle_shop.orders#bank_transfer_amount",
+   "kind": "column",
+   "label": "orders.bank_transfer_amount",
+   "name": "bank_transfer_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by bank transfer",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "transformed"
+  },
+  {
+   "id": "model.jaffle_shop.orders#coupon_amount",
+   "kind": "column",
+   "label": "orders.coupon_amount",
+   "name": "coupon_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by coupon",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "transformed"
+  },
+  {
+   "id": "model.jaffle_shop.orders#credit_card_amount",
+   "kind": "column",
+   "label": "orders.credit_card_amount",
+   "name": "credit_card_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by credit card",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "transformed"
+  },
+  {
+   "id": "model.jaffle_shop.orders#gift_card_amount",
+   "kind": "column",
+   "label": "orders.gift_card_amount",
+   "name": "gift_card_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by gift card",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "transformed"
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders#amount",
+   "kind": "column",
+   "label": "orders.amount",
+   "name": "amount",
+   "relation_kind": "table",
+   "depth": 2,
+   "via": "derived_from",
+   "transform": "direct",
+   "through": "archive_orders.archive.copy_orders"
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#lifetime_value",
+   "kind": "column",
+   "label": "customer_ltv.lifetime_value",
+   "name": "lifetime_value",
+   "relation_kind": "table",
+   "data_type": "DOUBLE",
+   "depth": 2,
+   "via": "derived_from",
+   "transform": "direct",
+   "through": "jaffle_shop_daily.build_customer_ltv"
+  },
+  {
+   "id": "table.jaffle_shop.archive.daily_totals#total",
+   "kind": "column",
+   "label": "daily_totals.total",
+   "name": "total",
+   "relation_kind": "table",
+   "depth": 3,
+   "via": "derived_from",
+   "transform": "transformed",
+   "through": "archive_orders.archive.total_by_day"
+  }
+ ],
+ "relations": [
+  {
+   "id": "model.jaffle_shop.customers",
+   "kind": "model",
+   "label": "customers",
+   "name": "customers",
+   "path": "models/customers.sql",
+   "description": "This table has basic information about a customer, as well as some derived facts based on a customer's orders"
+  },
+  {
+   "id": "model.jaffle_shop.orders",
+   "kind": "model",
+   "label": "orders",
+   "name": "orders",
+   "path": "models/orders.sql",
+   "description": "This table has basic information about orders, as well as some derived facts based on payments"
+  },
+  {
+   "id": "table.jaffle_shop.archive.daily_totals",
+   "kind": "table",
+   "label": "daily_totals",
+   "name": "daily_totals"
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders",
+   "kind": "table",
+   "label": "orders",
+   "name": "orders"
+  }
+ ],
+ "joins_and_filters": [
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "table",
+   "label": "customer_ltv",
+   "name": "customer_ltv",
+   "depth": 2,
+   "via": "feeds",
+   "role": "reference",
+   "through": "jaffle_shop_daily.build_customer_ltv"
+  }
+ ],
+ "filtered_by": [],
+ "tests": [
+  {
+   "id": "test.jaffle_shop.not_null_orders_amount.106140f9fd",
+   "kind": "test",
+   "label": "not_null_orders_amount",
+   "name": "not_null_orders_amount",
+   "path": "models/schema.yml",
+   "depth": 2,
+   "via": "tests"
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_bank_transfer_amount.7743500c49",
+   "kind": "test",
+   "label": "not_null_orders_bank_transfer_amount",
+   "name": "not_null_orders_bank_transfer_amount",
+   "path": "models/schema.yml",
+   "depth": 2,
+   "via": "tests"
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_coupon_amount.ab90c90625",
+   "kind": "test",
+   "label": "not_null_orders_coupon_amount",
+   "name": "not_null_orders_coupon_amount",
+   "path": "models/schema.yml",
+   "depth": 2,
+   "via": "tests"
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_credit_card_amount.d3ca593b59",
+   "kind": "test",
+   "label": "not_null_orders_credit_card_amount",
+   "name": "not_null_orders_credit_card_amount",
+   "path": "models/schema.yml",
+   "depth": 2,
+   "via": "tests"
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_gift_card_amount.413a0d2d7a",
+   "kind": "test",
+   "label": "not_null_orders_gift_card_amount",
+   "name": "not_null_orders_gift_card_amount",
+   "path": "models/schema.yml",
+   "depth": 2,
+   "via": "tests"
+  }
+ ],
+ "exposures": [
+  {
+   "id": "exposure.jaffle_shop.customer_dashboard",
+   "kind": "exposure",
+   "label": "customer_dashboard",
+   "name": "customer_dashboard",
+   "path": "models/exposures.yml",
+   "description": "Weekly view of customers, their orders and lifetime value.",
+   "depth": 2,
+   "via": "feeds"
+  }
+ ],
+ "tasks": [
+  {
+   "id": "task.archive_orders.archive.copy_orders",
+   "kind": "task",
+   "label": "archive_orders.archive.copy_orders",
+   "name": "archive.copy_orders",
+   "path": "orchestration/definitions.py",
+   "description": "Copy the orders model into the archive.",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.archive_orders.archive_again.copy_orders",
+   "kind": "task",
+   "label": "archive_orders.archive_again.copy_orders",
+   "name": "archive_again.copy_orders",
+   "path": "orchestration/definitions.py",
+   "description": "Copy the orders model into the archive.",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.archive_orders.refresh_customers",
+   "kind": "task",
+   "label": "archive_orders.refresh_customers",
+   "name": "refresh_customers",
+   "path": "orchestration/definitions.py",
+   "description": "Rebuild the customers model.",
+   "depth": 2,
+   "via": "runs",
+   "command": "run"
+  },
+  {
+   "id": "task.dagster.jaffle_shop_dbt",
+   "kind": "task",
+   "label": "dagster.jaffle_shop_dbt",
+   "name": "jaffle_shop_dbt",
+   "path": "orchestration/definitions.py",
+   "description": "Build the jaffle_shop dbt models.",
+   "depth": 2,
+   "via": "runs",
+   "command": "build"
+  },
+  {
+   "id": "task.dagster.order_counts",
+   "kind": "task",
+   "label": "reporting.order_counts",
+   "name": "order_counts",
+   "path": "orchestration/definitions.py",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.dagster.order_totals",
+   "kind": "task",
+   "label": "reporting.order_totals",
+   "name": "order_totals",
+   "path": "orchestration/definitions.py",
+   "description": "Total value per day",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.dagster.reporting/customer_ltv",
+   "kind": "task",
+   "label": "reporting.reporting/customer_ltv",
+   "name": "reporting/customer_ltv",
+   "path": "orchestration/definitions.py",
+   "description": "Lifetime value per customer, from the customers model.",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.jaffle_shop_daily.build_customer_ltv",
+   "kind": "task",
+   "label": "jaffle_shop_daily.build_customer_ltv",
+   "name": "build_customer_ltv",
+   "path": "dags/jaffle_shop_daily.py",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_run_marts",
+   "kind": "task",
+   "label": "jaffle_shop_daily.dbt_run_marts",
+   "name": "dbt_run_marts",
+   "path": "dags/jaffle_shop_daily.py",
+   "depth": 2,
+   "via": "runs",
+   "command": "run"
+  },
+  {
+   "id": "task.archive_orders.archive.total_by_day",
+   "kind": "task",
+   "label": "archive_orders.archive.total_by_day",
+   "name": "archive.total_by_day",
+   "path": "orchestration/definitions.py",
+   "description": "Order value per day, from the archive.",
+   "depth": 3,
+   "via": "feeds"
+  },
+  {
+   "id": "task.archive_orders.archive_again.total_by_day",
+   "kind": "task",
+   "label": "archive_orders.archive_again.total_by_day",
+   "name": "archive_again.total_by_day",
+   "path": "orchestration/definitions.py",
+   "description": "Order value per day, from the archive.",
+   "depth": 3,
+   "via": "feeds"
+  },
+  {
+   "id": "task.dagster.loyal_customers",
+   "kind": "task",
+   "label": "reporting.loyal_customers",
+   "name": "loyal_customers",
+   "path": "orchestration/definitions.py",
+   "description": "Customers worth more than 100.",
+   "depth": 3,
+   "via": "feeds"
+  }
+ ],
+ "terms": [
+  {
+   "id": "term.customer_lifetime_value",
+   "kind": "term",
+   "label": "Customer lifetime value",
+   "name": "Customer lifetime value",
+   "path": "definitions.yml",
+   "description": "Total value of every payment a customer has made, across all orders and payment methods, in Australian dollars.",
+   "status": "approved"
+  }
+ ],
+ "entities": {
+  "customer": [
+   "customers"
+  ],
+  "order": [
+   "orders"
+  ],
+  "payment": [
+   "stg_payments"
+  ]
+ },
+ "total": 33,
+ "summary": "9 columns, 5 relations, 5 tests, 1 exposure, 12 tasks and 1 business term downstream."
+}

@@ -1,0 +1,53 @@
+{
+ "query": "lifetime value",
+ "results": [
+  {
+   "id": "term.customer_lifetime_value",
+   "kind": "term",
+   "label": "Customer lifetime value",
+   "name": "Customer lifetime value",
+   "path": "definitions.yml",
+   "description": "Total value of every payment a customer has made, across all orders and payment methods, in Australian dollars.",
+   "score": 44.24,
+   "status": "approved"
+  },
+  {
+   "id": "model.jaffle_shop.customers#customer_lifetime_value",
+   "kind": "column",
+   "label": "customers.customer_lifetime_value",
+   "name": "customer_lifetime_value",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "DOUBLE",
+   "score": 18.04
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#lifetime_value",
+   "kind": "column",
+   "label": "customer_ltv.lifetime_value",
+   "name": "lifetime_value",
+   "relation_kind": "table",
+   "data_type": "DOUBLE",
+   "score": 18.04
+  },
+  {
+   "id": "term.order_amount",
+   "kind": "term",
+   "label": "Order amount",
+   "name": "Order amount",
+   "path": "definitions.yml",
+   "description": "Total of all payments recorded against an order, in Australian dollars.",
+   "score": 13.06,
+   "status": "approved"
+  },
+  {
+   "id": "exposure.jaffle_shop.customer_dashboard",
+   "kind": "exposure",
+   "label": "customer_dashboard",
+   "name": "customer_dashboard",
+   "path": "models/exposures.yml",
+   "description": "Weekly view of customers, their orders and lifetime value.",
+   "score": 3.01
+  }
+ ]
+}

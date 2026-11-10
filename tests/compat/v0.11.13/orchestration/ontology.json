@@ -1,0 +1,140 @@
+{
+ "version": 1,
+ "entities": [
+  {
+   "name": "customer",
+   "key": "customer_id",
+   "keys": [
+    "customers.customer_id",
+    "stg_customers.customer_id"
+   ],
+   "relations": [
+    "customers",
+    "stg_customers"
+   ],
+   "evidence": [
+    "term 'Customer' (definitions.yml:40)",
+    "unique test on customers.customer_id",
+    "unique test on stg_customers.customer_id"
+   ],
+   "term": "Customer",
+   "description": "A person with an account, whether or not they have ordered."
+  },
+  {
+   "name": "order",
+   "key": "order_id",
+   "keys": [
+    "orders.order_id",
+    "stg_orders.order_id"
+   ],
+   "relations": [
+    "orders",
+    "stg_orders"
+   ],
+   "evidence": [
+    "unique test on orders.order_id",
+    "unique test on stg_orders.order_id"
+   ]
+  },
+  {
+   "name": "payment",
+   "key": "payment_id",
+   "keys": [
+    "stg_payments.payment_id"
+   ],
+   "relations": [
+    "stg_payments"
+   ],
+   "evidence": [
+    "unique test on stg_payments.payment_id"
+   ]
+  }
+ ],
+ "measures": [
+  {
+   "name": "Customer lifetime value",
+   "definition": "Total value of every payment a customer has made, across all orders and payment methods, in Australian dollars.",
+   "status": "approved",
+   "owner": "Priya Shah (Head of Finance)",
+   "approved": "2026-10-30",
+   "entity": "customer",
+   "grain": "one row per customer",
+   "unit": "currency",
+   "currency": "AUD",
+   "path": "definitions.yml:5",
+   "columns": [
+    {
+     "column": "customer_ltv.lifetime_value",
+     "formula": "SUM(raw_payments.amount / 100)",
+     "sources": [
+      "raw_payments.amount"
+     ],
+     "verified": 0,
+     "edges": 3
+    },
+    {
+     "column": "customers.customer_lifetime_value",
+     "formula": "SUM(raw_payments.amount / 100)",
+     "sources": [
+      "raw_payments.amount"
+     ],
+     "verified": 0,
+     "edges": 2
+    }
+   ]
+  }
+ ],
+ "relationships": [
+  {
+   "source": "order",
+   "target": "customer",
+   "via": "orders.customer_id = customers.customer_id",
+   "cardinality": "many-to-one",
+   "tested": true,
+   "evidence": [
+    "join in customers",
+    "relationships test relationships_orders_customer_id__customer_id__ref_customers_"
+   ]
+  },
+  {
+   "source": "payment",
+   "target": "order",
+   "via": "stg_payments.order_id = stg_orders.order_id",
+   "cardinality": "many-to-one",
+   "tested": false,
+   "evidence": [
+    "join in customers",
+    "join in orders"
+   ]
+  }
+ ],
+ "rules": [
+  {
+   "name": "one-formula-per-measure",
+   "description": "Every column bound to a measure computes it the same way.",
+   "violations": []
+  },
+  {
+   "name": "entity-keys-are-unique",
+   "description": "The key of an entity named in definitions.yml has a uniqueness test, a primary key or is an identifier field.",
+   "violations": []
+  },
+  {
+   "name": "entity-names-are-distinct",
+   "description": "A term of kind entity does not give its name to an entity whose keys it does not bind.",
+   "violations": []
+  },
+  {
+   "name": "bound-columns-exist",
+   "description": "Every column a business term names exists in the data stack.",
+   "violations": [
+    "definitions.yml:20: term 'Order amount': bound column 'orders.amount' is ambiguous (model.jaffle_shop.orders#amount, table.jaffle_shop.archive.orders#amount); qualify it"
+   ]
+  },
+  {
+   "name": "approved-terms-are-owned",
+   "description": "An approved term has an owner and an approval date.",
+   "violations": []
+  }
+ ]
+}

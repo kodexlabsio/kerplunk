@@ -1,0 +1,8 @@
+# Answers this code gives differently from the release that built a graph in the corpus, each on
+# purpose. tests/test_compat.py fails on any other difference, and on an entry here that no longer
+# matches one.
+#
+# - where: v0.11.13/jaffle_shop/explain_customers_customer_lifetime_value   # fnmatch patterns work
+#   path: .steps          # the JSON path of the difference, or of the object or list holding it
+#   reason: Explain lists every step on the way, not only the first.
+[]

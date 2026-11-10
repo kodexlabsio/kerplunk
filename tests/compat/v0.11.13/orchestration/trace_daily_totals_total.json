@@ -1,0 +1,197 @@
+{
+ "direction": "upstream",
+ "target": {
+  "id": "table.jaffle_shop.archive.daily_totals#total",
+  "kind": "column",
+  "label": "daily_totals.total",
+  "name": "total",
+  "relation_kind": "table"
+ },
+ "columns": [
+  {
+   "id": "table.jaffle_shop.archive.orders#amount",
+   "kind": "column",
+   "label": "orders.amount",
+   "name": "amount",
+   "relation_kind": "table",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "transformed",
+   "through": "archive_orders.archive.total_by_day"
+  },
+  {
+   "id": "model.jaffle_shop.orders#amount",
+   "kind": "column",
+   "label": "orders.amount",
+   "name": "amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Total amount (AUD) of the order",
+   "depth": 2,
+   "via": "derived_from",
+   "transform": "direct",
+   "through": "archive_orders.archive.copy_orders"
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#amount",
+   "kind": "column",
+   "label": "stg_payments.amount",
+   "name": "amount",
+   "relation_kind": "model",
+   "path": "models/staging/stg_payments.sql",
+   "data_type": "DOUBLE",
+   "depth": 3,
+   "via": "derived_from",
+   "transform": "transformed"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#amount",
+   "kind": "column",
+   "label": "raw_payments.amount",
+   "name": "amount",
+   "relation_kind": "seed",
+   "path": "seeds/raw_payments.csv",
+   "data_type": "INTEGER",
+   "depth": 4,
+   "via": "derived_from",
+   "transform": "transformed"
+  }
+ ],
+ "relations": [
+  {
+   "id": "model.jaffle_shop.orders",
+   "kind": "model",
+   "label": "orders",
+   "name": "orders",
+   "path": "models/orders.sql",
+   "description": "This table has basic information about orders, as well as some derived facts based on payments"
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments",
+   "kind": "model",
+   "label": "stg_payments",
+   "name": "stg_payments",
+   "path": "models/staging/stg_payments.sql"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments",
+   "kind": "seed",
+   "label": "raw_payments",
+   "name": "raw_payments",
+   "path": "seeds/raw_payments.csv"
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders",
+   "kind": "table",
+   "label": "orders",
+   "name": "orders"
+  }
+ ],
+ "joins_and_filters": [],
+ "filtered_by": [
+  {
+   "id": "table.jaffle_shop.archive.orders#order_date",
+   "kind": "column",
+   "label": "orders.order_date",
+   "name": "order_date",
+   "relation_kind": "table"
+  }
+ ],
+ "tests": [],
+ "exposures": [],
+ "tasks": [
+  {
+   "id": "task.archive_orders.archive.total_by_day",
+   "kind": "task",
+   "label": "archive_orders.archive.total_by_day",
+   "name": "archive.total_by_day",
+   "path": "orchestration/definitions.py",
+   "description": "Order value per day, from the archive.",
+   "depth": 1,
+   "via": "feeds"
+  },
+  {
+   "id": "task.archive_orders.archive_again.total_by_day",
+   "kind": "task",
+   "label": "archive_orders.archive_again.total_by_day",
+   "name": "archive_again.total_by_day",
+   "path": "orchestration/definitions.py",
+   "description": "Order value per day, from the archive.",
+   "depth": 1,
+   "via": "feeds"
+  },
+  {
+   "id": "task.archive_orders.archive.copy_orders",
+   "kind": "task",
+   "label": "archive_orders.archive.copy_orders",
+   "name": "archive.copy_orders",
+   "path": "orchestration/definitions.py",
+   "description": "Copy the orders model into the archive.",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.archive_orders.archive_again.copy_orders",
+   "kind": "task",
+   "label": "archive_orders.archive_again.copy_orders",
+   "name": "archive_again.copy_orders",
+   "path": "orchestration/definitions.py",
+   "description": "Copy the orders model into the archive.",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.dagster.jaffle_shop_dbt",
+   "kind": "task",
+   "label": "dagster.jaffle_shop_dbt",
+   "name": "jaffle_shop_dbt",
+   "path": "orchestration/definitions.py",
+   "description": "Build the jaffle_shop dbt models.",
+   "depth": 3,
+   "via": "runs",
+   "command": "build"
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_run_marts",
+   "kind": "task",
+   "label": "jaffle_shop_daily.dbt_run_marts",
+   "name": "dbt_run_marts",
+   "path": "dags/jaffle_shop_daily.py",
+   "depth": 3,
+   "via": "runs",
+   "command": "run"
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_run_staging",
+   "kind": "task",
+   "label": "jaffle_shop_daily.dbt_run_staging",
+   "name": "dbt_run_staging",
+   "path": "dags/jaffle_shop_daily.py",
+   "depth": 4,
+   "via": "runs",
+   "command": "run"
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_seed",
+   "kind": "task",
+   "label": "jaffle_shop_daily.dbt_seed",
+   "name": "dbt_seed",
+   "path": "dags/jaffle_shop_daily.py",
+   "depth": 5,
+   "via": "runs",
+   "command": "seed"
+  }
+ ],
+ "terms": [],
+ "entities": {
+  "order": [
+   "orders"
+  ],
+  "payment": [
+   "stg_payments"
+  ]
+ },
+ "total": 17,
+ "summary": "4 columns, 4 relations and 8 tasks upstream."
+}

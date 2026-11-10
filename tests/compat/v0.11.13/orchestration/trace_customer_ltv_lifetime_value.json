@@ -1,0 +1,192 @@
+{
+ "direction": "upstream",
+ "target": {
+  "id": "table.jaffle_shop.reporting.customer_ltv#lifetime_value",
+  "kind": "column",
+  "label": "customer_ltv.lifetime_value",
+  "name": "lifetime_value",
+  "relation_kind": "table",
+  "data_type": "DOUBLE"
+ },
+ "columns": [
+  {
+   "id": "model.jaffle_shop.customers#customer_lifetime_value",
+   "kind": "column",
+   "label": "customers.customer_lifetime_value",
+   "name": "customer_lifetime_value",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "DOUBLE",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "direct",
+   "through": "jaffle_shop_daily.build_customer_ltv"
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#amount",
+   "kind": "column",
+   "label": "stg_payments.amount",
+   "name": "amount",
+   "relation_kind": "model",
+   "path": "models/staging/stg_payments.sql",
+   "data_type": "DOUBLE",
+   "depth": 2,
+   "via": "derived_from",
+   "transform": "transformed"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#amount",
+   "kind": "column",
+   "label": "raw_payments.amount",
+   "name": "amount",
+   "relation_kind": "seed",
+   "path": "seeds/raw_payments.csv",
+   "data_type": "INTEGER",
+   "depth": 3,
+   "via": "derived_from",
+   "transform": "transformed"
+  }
+ ],
+ "relations": [
+  {
+   "id": "model.jaffle_shop.customers",
+   "kind": "model",
+   "label": "customers",
+   "name": "customers",
+   "path": "models/customers.sql",
+   "description": "This table has basic information about a customer, as well as some derived facts based on a customer's orders"
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments",
+   "kind": "model",
+   "label": "stg_payments",
+   "name": "stg_payments",
+   "path": "models/staging/stg_payments.sql"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments",
+   "kind": "seed",
+   "label": "raw_payments",
+   "name": "raw_payments",
+   "path": "seeds/raw_payments.csv"
+  }
+ ],
+ "joins_and_filters": [],
+ "filtered_by": [
+  {
+   "id": "model.jaffle_shop.customers#customer_lifetime_value",
+   "kind": "column",
+   "label": "customers.customer_lifetime_value",
+   "name": "customer_lifetime_value",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "DOUBLE"
+  }
+ ],
+ "tests": [],
+ "exposures": [],
+ "tasks": [
+  {
+   "id": "task.dagster.reporting/customer_ltv",
+   "kind": "task",
+   "label": "reporting.reporting/customer_ltv",
+   "name": "reporting/customer_ltv",
+   "path": "orchestration/definitions.py",
+   "description": "Lifetime value per customer, from the customers model.",
+   "depth": 1,
+   "via": "feeds"
+  },
+  {
+   "id": "task.jaffle_shop_daily.build_customer_ltv",
+   "kind": "task",
+   "label": "jaffle_shop_daily.build_customer_ltv",
+   "name": "build_customer_ltv",
+   "path": "dags/jaffle_shop_daily.py",
+   "depth": 1,
+   "via": "feeds"
+  },
+  {
+   "id": "task.jaffle_shop_daily.notify_crm",
+   "kind": "task",
+   "label": "jaffle_shop_daily.notify_crm",
+   "name": "notify_crm",
+   "path": "dags/jaffle_shop_daily.py",
+   "description": "Tell the CRM that lifetime values have been refreshed.",
+   "depth": 1,
+   "via": "feeds"
+  },
+  {
+   "id": "task.archive_orders.refresh_customers",
+   "kind": "task",
+   "label": "archive_orders.refresh_customers",
+   "name": "refresh_customers",
+   "path": "orchestration/definitions.py",
+   "description": "Rebuild the customers model.",
+   "depth": 2,
+   "via": "runs",
+   "command": "run"
+  },
+  {
+   "id": "task.dagster.jaffle_shop_dbt",
+   "kind": "task",
+   "label": "dagster.jaffle_shop_dbt",
+   "name": "jaffle_shop_dbt",
+   "path": "orchestration/definitions.py",
+   "description": "Build the jaffle_shop dbt models.",
+   "depth": 2,
+   "via": "runs",
+   "command": "build"
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_run_marts",
+   "kind": "task",
+   "label": "jaffle_shop_daily.dbt_run_marts",
+   "name": "dbt_run_marts",
+   "path": "dags/jaffle_shop_daily.py",
+   "depth": 2,
+   "via": "runs",
+   "command": "run"
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_run_staging",
+   "kind": "task",
+   "label": "jaffle_shop_daily.dbt_run_staging",
+   "name": "dbt_run_staging",
+   "path": "dags/jaffle_shop_daily.py",
+   "depth": 3,
+   "via": "runs",
+   "command": "run"
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_seed",
+   "kind": "task",
+   "label": "jaffle_shop_daily.dbt_seed",
+   "name": "dbt_seed",
+   "path": "dags/jaffle_shop_daily.py",
+   "depth": 4,
+   "via": "runs",
+   "command": "seed"
+  }
+ ],
+ "terms": [
+  {
+   "id": "term.customer_lifetime_value",
+   "kind": "term",
+   "label": "Customer lifetime value",
+   "name": "Customer lifetime value",
+   "path": "definitions.yml",
+   "description": "Total value of every payment a customer has made, across all orders and payment methods, in Australian dollars.",
+   "status": "approved"
+  }
+ ],
+ "entities": {
+  "customer": [
+   "customers"
+  ],
+  "payment": [
+   "stg_payments"
+  ]
+ },
+ "total": 16,
+ "summary": "3 columns, 3 relations, 8 tasks and 1 business term upstream."
+}

@@ -57,7 +57,7 @@ else
   tag="v${next}"
   echo "main has releasable changes since ${latest}; releasing ${tag} from a commit above main"
   git checkout --quiet --detach
-  python3 .kodex/scripts/prepare_release.py --base HEAD --no-fetch
+  python3 .kodex/scripts/prepare_release.py --base HEAD --no-fetch --above-main
   git commit --quiet -am "chore(release): Release ${next}"
 fi
 case "$tag" in

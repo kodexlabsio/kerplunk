@@ -1,0 +1,75 @@
+{
+ "kinds": [
+  "model",
+  "seed",
+  "snapshot",
+  "source",
+  "table"
+ ],
+ "items": [
+  {
+   "id": "model.jaffle_shop.customers",
+   "kind": "model",
+   "label": "customers",
+   "name": "customers",
+   "path": "models/customers.sql",
+   "description": "This table has basic information about a customer, as well as some derived facts based on a customer's orders"
+  },
+  {
+   "id": "model.jaffle_shop.orders",
+   "kind": "model",
+   "label": "orders",
+   "name": "orders",
+   "path": "models/orders.sql",
+   "description": "This table has basic information about orders, as well as some derived facts based on payments"
+  },
+  {
+   "id": "model.jaffle_shop.stg_customers",
+   "kind": "model",
+   "label": "stg_customers",
+   "name": "stg_customers",
+   "path": "models/staging/stg_customers.sql"
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders",
+   "kind": "model",
+   "label": "stg_orders",
+   "name": "stg_orders",
+   "path": "models/staging/stg_orders.sql"
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments",
+   "kind": "model",
+   "label": "stg_payments",
+   "name": "stg_payments",
+   "path": "models/staging/stg_payments.sql"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_customers",
+   "kind": "seed",
+   "label": "raw_customers",
+   "name": "raw_customers",
+   "path": "seeds/raw_customers.csv"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders",
+   "kind": "seed",
+   "label": "raw_orders",
+   "name": "raw_orders",
+   "path": "seeds/raw_orders.csv"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments",
+   "kind": "seed",
+   "label": "raw_payments",
+   "name": "raw_payments",
+   "path": "seeds/raw_payments.csv"
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "table",
+   "label": "customer_ltv",
+   "name": "customer_ltv"
+  }
+ ]
+}

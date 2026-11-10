@@ -1,0 +1,35 @@
+{
+ "id": "task.jaffle_shop_daily.build_customer_ltv",
+ "kind": "task",
+ "label": "jaffle_shop_daily.build_customer_ltv",
+ "name": "build_customer_ltv",
+ "path": "dags/jaffle_shop_daily.py",
+ "origins": [
+  "airflow"
+ ],
+ "attrs": {
+  "dag": "jaffle_shop_daily",
+  "operator": "SQLExecuteQueryOperator",
+  "line": 24,
+  "sql_path": "dags/sql/customer_ltv.sql"
+ },
+ "terms": [],
+ "defines": [],
+ "related": [],
+ "conditions": [],
+ "tests": [],
+ "upstream": [
+  "customers (model)"
+ ],
+ "downstream": [
+  "customer_ltv (table)"
+ ],
+ "tasks": [],
+ "runs": [],
+ "after": [
+  "dbt_test"
+ ],
+ "before": [
+  "notify_crm"
+ ]
+}

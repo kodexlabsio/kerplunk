@@ -1,0 +1,123 @@
+{
+ "kinds": [
+  "model",
+  "seed",
+  "snapshot",
+  "source",
+  "table"
+ ],
+ "items": [
+  {
+   "id": "model.jaffle_shop.customers",
+   "kind": "model",
+   "label": "customers",
+   "name": "customers",
+   "path": "models/customers.sql",
+   "description": "This table has basic information about a customer, as well as some derived facts based on a customer's orders"
+  },
+  {
+   "id": "model.jaffle_shop.orders",
+   "kind": "model",
+   "label": "orders",
+   "name": "orders",
+   "path": "models/orders.sql",
+   "description": "This table has basic information about orders, as well as some derived facts based on payments"
+  },
+  {
+   "id": "model.jaffle_shop.stg_customers",
+   "kind": "model",
+   "label": "stg_customers",
+   "name": "stg_customers",
+   "path": "models/staging/stg_customers.sql"
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders",
+   "kind": "model",
+   "label": "stg_orders",
+   "name": "stg_orders",
+   "path": "models/staging/stg_orders.sql"
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments",
+   "kind": "model",
+   "label": "stg_payments",
+   "name": "stg_payments",
+   "path": "models/staging/stg_payments.sql"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_customers",
+   "kind": "seed",
+   "label": "raw_customers",
+   "name": "raw_customers",
+   "path": "seeds/raw_customers.csv"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders",
+   "kind": "seed",
+   "label": "raw_orders",
+   "name": "raw_orders",
+   "path": "seeds/raw_orders.csv"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments",
+   "kind": "seed",
+   "label": "raw_payments",
+   "name": "raw_payments",
+   "path": "seeds/raw_payments.csv"
+  },
+  {
+   "id": "table.asset:crm_export",
+   "kind": "table",
+   "label": "crm_export",
+   "name": "crm_export"
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "table",
+   "label": "customer_ltv",
+   "name": "customer_ltv"
+  },
+  {
+   "id": "table.jaffle_shop.archive.daily_totals",
+   "kind": "table",
+   "label": "daily_totals",
+   "name": "daily_totals"
+  },
+  {
+   "id": "table.jaffle_shop.analytics.events",
+   "kind": "table",
+   "label": "events",
+   "name": "events"
+  },
+  {
+   "id": "table.jaffle_shop.raw.events",
+   "kind": "table",
+   "label": "events",
+   "name": "events"
+  },
+  {
+   "id": "table.asset:loyal_customers",
+   "kind": "table",
+   "label": "loyal_customers",
+   "name": "loyal_customers"
+  },
+  {
+   "id": "table.asset:order_counts",
+   "kind": "table",
+   "label": "order_counts",
+   "name": "order_counts"
+  },
+  {
+   "id": "table.asset:order_totals",
+   "kind": "table",
+   "label": "order_totals",
+   "name": "order_totals"
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders",
+   "kind": "table",
+   "label": "orders",
+   "name": "orders"
+  }
+ ]
+}

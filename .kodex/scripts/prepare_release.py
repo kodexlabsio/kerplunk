@@ -17,6 +17,12 @@ type, or a `BREAKING CHANGE:` footer), which gives the next minor. The script ne
 version to 1.0: that is the owner's decision, made by hand. The changelog section follows
 commitizen's layout: BREAKING CHANGE (from the footers' text), Feat, Fix, Refactor and Perf.
 
+A release is prepared only once the newest release tag is in the compatibility corpus
+(tests/compat/releases.json), which the batch after each release adds it to with
+.kodex/scripts/compat_snapshot.py; --check refuses a pull request that prepares one before then.
+The release workflow's own release from above main (--above-main) is not held to it: no batch
+made that release, and the next batch adds the corpus entry.
+
 Usage:
     uv run python .kodex/scripts/prepare_release.py
     uv run python .kodex/scripts/prepare_release.py --dry-run
@@ -27,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import re
 import subprocess
 import sys
@@ -58,6 +65,20 @@ def last_tag() -> str:
     if not tags:
         sys.exit('no release tag found; fetch tags first (git fetch --tags)')
     return max(tags, key=lambda t: parse_version(t[1:]))
+
+
+def corpus_gap() -> str | None:
+    """Why no release can be prepared yet: the newest release is not in the compatibility corpus,
+    which the batch after each release adds it to. None when it is there."""
+    tag = last_tag()
+    path = ROOT / 'tests' / 'compat' / 'releases.json'
+    recorded = json.loads(path.read_text(encoding='utf-8')) if path.is_file() else {}
+    if tag in recorded:
+        return None
+    return (
+        f'{tag} is not in tests/compat/releases.json; add it to the compatibility corpus first with '
+        f'`uv run python .kodex/scripts/compat_snapshot.py --ref {tag}`'
+    )
 
 
 def version_on(ref: str) -> str:
@@ -234,6 +255,10 @@ def check(title: str | None, body: str, base: str) -> int:
     if expected is None:
         print(f'v{prepared["version"]} is prepared, but nothing in this pull request calls for a release')
         return 1
+    gap = corpus_gap()
+    if gap:
+        print(f'v{prepared["version"]} is prepared, but {gap}')
+        return 1
     version, changes = expected
     changelog = (ROOT / 'CHANGELOG.md').read_text(encoding='utf-8')
     top = SECTION.search(changelog)
@@ -263,6 +288,12 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--dry-run', action='store_true', help='print the version and changelog only')
     mode.add_argument('--check', action='store_true', help='check what a pull request prepares')
+    parser.add_argument(
+        '--above-main',
+        action='store_true',
+        help='release from a commit above main (the release workflow), for changes that reached main '
+        'without a batch: the next batch adds the newest release to the corpus, so it is not required',
+    )
     args = parser.parse_args(argv)
 
     if not args.no_fetch and args.base.startswith('origin/'):
@@ -279,6 +310,10 @@ def main(argv: list[str] | None = None) -> int:
         print(version)
         print(changes)
         return 0
+    gap = None if args.above_main else corpus_gap()
+    if gap:
+        print(f'refusing to prepare {version}: {gap}', file=sys.stderr)
+        return 1
     write(version, changes)
     print(version)
     return 0

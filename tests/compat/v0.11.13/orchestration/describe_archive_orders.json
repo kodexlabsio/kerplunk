@@ -1,0 +1,37 @@
+{
+ "id": "dag.archive_orders",
+ "kind": "dag",
+ "label": "archive_orders",
+ "name": "archive_orders",
+ "path": "orchestration/definitions.py",
+ "origins": [
+  "dagster"
+ ],
+ "attrs": {
+  "schedule": "0 2 * * *",
+  "orchestrator": "dagster",
+  "line": 116,
+  "sensors": [
+   "ltv_refreshed on asset reporting/customer_ltv"
+  ]
+ },
+ "terms": [],
+ "defines": [],
+ "related": [],
+ "conditions": [],
+ "tests": [],
+ "upstream": [],
+ "downstream": [],
+ "tasks": [
+  "archive.copy_orders",
+  "archive.total_by_day",
+  "notify",
+  "notify_finance",
+  "archive_again.copy_orders",
+  "archive_again.total_by_day",
+  "refresh_customers"
+ ],
+ "runs": [],
+ "after": [],
+ "before": []
+}

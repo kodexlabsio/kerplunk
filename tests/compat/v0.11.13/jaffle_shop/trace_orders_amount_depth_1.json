@@ -1,0 +1,102 @@
+{
+ "direction": "upstream",
+ "target": {
+  "id": "model.jaffle_shop.orders#amount",
+  "kind": "column",
+  "label": "orders.amount",
+  "name": "amount",
+  "relation_kind": "model",
+  "path": "models/orders.sql",
+  "data_type": "DOUBLE",
+  "description": "Total amount (AUD) of the order"
+ },
+ "columns": [
+  {
+   "id": "model.jaffle_shop.stg_payments#amount",
+   "kind": "column",
+   "label": "stg_payments.amount",
+   "name": "amount",
+   "relation_kind": "model",
+   "path": "models/staging/stg_payments.sql",
+   "data_type": "DOUBLE",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "transformed"
+  }
+ ],
+ "relations": [
+  {
+   "id": "model.jaffle_shop.stg_payments",
+   "kind": "model",
+   "label": "stg_payments",
+   "name": "stg_payments",
+   "path": "models/staging/stg_payments.sql"
+  }
+ ],
+ "joins_and_filters": [],
+ "filtered_by": [
+  {
+   "id": "model.jaffle_shop.stg_payments#order_id",
+   "kind": "column",
+   "label": "stg_payments.order_id",
+   "name": "order_id",
+   "relation_kind": "model",
+   "path": "models/staging/stg_payments.sql",
+   "data_type": "INTEGER"
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "column",
+   "label": "stg_orders.order_id",
+   "name": "order_id",
+   "relation_kind": "model",
+   "path": "models/staging/stg_orders.sql",
+   "data_type": "INTEGER"
+  }
+ ],
+ "tests": [],
+ "exposures": [],
+ "tasks": [
+  {
+   "id": "task.jaffle_shop_daily.dbt_run_marts",
+   "kind": "task",
+   "label": "jaffle_shop_daily.dbt_run_marts",
+   "name": "dbt_run_marts",
+   "path": "dags/jaffle_shop_daily.py",
+   "depth": 1,
+   "via": "runs",
+   "command": "run"
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_run_staging",
+   "kind": "task",
+   "label": "jaffle_shop_daily.dbt_run_staging",
+   "name": "dbt_run_staging",
+   "path": "dags/jaffle_shop_daily.py",
+   "depth": 2,
+   "via": "runs",
+   "command": "run"
+  }
+ ],
+ "terms": [
+  {
+   "id": "term.order_amount",
+   "kind": "term",
+   "label": "Order amount",
+   "name": "Order amount",
+   "path": "definitions.yml",
+   "description": "Total of all payments recorded against an order, in Australian dollars.",
+   "status": "approved"
+  }
+ ],
+ "entities": {
+  "order": [
+   "orders"
+  ],
+  "payment": [
+   "stg_payments"
+  ]
+ },
+ "total": 7,
+ "summary": "1 column, 1 relation, 2 tasks and 1 business term upstream."
+}

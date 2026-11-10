@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -80,6 +81,8 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     (tmp_path / 'konstruct' / '__init__.py').write_text("__version__ = '0.11.1'\n")
     (tmp_path / 'CHANGELOG.md').write_text('## v0.11.1 (2026-11-08)\n\n### Fix\n\n- Older fix\n')
+    (tmp_path / 'tests' / 'compat').mkdir(parents=True)
+    (tmp_path / 'tests' / 'compat' / 'releases.json').write_text('{"v0.11.1": "v0.11.1"}\n')
     run('git', 'init', '-q', '-b', 'main')
     run('git', 'add', '-A')
     run(
@@ -111,6 +114,12 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     monkeypatch.setattr(release, 'ROOT', tmp_path)
     return tmp_path
+
+
+def _add_to_corpus(repo: Path, tag: str) -> None:
+    """What the batch after a release does with compat_snapshot.py, as far as the script reads."""
+    path = repo / 'tests' / 'compat' / 'releases.json'
+    path.write_text(json.dumps({**json.loads(path.read_text()), tag: 'v0.11.1'}))
 
 
 def _prepare(*args: str) -> int:
@@ -168,7 +177,7 @@ def test_carries_sections_of_releases_made_from_a_detached_commit(repo: Path) ->
 
     # The workflow released v0.11.2 from a commit above main; main's changelog does not have it.
     run('git', 'checkout', '-q', '--detach')
-    assert _prepare() == 0
+    assert _prepare('--above-main') == 0
     run(
         'git',
         '-c',
@@ -183,12 +192,36 @@ def test_carries_sections_of_releases_made_from_a_detached_commit(repo: Path) ->
     )
     run('git', 'tag', 'v0.11.2')
     run('git', 'checkout', '-q', 'main')
+    _add_to_corpus(repo, 'v0.11.2')
     assert _prepare('--title', 'feat(mcp): Add a tool') == 0
     changelog = (repo / 'CHANGELOG.md').read_text()
     headings = [line.split(' (')[0] for line in changelog.splitlines() if line.startswith('## ')]
     assert headings == ['## v0.11.3', '## v0.11.2', '## v0.11.1']
     assert '## v0.11.3 (' in changelog and '- **mcp**: Add a tool' in changelog.split('## v0.11.2')[0]
     assert '- **sql**: Order sources' in changelog.split('## v0.11.2')[1].split('## v0.11.1')[0]
+
+
+def test_refuses_until_the_newest_release_is_in_the_compatibility_corpus(
+    repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The batch after a release adds it to tests/compat/; the next release waits for that."""
+    assert _prepare('--title', 'fix: More') == 0
+    capsys.readouterr()
+    (repo / 'tests' / 'compat' / 'releases.json').write_text('{}\n')
+    assert _prepare('--title', 'fix: More', '--check') == 1
+    out = capsys.readouterr().out
+    assert 'v0.11.1 is not in tests/compat/releases.json' in out
+    assert 'compat_snapshot.py --ref v0.11.1' in out
+    before = (repo / 'pyproject.toml').read_text()
+    assert _prepare('--title', 'fix: More') == 1
+    assert 'refusing to prepare 0.11.2: v0.11.1 is not in' in capsys.readouterr().err
+    assert (repo / 'pyproject.toml').read_text() == before
+    # An unprepared pull request, such as a dependency update, still passes.
+    (repo / 'pyproject.toml').write_text(before.replace('0.11.2', '0.11.1'))
+    assert _prepare('--title', 'fix: More', '--check') == 0
+    # The release workflow's release from above main is not held to it.
+    assert _prepare('--above-main') == 0
+    assert 'version = "0.11.2"' in (repo / 'pyproject.toml').read_text()
 
 
 def test_check_passes_unprepared_and_matching_pull_requests(
@@ -231,7 +264,7 @@ def test_a_stale_section_for_a_released_version_is_corrected(repo: Path) -> None
     # A pull request prepared v0.11.2 for a feat, but v0.11.2 was released from a detached commit
     # for the fix on main. Its section must come from the tag, and the feat goes in v0.11.3.
     run('git', 'checkout', '-q', '--detach')
-    assert _prepare() == 0
+    assert _prepare('--above-main') == 0
     run(
         'git',
         '-c',
@@ -246,6 +279,7 @@ def test_a_stale_section_for_a_released_version_is_corrected(repo: Path) -> None
     )
     run('git', 'tag', 'v0.11.2')
     run('git', 'checkout', '-q', 'main')
+    _add_to_corpus(repo, 'v0.11.2')
     changelog = (repo / 'CHANGELOG.md').read_text()
     (repo / 'CHANGELOG.md').write_text('## v0.11.2 (2026-11-09)\n\n### Feat\n\n- Add a thing\n\n' + changelog)
     run(
