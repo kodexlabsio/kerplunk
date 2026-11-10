@@ -404,6 +404,39 @@ def test_a_served_page_loads_the_graph_and_follows_changes(browser: Any) -> None
 
 
 @pytest.mark.dbt
+def test_business_term_page(jaffle_built_graph: Path, open_page: Any) -> None:
+    page = open_page(
+        jaffle_built_graph / 'konstruct-out' / 'graph.html', '#/node/term.customer_lifetime_value'
+    )
+    assert page.inner_text('#page h1') == 'Customer lifetime value'
+    text = page.inner_text('#page')
+    assert 'Priya Shah, Head of Finance' in text
+    assert 'one row per customer' in text
+    assert 'SUM(raw_payments.amount / 100)' in text
+    assert 'Approved' in text and 'LTV' in text
+    related = page.text_content('#page') or ''
+    assert 'Related terms' in related and 'Order amount' in related
+    # The bound column's path is drawn on the docked graph.
+    page.wait_for_selector(".row.on-path[data-col='model.jaffle_shop.customers#customer_lifetime_value']")
+    page.locator('#page').get_by_role('link', name='Order amount', exact=True).first.click()
+    page.wait_for_selector('#page h1:text-is("Order amount")')
+    assert page.evaluate('location.hash') == '#/node/term.order_amount'
+    # The overview counts the business terms.
+    graph = jaffle_built_graph / 'konstruct-out' / 'graph.html'
+    page.goto(graph.as_uri() + '#/')
+    page.wait_for_selector('#stats')
+    assert page.locator('#stats a[href="#/glossary"]').inner_text().split() == ['5', 'business', 'terms']
+    # A column shows the terms that define it, each a link to the term's page.
+    page.goto(graph.as_uri() + '#/node/model.jaffle_shop.orders%23amount')
+    page.wait_for_selector('#page h1:text-is("amount")')
+    # Headings are shown in capitals; the text is as written.
+    assert 'Defined by' in (page.text_content('#page') or '')
+    page.locator('#page').get_by_role('link', name='Order amount', exact=True).first.click()
+    page.wait_for_selector('#page h1:text-is("Order amount")')
+    assert page.evaluate('location.hash') == '#/node/term.order_amount'
+
+
+@pytest.mark.dbt
 def test_markdown_descriptions(jaffle_built_graph: Path, open_page: Any) -> None:
     graph = jaffle_built_graph / 'konstruct-out' / 'graph.html'
     page = open_page(graph)
