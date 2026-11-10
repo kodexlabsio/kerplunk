@@ -1,3 +1,21 @@
+## v0.12.4 (2026-11-10)
+
+### Fix
+
+- **graph**: Accept ids and names that hold lone surrogates in the Rust core
+
+### Refactor
+
+- **graph**: Number nodes, edges and words with a checked conversion
+- **graph**: Build the native indexes one node and one edge at a time
+
+### Perf
+
+- **graph**: Add the consumers and through tasks of a walk in the Rust core
+- **query**: Rank search results in the Rust core
+- **graph**: Walk, find paths and resolve relation names in the Rust core
+- **html**: Escape the viewer's embedded data with str.replace
+
 ## v0.12.3 (2026-11-10)
 
 ### Fix
