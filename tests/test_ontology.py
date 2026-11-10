@@ -14,7 +14,7 @@ from konstruct import Project
 from konstruct.core.graph import Graph, Node, NodeKind
 from konstruct.interfaces.cli import main
 from konstruct.semantics.definitions import parse
-from konstruct.semantics.ontology import derive, entity_name, id_like, name_matches
+from konstruct.semantics.ontology import derivation, derive, entity_name, id_like, name_matches
 
 
 @pytest.mark.parametrize(
@@ -214,6 +214,19 @@ def test_iceberg_identifier_fields_are_keys() -> None:
         ['events'],
         ['identifier field events.event_id'],
     )
+
+
+def test_a_composite_key_is_unique_only_together() -> None:
+    g = Graph()
+    bridge = _relation(g, 'customer_segments', ['customer_id', 'segment_id'], kind='table')
+    bridge.attrs['primary_key'] = ['customer_id', 'Segment_ID']
+    customers = _relation(g, 'customers', ['customer_id', 'name'], kind='table')
+    customers.attrs['primary_key'] = ['customer_id']
+    derived = derivation(g)
+    assert derived.composite == {bridge.id: [('customer_id', 'segment_id')]}
+    assert derived.unique == frozenset({f'{customers.id}#customer_id'})
+    assert derived.entity_of(customers) == 'customer' and derived.entity_of(bridge) is None
+    assert derived.ontology == derive(g)
 
 
 def test_definitions_accept_a_kind() -> None:

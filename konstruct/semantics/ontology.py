@@ -308,7 +308,43 @@ def _singular(word: str) -> str:
 
 def derive(graph: Graph) -> Ontology:
     """The ontology of ``graph`` (see the module documentation)."""
-    return _Deriver(graph).run()
+    return derivation(graph).ontology
+
+
+@dataclass
+class Derivation:
+    """A derived ontology with the facts it rests on, for tools that reason about joins and keys."""
+
+    ontology: Ontology
+    keys: dict[str, str]
+    """The graph id of each key column, to the entity it identifies."""
+    unique: frozenset[str]
+    """The graph ids of the columns with a uniqueness guarantee."""
+    composite: dict[str, list[tuple[str, ...]]]
+    """Each relation's graph id, to the column names of the composite keys it declares (a primary
+    key or identifier fields of more than one column), which are unique only together."""
+    graph: Graph = field(repr=False)
+
+    def entity_of(self, relation: Node) -> str | None:
+        """The entity whose instances ``relation`` holds one row each of."""
+        return _entity_of(self.graph, self.keys, relation)
+
+
+def derivation(graph: Graph) -> Derivation:
+    """The ontology of ``graph`` with the keys and unique columns it was derived from."""
+    deriver = _Deriver(graph)
+    ontology = deriver.run()
+    return Derivation(ontology, dict(deriver.keys), frozenset(deriver.unique), deriver.composite, graph)
+
+
+def _entity_of(graph: Graph, keys: dict[str, str], relation: Node) -> str | None:
+    """Of the entities whose keys ``relation`` holds, the one named for the relation, else the
+    first by name."""
+    names = sorted({keys[c.id] for c in graph.columns_of(relation.id) if c.id in keys})
+    if not names:
+        return None
+    own = entity_name('id', graph.label(relation))
+    return own if own in names else names[0]
 
 
 class _Deriver:
@@ -320,6 +356,7 @@ class _Deriver:
         self.keys: dict[str, str] = {}  # column id of a key -> entity name
         self.entities: dict[str, Entity] = {}
         self.unique: set[str] = set()  # column ids with a uniqueness guarantee
+        self.composite: dict[str, list[tuple[str, ...]]] = {}  # relation id -> composite keys
         self.terms = sorted(
             (n for n in graph.nodes.values() if n.kind == 'term'), key=lambda n: (n.name.lower(), n.id)
         )
@@ -424,8 +461,13 @@ class _Deriver:
             elif node.kind in RELATION_KINDS:
                 for attr, what in (('primary_key', 'primary key'), ('identifier_fields', 'identifier field')):
                     names = node.attrs.get(attr) or []
+                    if not isinstance(names, list) or not names:
+                        continue
                     # One column of a composite key is not unique on its own.
-                    if not isinstance(names, list) or len(names) != 1:
+                    if len(names) > 1:
+                        key = tuple(str(n).lower() for n in names)
+                        if key not in self.composite.setdefault(node.id, []):
+                            self.composite[node.id].append(key)
                         continue
                     key_column = graph.column(node.id, str(names[0]))
                     if key_column is not None:
@@ -671,13 +713,7 @@ class _Deriver:
         return sorted(result, key=lambda r: (r.source, r.target, r.via))
 
     def entity_of(self, relation: Node) -> str | None:
-        """The entity whose instances ``relation`` holds one row each of: of its key columns, the
-        one named for the relation, else the first by name."""
-        names = sorted({self.keys[c.id] for c in self.graph.columns_of(relation.id) if c.id in self.keys})
-        if not names:
-            return None
-        own = entity_name('id', self.graph.label(relation))
-        return own if own in names else names[0]
+        return _entity_of(self.graph, self.keys, relation)
 
     def join_columns(self, condition: str) -> list[tuple[Node, Node]]:
         label, sep, text = condition.partition(': ')

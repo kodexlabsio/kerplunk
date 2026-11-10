@@ -152,7 +152,7 @@ def no_dbt_or_warehouse(monkeypatch: pytest.MonkeyPatch) -> list[list[Any]]:
     monkeypatch.setattr(dbt, 'subprocess', Subprocess)
     monkeypatch.setattr(duckdb, 'connect', refuse)
     monkeypatch.setattr(psycopg, 'connect', refuse)
-    monkeypatch.setattr(warehouse, '_driver', refuse)
+    monkeypatch.setattr(warehouse, 'driver', refuse)
     monkeypatch.setattr(config.WarehouseConfig, 'connector', refuse)
     discovered: list[list[Any]] = []
     discover = config.discover_warehouses

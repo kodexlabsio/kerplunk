@@ -453,7 +453,7 @@ def test_each_input_is_read_once_per_run(project: Project, monkeypatch: pytest.M
     )
     project.build()
     driver = _Driver(project.root / 'shop.duckdb')
-    monkeypatch.setattr(warehouse, '_driver', lambda module, extra: driver)
+    monkeypatch.setattr(warehouse, 'driver', lambda module, extra: driver)
     (project.root / 'konstruct.toml').write_text(
         '[[warehouse]]\ntype = "databricks"\nserver_hostname = "x"\nhttp_path = "y"\n'
     )
@@ -541,7 +541,7 @@ def test_a_remote_warehouse_that_is_not_configured_or_has_no_driver(
     def missing(module: str, extra: str) -> object:
         raise warehouse.MissingDriver(f"install the {extra} extra: uv tool install 'konstruct[{extra}]'")
 
-    monkeypatch.setattr(warehouse, '_driver', missing)
+    monkeypatch.setattr(warehouse, 'driver', missing)
     with pytest.raises(QueryError, match=r'cannot connect to snowflake: install the snowflake extra'):
         project.verify(warehouse='snowflake')
 
@@ -697,7 +697,7 @@ def test_each_remote_warehouse_type_makes_its_engine(
     from konstruct.analysis.verify import sampled_engine
 
     driver = _Driver(project.root / 'shop.duckdb')
-    monkeypatch.setattr(warehouse, '_driver', lambda module, extra: driver)
+    monkeypatch.setattr(warehouse, 'driver', lambda module, extra: driver)
     snowflake = sampled_engine(warehouse.SnowflakeConnector(options={'account': 'x'}), project.graph)
     assert (snowflake.label, snowflake.read_dialect) == ('snowflake (sampled)', 'snowflake')
     snowflake.close()

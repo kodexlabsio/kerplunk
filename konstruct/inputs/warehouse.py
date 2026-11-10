@@ -360,7 +360,9 @@ class MissingDriver(Exception):
     """A warehouse needs an optional extra: pip install 'konstruct[snowflake]' and so on."""
 
 
-def _driver(module: str, extra: str) -> Any:
+def driver(module: str, extra: str) -> Any:
+    """A warehouse's driver module, imported when first needed, or :class:`MissingDriver` naming
+    the extra that installs it."""
     import importlib
 
     try:
@@ -447,7 +449,7 @@ class SnowflakeConnector:
     default_schema: str | None = None
 
     def fetch(self) -> list[RelationMeta]:
-        connector = _driver('snowflake.connector', 'snowflake')
+        connector = driver('snowflake.connector', 'snowflake')
         connection = connector.connect(**self.options)
         try:
             cursor = connection.cursor()
@@ -475,7 +477,7 @@ class DatabricksConnector:
     default_schema: str | None = None
 
     def fetch(self) -> list[RelationMeta]:
-        sql = _driver('databricks.sql', 'databricks')
+        sql = driver('databricks.sql', 'databricks')
         connection = sql.connect(**self.options)
         try:
             cursor = connection.cursor()
@@ -510,12 +512,12 @@ class TrinoConnector:
     default_schema: str | None = None
 
     def connect(self) -> Any:
-        trino = _driver('trino', 'trino')
+        trino = driver('trino', 'trino')
         options = dict(self.options)
         if self.token:
-            options['auth'] = _driver('trino.auth', 'trino').JWTAuthentication(self.token)
+            options['auth'] = driver('trino.auth', 'trino').JWTAuthentication(self.token)
         elif self.password:
-            options['auth'] = _driver('trino.auth', 'trino').BasicAuthentication(
+            options['auth'] = driver('trino.auth', 'trino').BasicAuthentication(
                 str(options.get('user', '')), self.password
             )
         if 'auth' in options:
@@ -618,7 +620,7 @@ class BigQueryConnector:
     default_schema: str | None = None
 
     def client(self) -> Any:
-        bigquery = _driver('google.cloud.bigquery', 'bigquery')
+        bigquery = driver('google.cloud.bigquery', 'bigquery')
         if self.endpoint:
             from google.api_core.client_options import ClientOptions
             from google.auth.credentials import AnonymousCredentials
@@ -690,9 +692,9 @@ def query(connector: Any, sql: str) -> list[tuple[Any, ...]] | None:
     if isinstance(connector, TrinoConnector):
         connection = connector.connect()
     elif isinstance(connector, SnowflakeConnector):
-        connection = _driver('snowflake.connector', 'snowflake').connect(**connector.options)
+        connection = driver('snowflake.connector', 'snowflake').connect(**connector.options)
     elif isinstance(connector, DatabricksConnector):
-        connection = _driver('databricks.sql', 'databricks').connect(**connector.options)
+        connection = driver('databricks.sql', 'databricks').connect(**connector.options)
     else:
         return None
     try:

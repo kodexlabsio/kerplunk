@@ -360,7 +360,7 @@ def _column_lineage(
         )
 
     result.references = _references(scope, dialect, schema, default_catalog, default_db)
-    canon = _Canonical(dialect, default_catalog, default_db)
+    canon = Canonical(dialect, default_catalog, default_db)
     for index, (name, node) in enumerate(nodes.items()):
         if name != '*':
             out_name = (out_names[index] if out_names else name).lower()
@@ -726,8 +726,9 @@ def _spell_out_group_by_all(select: exp.Expr) -> None:
         select.set('group', None)  # only aggregates: one row, as with no GROUP BY at all
 
 
-class _Canonical:
-    """Column expressions and conditions in terms of physical columns only."""
+class Canonical:
+    """Column expressions and conditions in terms of physical columns only: CTEs, subqueries and
+    aliases inlined, each column named by its relation key, as the graph holds them."""
 
     def __init__(self, dialect: DialectType, default_catalog: str | None, default_db: str | None) -> None:
         self.dialect = dialect
@@ -842,27 +843,27 @@ class _Canonical:
             if not isinstance(on, exp.Expr):
                 continue
             label = ' '.join(x for x in (join.side, join.kind, 'JOIN ON') if x).upper()
-            text = self._condition(on, scope, schema)
+            text = self.expression(on, scope, schema)
             inner = scopes.folded.get(id(join))
             if inner is not None:
-                where = self._condition(inner.expression.args['where'].this, inner, schema)
+                where = self.expression(inner.expression.args['where'].this, inner, schema)
                 text = ' AND '.join(f'({t})' if re.search(r'\bOR\b', t, re.I) else t for t in (text, where))
             yield label, [text], False
         for key, label in (('where', 'WHERE'), ('having', 'HAVING'), ('qualify', 'QUALIFY')):
             clause = args.get(key)
             if isinstance(clause, exp.Expr) and not (key == 'where' and id(scope) in folded):
-                yield label, [self._condition(clause.this, scope, schema)], False
+                yield label, [self.expression(clause.this, scope, schema)], False
         group = args.get('group')
         if isinstance(group, exp.Group) and group.expressions:
-            yield 'GROUP BY', [self._condition(e, scope, schema) for e in group.expressions], False
+            yield 'GROUP BY', [self.expression(e, scope, schema) for e in group.expressions], False
         distinct = args.get('distinct')
         if isinstance(distinct, exp.Distinct) and isinstance(query, exp.Select):
             on = distinct.args.get('on')
             if isinstance(on, exp.Expr):
                 keys = list(on.expressions) if isinstance(on, exp.Tuple) else [on]
-                yield 'DISTINCT ON', [self._condition(_named(query, k), scope, schema) for k in keys], False
+                yield 'DISTINCT ON', [self.expression(_named(query, k), scope, schema) for k in keys], False
             else:
-                yield 'DISTINCT', [self._condition(s.unalias(), scope, schema) for s in query.selects], False
+                yield 'DISTINCT', [self.expression(s.unalias(), scope, schema) for s in query.selects], False
         limit, offset = args.get('limit'), args.get('offset')
         if isinstance(limit, exp.Limit) and isinstance(limit.expression, exp.Expr):
             yield 'LIMIT', [limit.expression.sql(dialect=self.dialect)], False
@@ -876,11 +877,13 @@ class _Canonical:
         if isinstance(order, exp.Order) and picks:
             yield (
                 'ORDER BY',
-                [self._condition(_named(query, o), scope, schema) for o in order.expressions],
+                [self.expression(_named(query, o), scope, schema) for o in order.expressions],
                 True,
             )
 
-    def _condition(self, part: exp.Expr, scope: Scope, schema: MappingSchema) -> str:
+    def expression(self, part: exp.Expr, scope: Scope, schema: MappingSchema) -> str:
+        """``part``, an expression of the qualified query that ``scope`` belongs to, in canonical
+        form; ``part`` itself is left as it was."""
         # A bare name in a query that reads one relation is that relation's: qualify leaves it
         # bare when the relation's columns are unknown, and then the filters of a union's
         # branches, each over its own relation, would read the same.

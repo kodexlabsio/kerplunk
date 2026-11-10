@@ -35,7 +35,7 @@ from konstruct.inputs.warehouse import (
     DatabricksConnector,
     MissingDriver,
     SnowflakeConnector,
-    _driver,
+    driver,
 )
 
 __all__ = ['ColumnUsage', 'MissingDriver', 'UsageSettings', 'fetch']
@@ -125,7 +125,7 @@ def _cursor_rows(connection: Any, sql: str) -> list[tuple[Any, ...]]:
 
 
 def snowflake_usage(connector: SnowflakeConnector, settings: UsageSettings) -> list[ColumnUsage]:
-    module = _driver('snowflake.connector', 'snowflake')
+    module = driver('snowflake.connector', 'snowflake')
     connection = module.connect(**connector.options)
     try:
         rows = _cursor_rows(connection, snowflake_sql(settings))
@@ -135,7 +135,7 @@ def snowflake_usage(connector: SnowflakeConnector, settings: UsageSettings) -> l
 
 
 def databricks_usage(connector: DatabricksConnector, settings: UsageSettings) -> list[ColumnUsage]:
-    module = _driver('databricks.sql', 'databricks')
+    module = driver('databricks.sql', 'databricks')
     connection = module.connect(**connector.options)
     try:
         rows = _cursor_rows(connection, databricks_sql(settings))

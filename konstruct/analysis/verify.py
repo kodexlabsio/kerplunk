@@ -1051,10 +1051,10 @@ def sampled_engine(connector: Any, graph: Graph | None = None) -> SampledEngine:
 
     source: SampleSource
     if isinstance(connector, warehouse.SnowflakeConnector):
-        connection = warehouse._driver('snowflake.connector', 'snowflake').connect(**connector.options)
+        connection = warehouse.driver('snowflake.connector', 'snowflake').connect(**connector.options)
         source = DbApiSource(connection, 'snowflake')
     elif isinstance(connector, warehouse.DatabricksConnector):
-        connection = warehouse._driver('databricks.sql', 'databricks').connect(**connector.options)
+        connection = warehouse.driver('databricks.sql', 'databricks').connect(**connector.options)
         source = DbApiSource(connection, 'databricks')
     elif isinstance(connector, warehouse.TrinoConnector):
         source = DbApiSource(connector.connect(), 'trino')

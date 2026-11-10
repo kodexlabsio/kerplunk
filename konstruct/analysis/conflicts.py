@@ -264,7 +264,8 @@ class Conflicts:
         return '\n'.join(lines).rstrip() + '\n'
 
 
-def _top_function(formula: str | None, dialect: str | None) -> str | None:
+def top_function(formula: str | None, dialect: str | None) -> str | None:
+    """The aggregate a formula applies last (``SUM`` for ``SUM(x / 100)``), or None."""
     if not formula:
         return None
     try:
@@ -447,7 +448,7 @@ class _Finder:
                 detail = f'{a.composed} against {b.composed}, {SAME_UNLESS_NULL}'
                 differences.append(Difference('formula', detail, witness=witness))
             return differences
-        top_a, top_b = _top_function(a.composed, self.dialect), _top_function(b.composed, self.dialect)
+        top_a, top_b = top_function(a.composed, self.dialect), top_function(b.composed, self.dialect)
         if top_a != top_b and (top_a or top_b):
             detail = f'{top_a or "none"} against {top_b or "none"}'
             differences.append(Difference('aggregation', detail, witness=witness))

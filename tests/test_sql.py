@@ -449,10 +449,10 @@ def test_canonical_expansion_leaves_the_statement_as_it_was() -> None:
         build: Any = lineage
         node = build('m', tree, schema=None, copy=False, trim_selects=False)
         before = tree.sql()
-        canonical = module._Canonical(None, None, None)
+        canonical = module.Canonical(None, None, None)
         assert canonical.node(node)
         assert tree.sql() == before
-        failing = module._Canonical(None, None, None)
+        failing = module.Canonical(None, None, None)
         real = failing.node
         calls: list[int] = []
 
@@ -515,7 +515,7 @@ def test_every_reader_of_sql_survives_what_the_parser_fails_on(dialect: str, sql
     assert powerbi.native_reads(sql, dialect) is None
     assert spark.without_session_catalog(f'{sql} spark_catalog', dialect) == f'{sql} spark_catalog'
     assert _filter_columns(sql, dialect) is None
-    assert conflicts._top_function(sql, dialect) is None
+    assert conflicts.top_function(sql, dialect) is None
     assert export._subtype(sql, 'transformed', dialect) == 'TRANSFORMATION'
     assert ossie._tree(sql, dialect) is None
     graph = Graph()
