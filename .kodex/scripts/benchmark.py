@@ -18,10 +18,14 @@ models through CTEs, with a manifest, a catalog and Airflow DAGs. For each size 
 * the formula identity test: translating every column's composed formula into the core's
   program, then fingerprinting all of them and grouping them by fingerprint;
 * how long graph.html takes to show its overview and to draw its full lineage graph in headless
-  Chromium, when Playwright's Chromium is installed.
+  Chromium, when Playwright's Chromium is installed;
+* search by meaning: making its index on a loaded graph with no vectors.bin, in wall and CPU
+  time (it uses several threads), the size of the vectors.bin it saves, and the median time of a
+  search by meaning after it.
 
 It also measures start-up: the CPU time of ``konstruct --help`` and of ``konstruct status`` on
-the largest project, each in a fresh process.
+the largest project, each in a fresh process, and in the same way ``konstruct search`` with and
+without ``--meaning``, which reads the saved vectors.bin.
 
 Usage:
     uv run .kodex/scripts/benchmark.py                  # 100, 500, 1000 and 2000 models
@@ -47,6 +51,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from konstruct import Project, __version__  # noqa: E402
+from konstruct.analysis import semantic  # noqa: E402
 from konstruct.analysis.identity import Formulas  # noqa: E402
 from konstruct.analysis.query import search  # noqa: E402
 from konstruct.core.graph import Graph  # noqa: E402
@@ -148,6 +153,13 @@ def measure(models: int) -> dict[str, Any]:
         startup = {} if models != max(SIZES) else measure_startup(root)
         formulas, translate, fingerprint = identity(loaded)
         opened, drawn = render_times(project.out_dir / 'graph.html')
+        unindexed = Graph.read(project.graph_path)
+        cpu = time.process_time()
+        index_build, _ = timed(semantic.vector_index, unindexed, project.out_dir)
+        index_cpu = time.process_time() - cpu
+        # With vectors.bin saved, as every search by meaning after the first finds it.
+        fresh = {} if models != max(SIZES) else measure_fresh_search(root)
+        meaning = median_time(search, unindexed, 'customer lifetime value', 20, None, 'semantic')
         return {
             'models': models,
             'columns': sum(1 for n in graph.nodes.values() if n.kind == 'column'),
@@ -179,6 +191,11 @@ def measure(models: int) -> dict[str, Any]:
             'identity_fingerprint_ms': round(1000 * fingerprint, 1),
             'viewer_open_s': None if opened is None else round(opened, 2),
             'viewer_lineage_s': None if drawn is None else round(drawn, 2),
+            'vector_index_s': round(index_build, 2),
+            'vector_index_cpu_s': round(index_cpu, 2),
+            'vectors_bin_mb': round((project.out_dir / semantic.VECTOR_FILE).stat().st_size / 1e6, 1),
+            'meaning_ms': round(1000 * meaning, 1),
+            **fresh,
         }
 
 
@@ -235,6 +252,13 @@ def hook_latency(root: Path, middle: Path) -> tuple[float, float]:
     return unchanged, edited
 
 
+def measure_fresh_search(root: Path) -> dict[str, float]:
+    return {
+        'search_cpu_ms': cpu_ms(['search', 'revenue'], root),
+        'meaning_cpu_ms': cpu_ms(['search', '--meaning', 'revenue'], root),
+    }
+
+
 def markdown(rows: list[dict[str, Any]]) -> str:
     lines = [
         '| Models | Columns | Column edges | Cold build | `--update`, no change | `--update`, one model edited '
@@ -283,6 +307,23 @@ def markdown(rows: list[dict[str, Any]]) -> str:
             f'| {r["models"]:,} | {r["formulas"]:,} | {r["identity_translate_s"]} s '
             f'| {r["identity_fingerprint_ms"]} ms |'
         )
+    lines += [
+        '',
+        '| Models | Index, made | Index, CPU | vectors.bin | Search by meaning |',
+        '|---:|---:|---:|---:|---:|',
+    ]
+    for r in rows:
+        lines.append(
+            f'| {r["models"]:,} | {r["vector_index_s"]} s | {r["vector_index_cpu_s"]} s '
+            f'| {r["vectors_bin_mb"]} MB | {r["meaning_ms"]} ms |'
+        )
+    fresh = next((r for r in rows if 'meaning_cpu_ms' in r), None)
+    if fresh:
+        lines += [
+            '',
+            f'Search in a fresh process (CPU time, {fresh["models"]:,} models): `konstruct search revenue` '
+            f'{fresh["search_cpu_ms"]} ms, `konstruct search --meaning revenue` {fresh["meaning_cpu_ms"]} ms.',
+        ]
     return '\n'.join(lines)
 
 

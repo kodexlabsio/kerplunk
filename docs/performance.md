@@ -29,3 +29,15 @@ On the 2,000-model project, after the graph is loaded:
 
 The first question after Konstruct loads a graph also builds the index it needs: about 50 ms for walks and paths on 2,000 models, and the search index for `search` and `query`. Loading `graph.json` itself takes about 1.3 s at that size, so a single CLI command spends most of its time reading the graph; the MCP server, the Python API and `konstruct diff` and `conflicts`, which ask many questions of one graph, gain the most.
 
+## Search by Meaning
+
+A build makes no index for search by meaning; the first search by meaning does, and saves it as `vectors.bin` (see [Searching by Meaning](guide/search.md)). On the 2,000-model project:
+
+| Step | Time |
+|---|---:|
+| Making the index, on a loaded graph with no `vectors.bin` | 4.6 s of CPU time, on up to eight threads |
+| `konstruct search --meaning revenue` in a fresh process, reading `vectors.bin` | 1.9 s of CPU time, against 1.5 s for `konstruct search revenue` |
+| Each search by meaning after the first in a process | 1.6 ms |
+
+`vectors.bin` is 17.8 MB at that size: the index and every node's blocks, so a process whose graph is the one the file was made from reads them rather than computing them.
+
