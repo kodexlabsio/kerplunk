@@ -284,6 +284,9 @@ def _add_columns(graph: Graph, parent: Node, item: dict[str, Any], catalog: dict
     primary_key = _primary_key(item)
     if primary_key:
         parent.attrs['primary_key'] = primary_key
+        # A dbt constraint reaches the warehouse only under an enforced contract.
+        if ((item.get('config') or {}).get('contract') or {}).get('enforced'):
+            parent.attrs['primary_key_enforced'] = True
     documented = {
         name.lower(): col for name, col in (item.get('columns') or {}).items() if isinstance(col, dict)
     }
@@ -500,6 +503,8 @@ def _add_test(graph: Graph, item: dict[str, Any], path: str | None) -> None:
                     'test': meta.get('name') or 'singular',
                     'severity': config.get('severity'),
                     'column': item.get('column_name'),
+                    'where': config.get('where'),
+                    'columns': (meta.get('kwargs') or {}).get('combination_of_columns'),
                 }.items()
                 if v
             },
