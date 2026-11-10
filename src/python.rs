@@ -12,6 +12,7 @@ use pyo3::types::{PyDict, PyList, PyString};
 use crate::graph::{self, EdgeKind, Flow, NodeKind, Visit};
 use crate::keys;
 use crate::names::{self, Relation};
+use crate::route;
 use crate::search::{self, Document, Standing};
 use crate::serve::api::{self, Argument};
 use crate::serve::{self, Outcome};
@@ -506,15 +507,38 @@ impl Server {
     }
 }
 
+/// A Kafka Connect routing transformation (`RegexRouter`, `ByLogicalTableRouter`), matched in
+/// linear time; see [`route`].
+#[pyclass(frozen, module = "konstruct._core")]
+struct Router {
+    inner: route::Router,
+}
+
+#[pymethods]
+impl Router {
+    #[new]
+    fn new(pattern: &str, replacement: &str) -> PyResult<Self> {
+        route::Router::new(pattern, replacement)
+            .map(|inner| Self { inner })
+            .map_err(PyValueError::new_err)
+    }
+
+    /// The topic after routing: replaced when the whole expression matches it, else unchanged;
+    /// None when the replacement splits a character.
+    fn route(&self, topic: &str) -> Option<String> {
+        self.inner.route(topic)
+    }
+}
+
 /// Konstruct's native core: graph traversal, name resolution, search, search by meaning,
-/// formula identity and the server.
+/// formula identity, topic routing and the server.
 #[pymodule(name = "_core")]
 mod core_module {
     use pyo3::exceptions::PyImportError;
     use pyo3::prelude::*;
 
     #[pymodule_export]
-    use super::{GraphIndex, RelationNames, SearchIndex, Server, graph_version, openapi};
+    use super::{GraphIndex, RelationNames, Router, SearchIndex, Server, graph_version, openapi};
     #[pymodule_export]
     use crate::identity::python::FormulaSet;
     #[pymodule_export]

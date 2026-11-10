@@ -4,7 +4,9 @@ Each format gives :class:`Feed` records: a loader's task (a pipeline, connection
 the source system's table it reads (``postgres.app.public.orders``), the table it lands, and the
 columns it copies when the file names them. Nothing is imported, run or connected to: Python is
 parsed with :mod:`ast`, YAML with a safe loader, JSON with :mod:`json` and Terraform with
-:mod:`konstruct.inputs.hcl`.
+:mod:`konstruct.inputs.hcl`. A stream between two loaders, a Kafka topic or an Estuary
+collection, is a node of its own outside the warehouse, so a Debezium connector and the sink that
+reads its topics make one chain.
 
 :func:`kind_of` says from a file's name and a cheap look at its text which format it is, so
 discovery reads nothing else; :func:`read_files` turns one file, or for Terraform and Octavia one
@@ -25,11 +27,12 @@ from urllib.parse import urlparse
 
 import yaml
 
+from konstruct import _core
 from konstruct.inputs import hcl
 
 MAX_BYTES = 2_000_000
 """Files larger than this are not configuration, and are not read."""
-SUFFIXES = ('.py', '.yml', '.yaml', '.json', '.tf')
+SUFFIXES = ('.py', '.yml', '.yaml', '.json', '.tf', '.properties')
 """The file names discovery looks at."""
 MALFORMED = (RecursionError, MemoryError, ValueError, TypeError, AttributeError, KeyError, IndexError)
 """What a reader raises on a file of a shape it does not expect: nesting past Python's recursion
@@ -51,6 +54,8 @@ LOADER_OF = {
     'airbyte_octavia': 'airbyte',
     'airbyte_api': 'airbyte',
     'terraform': 'terraform',
+    'kafka_connect': 'kafka_connect',
+    'estuary': 'estuary',
 }
 """The loader each format configures (a Terraform module can configure several)."""
 COMPANIONS = {'meltano': ('plugins/extractors/*.lock', 'plugins/loaders/*.lock')}
@@ -227,11 +232,19 @@ def kind_of(path: str, text: str) -> str | None:
         return 'meltano'
     if lower.endswith('.tf'):
         return 'terraform' if re.search(r'resource\s+"(fivetran|airbyte)_', text) else None
+    if lower.endswith('.properties'):
+        return 'kafka_connect' if re.search(r'^[ \t]*connector\.class[ \t]*=', text, re.MULTILINE) else None
+    if (lower in ('flow.yaml', 'flow.yml') or lower.endswith(('.flow.yaml', '.flow.yml'))) and re.search(
+        r'^(captures|materializations):', text, re.MULTILINE
+    ):
+        return 'estuary'
     if lower.endswith(('.yaml', '.yml')) and re.search(
         r'^definition_type:\s*(connection|source|destination)\b', text, re.MULTILINE
     ):
         return 'airbyte_octavia'
     if lower.endswith('.json'):
+        if '"connector.class"' in text:
+            return 'kafka_connect'
         if '"syncCatalog"' in text or all(
             f'"{key}"' in text for key in ('sourceId', 'destinationId', 'configurations')
         ):
@@ -1192,12 +1205,379 @@ def _terraform_fivetran(
             context.feed('fivetran', task, source, (landed_schema, table), columns=copied, line=block.line)
 
 
+# Kafka Connect: Debezium source connectors and sink connectors
+
+
+_DEBEZIUM: dict[str, tuple[str, int]] = {
+    # The source system, and how many parts of a table's name its topic carries after the prefix
+    # (a schema and a table, or a database and a table). SQL Server topics carry the database too.
+    # https://debezium.io/documentation/reference/stable/connectors/postgresql.html#postgresql-topic-names
+    'io.debezium.connector.postgresql.PostgresConnector': ('postgres', 2),
+    # https://debezium.io/documentation/reference/stable/connectors/mysql.html#mysql-topic-names
+    'io.debezium.connector.mysql.MySqlConnector': ('mysql', 2),
+    'io.debezium.connector.mariadb.MariaDbConnector': ('mariadb', 2),
+    # https://debezium.io/documentation/reference/stable/connectors/sqlserver.html#sqlserver-topic-names
+    'io.debezium.connector.sqlserver.SqlServerConnector': ('sqlserver', 3),
+    'io.debezium.connector.oracle.OracleConnector': ('oracle', 2),
+    'io.debezium.connector.db2.Db2Connector': ('db2', 2),
+    'io.debezium.connector.mongodb.MongoDbConnector': ('mongodb', 2),
+}
+_PLAIN = re.compile(r'^(?:[A-Za-z0-9_$-]|\\\.)+(?:\.(?:[A-Za-z0-9_$-]|\\\.)+)*$')
+
+
+def _names(value: Any) -> list[str] | None:
+    """The names a comma-separated include list spells out, or None when one is a pattern."""
+    items = [i.strip() for i in str(value or '').split(',') if i.strip()]
+    if not all(_PLAIN.match(i) for i in items):
+        return None
+    return [i.replace('\\.', '.') for i in items]
+
+
+MAX_TOPIC = 249
+"""The longest topic name Kafka accepts."""
+MAX_TRANSFORMS = 32
+"""The most transformations a connector may list for Konstruct to follow its topics."""
+MAX_EXPRESSIONS = 64
+"""The most distinct routing expressions Konstruct compiles for one file."""
+
+_Compiled = dict[tuple[str, str], '_core.Router | str']
+"""A file's routing transformations by (expression, replacement): each compiled, or why not."""
+
+
+def _routers(
+    context: _Context, connector: str, config: dict[str, Any], compiled: _Compiled
+) -> list[tuple[str, _core.Router]] | None:
+    """The routing transformations a connector applies (RegexRouter and Debezium's
+    ByLogicalTableRouter), or None after a problem when one cannot be run. They run in
+    :class:`konstruct._core.Router`, in time linear in the topic, since anyone can write the
+    expressions; one using a backreference or lookaround, which it cannot run, is refused rather
+    than run on a matcher that backtracks. Each expression is compiled once for the file, and at
+    most :data:`MAX_EXPRESSIONS` of them, as compiling one takes time of its own."""
+    names = _names(config.get('transforms')) or []
+    if len(names) > MAX_TRANSFORMS:
+        context.problem(
+            0,
+            f'{connector}: it lists more than {MAX_TRANSFORMS} transformations, so its topics are not known',
+        )
+        return None
+    routers = []
+    for name in names:
+        kind = str(config.get(f'transforms.{name}.type', ''))
+        if kind.endswith(('RegexRouter', 'RegexRouter$Value')):
+            pattern = config.get(f'transforms.{name}.regex')
+            replacement = config.get(f'transforms.{name}.replacement')
+        elif kind.endswith('ByLogicalTableRouter'):
+            pattern = config.get(f'transforms.{name}.topic.regex')
+            replacement = config.get(f'transforms.{name}.topic.replacement')
+        else:
+            continue
+        if not (isinstance(pattern, str) and isinstance(replacement, str)):
+            continue
+        key = (pattern, replacement)
+        if key not in compiled:
+            if len(compiled) >= MAX_EXPRESSIONS:
+                context.problem(
+                    0,
+                    f'{connector}: the file holds more than {MAX_EXPRESSIONS} routing expressions, '
+                    'so its topics are not known',
+                )
+                return None
+            try:
+                if len(replacement) > MAX_TOPIC:
+                    raise ValueError('its replacement is longer than a topic can be')
+                compiled[key] = _core.Router(pattern, replacement)
+            except ValueError as error:
+                compiled[key] = str(error)
+        router = compiled[key]
+        if isinstance(router, str):
+            context.problem(
+                0, f'{connector}: transformation {name} is not run, as {router}, so its topics are not known'
+            )
+            return None
+        routers.append((name, router))
+    return routers
+
+
+def _routed(
+    context: _Context, connector: str, routers: list[tuple[str, _core.Router]], topic: str
+) -> str | None:
+    """A topic after a connector's routing transformations, or None after a problem when it, or
+    the topic a transformation gives, is longer than Kafka allows."""
+    if len(topic) > MAX_TOPIC:
+        context.problem(
+            0,
+            f'{connector}: a topic of {len(topic):,} characters is longer than Kafka allows, so its topics are not known',
+        )
+        return None
+    for name, router in routers:
+        routed = router.route(topic)
+        if routed is None:
+            context.problem(
+                0, f'{connector}: transformation {name} splits a character, so its topics are not known'
+            )
+            return None
+        topic = routed
+        if len(topic) > MAX_TOPIC:
+            context.problem(
+                0,
+                f'{connector}: transformation {name} gives a topic longer than Kafka allows, '
+                'so its topics are not known',
+            )
+            return None
+    return topic
+
+
+def _jdbc_database(url: Any) -> str | None:
+    """The database a JDBC URL names: ``jdbc:postgresql://host:5432/app`` is ``app``. A URL
+    filled in when the connector starts (``${file:...}``, ``${env:...}``) is passed on as it is,
+    for the feed to report."""
+    if isinstance(url, str) and _PLACEHOLDER.search(url):
+        return url
+    text = str(url or '')
+    found = re.match(r'jdbc:[a-z0-9]+://[^/;?]+/([^/;?]+)', text) or re.search(
+        r';database(?:Name)?=([^;]+)', text
+    )
+    return found.group(1) if found else None
+
+
+def _read_kafka_connect(text: str, context: _Context) -> None:
+    """A connector's configuration, as the Kafka Connect REST API takes it (JSON, alone or with
+    ``name`` and ``config``, or a list of them) or as a standalone worker reads it
+    (``.properties``)."""
+    connectors: list[Any]
+    if context.path.endswith('.properties'):
+        properties: dict[str, str] = {}
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith(('#', '!')) and '=' in stripped:
+                key, _, value = stripped.partition('=')
+                properties[key.strip()] = value.strip()
+        connectors = [
+            {'name': properties.get('name') or PurePosixPath(context.path).stem, 'config': properties}
+        ]
+    else:
+        try:
+            data = json.loads(text)
+        except ValueError as error:
+            context.problem(0, f'cannot read JSON: {error}')
+            return
+        connectors = data if isinstance(data, list) else [data]
+    compiled: _Compiled = {}
+    for connector in connectors:
+        if not isinstance(connector, dict):
+            continue
+        given = connector.get('config')
+        config = {str(k): v for k, v in (given if isinstance(given, dict) else connector).items()}
+        name = str(connector.get('name') or config.get('name') or PurePosixPath(context.path).stem)
+        kind = str(config.get('connector.class', ''))
+        if kind in _DEBEZIUM:
+            _debezium(context, name, kind, config, compiled)
+        elif kind:
+            _sink(context, name, kind, config, compiled)
+
+
+def _debezium(context: _Context, name: str, kind: str, config: dict[str, Any], compiled: _Compiled) -> None:
+    """A Debezium connector: each table its include list names, captured into its topic."""
+    system, parts = _DEBEZIUM[kind]
+    prefix = config.get('topic.prefix') or config.get('database.server.name')
+    database = config.get('database.dbname') or config.get('database.names')
+    listed = config.get('collection.include.list') if system == 'mongodb' else None
+    listed = listed or config.get('table.include.list') or config.get('table.whitelist')
+    tables = _names(listed)
+    if not prefix or tables is None or not tables:
+        reason = 'no topic prefix' if not prefix else 'its tables are not listed by name'
+        context.problem(0, f'Debezium connector {name}: {reason}, so its topics are not known')
+        return
+    columns = _names(config.get('column.include.list')) or []
+    routers = _routers(context, f'Debezium connector {name}', config, compiled)
+    if routers is None:
+        return
+    for table in tables:
+        names = table.split('.')
+        if len(names) != 2:
+            context.problem(0, f'Debezium connector {name}: {table} is not <schema>.<table>')
+            continue
+        # A SQL Server topic carries the database before the schema.
+        middle = [str(database).split(',')[0], *names] if parts == 3 and database else names
+        topic = _routed(context, f'Debezium connector {name}', routers, '.'.join([str(prefix), *middle]))
+        if topic is None:
+            return
+        source = (
+            (system, database, *names)
+            if parts == 3 or system in ('postgres', 'oracle', 'db2')
+            else (system, *names)
+        )
+        copied = [c.rsplit('.', 1)[1] for c in columns if c.rsplit('.', 1)[0] == table]
+        context.feed('debezium', name, source, ('kafka', topic), columns=_direct(copied), stream=True)
+
+
+def _sink(context: _Context, name: str, kind: str, config: dict[str, Any], compiled: _Compiled) -> None:
+    """A sink connector writing topics into warehouse tables."""
+    topics = _names(config.get('topics'))
+    if not topics:
+        if config.get('topics.regex'):
+            context.problem(0, f'sink {name} reads topics by a pattern, so its tables are not known')
+        return
+    routers = _routers(context, f'sink {name}', config, compiled)
+    if routers is None:
+        return
+    for topic in topics:
+        routed = _routed(context, f'sink {name}', routers, topic)
+        if routed is None:
+            return
+        table = _sink_table(context, name, kind, config, topic, routed)
+        if table:
+            context.feed('kafka_connect', name, ('kafka', topic), table)
+
+
+def _sink_table(
+    context: _Context, name: str, kind: str, config: dict[str, Any], read_from: str, topic: str
+) -> tuple[str | None, ...] | None:
+    """The table a sink writes a topic into, by the rules of its connector class. ``read_from``
+    is the topic as the sink reads it, ``topic`` the same after the sink's own routing."""
+    if kind == 'io.debezium.connector.jdbc.JdbcSinkConnector':
+        # https://debezium.io/documentation/reference/stable/connectors/jdbc.html: the default
+        # naming strategy turns the topic's dots into underscores and fills ${source.<field>}
+        # from the change event's source block; the passthrough strategy does neither.
+        form = str(config.get('collection.name.format') or config.get('table.name.format') or '${topic}')
+        if str(config.get('collection.naming.strategy', '')).endswith('PassthroughCollectionNamingStrategy'):
+            form = form.replace('${topic}', topic)
+        else:
+            form = form.replace('${topic}', topic.replace('.', '_'))
+            names = read_from.split('.')
+            # A Debezium source connector's topic ends with the schema (or database) and table.
+            if len(names) >= 3:
+                form = form.replace('${source.schema}', names[-2]).replace('${source.table}', names[-1])
+        unfilled = re.search(r'\$\{[^}]*\}?', form)
+        if unfilled:
+            context.problem(
+                0,
+                f'sink {name}: {unfilled.group(0)} in collection.name.format is known only from '
+                f'the events of topic {read_from}, so its table is not known',
+            )
+            return None
+        return (_jdbc_database(config.get('connection.url')), *form.split('.'))
+    if kind == 'io.confluent.connect.jdbc.JdbcSinkConnector':
+        # https://docs.confluent.io/kafka-connectors/jdbc/current/sink-connector/sink_config_options.html
+        form = str(config.get('table.name.format') or '${topic}')
+        return (_jdbc_database(config.get('connection.url')), *form.replace('${topic}', topic).split('.'))
+    if kind == 'com.snowflake.kafka.connector.SnowflakeSinkConnector':
+        # https://docs.snowflake.com/en/user-guide/kafka-connector/how-the-connector-works
+        mapped = dict(
+            pair.split(':', 1)
+            for pair in str(config.get('snowflake.topic2table.map') or '').split(',')
+            if ':' in pair
+        )
+        table = mapped.get(topic) or (
+            topic.upper() if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_$]*', topic) else None
+        )
+        if table is None:
+            context.problem(
+                0,
+                f'sink {name}: topic {topic} is not a table name and has no snowflake.topic2table.map entry',
+            )
+            return None
+        return (config.get('snowflake.database.name'), config.get('snowflake.schema.name'), table.strip())
+    if kind == 'com.wepay.kafka.connect.bigquery.BigQuerySinkConnector':
+        # https://github.com/confluentinc/kafka-connect-bigquery: topic2TableMap, else the topic,
+        # with characters BigQuery refuses replaced when sanitizeTopics is on.
+        mapped = dict(
+            pair.split(':', 1) for pair in str(config.get('topic2TableMap') or '').split(',') if ':' in pair
+        )
+        table = mapped.get(topic) or (
+            re.sub(r'[^A-Za-z0-9_]', '_', topic)
+            if str(config.get('sanitizeTopics')).lower() == 'true'
+            else topic
+        )
+        return (config.get('project'), config.get('defaultDataset'), table)
+    if kind in (
+        'io.tabular.iceberg.connect.IcebergSinkConnector',
+        'org.apache.iceberg.connect.IcebergSinkConnector',
+    ):
+        # https://iceberg.apache.org/docs/latest/kafka-connect/: static routing writes every topic
+        # into each table iceberg.tables lists.
+        tables = _names(config.get('iceberg.tables'))
+        if str(config.get('iceberg.tables.dynamic-enabled')).lower() == 'true' or not tables:
+            context.problem(
+                0, f'sink {name} routes records to tables at run time, so its tables are not known'
+            )
+            return None
+        for table in tables[1:]:
+            context.feed('kafka_connect', name, ('kafka', topic), tuple(table.split('.')))
+        return tuple(tables[0].split('.'))
+    return None
+
+
+# Estuary Flow
+
+
+def _estuary_system(image: Any) -> str:
+    """The system an Estuary connector reads or writes: ``ghcr.io/estuary/source-postgres:v1`` is
+    ``postgres``."""
+    name = (image if isinstance(image, str) else '').rsplit('/', 1)[-1].split(':')[0]
+    return _slug(re.sub(r'^(source|materialize)-', '', name)) or 'estuary'
+
+
+def _read_estuary(text: str, context: _Context) -> None:
+    """A Flow catalog (``flow.yaml``): each capture's bindings into collections, and each
+    materialization's bindings from collections into tables."""
+    data = _yaml(text, context)
+    if data is None:
+        return
+    for name, spec in (data.get('captures') or {}).items():
+        connector = ((spec or {}).get('endpoint') or {}).get('connector') or {}
+        given = connector.get('config')
+        config: dict[str, Any] = given if isinstance(given, dict) else {}
+        system = _estuary_system(connector.get('image'))
+        for binding in (spec or {}).get('bindings') or []:
+            resource = binding.get('resource') or {}
+            stream = resource.get('stream') or resource.get('name') or resource.get('table')
+            if stream and binding.get('target') and not binding.get('disable'):
+                context.feed(
+                    'estuary',
+                    str(name),
+                    (
+                        system,
+                        config.get('database'),
+                        resource.get('namespace') or resource.get('schema'),
+                        stream,
+                    ),
+                    ('estuary', binding['target']),
+                    stream=True,
+                )
+    for name, spec in (data.get('materializations') or {}).items():
+        connector = ((spec or {}).get('endpoint') or {}).get('connector') or {}
+        given = connector.get('config')
+        settings: dict[str, Any] = given if isinstance(given, dict) else {}
+        for binding in (spec or {}).get('bindings') or []:
+            resource = binding.get('resource') or {}
+            source = binding.get('source')
+            source = source.get('name') if isinstance(source, dict) else source
+            table = resource.get('table')
+            if not (source and table) or binding.get('disable'):
+                continue
+            schema = (
+                resource.get('schema')
+                or resource.get('dataset')
+                or settings.get('schema')
+                or settings.get('dataset')
+            )
+            context.feed(
+                'estuary',
+                str(name),
+                ('estuary', source),
+                (settings.get('database') or settings.get('project_id'), schema, table),
+            )
+
+
 READERS: dict[str, Callable[[str, _Context], None]] = {
     'dlt': _read_dlt,
     'dlt_schema': _read_dlt_schema,
     'singer_catalog': _read_singer_catalog,
     'singer_state': _read_singer_state,
     'airbyte_api': _read_airbyte_api,
+    'kafka_connect': _read_kafka_connect,
+    'estuary': _read_estuary,
 }
 GROUP_READERS: dict[str, Callable[[list[tuple[str, str]], _Context], None]] = {
     'meltano': _read_meltano_project,

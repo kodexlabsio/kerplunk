@@ -1,5 +1,5 @@
 //! The parts of Konstruct that run natively: graph traversal, name resolution, search, formula
-//! identity and `konstruct serve`.
+//! identity, the topic routing of Kafka Connect configuration and `konstruct serve`.
 //!
 //! The Python package `konstruct` keeps its whole API; these modules hold the work that is
 //! faster as compiled code, and the `python` feature exposes them as `konstruct._core`. Without
@@ -28,6 +28,7 @@ pub mod graph;
 pub mod identity;
 pub mod keys;
 pub mod names;
+pub mod route;
 pub mod search;
 pub mod serve;
 pub mod substring;

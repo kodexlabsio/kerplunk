@@ -1,5 +1,5 @@
 """Konstruct's native core (the Rust crate in src/): graph traversal, name resolution, search,
-search by meaning, formula identity and the server. ``konstruct.core.graph``,
+search by meaning, formula identity, topic routing and the server. ``konstruct.core.graph``,
 ``konstruct.analysis.query``, ``konstruct.analysis.semantic`` and ``konstruct.analysis.identity``
 are its callers; nodes, edges and relations are passed in, and come back, as ordinals into the
 lists given. Any string may hold lone surrogates (a file name decoded with ``surrogateescape``),
@@ -182,3 +182,16 @@ def graph_version(data: bytes) -> str:
 
 def openapi() -> str:
     """The OpenAPI 3.1 document of ``konstruct serve``'s API, as it is served."""
+
+@final
+class Router:
+    """A Kafka Connect routing transformation (``RegexRouter``, ``ByLogicalTableRouter``), run on
+    finite automata over bytes, so in time linear in the topic, with ASCII classes and case as in
+    Java. Raises ValueError, with the reason, for an
+    expression it cannot run (a backreference, lookaround, a possessive repeat, one too large) or
+    a replacement that is not Java's syntax (``$1``, ``${name}``, ``\\$``)."""
+
+    def __init__(self, pattern: str, replacement: str) -> None: ...
+    def route(self, topic: str) -> str | None:
+        """The topic after routing: replaced when the whole expression matches it, else unchanged;
+        None when the replacement splits a character, as an expression on bytes can."""

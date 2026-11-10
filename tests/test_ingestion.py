@@ -306,6 +306,11 @@ def test_a_singer_catalog_and_state() -> None:
         ('crm.json', '{"sourceId": "a", "destinationId": "b", "configurations": {}}', 'airbyte_api'),
         # A camera's configuration: a source and streams, but no destination.
         ('camera.json', '{"sourceId": "cam-1", "configurations": {"streams": [{"name": "front"}]}}', None),
+        ('connector.json', '{"connector.class": "x"}', 'kafka_connect'),
+        ('worker.properties', 'connector.class=x\n', 'kafka_connect'),
+        ('log4j.properties', 'log4j.rootLogger=INFO\n', None),
+        ('flow.yaml', 'captures: {}\n', 'estuary'),
+        ('orders.flow.yaml', 'collections: {}\n', None),
     ],
 )
 def test_discovery_reads_only_the_formats_it_knows(name: str, text: str, kind: str | None) -> None:
@@ -1045,3 +1050,529 @@ def test_a_terraform_module_lands_fivetran_tables_with_their_source(tmp_path: Pa
         'sources'
     ]
     assert not [s for s in graph.meta['sources'] if s.get('path') == 'infra/variables.tf']
+
+
+DEBEZIUM = {
+    'name': 'app-cdc',
+    'config': {
+        'connector.class': 'io.debezium.connector.postgresql.PostgresConnector',
+        'database.dbname': 'app',
+        'topic.prefix': 'app',
+        'table.include.list': 'public.orders,public\\.customers',
+        'column.include.list': 'public.customers.id,public.customers.email',
+        'transforms': 'unwrap',
+        'transforms.unwrap.type': 'io.debezium.transforms.ExtractNewRecordState',
+    },
+}
+JDBC_SINK = {
+    'name': 'warehouse-sink',
+    'config': {
+        'connector.class': 'io.debezium.connector.jdbc.JdbcSinkConnector',
+        'connection.url': 'jdbc:postgresql://warehouse:5432/analytics',
+        'topics': 'app.public.orders,app.public.customers',
+        'transforms': 'route',
+        'transforms.route.type': 'org.apache.kafka.connect.transforms.RegexRouter',
+        'transforms.route.regex': 'app\\.public\\.(.*)',
+        'transforms.route.replacement': '$1',
+        'collection.name.format': 'raw.${topic}',
+    },
+}
+
+
+def test_debezium_connectors_capture_their_tables_into_topics() -> None:
+    reading = read('kafka_connect', 'connect/app.json', json.dumps(DEBEZIUM))
+    assert [(f.loader, f.task, f.source, f.target, f.stream, f.columns) for f in reading.feeds] == [
+        (
+            'debezium',
+            'app-cdc',
+            ('postgres', 'app', 'public', 'orders'),
+            ('kafka', 'app.public.orders'),
+            True,
+            (),
+        ),
+        (
+            'debezium',
+            'app-cdc',
+            ('postgres', 'app', 'public', 'customers'),
+            ('kafka', 'app.public.customers'),
+            True,
+            (('id', 'id', 'direct'), ('email', 'email', 'direct')),
+        ),
+    ]
+    mysql = {
+        'connector.class': 'io.debezium.connector.mysql.MySqlConnector',
+        'database.server.name': 'shop',
+        'table.include.list': 'inventory.products',
+        'transforms': 'reroute',
+        'transforms.reroute.type': 'io.debezium.transforms.ByLogicalTableRouter',
+        'transforms.reroute.topic.regex': 'shop\\.inventory\\.(.*)',
+        'transforms.reroute.topic.replacement': 'cdc_$1',
+    }
+    assert feeds_of('kafka_connect', json.dumps(mysql), 'mysql.json') == [
+        ('debezium', 'mysql', ('mysql', 'inventory', 'products'), ('kafka', 'cdc_products'))
+    ]
+    sqlserver = {
+        'connector.class': 'io.debezium.connector.sqlserver.SqlServerConnector',
+        'database.names': 'erp',
+        'topic.prefix': 'erp',
+        'table.include.list': 'dbo.invoices',
+    }
+    assert feeds_of('kafka_connect', json.dumps(sqlserver), 'erp.json') == [
+        ('debezium', 'erp', ('sqlserver', 'erp', 'dbo', 'invoices'), ('kafka', 'erp.erp.dbo.invoices'))
+    ]
+
+
+def test_connectors_whose_tables_are_not_spelled_out() -> None:
+    patterns = {
+        'connector.class': 'io.debezium.connector.postgresql.PostgresConnector',
+        'topic.prefix': 'app',
+        'table.include.list': 'public\\.order.*',
+    }
+    unprefixed = {
+        'connector.class': 'io.debezium.connector.postgresql.PostgresConnector',
+        'table.include.list': 'a.b',
+    }
+    one_part = {
+        'connector.class': 'io.debezium.connector.postgresql.PostgresConnector',
+        'topic.prefix': 'p',
+        'table.include.list': 'orders',
+    }
+    regex_sink = {
+        'connector.class': 'io.debezium.connector.jdbc.JdbcSinkConnector',
+        'topics.regex': 'app\\..*',
+    }
+    data = [
+        {'name': 'patterns', 'config': patterns},
+        {'name': 'unprefixed', 'config': unprefixed},
+        {'name': 'one', 'config': one_part},
+        {'name': 'regex', 'config': regex_sink},
+        {
+            'name': 'files',
+            'config': {'connector.class': 'io.confluent.connect.s3.S3SinkConnector', 'topics': 'a'},
+        },
+        'not a connector',
+    ]
+    reading = read('kafka_connect', 'c.json', json.dumps(data))
+    assert reading.feeds == []
+    assert reading.problems == [
+        'c.json: Debezium connector patterns: its tables are not listed by name, so its topics are not known',
+        'c.json: Debezium connector unprefixed: no topic prefix, so its topics are not known',
+        'c.json: Debezium connector one: orders is not <schema>.<table>',
+        'c.json: sink regex reads topics by a pattern, so its tables are not known',
+    ]
+    assert read('kafka_connect', 'x.json', '{').problems[0].startswith('x.json: cannot read JSON')
+
+
+def test_sink_connectors_land_topics_in_tables() -> None:
+    assert feeds_of('kafka_connect', json.dumps(JDBC_SINK), 'sink.json') == [
+        ('kafka_connect', 'warehouse-sink', ('kafka', 'app.public.orders'), ('analytics', 'raw', 'orders')),
+        (
+            'kafka_connect',
+            'warehouse-sink',
+            ('kafka', 'app.public.customers'),
+            ('analytics', 'raw', 'customers'),
+        ),
+    ]
+    debezium_default = {
+        'connector.class': 'io.debezium.connector.jdbc.JdbcSinkConnector',
+        'topics': 'app.public.orders',
+    }
+    confluent = {
+        'connector.class': 'io.confluent.connect.jdbc.JdbcSinkConnector',
+        'topics': 'orders',
+        'table.name.format': 'kafka_${topic}',
+        'connection.url': 'jdbc:sqlserver://h:1433;databaseName=dw',
+    }
+    snowflake = {
+        'connector.class': 'com.snowflake.kafka.connector.SnowflakeSinkConnector',
+        'topics': 'orders,app.public.users,web-events',
+        'snowflake.topic2table.map': 'app.public.users:USERS',
+        'snowflake.database.name': 'RAW',
+        'snowflake.schema.name': 'KAFKA',
+    }
+    bigquery = {
+        'connector.class': 'com.wepay.kafka.connect.bigquery.BigQuerySinkConnector',
+        'topics': 'app.orders',
+        'sanitizeTopics': 'true',
+        'project': 'proj',
+        'defaultDataset': 'kafka',
+    }
+    iceberg = {
+        'connector.class': 'org.apache.iceberg.connect.IcebergSinkConnector',
+        'topics': 'events',
+        'iceberg.tables': 'lake.events,lake.events_copy',
+    }
+    dynamic = {
+        'connector.class': 'io.tabular.iceberg.connect.IcebergSinkConnector',
+        'topics': 'events',
+        'iceberg.tables.dynamic-enabled': 'true',
+    }
+    connectors = [debezium_default, confluent, snowflake, bigquery, iceberg, dynamic]
+    reading = read(
+        'kafka_connect',
+        'sinks.json',
+        json.dumps([{'name': f's{i}', 'config': c} for i, c in enumerate(connectors)]),
+    )
+    assert [(f.task, f.source[1], f.target) for f in reading.feeds] == [
+        ('s0', 'app.public.orders', ('app_public_orders',)),
+        ('s1', 'orders', ('dw', 'kafka_orders')),
+        ('s2', 'orders', ('RAW', 'KAFKA', 'ORDERS')),
+        ('s2', 'app.public.users', ('RAW', 'KAFKA', 'USERS')),
+        ('s3', 'app.orders', ('proj', 'kafka', 'app_orders')),
+        ('s4', 'events', ('lake', 'events_copy')),
+        ('s4', 'events', ('lake', 'events')),
+    ]
+    assert reading.problems == [
+        'sinks.json: sink s2: topic web-events is not a table name and has no snowflake.topic2table.map entry',
+        'sinks.json: sink s5 routes records to tables at run time, so its tables are not known',
+    ]
+
+
+PASSTHROUGH = {'collection.naming.strategy': 'io.debezium.sink.naming.PassthroughCollectionNamingStrategy'}
+
+
+@pytest.mark.parametrize(
+    ('config', 'target'),
+    [
+        ({'collection.name.format': 'raw.${source.schema}_${source.table}'}, ('raw', 'public_orders')),
+        ({'collection.name.format': 'raw.${source.table}'}, ('raw', 'orders')),
+        ({**PASSTHROUGH, 'collection.name.format': 'kafka_${topic}'}, ('kafka_app', 'public', 'orders')),
+    ],
+)
+def test_a_debezium_jdbc_sink_names_tables_from_the_source_block(
+    config: dict[str, str], target: tuple[str, ...]
+) -> None:
+    sink = {'connector.class': 'io.debezium.connector.jdbc.JdbcSinkConnector', 'topics': 'app.public.orders'}
+    reading = read('kafka_connect', 'sink.json', json.dumps({'name': 's', 'config': {**sink, **config}}))
+    assert [f.target for f in reading.feeds] == [target]
+    assert reading.problems == []
+
+
+@pytest.mark.parametrize(
+    ('topics', 'config', 'placeholder'),
+    [
+        ('app.public.orders', {'collection.name.format': '${source.db}.${source.table}'}, '${source.db}'),
+        # A topic that is not <prefix>.<schema>.<table>, and a strategy that fills no source field.
+        ('orders', {'collection.name.format': 'raw.${source.table}'}, '${source.table}'),
+        (
+            'app.public.orders',
+            {**PASSTHROUGH, 'collection.name.format': 'raw.${source.table}'},
+            '${source.table}',
+        ),
+    ],
+)
+def test_a_debezium_jdbc_sink_placeholder_that_is_not_known(
+    topics: str, config: dict[str, str], placeholder: str
+) -> None:
+    sink = {'connector.class': 'io.debezium.connector.jdbc.JdbcSinkConnector', 'topics': topics}
+    reading = read('kafka_connect', 'sink.json', json.dumps({'name': 's', 'config': {**sink, **config}}))
+    assert reading.feeds == []
+    assert reading.problems == [
+        f'sink.json: sink s: {placeholder} in collection.name.format is known only from the events '
+        f'of topic {topics}, so its table is not known'
+    ]
+
+
+def test_properties_discovery_is_linear_in_blank_lines() -> None:
+    import time
+
+    start = time.process_time()
+    assert kind_of('worker.properties', ' \n' * 20_000) is None
+    assert time.process_time() - start < 0.5
+
+
+def test_a_standalone_worker_properties_file() -> None:
+    text = '# a sink\nname=props-sink\nconnector.class=io.confluent.connect.jdbc.JdbcSinkConnector\ntopics=orders\n! note\n'
+    assert feeds_of('kafka_connect', text, 'connect/sink.properties') == [
+        ('kafka_connect', 'props-sink', ('kafka', 'orders'), ('orders',))
+    ]
+
+
+@pytest.mark.parametrize(
+    ('kind', 'path', 'text'),
+    [
+        ('kafka_connect', 'c.json', '{"config": ' + '[' * 100_000 + ']' * 100_000 + '}'),
+        (
+            'kafka_connect',
+            'c.json',
+            '{"name": "x", "config": {"connector.class": "io.debezium.connector.postgresql.PostgresConnector",'
+            ' "topic.prefix": "app", "table.include.list": 3}}',
+        ),
+        ('estuary', 'flow.yaml', NESTED_YAML),
+        ('estuary', 'flow.yaml', '42'),
+        ('estuary', 'flow.yaml', 'captures: {a: {bindings: 3}}'),
+        (
+            'estuary',
+            'flow.yaml',
+            f'{ALIASES}captures: {{a: {{bindings: [{{resource: {{stream: *i}}, target: *i}}]}}}}',
+        ),
+    ],
+)
+def test_a_malformed_connector_or_catalog_is_a_problem(kind: str, path: str, text: str) -> None:
+    reading = read(kind, path, text)
+    assert reading.feeds == []
+    assert len(reading.problems) == 1 and reading.problems[0].startswith(f'{path}: ')
+
+
+@pytest.mark.parametrize(
+    ('config', 'problem'),
+    [
+        (
+            {
+                'connector.class': 'io.confluent.connect.jdbc.JdbcSinkConnector',
+                'topics': 'orders',
+                'connection.url': '${file:/secrets/db.properties:url}',
+            },
+            '${file:/secrets/db.properties:url}',
+        ),
+        (
+            {
+                'connector.class': 'com.snowflake.kafka.connector.SnowflakeSinkConnector',
+                'topics': 'orders',
+                'snowflake.database.name': '${env:SNOWFLAKE_DATABASE}',
+                'snowflake.schema.name': 'KAFKA',
+            },
+            '${env:SNOWFLAKE_DATABASE}',
+        ),
+        (
+            {
+                'connector.class': 'com.wepay.kafka.connect.bigquery.BigQuerySinkConnector',
+                'topics': 'orders',
+                'project': '${env:GCP_PROJECT}',
+                'defaultDataset': 'kafka',
+            },
+            '${env:GCP_PROJECT}',
+        ),
+        (
+            {
+                'connector.class': 'io.debezium.connector.postgresql.PostgresConnector',
+                'topic.prefix': 'app',
+                'database.dbname': '${file:/secrets/pg.properties:dbname}',
+                'table.include.list': 'public.orders',
+            },
+            '${file:/secrets/pg.properties:dbname}',
+        ),
+    ],
+)
+def test_a_connector_setting_from_a_config_provider_is_not_a_name(
+    config: dict[str, str], problem: str
+) -> None:
+    """Kafka Connect fills ``${file:...}`` and ``${env:...}`` from its config providers when the
+    connector starts; the file does not say what they are."""
+    reading = read('kafka_connect', 'c.json', json.dumps({'name': 'c', 'config': config}))
+    assert reading.feeds == []
+    assert reading.problems == [f'c.json: c: {problem} is not a literal name, so the feed is left out']
+
+
+def sink_routed(topics: str, regex: str, replacement: str = 'x', transforms: int = 1) -> str:
+    """A JDBC sink with ``transforms`` RegexRouter transformations, each the same."""
+    config = {
+        'connector.class': 'io.confluent.connect.jdbc.JdbcSinkConnector',
+        'topics': topics,
+        'transforms': ','.join(f'r{i}' for i in range(transforms)),
+    }
+    for i in range(transforms):
+        config[f'transforms.r{i}.type'] = 'org.apache.kafka.connect.transforms.RegexRouter'
+        config[f'transforms.r{i}.regex'] = regex
+        config[f'transforms.r{i}.replacement'] = replacement
+    return json.dumps({'name': 'c', 'config': config})
+
+
+@pytest.mark.parametrize(
+    'regex',
+    [
+        '(a+)+$',
+        '(a|aa)+$',
+        '.*.*.*.*b',
+        '(?x)(a+) +b',
+    ],
+)
+def test_a_routing_expression_runs_in_linear_time(regex: str) -> None:
+    """Each of these backtracks for years in a matcher like Python's on topics it does not
+    match; the routers run on finite automata."""
+    import time
+
+    topics = ','.join(f'{"a" * 200}{i}' for i in range(1_500))
+    start = time.process_time()
+    reading = read('kafka_connect', 'c.json', sink_routed(topics, regex))
+    assert time.process_time() - start < 2
+    assert len(reading.feeds) == 1_500 and reading.problems == []
+
+
+@pytest.mark.parametrize(
+    ('regex', 'replacement', 'reason'),
+    [
+        (r'(a)\1', 'x', 'it uses a backreference, which Konstruct does not run'),
+        ('a(?=b)', 'x', 'it uses lookaround, which Konstruct does not run'),
+        ('a*+b', 'x', 'it uses a possessive repeat, which Konstruct does not run'),
+        ('(a', 'x', 'its expression is not valid: unclosed group'),
+        ('(a)', '$2', 'its replacement names group 2, which the expression lacks'),
+        ('(a)', '$1' * 125, 'its replacement is longer than a topic can be'),
+        # Bounded repeats compile to a state for each repetition: these pass 64 KiB.
+        ('([a-z]{1,40}){1,40}b', 'x', 'its expression is too large'),
+        ('a{0,249}' * 8 + 'b', 'x', 'its expression is too large'),
+        # Classes are ASCII, as in Java, so a Unicode class is not one.
+        (r'\pL+', 'x', 'its expression is not valid: Unicode not allowed here'),
+    ],
+)
+def test_a_routing_expression_that_cannot_be_run_is_a_problem(
+    regex: str, replacement: str, reason: str
+) -> None:
+    reading = read('kafka_connect', 'c.json', sink_routed('orders', regex, replacement))
+    assert reading.feeds == []
+    assert reading.problems == [
+        f'c.json: sink c: transformation r0 is not run, as {reason}, so its topics are not known'
+    ]
+
+
+def test_routing_replaces_with_javas_group_references() -> None:
+    reading = read(
+        'kafka_connect',
+        'c.json',
+        sink_routed('app.public.orders', r'(\w+)\.(?<schema>\w+)\.(\w+)', '${schema}_$3'),
+    )
+    assert [f.target for f in reading.feeds] == [('public_orders',)]
+
+
+def test_routing_expressions_are_compiled_once_and_at_most_64_a_file() -> None:
+    """Compiling an expression takes time of its own: a file of a thousand connectors reuses each
+    one, and a file of more than 64 distinct expressions is a problem."""
+    import time
+
+    def sinks(patterns: list[str]) -> str:
+        return json.dumps(
+            [
+                json.loads(sink_routed('orders', p, 'y'))['config'] | {'name': f's{i}'}
+                for i, p in enumerate(patterns)
+            ]
+        )
+
+    start = time.process_time()
+    same = read('kafka_connect', 'c.json', sinks([r'[a-z]{0,40}\w{0,40}x'] * 1_000))
+    distinct = read('kafka_connect', 'c.json', sinks([f'[a-z]{{0,40}}\\w{{0,40}}x{i}' for i in range(1_000)]))
+    assert time.process_time() - start < 2
+    assert len(same.feeds) == 1_000 and same.problems == []
+    assert len(distinct.feeds) == 64
+    assert distinct.problems[0] == (
+        'c.json: sink s64: the file holds more than 64 routing expressions, so its topics are not known'
+    )
+
+
+def test_a_topic_longer_than_kafka_allows_is_not_routed_at_all() -> None:
+    """A Debezium topic prefix is free text: routing a long one through a replacement that repeats
+    its group would build topics of hundreds of megabytes."""
+    config = {
+        'connector.class': 'io.debezium.connector.postgresql.PostgresConnector',
+        'table.include.list': 'public.orders',
+        'topic.prefix': 'p' * 1_500_000,
+        'transforms': 'r',
+        'transforms.r.type': 'org.apache.kafka.connect.transforms.RegexRouter',
+        'transforms.r.regex': '(.*)',
+        'transforms.r.replacement': '$1' * 124,
+    }
+    reading = read('kafka_connect', 'c.json', json.dumps({'name': 'c', 'config': config}))
+    assert reading.feeds == []
+    assert reading.problems == [
+        'c.json: Debezium connector c: a topic of 1,500,014 characters is longer than Kafka allows, '
+        'so its topics are not known'
+    ]
+
+
+def test_a_routed_topic_longer_than_kafka_allows_is_a_problem() -> None:
+    """A replacement can repeat a group: 124 copies of a 200-character topic."""
+    reading = read('kafka_connect', 'c.json', sink_routed('a' * 200, '(.*)', '$1' * 124))
+    assert reading.feeds == []
+    assert reading.problems == [
+        'c.json: sink c: transformation r0 gives a topic longer than Kafka allows, so its topics are not known'
+    ]
+
+
+def test_a_connector_with_too_many_transformations_is_a_problem() -> None:
+    reading = read('kafka_connect', 'c.json', sink_routed('orders', 'x(.*)', '$1', transforms=33))
+    assert reading.feeds == []
+    assert reading.problems == [
+        'c.json: sink c: it lists more than 32 transformations, so its topics are not known'
+    ]
+
+
+FLOW = """
+captures:
+  acme/source-postgres:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-postgres:v1
+        config: {address: db:5432, database: app}
+    bindings:
+      - resource: {namespace: public, stream: orders}
+        target: acme/public/orders
+      - resource: {namespace: public, stream: audit}
+        target: acme/public/audit
+        disable: true
+  acme/source-hubspot:
+    endpoint:
+      connector: {image: ghcr.io/estuary/source-hubspot:v1, config: hubspot.config.yaml}
+    bindings:
+      - resource: {stream: contacts}
+        target: acme/hubspot/contacts
+materializations:
+  acme/warehouse:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-snowflake:v1
+        config: {database: ANALYTICS, schema: ESTUARY}
+    bindings:
+      - resource: {table: orders}
+        source: acme/public/orders
+      - resource: {table: contacts, schema: CRM}
+        source: {name: acme/hubspot/contacts}
+"""
+
+
+def test_an_estuary_catalog_through_its_collections() -> None:
+    assert [(f.task, f.source, f.target, f.stream) for f in read('estuary', 'flow.yaml', FLOW).feeds] == [
+        (
+            'acme/source-postgres',
+            ('postgres', 'app', 'public', 'orders'),
+            ('estuary', 'acme/public/orders'),
+            True,
+        ),
+        ('acme/source-hubspot', ('hubspot', 'contacts'), ('estuary', 'acme/hubspot/contacts'), True),
+        ('acme/warehouse', ('estuary', 'acme/public/orders'), ('ANALYTICS', 'ESTUARY', 'orders'), False),
+        ('acme/warehouse', ('estuary', 'acme/hubspot/contacts'), ('ANALYTICS', 'CRM', 'contacts'), False),
+    ]
+    assert read('estuary', 'flow.yaml', 'captures: [').problems[0].startswith('flow.yaml: cannot read YAML')
+
+
+def test_a_debezium_connector_and_its_sink_make_one_chain(tmp_path: Path) -> None:
+    duckdb_warehouse(
+        tmp_path,
+        'create schema raw;'
+        'create table raw.customers (id bigint, email varchar, __op varchar, __source_ts_ms bigint);'
+        'create table raw.orders (id bigint, total double, __op varchar, __source_ts_ms bigint);',
+    )
+    (tmp_path / 'connect').mkdir()
+    (tmp_path / 'connect' / 'source.json').write_text(json.dumps(DEBEZIUM))
+    (tmp_path / 'connect' / 'sink.json').write_text(json.dumps(JDBC_SINK).replace('analytics', 'warehouse'))
+    project = Project(tmp_path)
+    graph = project.build(run_dbt=False).graph
+    feeds = {(e.source, e.target) for e in graph.edges if e.kind == 'feeds'}
+    topic = 'system.kafka.app.public.customers'
+    assert ('system.postgres.app.public.customers', 'task.debezium.app-cdc') in feeds
+    assert ('task.debezium.app-cdc', topic) in feeds
+    assert (topic, 'task.kafka_connect.warehouse.raw') in feeds
+    assert ('task.kafka_connect.warehouse.raw', 'table.warehouse.raw.customers') in feeds
+    # The sink's configuration says Kafka Connect landed the Debezium change events.
+    assert graph.nodes['table.warehouse.raw.customers'].attrs['loaded_by'] == 'kafka_connect'
+    upstream = {s.node.id for s in graph.trace(graph.nodes['table.warehouse.raw.customers'])}
+    assert 'system.postgres.app.public.customers' in upstream
+
+
+def test_discovered_streams_add_no_tables(tmp_path: Path) -> None:
+    """A connector and a Flow catalog that discovery found, with no warehouse: their topics,
+    collections and source tables lead to no table the graph has, so none is added."""
+    (tmp_path / 'connect').mkdir()
+    (tmp_path / 'connect' / 'debezium.json').write_text(json.dumps(DEBEZIUM))
+    (tmp_path / 'flows').mkdir()
+    (tmp_path / 'flows' / 'flow.yaml').write_text(FLOW)
+    graph = Project(tmp_path).build(run_dbt=False).graph
+    assert [n for n in graph.nodes if n.startswith(('system.', 'task.'))] == []

@@ -610,8 +610,10 @@ class Builder:
 
         Only a file listed in ``[ingestion] paths`` adds a table the graph does not have: one that
         discovery found may be an application's file that looks like a loader's, so its feeds
-        reach only tables the warehouse, dbt or SQL already show."""
-        adds_tables = self.config.ingestion_paths is not None
+        reach only tables the warehouse, dbt or SQL already show, and a stream (a Kafka topic, an
+        Estuary collection) only when a chain of feeds leads from it to one of those tables."""
+        if self.config.ingestion_paths is None:
+            feeds = self.reaching_known_tables(feeds)
         applied: set[tuple[str, ...]] = set()
         for feed in feeds:
             evidence = f'{feed.path}:{feed.line}' if feed.line else feed.path
@@ -619,8 +621,6 @@ class Builder:
                 target = self.outside_table(feed.loader, feed.target)
             else:
                 key = relation_key(*feed.target)
-                if not adds_tables and self.index.find(key, drop_leading=True) is None:
-                    continue
                 target = self.relation(key, feed.loader, drop_leading=True)
                 target.attrs.setdefault('loaded_by', feed.loader)
             source = self.outside_table(feed.loader, feed.source)
@@ -658,6 +658,29 @@ class Builder:
                 )
         if applied:
             self.inputs['loader_source_tables'] = len(applied)
+
+    def reaching_known_tables(self, feeds: list[Any]) -> list[Any]:
+        """The feeds into tables the graph has, and the streams that lead to them: from those
+        tables' sources back through each feed into a stream, a topic or collection at a time."""
+        kept = [
+            f
+            for f in feeds
+            if not f.stream and self.index.find(relation_key(*f.target), drop_leading=True) is not None
+        ]
+        into: dict[tuple[str, ...], list[Any]] = {}
+        for feed in feeds:
+            if feed.stream:
+                into.setdefault(feed.target, []).append(feed)
+        reached = [f.source for f in kept]
+        seen = set(reached)
+        while reached:
+            for feed in into.pop(reached.pop(), []):
+                kept.append(feed)
+                if feed.source not in seen:
+                    seen.add(feed.source)
+                    reached.append(feed.source)
+        order = {id(f): i for i, f in enumerate(feeds)}
+        return sorted(kept, key=lambda f: order[id(f)])
 
     def outside_table(self, loader: str, parts: tuple[str, ...]) -> Node:
         """A table, topic or collection of a system outside the warehouse, such as a source

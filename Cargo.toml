@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
-description = "The native core of Konstruct: graph traversal, name resolution, search and formula identity"
+description = "The native core of Konstruct: graph traversal, name resolution, search, formula identity and topic routing"
 publish = false
 # The crate shares the repository root with the Python package; only these belong to it.
 include = [
@@ -34,6 +34,10 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["raw_value"] }
 sha2 = "0.11.1"
 tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+# Linear-time matching for the routing expressions in Kafka Connect configuration (src/route.rs).
+regex = "1.13.1"
+# Its parser, to refuse Java's possessive repeats (a*+), which regex reads as a repeat of a repeat.
+regex-syntax = "0.8.11"
 
 [features]
 # The Python extension module, built by maturin. abi3 makes one wheel per platform serve every
