@@ -106,18 +106,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Debian's cross compilers link the tests and qemu-user runs them: each architecture's
-    # assembly runs for real, not just assembles.
+    # assembly runs for real, not just assembles. qemu emulates the oldest processor the routines
+    # assume (QEMU_CPU), so an instruction from a later generation fails here: ARMv8.0, POWER8,
+    # and an s390x with z13's vector facility and nothing newer.
     container:
       image: public.ecr.aws/docker/library/rust:1.97@sha256:b1b3c9c0d921d7fa0a6d1f9ec7e4eab87f8c8ec97644c3d791450f131dec813f
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { target: aarch64-unknown-linux-gnu, qemu: aarch64, gnu: aarch64-linux-gnu, debian: arm64 }
-          - { target: riscv64gc-unknown-linux-gnu, qemu: riscv64, gnu: riscv64-linux-gnu, debian: riscv64 }
-          - { target: powerpc64le-unknown-linux-gnu, qemu: ppc64le, gnu: powerpc64le-linux-gnu, debian: ppc64el }
-          - { target: s390x-unknown-linux-gnu, qemu: s390x, gnu: s390x-linux-gnu, debian: s390x }
-          - { target: loongarch64-unknown-linux-gnu, qemu: loongarch64, gnu: loongarch64-linux-gnu, debian: loong64 }
+          - { target: aarch64-unknown-linux-gnu, qemu: aarch64, gnu: aarch64-linux-gnu, debian: arm64, cpu: cortex-a53 }
+          - { target: riscv64gc-unknown-linux-gnu, qemu: riscv64, gnu: riscv64-linux-gnu, debian: riscv64, cpu: rv64 }
+          - { target: powerpc64le-unknown-linux-gnu, qemu: ppc64le, gnu: powerpc64le-linux-gnu, debian: ppc64el, cpu: power8 }
+          - { target: s390x-unknown-linux-gnu, qemu: s390x, gnu: s390x-linux-gnu, debian: s390x, cpu: 'qemu,vx=on' }
+          - { target: loongarch64-unknown-linux-gnu, qemu: loongarch64, gnu: loongarch64-linux-gnu, debian: loong64, cpu: la464 }
     defaults:
       run:
         shell: bash
@@ -125,6 +127,7 @@ jobs:
       TARGET: ${{ matrix.target }}
       QEMU: ${{ matrix.qemu }}
       GNU: ${{ matrix.gnu }}
+      QEMU_CPU: ${{ matrix.cpu }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
