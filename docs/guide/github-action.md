@@ -50,7 +50,7 @@ On a branch whose content is already reviewed, such as a push to the default bra
 
 ## The Gate
 
-`konstruct gate` is the check a change must pass before it is proposed. A coding agent runs it before opening a pull request (the `/konstruct` skill and the `gate` MCP tool tell it to), and `gate: true` makes the Action run the same check:
+`konstruct gate` is the check a change must pass before it is proposed. A coding agent runs it before opening a pull request (the Konstruct skills, the plugin's hook and the `gate` MCP tool tell it to), and `gate: true` makes the Action run the same check:
 
 ```yaml
       - uses: kodexlabsio/konstruct@v0

@@ -3,7 +3,7 @@
 
 **Column-level lineage for dbt, SQL, Airflow and Dagster: explained as formulas, checked against the data, and reviewed on every pull request.**
 
-Konstruct reads a data repository and its warehouse and builds a graph of every table, column, model, task, test and dashboard, with column-level lineage parsed from the SQL that connects them. It runs locally in one command, with no server and no account, and answers from the command line, a Python API, an MCP server and `/konstruct` skill for coding agents, a GitHub Action, and a single offline HTML page.
+Konstruct reads a data repository and its warehouse and builds a graph of every table, column, model, task, test and dashboard, with column-level lineage parsed from the SQL that connects them. It runs locally in one command, with no server and no account, and answers from the command line, a Python API, an MCP server, skills and a Claude Code plugin for coding agents, a GitHub Action, and a single offline HTML page.
 
 What it does that lineage tools usually leave out:
 

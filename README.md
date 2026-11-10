@@ -54,7 +54,7 @@ Konstruct builds on the best open-source work in data: [sqlglot](https://github.
 | | |
 |---|---|
 | **Analytics engineering** | Refactor with a safety net: `impact` before a change, a column-by-column review on every pull request, and `gate` failing the pull request check when a removed column is still read downstream |
-| **AI and agent teams** | Ground coding agents in fact, not guesses: an MCP server, a skill for Claude Code and Cursor, and approved definitions with their required filters |
+| **AI and agent teams** | Ground coding agents in fact, not guesses: an MCP server, workflow skills for Claude Code, Cursor, Codex, GitHub Copilot, Gemini CLI and Windsurf, and approved definitions with their required filters |
 | **Data governance** | Provenance you can prove: column lineage verified on the data, owners and approval status on business terms, and exports to OpenLineage and Apache Ossie |
 | **Finance and metric owners** | One number, one definition: `conflicts` finds the same measure computed two ways, and `history` shows when a formula changed and whether anyone approved it |
 
@@ -171,7 +171,7 @@ konstruct explain orders.amount         # how a column is calculated, down to it
 konstruct history orders.amount         # when its formula changed, and who approved it
 konstruct open                          # the interactive graph in a browser
 konstruct ontology                      # entities, measures and how they relate
-konstruct install                       # the /konstruct skill for Claude Code and Cursor
+konstruct install                       # the Konstruct skills for Claude Code and Cursor (--agent all for every agent)
 ```
 
 No configuration is needed: Konstruct finds dbt projects, Airflow and Dagster files, SQL, definitions and the warehouse each dbt profile points at. [Getting started](https://kodexlabsio.github.io/konstruct/getting-started.html) covers extras, pinning a release and the bundled example.

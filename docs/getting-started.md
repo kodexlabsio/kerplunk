@@ -31,7 +31,7 @@ konstruct trust                  # once you have reviewed its konstruct.toml, pr
 konstruct build                  # writes konstruct-out/: graph.json, REPORT.md, graph.html, ontology.yml
 konstruct impact orders.amount   # everything downstream of a column
 konstruct open                   # the interactive graph in a browser
-konstruct install                # adds the /konstruct skill to Claude Code and Cursor
+konstruct install                # adds the Konstruct skills to Claude Code and Cursor
 ```
 
 ![konstruct impact analysis on the jaffle_shop example](images/demo-cli.gif)
