@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import ast
+import tomllib
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).parent.parent
 
@@ -157,3 +159,18 @@ def test_the_readme_lists_every_mcp_tool(jaffle_built_graph: Path) -> None:
     tools = anyio.run(names)
     listed = _bullet(_features(), 'Coding agents')
     assert tools and [t for t in tools if f'`{t}`' not in listed] == []
+
+
+def test_the_citation_agrees_with_the_package_metadata() -> None:
+    # CITATION.cff is checked against the CFF 1.2.0 schema by cffconvert in CI; this keeps it in
+    # step with pyproject.toml. It carries no version or release date, which would go stale.
+    citation = yaml.safe_load((ROOT / 'CITATION.cff').read_text())
+    project = tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']
+    assert citation['cff-version'] == '1.2.0'
+    assert citation['title'].lower() == project['name']
+    assert ' '.join(citation['abstract'].split()) == project['description']
+    assert citation['authors'] == [{'name': author['name']} for author in project['authors']]
+    assert citation['license'] == project['license']
+    assert citation['repository-code'] == project['urls']['Homepage']
+    assert citation['keywords'] == project['keywords']
+    assert 'version' not in citation and 'date-released' not in citation

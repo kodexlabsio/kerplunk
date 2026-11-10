@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: If you use Konstruct in your work, please cite it as below.
+type: software
+title: Konstruct
+abstract: >-
+  Turn a data stack (dbt, SQL, Airflow, warehouse and Iceberg metadata) into a queryable graph with
+  column-level lineage for coding agents.
+authors:
+  - name: Kodex Labs Ltd.
+repository-code: https://github.com/kodexlabsio/konstruct
+url: https://kodexlabsio.github.io/konstruct/
+license: MIT
+keywords:
+  - lineage
+  - column-level lineage
+  - dbt
+  - airflow
+  - iceberg
+  - mcp
+  - claude-code
+  - data-catalog

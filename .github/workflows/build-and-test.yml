@@ -57,6 +57,11 @@ jobs:
       - name: Mypy
         run: uv run mypy
 
+      # GitHub's "Cite this repository" reads CITATION.cff; tests/test_docs.py keeps it in step with
+      # pyproject.toml.
+      - name: CITATION.cff against the CFF schema
+        run: uvx cffconvert@2.0.0 --validate -i CITATION.cff
+
   rust:
     name: Rust core (format, lint and tests)
     runs-on: ubuntu-latest
