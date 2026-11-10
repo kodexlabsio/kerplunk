@@ -320,6 +320,8 @@ class _Text:
     original: str | None = None
     root: type[exp.Expr] = exp.Column
     core: type[exp.Expr] = exp.Column
+    deep: bool = False
+    """Cut short by :data:`MAX_DEPTH` somewhere below: it holds only at the depth it was composed at."""
 
     @property
     def atomic(self) -> bool:
@@ -340,6 +342,8 @@ class _Composed:
     """Approximate length of the composed formula as SQL, to keep substitution within budget."""
     original: str | None = None
     """The column's own expression with short names, before substitution."""
+    deep: bool = False
+    """Cut short by :data:`MAX_DEPTH` somewhere below: it holds only at the depth it was composed at."""
 
 
 class Explainer:
@@ -355,6 +359,24 @@ class Explainer:
         self.active: set[str] = set()
         self.texts: dict[str, _Text] = {}
         self.writing: set[str] = set()
+        # A formula cut short by the depth limit is kept for the depth it was composed at only:
+        # composed nearer the top, the same column goes further.
+        self.deep_memo: dict[tuple[str, int], _Composed] = {}
+        self.deep_texts: dict[tuple[str, int], _Text] = {}
+
+    def _keep_text(self, node: Node, depth: int, result: _Text) -> _Text:
+        if result.deep:
+            self.deep_texts[node.id, depth] = result
+        else:
+            self.texts[node.id] = result
+        return result
+
+    def _keep(self, node: Node, depth: int, result: _Composed) -> _Composed:
+        if result.deep:
+            self.deep_memo[node.id, depth] = result
+        else:
+            self.memo[node.id] = result
+        return result
 
     def composed_text(self, node: Node) -> str | None:
         """The composed formula of ``node`` with short names, rendered once per column."""
@@ -365,10 +387,11 @@ class Explainer:
         formula is printed once with its inputs left as placeholders, and their composed texts
         are put in their places, with the brackets the composed tree would keep. This gives the
         same text without copying and printing ever larger trees."""
-        if node.id in self.texts:
-            return self.texts[node.id]
+        found = self.texts.get(node.id) or self.deep_texts.get((node.id, depth))
+        if found is not None:
+            return found
         if node.id in self.writing or depth > MAX_DEPTH:
-            return _Text(None, frozenset(), False)
+            return _Text(None, frozenset(), False, deep=depth > MAX_DEPTH)
         graph = self.graph
         expression = node.attrs.get('expression')
         upstream = composed_from(graph, node)
@@ -394,11 +417,12 @@ class Explainer:
                 by_relation[(owner.relation.lower(), u.name.lower())] = u
         sources: set[str] = set()
         complete = True
+        deep = False
         size = len(expression)
         slots: dict[str, _Text] = {}
 
         def substitute(item: exp.Expr) -> exp.Expr:
-            nonlocal complete, size, unsafe
+            nonlocal complete, deep, size, unsafe
             if not isinstance(item, exp.Column):
                 return item
             found = self.namer.resolve(item)
@@ -416,6 +440,7 @@ class Explainer:
             inner = self.compose_text(target, depth + 1)
             sources.update(inner.sources)
             complete = complete and inner.complete
+            deep = deep or inner.deep
             if inner.text is None:
                 return short
             if size + inner.size > self.max_composed:
@@ -482,9 +507,8 @@ class Explainer:
             # A dialect printed a placeholder twice or not at all: compose the tree instead.
             return self._tree_text(node, depth)
         text = _TOKEN.sub(lambda m: slots[m.group(0)].text or '', text)
-        result = _Text(text, frozenset(sources), complete, size, original, root, core)
-        self.texts[node.id] = result
-        return result
+        result = _Text(text, frozenset(sources), complete, size, original, root, core, deep)
+        return self._keep_text(node, depth, result)
 
     def _tree_text(self, node: Node, depth: int) -> _Text:
         """A column's composed text by composing and printing its tree, as :meth:`compose` does."""
@@ -496,7 +520,14 @@ class Explainer:
         finally:
             self.active -= added
         if composed.tree is None:
-            result = _Text(None, composed.sources, composed.complete, composed.size, composed.original)
+            result = _Text(
+                None,
+                composed.sources,
+                composed.complete,
+                composed.size,
+                composed.original,
+                deep=composed.deep,
+            )
         else:
             tree = composed.tree.copy()
             below = tree
@@ -510,17 +541,18 @@ class Explainer:
                 composed.original,
                 type(composed.tree),
                 type(below),
+                composed.deep,
             )
-        self.texts[node.id] = result
-        return result
+        return self._keep_text(node, depth, result)
 
     def compose(self, node: Node, depth: int = 0) -> _Composed:
         """``node``'s expression with every input column replaced by that column's own composed
         expression; a column without an expression is a source (or, if it has inputs, a gap)."""
-        if node.id in self.memo:
-            return self.memo[node.id]
+        found = self.memo.get(node.id) or self.deep_memo.get((node.id, depth))
+        if found is not None:
+            return found
         if node.id in self.active or depth > MAX_DEPTH:
-            return _Composed(None, frozenset(), False)
+            return _Composed(None, frozenset(), False, deep=depth > MAX_DEPTH)
         graph = self.graph
         expression = node.attrs.get('expression')
         upstream = composed_from(graph, node)
@@ -538,12 +570,13 @@ class Explainer:
         resolve = self.inputs(node, upstream)
         sources: set[str] = set()
         complete = True
+        deep = False
         # Formulas roughly double at each join, so the budget is checked before substituting,
         # not after: an input too large to inline stays a column reference.
         size = len(expression)
 
         def substitute(item: exp.Expr) -> exp.Expr:
-            nonlocal complete, size
+            nonlocal complete, deep, size
             if not isinstance(item, exp.Column):
                 return item
             found = resolve(item)
@@ -557,6 +590,7 @@ class Explainer:
             inner = self.compose(target, depth + 1)
             sources.update(inner.sources)
             complete = complete and inner.complete
+            deep = deep or inner.deep
             if inner.tree is None:
                 return short
             if size + inner.size > self.max_composed:
@@ -572,9 +606,8 @@ class Explainer:
         original = self.namer.text(expression)
         composed = tree.transform(substitute, copy=False)
         self.active.discard(node.id)
-        result = _Composed(composed, frozenset(sources), complete, size, original)
-        self.memo[node.id] = result
-        return result
+        result = _Composed(composed, frozenset(sources), complete, size, original, deep)
+        return self._keep(node, depth, result)
 
     def inputs(
         self, node: Node, upstream: list[Node] | None = None

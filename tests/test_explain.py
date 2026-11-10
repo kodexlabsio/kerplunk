@@ -202,6 +202,32 @@ def test_a_composed_formula_does_not_depend_on_what_was_explained_first(tmp_path
     assert explainer.explain(downstream).composed == alone
 
 
+def test_a_formula_cut_short_by_depth_is_not_reused_where_it_could_go_deeper(tmp_path: Path) -> None:
+    """A column composed deep inside another's formula stops at the depth limit; composed on
+    its own, it goes as far as the limit allows from there, whatever was composed first."""
+    from konstruct.analysis.explain import MAX_DEPTH, Explainer
+
+    length = MAX_DEPTH + 15
+    for index in range(length):
+        source = 'raw.t' if index == 0 else f'main.z{index - 1:02}'
+        (tmp_path / f'z{index:02}.sql').write_text(
+            f'create table main.z{index:02} as select v + 1 as v from {source}'
+        )
+    project = Project(tmp_path)
+    graph = project.build(dialect='duckdb', warehouses=False, run_dbt=False).graph
+    middle = graph.nodes['table.main.z20#v']
+    last = graph.nodes[f'table.main.z{length - 1:02}#v']
+    alone = Explainer(graph)
+    expected = (alone.compose(middle), alone.composed_text(middle))
+    assert expected[0].complete and expected[1] is not None and 't.v' in expected[1]
+    explainer = Explainer(graph)
+    explainer.composed_text(last)
+    explainer.compose(last)
+    found = explainer.compose(middle)
+    assert (found.sources, found.complete) == (expected[0].sources, expected[0].complete)
+    assert explainer.composed_text(middle) == expected[1]
+
+
 def test_tidying_brackets_keeps_meaning_and_is_the_same_alone_or_inside() -> None:
     import sqlglot
     from sqlglot import exp
