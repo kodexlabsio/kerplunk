@@ -7,11 +7,15 @@ models through CTEs, with a manifest, a catalog and Airflow DAGs. For each size 
   graph.html (including every column's composed formula);
 * --update with nothing changed, and --update after editing one model in the middle;
 * the median time of an impact, a trace and an explain on the deepest model;
+* the median time to render a large impact as text (``str()``, as a pipe gets it);
 * the size of graph.json and graph.html;
 * the questions the Rust core answers, on the graph as a command loads it: loading graph.json,
   the first impact and the first search (each also builds its index), then the median time of a
   search, a query, a path from the 11th model to the deepest and a describe of the deepest
   model, and one run of conflicts over every candidate column.
+
+It also measures start-up: the CPU time of ``konstruct --help`` and of ``konstruct status`` on
+the largest project, each in a fresh process.
 
 Usage:
     uv run .kodex/scripts/benchmark.py                  # 100, 500, 1000 and 2000 models
@@ -22,8 +26,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
+import resource
 import statistics
+import subprocess
 import sys
 import tempfile
 import time
@@ -79,6 +86,8 @@ def measure(models: int) -> dict[str, Any]:
         first_impact, _ = timed(loaded.impact, loaded.resolve('m010.c01')[0])
         first_search, _ = timed(search, loaded, 'm010 c01')
         conflicts, _ = timed(project.conflicts)
+        walk = project.impact('raw_m008' if models > 8 else 'raw_m000')
+        startup = {} if models != max(SIZES) else measure_startup(root)
         return {
             'models': models,
             'columns': sum(1 for n in graph.nodes.values() if n.kind == 'column'),
@@ -90,6 +99,9 @@ def measure(models: int) -> dict[str, Any]:
             'impact_ms': round(1000 * median_time(project.impact, 'm010.c01'), 1),
             'trace_ms': round(1000 * median_time(project.trace, f'{deepest}.c00'), 1),
             'explain_ms': round(1000 * median_time(project.explain, f'{deepest}.c01'), 1),
+            'render_ms': round(1000 * median_time(str, walk), 1),
+            'render_lines': str(walk).count('\n') + 1,
+            **startup,
             'graph_json_mb': round((project.out_dir / 'graph.json').stat().st_size / 1e6, 1),
             'graph_html_mb': round((project.out_dir / 'graph.html').stat().st_size / 1e6, 1),
             'load_s': round(load, 2),
@@ -103,17 +115,43 @@ def measure(models: int) -> dict[str, Any]:
         }
 
 
+SIZES: list[int] = []
+
+
+def cpu_ms(args: list[str], cwd: Path, repeat: int = 7) -> float:
+    """The median CPU time of ``konstruct <args>`` in a fresh process, which wall time on a busy
+    machine would not show reliably."""
+    times = []
+    for _ in range(repeat):
+        before = resource.getrusage(resource.RUSAGE_CHILDREN)
+        subprocess.run(
+            [sys.executable, '-m', 'konstruct.interfaces.cli', *args],
+            cwd=cwd,
+            capture_output=True,
+            check=False,
+            env={**os.environ, 'PYTHONPATH': str(ROOT)},
+        )
+        after = resource.getrusage(resource.RUSAGE_CHILDREN)
+        times.append((after.ru_utime + after.ru_stime) - (before.ru_utime + before.ru_stime))
+    return round(1000 * statistics.median(times), 1)
+
+
+def measure_startup(root: Path) -> dict[str, float]:
+    return {'help_cpu_ms': cpu_ms(['--help'], root), 'status_cpu_ms': cpu_ms(['status'], root)}
+
+
 def markdown(rows: list[dict[str, Any]]) -> str:
     lines = [
         '| Models | Columns | Column edges | Cold build | `--update`, no change | `--update`, one model edited '
-        '| impact | trace | explain | graph.html |',
-        '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
+        '| impact | trace | explain | text of a large impact | graph.html |',
+        '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
     ]
     for r in rows:
         lines.append(
             f'| {r["models"]:,} | {r["columns"]:,} | {r["column_edges"]:,} | {r["cold_build_s"]} s '
             f'| {r["update_unchanged_s"]} s | {r["update_one_model_s"]} s | {r["impact_ms"]} ms '
-            f'| {r["trace_ms"]} ms | {r["explain_ms"]} ms | {r["graph_html_mb"]} MB |'
+            f'| {r["trace_ms"]} ms | {r["explain_ms"]} ms | {r["render_ms"]} ms ({r["render_lines"]:,} lines) '
+            f'| {r["graph_html_mb"]} MB |'
         )
     lines += [
         '',
@@ -127,6 +165,13 @@ def markdown(rows: list[dict[str, Any]]) -> str:
             f'| {r["search_ms"]} ms | {r["query_ms"]} ms | {r["path_ms"]} ms | {r["describe_ms"]} ms '
             f'| {r["conflicts_s"]} s |'
         )
+    startup = next((r for r in rows if 'help_cpu_ms' in r), None)
+    if startup:
+        lines += [
+            '',
+            f'Start-up (CPU time, {startup["models"]:,} models): `konstruct --help` {startup["help_cpu_ms"]} ms, '
+            f'`konstruct status` {startup["status_cpu_ms"]} ms.',
+        ]
     return '\n'.join(lines)
 
 
@@ -135,6 +180,7 @@ def main() -> int:
     parser.add_argument('sizes', nargs='*', type=int, default=[100, 500, 1000, 2000])
     parser.add_argument('--json', type=Path, help='also write the results as JSON')
     args = parser.parse_args()
+    SIZES.extend(args.sizes)
     rows = []
     for size in args.sizes:
         row = measure(size)
