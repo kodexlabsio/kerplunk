@@ -24,12 +24,14 @@ Every page and view has its own address, such as `graph.html#/node/model.shop.or
 - **Ontology and entities**: entities with their keys and the relations that hold them, measures with their formulas, relationships with cardinality, and the ontology's rules (see [The Ontology](ontology.md)).
 - **DAGs and tasks**: schedule, tasks in run order, what each runs, its command or SQL, and what runs before and after it.
 - **Browse**: every table, model, task and exposure in a sortable table, filtered by kind, package, tag and text.
-- **Conflicts**: columns that compute the same idea differently, side by side, with what differs (see [Conflicting Definitions](conflicts.md)).
+- **Conflicts**: columns that compute the same idea differently, side by side, with what differs, as `konstruct conflicts` last found them in the same graph (see [Conflicting Definitions](conflicts.md)).
 - **Tests**, **usage** (see [Column Usage](usage.md)) and **warnings**.
 
 ![The orders model's page: its columns with tests, terms, transforms and formulas, and its lineage docked beneath](../images/graph-model.png)
 
-The SQL comes from the project's files when the page is written; a page written away from the project shows each column's expression instead.
+Descriptions are Markdown, as in dbt's documentation: paragraphs, lists, tables, code, emphasis and links to web and mail addresses. The overview opens with the dbt project's `{% docs __overview__ %}` block when it has one.
+
+The SQL comes from the project's files when the page is written; a page written away from the project shows each column's expression instead. Compiled SQL is dbt's own, so it holds whatever dbt rendered into it, `env_var()` values included: keep secrets out of model SQL before sharing a page.
 
 ## The Lineage Graph
 
@@ -87,8 +89,20 @@ The viewer is in British English, American English, Arabic, Chinese (Simplified)
 - `graph.html?lang=de` opens the page in a given language.
 - `KONSTRUCT_LOCALE=fr konstruct build` sets the language a page uses when the reader has not chosen one.
 
+## Serving the Page
+
+The same page can be served by an HTTP server instead of being written with the graph inside. The server sends the built viewer unchanged except for `<meta name="konstruct-serve" content="BASE">` in its head, where `BASE` is the path its files are under on the same origin (`""` for the root), and answers:
+
+| Request | Answer |
+|---------|--------|
+| `GET BASE/graph.json` | The graph, as in `konstruct-out/graph.json` |
+| `GET BASE/explain.json` | Optional: formulas, SQL, the ontology and conflicts, the object Konstruct embeds in a written page |
+| `GET BASE/events` | Server-sent events; any message means the graph changed |
+
+Without `explain.json` the page shows the graph, its descriptions and tests, but no formulas, SQL, ontology or conflicts. On each message the page fetches both files again and redraws in place, keeping the page, the selection, the zoom and the scroll position.
+
 ## Size and Performance
 
-The page itself is about 615 kB (215 kB compressed), of which about 255 kB is the translations; the graph and its SQL are added to that. A 1,000-model project opens its full lineage in under two seconds, and other pages open in a fraction of a second. Themes are dark and light, following the system setting, switchable from the top bar.
+The page itself is about 635 kB (220 kB compressed), of which about 260 kB is the translations; the graph and its SQL are added to that. On the generated projects of [Performance](../performance.md), a 1,000-model page shows its overview in about a second and draws its full lineage graph in about 2.5 seconds. Themes are dark and light, following the system setting, switchable from the top bar.
 
 The viewer's source is in `viewer/`; see [Development](../development.md) for how it is built and tested.

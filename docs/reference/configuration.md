@@ -137,6 +137,7 @@ In CI on a branch whose content is already trusted, such as the default branch a
 
 | Variable | Effect |
 |----------|--------|
+| `KONSTRUCT_LOCALE` | The language `graph.html` opens in when the reader has not chosen one, such as `de` or `pt-BR` (see [the viewer](../guide/viewer.md)) |
 | `KONSTRUCT_NO_PLUGINS` | `1` runs no plugin, whatever `[plugins] enabled` says, as `--no-plugins` does (see [Writing a Plugin](../guide/plugins.md)) |
 | `KONSTRUCT_TRUST_CONFIG` | `1` trusts every project, as `--trust-config` does (see [Trusting a Project's Connections](#trusting-a-projects-connections)) |
 | `XDG_CONFIG_HOME` | Where `konstruct trust` keeps its record, in `konstruct/trusted.json` |
