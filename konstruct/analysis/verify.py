@@ -514,6 +514,14 @@ class Engine:
         """Release the connection."""
 
 
+def _sandbox(con: Any) -> None:
+    """Keep a model's SQL to the copies verify makes: no files, URLs or extensions it names, and no
+    setting the SQL could change back."""
+    for setting in ('autoinstall_known_extensions', 'autoload_known_extensions', 'enable_external_access'):
+        con.execute(f'SET {setting} = false')
+    con.execute('SET lock_configuration = true')
+
+
 class DuckDBEngine(Engine):
     """An in-memory DuckDB with the warehouse file attached read-only."""
 
@@ -529,6 +537,7 @@ class DuckDBEngine(Engine):
             'SELECT database_name FROM duckdb_databases() WHERE path = ?', [str(warehouse.resolve())]
         ).fetchone()
         self.database = (row[0] if row else warehouse.stem).lower()
+        _sandbox(self.con)
 
     def start(self) -> None:
         self.con.execute('DROP SCHEMA IF EXISTS kp CASCADE')
@@ -898,6 +907,7 @@ class SampledEngine(DuckDBEngine):
         self.label = label
         self.graph = graph
         self.con = duckdb.connect()
+        _sandbox(self.con)
         self.con.execute('CREATE SCHEMA kp_cache')
         self.cached: dict[tuple[str, int], str | Exception] = {}
         self.database = ''

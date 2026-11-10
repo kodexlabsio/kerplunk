@@ -686,3 +686,15 @@ def test_the_warehouse_spelling_of_a_name_is_kept(tmp_path: Path) -> None:
     engine.copy('shop.main.lower_case', 1, 10)
     assert asked == [('shop', 'MyData', 'Orders'), ('shop', 'main', 'lower_case')]
     engine.close()
+
+
+def test_models_cannot_reach_files_urls_or_extensions(tmp_path: Path) -> None:
+    # The model's SQL runs against copies of its inputs only: reading a file or a URL it names, or
+    # loading an extension to do so, is refused, and the model is skipped with the reason.
+    (tmp_path / 'outside.csv').write_text('x\n1\n')
+    project = make_project(
+        tmp_path,
+        f"create table main.reads_file as select o.id, f.x from raw.orders o, read_csv('{tmp_path / 'outside.csv'}') f",
+    )
+    [model] = run(project).models
+    assert model.skipped is not None and 'access' in model.skipped.lower()
