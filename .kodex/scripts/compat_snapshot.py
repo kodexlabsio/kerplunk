@@ -135,7 +135,9 @@ def snapshot(bin_dir: Path, work: Path) -> tuple[str, Path]:
     for name, source in prepare(work / 'projects').items():
         root = work / 'run' / name
         shutil.copytree(source, root)
-        project_env = {**env, 'DBT_PROFILES_DIR': str(root)}
+        # The corpus projects are this repository's own, so each release reads them trusted, as
+        # CI does; releases before trust ignore the variable.
+        project_env = {**env, 'DBT_PROFILES_DIR': str(root), 'KONSTRUCT_TRUST_CONFIG': '1'}
         built = run([konstruct, 'build', str(root), '--json'], root, project_env)
         if built.returncode != 0:
             sys.exit(f'konstruct {version} could not build {name}:\n{built.stderr}')
