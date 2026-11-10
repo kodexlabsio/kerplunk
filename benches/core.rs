@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 use _core::graph::{EdgeKind, GraphIndex, NodeKind};
 use _core::keys;
 use _core::names::{Relation, RelationNames};
-use _core::search::{self, Document, SearchIndex, Standing};
+use _core::search::{Document, SearchIndex, Standing};
+use _core::words::Words;
 
 const MODELS: usize = 2000;
 const COLUMNS: usize = 20;
@@ -277,9 +278,10 @@ fn main() {
     );
 
     bench(filter, "words of every name and description", || {
+        let mut words = Words::default();
         let count: usize = nodes
             .iter()
-            .map(|n| search::words(&n.names).count() + search::words(&n.description).count())
+            .map(|n| words.of(&n.names).count() + words.of(&n.description).count())
             .sum();
         black_box(count);
     });

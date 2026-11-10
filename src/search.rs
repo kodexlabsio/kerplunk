@@ -14,6 +14,7 @@ use std::cmp::Ordering;
 use crate::fnv::FnvHashMap;
 use crate::graph;
 use crate::keys;
+use crate::words::Words;
 
 /// Words a question is made of that say nothing about what it is asking for.
 const STOPWORDS: &[&str] = &[
@@ -23,13 +24,6 @@ const STOPWORDS: &[&str] = &[
     "there", "these", "this", "those", "to", "use", "used", "uses", "using", "we", "what", "when",
     "where", "which", "who", "why", "will", "with", "would",
 ];
-
-/// The runs of ASCII letters and digits in `text`. Bytes of other characters are never ASCII in
-/// UTF-8, so scanning bytes splits exactly where a character scan would.
-pub fn words(text: &str) -> impl Iterator<Item = &str> {
-    text.split(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit()))
-        .filter(|w| !w.is_empty())
-}
 
 /// A query word and the singular forms it also matches.
 fn forms(token: &str) -> Vec<&str> {
@@ -100,6 +94,8 @@ pub struct SearchIndex {
     vocabulary: FnvHashMap<Box<str>, u32>,
     /// For each word number, how many nodes have the word among their names.
     frequency: Vec<u32>,
+    /// The boundaries of the words of the text being added.
+    words: Words,
 }
 
 impl SearchIndex {
@@ -132,14 +128,21 @@ impl SearchIndex {
     }
 
     fn word_numbers(&mut self, text: &str) -> Vec<u32> {
+        let Self {
+            vocabulary,
+            frequency,
+            words,
+            ..
+        } = self;
         // Looked up before it is inserted, so only a new word is copied into the vocabulary.
-        let mut numbers: Vec<u32> = words(text)
-            .map(|word| match self.vocabulary.get(word) {
+        let mut numbers: Vec<u32> = words
+            .of(text)
+            .map(|word| match vocabulary.get(word) {
                 Some(&number) => number,
                 None => {
-                    let next = graph::ordinal(self.vocabulary.len());
-                    self.vocabulary.insert(word.into(), next);
-                    self.frequency.push(0);
+                    let next = graph::ordinal(vocabulary.len());
+                    vocabulary.insert(word.into(), next);
+                    frequency.push(0);
                     next
                 }
             })
@@ -159,7 +162,8 @@ impl SearchIndex {
         limit: Option<usize>,
         kinds: &[&str],
     ) -> Vec<(u32, f64)> {
-        let tokens: Vec<&str> = words(text)
+        let tokens: Vec<&str> = Words::default()
+            .of(text)
             .filter(|w| STOPWORDS.binary_search(w).is_err())
             .collect();
         if tokens.is_empty() {
@@ -269,11 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn words_are_ascii_letter_and_digit_runs() {
-        assert_eq!(
-            words("orders.amount_usd, 2nd-é x").collect::<Vec<_>>(),
-            ["orders", "amount", "usd", "2nd", "x"]
-        );
+    fn plural_forms() {
         assert_eq!(forms("classes"), ["classes", "classe", "class"]);
         assert_eq!(forms("bus"), ["bus"]);
     }
