@@ -248,7 +248,7 @@ Try the [live demo](https://kodexlabsio.github.io/konstruct/demo/): the viewer f
 
 **Where to use it**
 
-- The command line: `konstruct init`, `konstruct build`, `konstruct status`, `konstruct open` and every command above, the commands that answer a question with `--json` output for scripts ([every command](https://kodexlabsio.github.io/konstruct/reference/cli.html)).
+- The command line: `konstruct init`, `konstruct build`, `konstruct status`, `konstruct open` and every command above, the commands that answer a question with `--json` output for scripts ([every command](https://kodexlabsio.github.io/konstruct/reference/cli.html)), versioned so that scripts keep working from one release to the next ([compatibility](https://kodexlabsio.github.io/konstruct/reference/outputs.html#compatibility)).
 - Coding agents: `konstruct install` adds the skill for Claude Code and Cursor, and `konstruct mcp` runs the [MCP server](https://kodexlabsio.github.io/konstruct/reference/mcp.html), whose tools are `impact`, `trace`, `path`, `search`, `describe`, `query`, `explain`, `history`, `define`, `conflicts`, `ontology`, `diff` and `gate`.
 - Python: `konstruct.Project`, with [typed results](https://kodexlabsio.github.io/konstruct/reference/python-api.html) for every question.
 - A browser: `graph.html`, [one offline file](https://kodexlabsio.github.io/konstruct/guide/viewer.html) with the lineage, formulas, business terms, verification results and usage, with `REPORT.md` and `ontology.yml` beside it for reading in a repository.
