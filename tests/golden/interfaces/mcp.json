@@ -33,6 +33,7 @@
  "mcp search": "tool",
  "mcp search kinds": "array of string|null = None",
  "mcp search limit": "integer = 20",
+ "mcp search mode": "string = 'keyword'",
  "mcp search text": "string, required",
  "mcp trace": "tool",
  "mcp trace max_depth": "integer|null = None",

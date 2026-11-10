@@ -319,25 +319,39 @@ class Project:
         """
         return query.path(self.graph, start, end)
 
-    def search(self, text: str, limit: int = 20, kinds: list[str] | None = None) -> query.SearchResult:
-        """Find nodes whose names, synonyms or descriptions match the words in ``text``.
+    def search(
+        self,
+        text: str,
+        limit: int = 20,
+        kinds: list[str] | None = None,
+        mode: query.SearchMode = 'keyword',
+    ) -> query.SearchResult:
+        """Find nodes whose names, synonyms or descriptions match the words in ``text``, or, with
+        ``mode='semantic'``, that match them by meaning.
 
         Words matching a name count for more than words in a description, rarer words for more
-        than common ones, and business terms rank above columns with the same words.
+        than common ones, and business terms rank above columns with the same words. Search by
+        meaning also finds a node through the abbreviations and synonyms of data work, its
+        formula and its lineage (see :func:`konstruct.analysis.semantic.search`), with exact
+        names still first; its index is made on first use and saved as ``vectors.bin`` in the
+        output directory.
 
         Args:
             text: The words to look for.
             limit: The most results to return.
             kinds: Only these node kinds, such as ``['column']`` or ``['model', 'table']``.
+            mode: ``keyword`` (the default) or ``semantic``.
 
         Returns:
-            Matching nodes, best first, each with a ``score``.
+            Matching nodes, best first, each with a ``score``, and in a search by meaning what
+            the match rests on (``matched``).
 
         Example::
 
             project.search('lifetime value', kinds=['column']).results[0].label
+            project.search('revenue', mode='semantic').results[0].matched
         """
-        return query.search(self.graph, text, limit, kinds)
+        return query.search(self.graph, text, limit, kinds, mode, self.out_dir)
 
     def describe(self, ref: str) -> query.Description:
         """One node in detail.

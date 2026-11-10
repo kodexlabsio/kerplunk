@@ -72,6 +72,10 @@ def test_query_commands(jaffle_built_graph: Path, capsys: pytest.CaptureFixture[
     assert code == 0 and '  v feeds\n  orders      model' in out
     code, out, _ = run(capsys, 'search', 'lifetime', 'value', '-C', project, '-n', '1')
     assert code == 0 and out.startswith('Customer lifetime value')
+    code, out, _ = run(capsys, 'search', '--meaning', 'turnover', '-C', project, '-k', 'column', '--json')
+    found = json.loads(out)['results']
+    assert code == 0 and 'orders.amount' in [r['label'] for r in found]
+    assert all(r['kind'] == 'column' and r.get('matched') for r in found)
     graph_file = str(jaffle_built_graph / 'konstruct-out' / 'graph.json')
     code, out, _ = run(capsys, 'describe', 'customers', '--graph', graph_file)
     assert code == 0 and out.startswith('customers (model)')

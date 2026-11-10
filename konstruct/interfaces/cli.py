@@ -17,7 +17,7 @@ import textwrap
 import webbrowser
 from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from konstruct import __version__
 from konstruct.core.formats import FIELD, FIRST, FormatError, document
@@ -28,6 +28,9 @@ from konstruct.interfaces.project import OUT_DIR, Project, find_out_dir
 from konstruct.interfaces.render import build_lines
 from konstruct.interfaces.skill import AGENT_CHOICES
 from konstruct.plugins.registry import BUILTINS
+
+if TYPE_CHECKING:
+    from konstruct.analysis.query import SearchMode
 
 __all__ = ['OUT_DIR', 'find_out_dir', 'main', 'parser']
 
@@ -217,7 +220,8 @@ def cmd_path(args: argparse.Namespace, console: Console) -> int:
 
 def cmd_search(args: argparse.Namespace, console: Console) -> int:
     project = _ready(_project(args), args, console)
-    _emit(console, project.search(' '.join(args.text), args.limit, args.kind), args.json)
+    mode: SearchMode = 'semantic' if args.meaning else 'keyword'
+    _emit(console, project.search(' '.join(args.text), args.limit, args.kind, mode), args.json)
     return 0
 
 
@@ -572,6 +576,7 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
     'search': (
         ('konstruct search lifetime value', 'names and descriptions that match'),
         ('konstruct search -k column -n 5 amount', 'the five best matching columns'),
+        ('konstruct search --meaning revenue', 'columns that mean revenue, whatever their names'),
     ),
     'describe': (
         ('konstruct describe orders', 'columns, tests and neighbours of a model'),
@@ -956,6 +961,9 @@ def parser() -> argparse.ArgumentParser:
     )
     search.add_argument(
         '-n', '--limit', type=int, default=20, metavar='N', help='at most N results (default 20)'
+    )
+    search.add_argument(
+        '-m', '--meaning', action='store_true', help='also match by meaning: synonyms, formulas, lineage'
     )
     _query_options(search)
     search.set_defaults(func=cmd_search)

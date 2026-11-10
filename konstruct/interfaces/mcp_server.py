@@ -20,7 +20,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 
 from konstruct import __version__
-from konstruct.analysis.query import QueryError
+from konstruct.analysis.query import QueryError, SearchMode
 from konstruct.core.formats import FormatError, document
 from konstruct.engine.config import ConfigError
 from konstruct.interfaces import toolkit
@@ -167,10 +167,15 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
         return run(project.trace, ref, max_depth)
 
     @server.tool()
-    def search(text: str, limit: int = 20, kinds: list[str] | None = None) -> dict[str, Any]:
+    def search(
+        text: str, limit: int = 20, kinds: list[str] | None = None, mode: SearchMode = 'keyword'
+    ) -> dict[str, Any]:
         """Find nodes whose names or descriptions match the words in `text`. `kinds` limits the
-        results to node kinds: source, table, column, model, seed, snapshot, dag, task, test, exposure."""
-        return run(project.search, text, limit, kinds)
+        results to node kinds: source, table, column, model, seed, snapshot, dag, task, test, exposure.
+        `mode` `semantic` also finds them by meaning (abbreviations, synonyms, formulas and
+        lineage: `revenue` finds `net_sales_amt`), each result saying what it `matched` on; use it
+        when the words of a question may not be the names in the project."""
+        return run(project.search, text, limit, kinds, mode)
 
     @server.tool()
     def describe(ref: str) -> dict[str, Any]:

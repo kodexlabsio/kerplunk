@@ -222,7 +222,7 @@ def test_a_graph_with_no_file_builds_its_index_in_memory() -> None:
 def test_the_example_project(jaffle_built_graph: Path) -> None:
     project = Project(jaffle_built_graph)
     graph = project.graph
-    ltv = labels(semantic.search(graph, 'lifetime value', limit=5, out_dir=project.out_dir))
+    ltv = labels(project.search('lifetime value', limit=5, mode='semantic'))
     assert 'customer_ltv.lifetime_value' in ltv[:3]
     assert (project.out_dir / semantic.VECTOR_FILE).is_file()
     payments = labels(semantic.search(graph, 'payment amount', limit=10))

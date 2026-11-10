@@ -307,6 +307,10 @@ MCP tools, and whether each runs; and \cmd{konstruct install}, \cmd{konstruct mc
 \cmd{konstruct hook} connect coding agents. The Python API, \cmd{konstruct.Project}, returns
 typed results for each question, and \cmd{graph.html} is one offline file with the lineage,
 formulas, terms, verification results and usage.
+With \cmd{--meaning}, \cmd{konstruct search} also finds a node by what it is rather than what it
+is called: identifiers are read as words, with the abbreviations and synonyms of data work, and
+each node is scored, with no trained model, on the words, formula tokens and lineage it shares
+with the question.
 
 \paragraph{Grounding agents} \cmd{konstruct mcp} runs a Model Context Protocol server with
 \mcpTools{} tools: \cmd{impact}, \cmd{trace}, \cmd{path}, \cmd{search}, \cmd{describe},

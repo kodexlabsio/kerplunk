@@ -323,6 +323,7 @@
  "python konstruct.Project.search ->": "query.SearchResult",
  "python konstruct.Project.search kinds": "#2 list[str] | None = None",
  "python konstruct.Project.search limit": "#1 int = 20",
+ "python konstruct.Project.search mode": "#3 query.SearchMode = 'keyword'",
  "python konstruct.Project.search text": "#0 str, required",
  "python konstruct.Project.trace": "method",
  "python konstruct.Project.trace ->": "query.Walk",

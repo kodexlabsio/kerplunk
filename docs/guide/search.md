@@ -2,12 +2,8 @@
 
 Word search finds a column when the question uses its name. Search by meaning also finds it when the name says nothing: a column called `net_sales_amt` answers "revenue", because its name expands (`amt` is amount, sales are revenue), its formula reads columns named for revenue, and the columns upstream of it and the business terms that define it say the same.
 
-```python
-from pathlib import Path
-from konstruct.analysis import query
-
-out = Path('konstruct-out')
-print(query.search(query.load_graph(out), 'revenue', limit=3, mode='semantic', out_dir=out))
+```bash
+konstruct search --meaning revenue -n 3
 ```
 
 ```text
@@ -18,7 +14,7 @@ fct_sales.net_sales_amt  table         by lineage  sql/marts.sql
 
 Here `raw.orders.revenue` is renamed `rev` in staging, and the mart computes `rev - refund_amt_gbp as net_sales_amt`: word search finds the first two, and only search by meaning the third.
 
-Each result has a `score` and, in `to_dict()`, `matched`: what a match by meaning rests on most.
+The same search is `project.search('revenue', mode='semantic')` in the Python API and the MCP tool `search` with `mode='semantic'`. Each result has a `score` and, in `--json` and `to_dict()`, `matched`: what a match by meaning rests on most.
 
 | `matched` | The match comes from |
 |-----------|----------------------|
@@ -29,7 +25,7 @@ Each result has a `score` and, in `to_dict()`, `matched`: what a match by meanin
 
 A node is found only through a word, concept or formula token it shares with the question, never through shared letters alone, and words the project never uses are left out of the question: a search for something the project does not hold finds nothing.
 
-Every kind of node can be found: columns, models, tables, sources, tasks, tests, dashboards and business terms. `kinds=['column']` keeps only some kinds.
+Every kind of node can be found: columns, models, tables, sources, tasks, tests, dashboards and business terms. `--kind column` (`kinds=['column']`) keeps only some kinds.
 
 ## Exact Names First
 

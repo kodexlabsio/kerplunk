@@ -55,6 +55,11 @@ async def _exercise(client: Client) -> None:
         await client.call_tool('search', {'text': 'lifetime', 'limit': 2, 'kinds': ['column']})
     )
     assert len(search['results']) == 2
+    meaning = structured(
+        await client.call_tool('search', {'text': 'surname', 'limit': 3, 'mode': 'semantic'})
+    )
+    assert meaning['results'][0]['label'] == 'customers.last_name'
+    assert meaning['results'][0]['matched'] == 'words'
     describe = structured(await client.call_tool('describe', {'ref': 'customers'}))
     assert describe['kind'] == 'model'
     assert structured(await client.call_tool('conflicts', {}))['conflicts'] == []

@@ -219,6 +219,7 @@ Try the [live demo](https://kodexlabsio.github.io/konstruct/demo/): the viewer f
 - `konstruct path`: how two tables or columns are connected.
 - `konstruct build --update`: an incremental rebuild that reanalyses only what changed.
 - `konstruct search`, `konstruct describe`, `konstruct list` and `konstruct query`: find anything in the graph by name, inspect one node, list a kind, or ask in plain words.
+- `konstruct search --meaning`: find a column by what it is, not only what it is called: "revenue" finds `net_sales_amt` through abbreviations, synonyms, its formula and its lineage, computed locally from the graph.
 - One graph across repositories that share a warehouse, and across warehouses.
 
 **How a value is calculated**

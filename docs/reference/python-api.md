@@ -93,6 +93,7 @@ print(' -> '.join(step.label for step in path.steps))
 
 ```python
 project.search('lifetime value', kinds=['column']).results
+project.search('revenue', mode='semantic').results  # by meaning: synonyms, formulas, lineage
 project.describe('orders').columns
 project.list(['model', 'table']).items
 project.query('what breaks if stg_payments.amount changes').impact
