@@ -1,3 +1,14 @@
+## v0.12.5 (2026-11-10)
+
+### Feat
+
+- **mcp**: Mark repository text in tool results as data, not instructions
+
+### Fix
+
+- **lineage**: Keep the input's row order in the shuffled copy verify compares
+- **lineage**: Keep a verified model to the copies of its inputs
+
 ## v0.12.4 (2026-11-10)
 
 ### Fix
