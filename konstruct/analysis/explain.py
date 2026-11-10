@@ -535,12 +535,7 @@ class Explainer:
             return failed
         tree: exp.Expr = parsed
         self.active.add(node.id)
-        by_name = {(u.parent or '', u.name.lower()): u for u in upstream}
-        by_relation = {}
-        for u in upstream:
-            owner = graph.parent_of(u)
-            if owner is not None and owner.relation:
-                by_relation[(owner.relation.lower(), u.name.lower())] = u
+        resolve = self.inputs(node, upstream)
         sources: set[str] = set()
         complete = True
         # Formulas roughly double at each join, so the budget is checked before substituting,
@@ -551,17 +546,12 @@ class Explainer:
             nonlocal complete, size
             if not isinstance(item, exp.Column):
                 return item
-            found = self.namer.resolve(item)
+            found = resolve(item)
             if found is None:
                 return item
-            relation, name = found
+            relation, name, target = found
             # Whatever happens next, a column that stays in the formula gets its short name.
             short = self.namer.column(name, relation)
-            target = (
-                by_name.get((relation.id, name.lower()))
-                or (by_relation.get((relation.relation.lower(), name.lower())) if relation.relation else None)
-                or graph.nodes.get(f'{relation.id}#{name}')
-            )
             if target is None:
                 return short
             inner = self.compose(target, depth + 1)
@@ -585,6 +575,41 @@ class Explainer:
         result = _Composed(composed, frozenset(sources), complete, size, original)
         self.memo[node.id] = result
         return result
+
+    def inputs(
+        self, node: Node, upstream: list[Node] | None = None
+    ) -> Callable[[exp.Column], tuple[Node, str, Node | None] | None]:
+        """How the columns in ``node``'s expression resolve: for each, the relation and column
+        name it names, and the column node it reads when the graph has one."""
+        graph = self.graph
+        upstream = _composed_from(graph, node) if upstream is None else upstream
+        by_name = {(u.parent or '', u.name.lower()): u for u in upstream}
+        # Needed only when a name does not match an input directly, so built on first use.
+        by_relation: dict[tuple[str, str], Node] | None = None
+
+        def relations() -> dict[tuple[str, str], Node]:
+            nonlocal by_relation
+            if by_relation is None:
+                by_relation = {}
+                for u in upstream:
+                    owner = graph.parent_of(u)
+                    if owner is not None and owner.relation:
+                        by_relation[(owner.relation.lower(), u.name.lower())] = u
+            return by_relation
+
+        def resolve(item: exp.Column) -> tuple[Node, str, Node | None] | None:
+            found = self.namer.resolve(item)
+            if found is None:
+                return None
+            relation, name = found
+            target = (
+                by_name.get((relation.id, name.lower()))
+                or (relations().get((relation.relation.lower(), name.lower())) if relation.relation else None)
+                or graph.nodes.get(f'{relation.id}#{name}')
+            )
+            return relation, name, target
+
+        return resolve
 
     def steps(self, column: Node) -> list[Step]:
         """Every column from ``column`` upstream, nearest first, with its formula and conditions."""
