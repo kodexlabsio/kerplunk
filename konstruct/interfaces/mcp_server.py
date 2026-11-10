@@ -17,6 +17,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from konstruct import __version__
 from konstruct.analysis.query import QueryError
+from konstruct.core.formats import FormatError, document
 from konstruct.engine.config import ConfigError
 from konstruct.interfaces.project import Project
 from konstruct.plugins.registry import describe as describe_error
@@ -57,8 +58,8 @@ def build_server(root: Path, *, plugins: bool = True) -> MCPServer:
                 f'no graph at {project.graph_path}; run `konstruct build` in the project first'
             )
         try:
-            result: dict[str, Any] = func(*args).to_dict()
-        except QueryError as error:
+            result: dict[str, Any] = document(func(*args))
+        except (QueryError, FormatError) as error:
             raise _untrusted_error(str(error)) from error
         return {'untrusted_content': UNTRUSTED_CONTENT, **result}
 

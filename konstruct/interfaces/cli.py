@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from konstruct import __version__
+from konstruct.core.formats import FIELD, FIRST, FormatError, document
 from konstruct.interfaces.console import Console, style_for
 from konstruct.interfaces.layout import Style, Text, paragraph, wrap
 from konstruct.interfaces.layout import command as command_lines
@@ -71,7 +72,7 @@ def _ready(
 
 def _emit(console: Console, result: Any, as_json: bool) -> None:
     if as_json:
-        console.print(json.dumps(result.to_dict(), indent=2))
+        console.print(json.dumps(document(result), indent=2))
     else:
         console.print(result.text(console.ui))
 
@@ -113,6 +114,7 @@ def cmd_build(args: argparse.Namespace, console: Console) -> int:
     outputs = [_relative(p) for p in result.outputs]
     if args.json:
         summary = {
+            FIELD: FIRST,
             'root': str(config.root),
             'outputs': outputs,
             'seconds': round(result.seconds, 2),
@@ -317,9 +319,9 @@ def cmd_gate(args: argparse.Namespace, console: Console) -> int:
         console.error(str(error))
         return 1
     if args.json_file:
-        Path(args.json_file).write_text(json.dumps(result.to_dict(), indent=2) + '\n', encoding='utf-8')
+        Path(args.json_file).write_text(json.dumps(document(result), indent=2) + '\n', encoding='utf-8')
     if args.format == 'json' or args.json:
-        console.print(json.dumps(result.to_dict(), indent=2))
+        console.print(json.dumps(document(result), indent=2))
     elif args.format == 'markdown':
         console.print(result.markdown().rstrip())
     else:
@@ -339,9 +341,9 @@ def cmd_diff(args: argparse.Namespace, console: Console) -> int:
         console.error(str(error))
         return 1
     if args.json_file:
-        Path(args.json_file).write_text(json.dumps(result.to_dict(), indent=2) + '\n', encoding='utf-8')
+        Path(args.json_file).write_text(json.dumps(document(result), indent=2) + '\n', encoding='utf-8')
     if args.format == 'json' or args.json:
-        console.print(json.dumps(result.to_dict(), indent=2))
+        console.print(json.dumps(document(result), indent=2))
     elif args.format == 'markdown':
         console.print(result.markdown().rstrip())
     elif args.format == 'selector':
@@ -1066,7 +1068,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if isinstance(error, QueryError):
             console.error(str(error), hint=error.hint, suggestions=error.suggestions)
             return 1
-        if isinstance(error, (ConfigError, InstallError, ExportError)):
+        if isinstance(error, (ConfigError, InstallError, ExportError, FormatError)):
             console.error(str(error))
             return 1
         if isinstance(error, BrokenPipeError):

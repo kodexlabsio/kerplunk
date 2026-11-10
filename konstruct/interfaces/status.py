@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from konstruct.core.formats import FormatError
 from konstruct.core.graph import Graph
 from konstruct.engine.config import (
     Config,
@@ -119,7 +120,7 @@ class Status:
             rows.append(('vocabularies', _files(self.vocabulary_files, 'vocabulary file')))
         if self.ossie_files:
             rows.append(('ossie', _files(self.ossie_files, 'Ossie model')))
-        if self.graph.get('exists'):
+        if self.graph.get('exists') and 'unreadable' not in self.graph:
             shown = [f'{p["name"]} ({p["detail"]})' for p in self.ontology_packs]
             packs = ', '.join(shown[:4]) + (f' and {len(shown) - 4} more' if len(shown) > 4 else '')
             rows.append(('packs', packs or 'none bound in the last build'))
@@ -141,7 +142,9 @@ class Status:
         graph = self.graph
         if graph.get('exists'):
             state = (
-                'up to date'
+                graph['unreadable']
+                if 'unreadable' in graph
+                else 'up to date'
                 if not graph['changed']
                 else f'{len(graph["changed"])} input(s) changed since: ' + ', '.join(graph['changed'][:5])
             )
@@ -307,7 +310,12 @@ def inspect(
         status.repositories.append(entry)
     graph_path = out / 'graph.json'
     if graph_path.is_file():
-        graph = Graph.read(graph_path)
+        unreadable: dict[str, str] = {}
+        try:
+            graph = Graph.read(graph_path)
+        except FormatError as error:
+            # Status is where people look when something is wrong: report it, as an empty graph.
+            graph, unreadable = Graph(), {'unreadable': str(error)}
         status.graph = {
             'exists': True,
             'path': _relative(graph_path, root),
@@ -316,6 +324,7 @@ def inspect(
             'changed': changed_inputs(graph_path, graph),
             'nodes': len(graph.nodes),
             'warnings': len(graph.warnings),
+            **unreadable,
         }
         sources = [s for s in graph.meta.get('sources') or [] if isinstance(s, dict)]
         status.ontology_packs = [

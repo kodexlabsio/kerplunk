@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Literal, TypeVar, cast
 
 from konstruct import _core
-from konstruct.core import jsonio
+from konstruct.core import formats, jsonio
 
 NodeKind = Literal[
     'source', 'table', 'column', 'model', 'seed', 'snapshot', 'dag', 'task', 'test', 'exposure', 'term'
@@ -43,6 +43,7 @@ RELATION_KINDS: frozenset[str] = frozenset({'source', 'table', 'model', 'seed', 
 # When several nodes describe one physical relation (a seed and the dbt source that reads it), SQL
 # that names the relation resolves to the first kind in this order.
 RELATION_PRIORITY: dict[str, int] = {'source': 0, 'model': 1, 'snapshot': 2, 'seed': 3, 'table': 4}
+# The graph.json format; konstruct.core.formats says when it changes. Every earlier format is read.
 GRAPH_FORMAT_VERSION = 1
 
 _Index = TypeVar('_Index')
@@ -437,7 +438,13 @@ class Graph:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Graph:
+    def from_dict(cls, data: dict[str, Any], source: str = 'the graph') -> Graph:
+        """The graph in ``data``, as ``to_dict`` writes it in this or any earlier format.
+
+        Raises:
+            konstruct.FormatError: A newer Konstruct wrote ``data`` (``source`` names it).
+        """
+        formats.check(data, GRAPH_FORMAT_VERSION, source)
         graph = cls()
         graph.meta = dict(data.get('meta', {}))
         for item in data.get('nodes', []):
@@ -456,7 +463,7 @@ class Graph:
     @classmethod
     def read(cls, path: Path) -> Graph:
         """Load a graph from a ``graph.json`` file."""
-        return cls.from_dict(jsonio.loads(path.read_bytes()))
+        return cls.from_dict(jsonio.loads(path.read_bytes()), str(path))
 
     def stats(self) -> dict[str, int]:
         counts: dict[str, int] = {}

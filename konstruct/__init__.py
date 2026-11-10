@@ -28,6 +28,7 @@ if TYPE_CHECKING:
         TermDefinition,
         Walk,
     )
+    from konstruct.core.formats import FormatError
     from konstruct.core.graph import Edge, Graph, Node
     from konstruct.interfaces.project import Project
 
@@ -51,6 +52,7 @@ _EXPORTS = {
         ),
         'konstruct.analysis.query',
     ),
+    'FormatError': 'konstruct.core.formats',
     **dict.fromkeys(('Edge', 'Graph', 'Node'), 'konstruct.core.graph'),
     'Project': 'konstruct.interfaces.project',
 }
@@ -77,6 +79,7 @@ __all__ = [
     'Edge',
     'EdgeItem',
     'Explanation',
+    'FormatError',
     'Graph',
     'Item',
     'Listing',

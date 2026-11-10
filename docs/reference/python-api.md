@@ -18,8 +18,10 @@ for column in walk.columns:
 Every result is a dataclass. `str(result)` is the text the CLI prints to a pipe, `result.text(style)`
 the same result drawn for a terminal (with a `konstruct.interfaces.layout.Style` giving colour,
 Unicode and width), and `result.to_dict()` the JSON that `--json` and the MCP server return, so a
-script can move between them freely. A name that matches nothing, or several things, raises
-{class}`konstruct.QueryError`, whose `suggestions` are the closest names and `hint` a command to try.
+script can move between them freely (`--json` and MCP add the result's `format_version`, see
+[Compatibility](outputs.md#compatibility)). A name that matches nothing, or several things, raises
+{class}`konstruct.QueryError`, whose `suggestions` are the closest names and `hint` a command to try,
+and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatError`.
 
 `konstruct.Project`, the result types it returns and {class}`konstruct.QueryError` are imported from
 `konstruct` itself. The modules behind them are grouped by role, for code that needs one directly:
@@ -469,6 +471,8 @@ entry-point group, and what Konstruct gives it. Everything here is imported from
 
 ```{eval-rst}
 .. autoexception:: konstruct.QueryError
+
+.. autoexception:: konstruct.FormatError
 
 .. autoexception:: konstruct.analysis.diff.DiffError
 

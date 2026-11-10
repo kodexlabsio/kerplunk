@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from konstruct.analysis import query
+from konstruct.core.formats import document
 from konstruct.core.graph import Graph
 
 if TYPE_CHECKING:
@@ -66,7 +67,9 @@ class Project:
     ``source_name.table``, a task as ``dag_id.task_id``, or a node id.
 
     Every result is a dataclass: ``str(result)`` is the CLI's text and ``result.to_dict()`` the
-    JSON that ``--json`` and the MCP server return.
+    JSON that ``--json`` and the MCP server return, which add its ``format_version``. A
+    ``graph.json`` written by a newer Konstruct raises :class:`~konstruct.FormatError` rather than
+    being misread.
 
     Args:
         path: The project root, or any directory inside one that has already been built.
@@ -358,7 +361,7 @@ class Project:
         if write:
             (self.out_dir / 'CONFLICTS.md').write_text(result.markdown(), encoding='utf-8')
             (self.out_dir / 'conflicts.json').write_text(
-                json.dumps(result.to_dict(), indent=1) + '\n', encoding='utf-8'
+                json.dumps(document(result), indent=1) + '\n', encoding='utf-8'
             )
         return result
 
@@ -602,7 +605,7 @@ class Project:
                 derive_ontology(graph).write(self.out_dir / 'ontology.yml')
             (self.out_dir / 'VERIFY.md').write_text(result.markdown(), encoding='utf-8')
             (self.out_dir / 'verify.json').write_text(
-                json.dumps(result.to_dict(), indent=1) + '\n', encoding='utf-8'
+                json.dumps(document(result), indent=1) + '\n', encoding='utf-8'
             )
         return result
 
