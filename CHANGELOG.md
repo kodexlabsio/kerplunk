@@ -1,3 +1,10 @@
+## v0.13.2 (2026-11-10)
+
+### Refactor
+
+- **tests**: Move the fuzz harnesses to tests/fuzz_targets/
+- **skill**: Move the Claude Code plugin to claude-code-plugin/
+
 ## v0.13.1 (2026-11-10)
 
 ### Feat
