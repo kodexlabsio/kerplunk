@@ -12,6 +12,8 @@ import pytest
 from konstruct import Project
 from konstruct.interfaces.cli import main
 
+from .conftest import copy_example
+
 
 def git(root: Path, *args: str) -> None:
     subprocess.run(
@@ -234,3 +236,25 @@ def test_a_removed_column_is_not_taken_for_one_of_the_same_name(repo: Path) -> N
     )
     # The approved term names main.ltv.revenue, which is still there.
     assert Project(repo).gate(base='HEAD').passed
+
+
+@pytest.mark.dbt
+def test_renaming_a_column_read_from_an_unloaded_seed_fails(tmp_path: Path, dbt_on_path: None) -> None:
+    # A fresh clone of the example: `dbt build` has not run, so the seeds are not in the warehouse.
+    root = copy_example(tmp_path)
+    (root / '.gitignore').write_text('konstruct-out/\ntarget/\nlogs/\n*.duckdb\n')
+    git(root, 'init', '-q', '-b', 'main')
+    git(root, 'add', '-A')
+    git(root, 'commit', '-qm', 'base')
+    Project(root).build()
+    staging = root / 'models' / 'staging' / 'stg_payments.sql'
+    staging.write_text(staging.read_text().replace('amount / 100 as amount', 'amount / 100 as amount_aud'))
+    result = Project(root).gate(base='HEAD')
+    assert not result.passed
+    breaking = [f for f in result.findings if f.rule == 'breaking']
+    assert [(f.message, f.path) for f in breaking] == [
+        (
+            'stg_payments.amount is removed but still read by customers, orders',
+            'models/staging/stg_payments.sql',
+        )
+    ]

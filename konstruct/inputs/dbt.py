@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import os
@@ -47,6 +48,7 @@ class DbtProject:
     target_path: Path
     profile: str | None = None
     source_paths: list[Path] = field(default_factory=list)
+    seed_paths: list[Path] = field(default_factory=list)
 
     @property
     def manifest_path(self) -> Path:
@@ -69,6 +71,16 @@ class ModelSql:
 
 
 @dataclass
+class SeedFile:
+    """The CSV file of a seed that the catalog does not list, whose header row names its columns
+    when the warehouse does not have the table either."""
+
+    node_id: str
+    path: Path
+    delimiter: str
+
+
+@dataclass
 class DbtLoad:
     project: DbtProject
     dialect: str | None
@@ -78,6 +90,7 @@ class DbtLoad:
     manifest_checksum: str | None
     has_catalog: bool = True
     counts: dict[str, int] = field(default_factory=dict)
+    seed_files: list[SeedFile] = field(default_factory=list)
 
 
 def walk_dirs(root: Path) -> Iterator[Path]:
@@ -105,6 +118,7 @@ def read_project(root: Path) -> DbtProject | None:
     if not isinstance(config, dict):
         return None
     paths: list[Path] = []
+    seed_paths: list[Path] = []
     for key, default in (
         ('model-paths', ['models']),
         ('seed-paths', ['seeds']),
@@ -112,13 +126,17 @@ def read_project(root: Path) -> DbtProject | None:
         ('macro-paths', ['macros']),
         ('test-paths', ['tests']),
     ):
-        paths.extend(root / p for p in config.get(key, default) if isinstance(p, str))
+        found = [root / p for p in config.get(key, default) if isinstance(p, str)]
+        paths.extend(found)
+        if key == 'seed-paths':
+            seed_paths = found
     return DbtProject(
         root=root,
         name=str(config.get('name', root.name)),
         target_path=root / str(config.get('target-path', 'target')),
         profile=config.get('profile'),
         source_paths=paths,
+        seed_paths=seed_paths,
     )
 
 
@@ -254,6 +272,33 @@ def _catalog_columns(
     return [(c['name'], c.get('type'), _description(c.get('comment'))) for c in columns if c.get('name')]
 
 
+def _seed_file(project: DbtProject, item: dict[str, Any]) -> Path | None:
+    """A seed's CSV file: the manifest's path, or a file of the seed's name in the seed paths."""
+    path = item.get('original_file_path')
+    if isinstance(path, str) and (project.root / path).is_file():
+        return project.root / path
+    for base in project.seed_paths:
+        if base.is_dir():
+            found = sorted(base.rglob(f'{item["name"]}.csv'))
+            if found:
+                return found[0]
+    return None
+
+
+def seed_header(path: Path, delimiter: str = ',') -> list[str]:
+    """The column names in the header row of a seed's CSV file, as dbt reads it: UTF-8 with an
+    optional byte order mark. Nothing in the file is run or loaded.
+
+    Raises:
+        OSError: The file cannot be opened.
+        UnicodeDecodeError: The file is not UTF-8.
+        csv.Error: The header row is not valid CSV.
+    """
+    with path.open(encoding='utf-8-sig', newline='') as file:
+        row = next(csv.reader(file, delimiter=delimiter), [])
+    return [name for name in row if name]
+
+
 def _primary_key(item: dict[str, Any]) -> list[str]:
     """The columns of a model's ``primary_key`` constraint, declared on the model or on its columns."""
     for constraint in item.get('constraints') or []:
@@ -352,6 +397,7 @@ def load(project: DbtProject, graph: Graph, *, dialect: str | None) -> DbtLoad |
     models: list[ModelSql] = []
     schemas: dict[tuple[str | None, str | None], int] = {}
     renderer: Renderer | None = None
+    seed_files: list[SeedFile] = []
     for item in manifest.get('nodes', {}).values():
         kind = RELATION_TYPES.get(item.get('resource_type', ''))
         if kind is None:
@@ -378,6 +424,17 @@ def load(project: DbtProject, graph: Graph, *, dialect: str | None) -> DbtLoad |
             )
         )
         _add_columns(graph, node, item, catalog)
+        if kind == 'seed' and not _catalog_columns(catalog, item['unique_id']):
+            path = _seed_file(project, item)
+            if path is not None:
+                delimiter = config.get('delimiter')
+                seed_files.append(
+                    SeedFile(
+                        node.id,
+                        path,
+                        delimiter if isinstance(delimiter, str) and len(delimiter) == 1 else ',',
+                    )
+                )
         upstream = [n for n in item.get('depends_on', {}).get('nodes', []) if not n.startswith('macro.')]
         for parent in upstream:
             graph.add_edge(parent, node.id, 'feeds', origin='dbt')
@@ -451,6 +508,7 @@ def load(project: DbtProject, graph: Graph, *, dialect: str | None) -> DbtLoad |
         default_schema=default_schema,
         manifest_checksum=metadata.get('invocation_id'),
         has_catalog=catalog is not None,
+        seed_files=seed_files,
         counts={
             kind: sum(1 for item in group.values() if item.get('resource_type') == kind)
             for kind, group in (

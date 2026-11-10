@@ -217,6 +217,21 @@ def test_a_removed_column_still_read_downstream_is_breaking(
     assert Project(repo).diff(base='HEAD').breaking == []
 
 
+def test_a_removed_column_read_through_select_star_is_breaking(repo: Path) -> None:
+    # main.ltv is not in the warehouse: only its SQL lists its columns.
+    (repo / 'sql' / 'summary.sql').write_text(
+        'create table main.summary as with l as (select * from main.ltv) select sum(orders) as placed from l'
+    )
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'summary')
+    Project(repo).build()
+    (repo / 'sql' / 'ltv.sql').write_text(BASE_LTV.replace('count(*) as orders', 'count(*) as order_count'))
+    # Built after the change, as the gate does, the graph no longer lists ltv.orders.
+    Project(repo).build()
+    [(label, change)] = Project(repo).diff(base='HEAD').breaking
+    assert (label, change.column, change.breaks) == ('ltv', 'orders', ['summary'])
+
+
 def test_changed_conditions_are_row_changes(repo: Path) -> None:
     (repo / 'sql' / 'ltv.sql').write_text(
         BASE_LTV.replace("status <> 'void'", "status not in ('void', 'test')")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import logging
 import os
@@ -272,6 +273,10 @@ class Builder:
             target.attrs['conditions'] = statement.conditions
         for name, sources in statement.columns.items():
             out = self.column(target, name, origin)
+            if not target.attrs.get('in_warehouse'):
+                # The SQL that builds a relation the warehouse does not have yet is what defines its
+                # columns, so a documented column it produces is one the relation will have.
+                out.attrs.pop('documented_only', None)
             expression = statement.expressions.get(name)
             if expression and not expression.endswith('.*'):
                 # The column as SQL over physical columns, with CTEs and aliases inlined.
@@ -319,6 +324,7 @@ class Builder:
     def run(self) -> Graph:
         projects = self.load_dbt()
         self.load_warehouses(projects)
+        self.seed_file_columns()
         self.load_loaders()
         self.link_shared_relations()
         self.warn_missing_catalogs()
@@ -606,6 +612,39 @@ class Builder:
                 existing.attrs['in_warehouse'] = True
                 for key, value in column.attrs.items():
                     existing.attrs.setdefault(key, value)
+
+    def seed_file_columns(self) -> None:
+        """Columns of the seeds that neither the catalog nor the warehouse lists, as on a fresh clone
+        where `dbt seed` has not run: the header row of each seed's CSV file names them, in order,
+        with no types. Without them a model's ``select *`` over the seed has no columns to trace."""
+        for loaded in self.loads:
+            for seed in loaded.seed_files:
+                node = self.graph.nodes[seed.node_id]
+                if node.attrs.get('in_warehouse'):
+                    continue
+                try:
+                    header = dbt.seed_header(seed.path, seed.delimiter)
+                except (OSError, UnicodeDecodeError, csv.Error) as error:
+                    self.graph.warn(
+                        f'dbt seed {node.name}: cannot read the header of {self.rel_path(seed.path)}: {error}'
+                    )
+                    continue
+                if not header:
+                    continue
+                listed = [self.graph.add_column(node, name, origin='dbt') for name in header]
+                for column in listed:
+                    column.attrs.pop('documented_only', None)
+                order = {column.id: index for index, column in enumerate(listed)}
+                contains = self.graph.out_edges(node.id, 'contains')
+                for edge in contains:
+                    if edge.target not in order:
+                        # Documented in YAML but not in the file, so the seed will not have it.
+                        self.graph.nodes[edge.target].attrs['documented_only'] = True
+                # The file's order, then documented columns it lacks, so ``select *`` expands as dbt's would.
+                for edge in contains:
+                    self.graph.remove_edge(edge)
+                for edge in sorted(contains, key=lambda e: order.get(e.target, len(order))):
+                    self.graph.add_edge(edge.source, edge.target, 'contains', **edge.attrs)
 
     def link_shared_relations(self) -> None:
         """Connect nodes that describe one physical relation, such as a seed and the dbt source
