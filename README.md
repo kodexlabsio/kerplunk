@@ -160,7 +160,7 @@ uv tool install git+https://github.com/kodexlabsio/konstruct
 Installing from GitHub compiles Konstruct, so it needs a [Rust toolchain](https://rustup.rs/) (1.95
 or newer); each [release](https://github.com/kodexlabsio/konstruct/releases) also has wheels for
 Linux, macOS and Windows that do not. Konstruct runs on x86_64, aarch64, riscv64, ppc64le, s390x
-and loongarch64.
+(IBM z13 or later) and loongarch64.
 
 Then, in a repository with dbt models, SQL, DAGs or a warehouse:
 
