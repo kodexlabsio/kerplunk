@@ -41,3 +41,6 @@ A build makes no index for search by meaning; the first search by meaning does, 
 
 `vectors.bin` is 17.8 MB at that size: the index and every node's blocks, so a process whose graph is the one the file was made from reads them rather than computing them.
 
+## Loaders
+
+Recognising which loader landed each table checks a table only against the marks its own columns could satisfy. On 50,000 warehouse relations of twelve columns each, one in ten landed, detection takes about 0.05 s of CPU and the whole landing step about 1 s, most of it reading each relation's columns from the graph (`test_detection_over_fifty_thousand_relations_stays_fast` in `tests/test_loaders.py`). Finding loader configuration files reads each Python, YAML, JSON, Terraform and `.properties` file once and parses only those whose name and text show a known format: about 0.2 s of CPU over 3,000 files (`test_discovery_over_thousands_of_files_stays_cheap` in `tests/test_ingestion.py`).

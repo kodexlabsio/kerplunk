@@ -2044,3 +2044,25 @@ def test_a_dlt_version_that_cannot_be_read(tmp_path: Path, monkeypatch: pytest.M
     assert graph.warnings == [
         'dlt: warehouse.github_data._dlt_version: permission denied for table _dlt_version'
     ]
+
+
+def test_discovery_over_thousands_of_files_stays_cheap(tmp_path: Path) -> None:
+    """Every Python, YAML and JSON file is read once and checked by name and substring; only
+    the configuration files are parsed."""
+    import time
+
+    for package in range(50):
+        folder = tmp_path / f'pkg{package}'
+        folder.mkdir()
+        for i in range(20):
+            (folder / f'm{i}.py').write_text('import os\n' + 'x = 1\n' * 200)
+            (folder / f'c{i}.yml').write_text('version: 2\nmodels:\n' + '  - name: a\n' * 100)
+            (folder / f'd{i}.json').write_text('{"a": [' + ','.join(['1'] * 2000) + ']}')
+    (tmp_path / 'meltano.yml').write_text('plugins: {}\n')
+    config = load_config(tmp_path)
+    start = time.process_time()
+    found = discover_ingestion_files(config)
+    spent = time.process_time() - start
+    print(f'discovery over 3,001 files: {spent:.3f} s')
+    assert [p.name for p, _ in found] == ['meltano.yml']
+    assert spent < 3
