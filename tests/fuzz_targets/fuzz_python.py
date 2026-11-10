@@ -2,7 +2,7 @@
 never run it: for any text, each reads it or reports that it cannot (a SyntaxError from the
 Airflow and Dagster readers, a problem from the PySpark one), and nothing else escapes.
 
-Run with ``uv run --with atheris python fuzz/fuzz_python.py -max_total_time=60``; see
+Run with ``uv run --with atheris python tests/fuzz_targets/fuzz_python.py -max_total_time=60``; see
 docs/development.md.
 """
 

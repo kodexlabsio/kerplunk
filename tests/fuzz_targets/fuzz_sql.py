@@ -1,7 +1,7 @@
 """Fuzz the SQL analysis: for any text in any dialect, ``analyse`` returns lineage or an
 ``unparsed`` statement, and never raises.
 
-Run with ``uv run --with atheris python fuzz/fuzz_sql.py -max_total_time=60``; see
+Run with ``uv run --with atheris python tests/fuzz_targets/fuzz_sql.py -max_total_time=60``; see
 docs/development.md.
 """
 

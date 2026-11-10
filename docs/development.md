@@ -80,7 +80,7 @@ uv run pytest --cov                             # everything, with branch covera
 | Formula identity in the Rust core | `src/identity/`, `tests/identity.rs` (`cargo test`) | Montgomery multiplication against 128-bit integer arithmetic and primality on every supported architecture; BLAKE2b against the 256 keyed known-answer vectors of its authors (`tests/fixtures/blake2b-kat.txt`) and unkeyed, multi-block and short-digest cases; identities, NULLs, empty tables, aggregates and witnesses; CASE branches that are always NULL; presences kept whole for a product and a COALESCE of the same operands; columns read through an outer join; a collision built from the fixed key caught by a fresh one; verdicts on random formulas against their symbolic expansion |
 | Paper | `test_paper` | The paper names every command, MCP tool and export format, types no number outside a sentence that cites its source (every measurement is a generated macro), uses only macros `paper/generate.py` writes, and has no dashes |
 | Parity | `test_airflow_parity` | The static Airflow parser against Airflow's own DagBag (needs Airflow; see the file for the command) |
-| Fuzzing | `fuzz/` | Atheris (coverage-guided) harnesses for the readers of untrusted input: `fuzz_sql.py` (the SQL analysis, in each dialect), `fuzz_python.py` (the Airflow, Dagster and PySpark readers) and `fuzz_yaml.py` (definitions and Ossie files). Each reader must report what it cannot read and never raise. The Fuzz workflow runs each for two minutes on pull requests that change the package and twenty weekly; locally, `uv run --with atheris==3.1.0 python fuzz/fuzz_sql.py -max_total_time=60` (Linux; atheris has wheels for Linux only). A crash is fixed with a test for the input, as in `test_sql` and `test_build` |
+| Fuzzing | `tests/fuzz_targets/` | Atheris (coverage-guided) harnesses for the readers of untrusted input: `fuzz_sql.py` (the SQL analysis, in each dialect), `fuzz_python.py` (the Airflow, Dagster and PySpark readers) and `fuzz_yaml.py` (definitions and Ossie files). Each reader must report what it cannot read and never raise. The Fuzz workflow runs each for two minutes on pull requests that change the package and twenty weekly; locally, `uv run --with atheris==3.1.0 python tests/fuzz_targets/fuzz_sql.py -max_total_time=60` (Linux; atheris has wheels for Linux only). A crash is fixed with a test for the input, as in `test_sql` and `test_build` |
 
 After a release is tagged, the next batch adds it to the compatibility corpus; `prepare_release.py`
 refuses to prepare the next release, and its `--check` refuses a pull request that prepares one,
@@ -232,7 +232,7 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/), che
 | `claude-code-plugin/` | The Claude Code plugin, rendered from `konstruct/interfaces/toolkit/` by `.kodex/scripts/build_plugin.py`, with its marketplace entry in `.claude-plugin/marketplace.json` |
 | `examples/plugin` | `konstruct-yaml-pipelines`, an example plugin: an input, a gate check, an ontology pack and an MCP tool |
 | `.kodex/scripts` | Project scripts: example preparation, test services, commit rules, benchmarks, demo tapes |
-| `fuzz/` | Atheris fuzz harnesses for the readers of untrusted input (see the test table) |
+| `tests/fuzz_targets/` | Atheris fuzz harnesses for the readers of untrusted input (see the test table); pytest does not collect them |
 
 ## CI/CD
 

@@ -1,12 +1,13 @@
 name: Fuzz
 
-# Runs the Atheris harnesses in fuzz/ against the readers of untrusted input (SQL, Python DAG and
-# job files, definitions and Ossie YAML): each must report what it cannot read, never raise.
+# Runs the Atheris harnesses in tests/fuzz_targets/ against the readers of untrusted input (SQL,
+# Python DAG and job files, definitions and Ossie YAML): each must report what it cannot read,
+# never raise.
 # Pull requests that change the package fuzz each harness for two minutes; the weekly run for
 # twenty. A crash uploads the input that caused it.
 on:
   pull_request:
-    paths: ['konstruct/**', 'fuzz/**', 'uv.lock', '.github/workflows/fuzz.yml']
+    paths: ['konstruct/**', 'tests/fuzz_targets/**', 'uv.lock', '.github/workflows/fuzz.yml']
   schedule:
     - cron: '41 3 * * 0'
   workflow_dispatch:
@@ -67,7 +68,7 @@ jobs:
           TARGET: ${{ matrix.target }}
           SECONDS_TO_RUN: ${{ github.event_name == 'pull_request' && '120' || '1200' }}
         run: >-
-          uv run --with atheris==3.1.0 python "fuzz/fuzz_${TARGET}.py"
+          uv run --with atheris==3.1.0 python "tests/fuzz_targets/fuzz_${TARGET}.py"
           -max_total_time="$SECONDS_TO_RUN" -timeout=30 -rss_limit_mb=4096
           -artifact_prefix="$RUNNER_TEMP/" "$RUNNER_TEMP/corpus"
 

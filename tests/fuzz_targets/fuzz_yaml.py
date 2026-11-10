@@ -1,7 +1,7 @@
 """Fuzz the readers of definitions and Apache Ossie files: for any text, each returns what it
 could read with its problems listed, and never raises.
 
-Run with ``uv run --with atheris python fuzz/fuzz_yaml.py -max_total_time=60``; see
+Run with ``uv run --with atheris python tests/fuzz_targets/fuzz_yaml.py -max_total_time=60``; see
 docs/development.md.
 """
 

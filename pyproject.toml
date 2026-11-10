@@ -136,7 +136,7 @@ exclude = ["^tests/fixtures/"]
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["pyiceberg.*", "duckdb.*", "airflow.*", "dagster.*", "dagster_dbt.*", "dagster_duckdb.*", "fakesnow.*", "snowflake.*", "databricks.*", "trino.*"]
+module = ["pyiceberg.*", "duckdb.*", "airflow.*", "dagster.*", "dagster_dbt.*", "dagster_duckdb.*", "fakesnow.*", "snowflake.*", "databricks.*", "trino.*", "atheris.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
