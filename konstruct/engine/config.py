@@ -30,6 +30,9 @@ Example ``konstruct.toml``::
     [plugins]
     enabled = ["konstruct-yaml-pipelines"] # installed plugins this project runs; default: none
 
+    [ingestion]
+    paths = ["pipelines/", "meltano.yml"] # loader configuration; default: discovered
+
     [usage]                               # column usage from query history (off by default)
     enabled = true                        # Snowflake, BigQuery and Databricks warehouses
     days = 90
@@ -271,6 +274,7 @@ class Config:
     """SKOS or OWL vocabularies to read as business terms."""
     repositories: list[Path] = field(default_factory=list)
     ossie_paths: list[Path] | None = None
+    ingestion_paths: list[Path] | None = None
     sql_paths: list[str] | None = None
     warehouses: list[WarehouseConfig] | None = None
     discover_warehouses: bool = True
@@ -464,6 +468,7 @@ PATH_SETTINGS: tuple[tuple[str | None, str, str], ...] = (
     ('definitions', 'paths', 'definitions_paths'),
     ('vocabularies', 'paths', 'vocabulary_paths'),
     ('ossie', 'paths', 'ossie_paths'),
+    ('ingestion', 'paths', 'ingestion_paths'),
     ('sql', 'paths', 'sql_paths'),
 )
 """The settings of ``konstruct.toml`` that name files or directories, as (table, key, the
@@ -651,6 +656,7 @@ def _read(root: Path, out_dir: Path | None) -> tuple[Config, dict[str, Any]]:
         vocabulary_paths=_listed(data, root, 'vocabularies', 'paths') or [],
         definitions_paths=_listed(data, root, 'definitions', 'paths'),
         ossie_paths=_listed(data, root, 'ossie', 'paths'),
+        ingestion_paths=_listed(data, root, 'ingestion', 'paths'),
         warehouses=[
             WarehouseConfig(
                 str(w.get('type', '')).lower(), {k: v for k, v in w.items() if k != 'type'}, trusted=False
@@ -847,6 +853,54 @@ def discover_ossie_files(config: Config) -> list[Path]:
                 files.append(path)
         return config.inside(files)
     return [p for p in [*iter_files(config, '.yaml'), *iter_files(config, '.yml')] if wanted(p)]
+
+
+def discover_ingestion_files(config: Config) -> list[tuple[Path, str]]:
+    """Loader configuration files (dlt pipelines, ``meltano.yml``, Singer catalogs and the rest),
+    each with its format: the configured paths, or every file in the repository whose name and
+    text show a format Konstruct reads. Larger files are not configuration and are not read."""
+    from konstruct.inputs.ingestion import MAX_BYTES, SUFFIXES, kind_of
+
+    candidates: list[Path] = []
+    if config.ingestion_paths is not None:
+        for path in config.ingestion_paths:
+            if path.is_dir():
+                candidates.extend(
+                    sorted(
+                        p
+                        for p in path.rglob('*')
+                        if p.is_file() and p.name.lower().endswith(SUFFIXES) and not set(p.parts) & SKIP_DIRS
+                    )
+                )
+            elif path.is_file():
+                candidates.append(path)
+    else:
+        for directory in walk_dirs(config.root):
+            if directory.resolve() == config.out_dir:
+                continue
+            candidates.extend(
+                sorted(
+                    p
+                    for p in directory.iterdir()
+                    if p.name.lower().endswith(SUFFIXES) and p.is_file() and not config.excluded(p)
+                )
+            )
+    # The path inside the project: a tap-<name> directory says a state file is a tap's. String
+    # slicing, as pathlib's relative paths cost more than discovery's reading of most files.
+    root = f'{config.root}{os.sep}'
+    found = []
+    for path in config.inside(candidates):
+        try:
+            if path.stat().st_size > MAX_BYTES:
+                continue
+            text = path.read_text(encoding='utf-8', errors='replace')
+        except OSError:
+            continue
+        name = str(path)
+        kind = kind_of((name[len(root) :] if name.startswith(root) else name).replace(os.sep, '/'), text)
+        if kind is not None:
+            found.append((path, kind))
+    return found
 
 
 def discover_sql_files(config: Config, projects: list[DbtProject], used: set[Path]) -> list[Path]:

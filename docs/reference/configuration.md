@@ -45,6 +45,9 @@ paths = ["semantic/"]             # Apache Ossie models; default: every *.ossie.
 [plugins]
 enabled = ["konstruct-yaml-pipelines"]  # installed plugins this project runs; default: none
 
+[ingestion]
+paths = ["pipelines/", "meltano.yml"]  # loader configuration, which may add tables; default: the files discovery recognises, which add none
+
 [fivetran]
 lineage = false                   # read the Platform Connector's lineage tables; default true
 

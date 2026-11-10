@@ -75,7 +75,7 @@ _KONSTRUCT_ATTRS = frozenset(
         'line', 'lineage', 'loaded', 'loaded_by', 'loader', 'loader_role', 'materialized', 'maturity', 'measures', 'model',
         'nested', 'nullable', 'operator', 'orchestrator', 'ossie_authored', 'ossie_columns',
         'ossie_dataset', 'ossie_expression', 'ossie_key', 'ossie_metric', 'ossie_reads',
-        'outside_warehouse', 'owner', 'package', 'partitioned_by', 'parts', 'primary_key',
+        'outside_warehouse', 'owner', 'package', 'partitioned_by', 'parts', 'pipeline', 'primary_key',
         'primary_key_enforced', 'read_before', 'registry', 'related', 'repository', 'role',
         'same_relation', 'schedule', 'sensors', 'severity', 'source_name', 'sql_path', 'star_reads',
         'status', 'synonyms', 'table_type', 'tags', 'test', 'transform', 'type', 'unique_key', 'unit',

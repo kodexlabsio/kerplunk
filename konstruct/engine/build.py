@@ -59,7 +59,7 @@ CACHE_VERSION = 1
 BUILTIN_COUNTS = frozenset(
     {
         'airflow_dags', 'dagster_assets', 'dagster_ops', 'dbt_models', 'dbt_projects', 'definitions',
-        'fivetran_source_tables', 'landed_tables', 'ontology_pack_terms', 'ossie_metrics',
+        'fivetran_source_tables', 'landed_tables', 'loader_source_tables', 'ontology_pack_terms', 'ossie_metrics',
         'powerbi_tables', 'spark_jobs', 'spark_statements', 'sql_files', 'warehouses',
     }
 )  # fmt: skip
@@ -184,6 +184,8 @@ class Builder:
         self.plugins = Plugins.for_config(config)
         # Connections the repository's own configuration names but the user has not trusted.
         self.untrusted: list[str] = []
+        # Relations a loader configuration file says that loader lands.
+        self.declared: dict[str, str] = {}
 
     # Shared helpers
 
@@ -350,7 +352,9 @@ class Builder:
         projects = self.load_dbt()
         log.info('reading warehouses')
         self.load_warehouses(projects)
+        feeds = self.read_ingestion()
         self.load_loaders()
+        self.apply_ingestion(feeds)
         self.link_shared_relations()
         self.warn_missing_catalogs()
         self.index = RelationIndex(self.graph)
@@ -498,6 +502,141 @@ class Builder:
                 self.merge_relation(meta, connector.label)
         self.inputs['warehouses'] = count
 
+    def loader_task(self, loader: str, name: str, **attrs: str) -> Node:
+        """The task of a loader that lands tables: one per schema found in the warehouse, or one
+        per pipeline or connection a configuration file names. An orchestrator's task can have
+        the same id (``task.dagster.<asset>`` for ``loader: dagster``), so another loader's or
+        an orchestrator's node is never reused: the id takes a number instead."""
+        base = node_id = f'task.{loader}.{name}'
+        number = 1
+        while (existing := self.graph.nodes.get(node_id)) is not None:
+            if existing.attrs.get('loader') == loader:
+                return existing
+            number += 1
+            node_id = f'{base}~{number}'
+        return self.graph.add_node(
+            Node(
+                id=node_id,
+                kind='task',
+                name=f'{loader} {name}',
+                origins=[loader],
+                attrs={'type': f'{loader} sync', 'loader': loader, **attrs},
+            )
+        )
+
+    def read_ingestion(self) -> list[Any]:
+        """The loader configuration files (see :mod:`konstruct.inputs.ingestion`): what each
+        loader reads from its source systems and the tables it lands, each file parsed once and
+        cached by its content."""
+        from konstruct.engine.config import discover_ingestion_files
+        from konstruct.inputs import ingestion
+
+        feeds: list[ingestion.Feed] = []
+        for path, kind in discover_ingestion_files(self.config):
+            try:
+                text = path.read_text(encoding='utf-8', errors='replace')
+            except OSError as error:
+                self.graph.warn(f'{ingestion.LOADER_OF[kind]}: cannot read {self.rel_path(path)}: {error}')
+                continue
+            rel = self.rel_path(path)
+            self.watch(path)
+            key = Cache.key('ingestion', kind, rel, text)
+
+            def compute(kind: str = kind, rel: str = rel, text: str = text) -> dict[str, Any]:
+                return ingestion.read(kind, rel, text).to_dict()
+
+            reading = ingestion.Reading.from_dict(self.cache.get_or_compute(key, compute))
+            for problem in reading.problems:
+                self.graph.warn(f'{ingestion.LOADER_OF[kind]}: {problem}')
+            feeds.extend(reading.feeds)
+            count = len({f.target for f in reading.feeds})
+            self.sources.append(
+                {
+                    'input': ingestion.LOADER_OF[kind],
+                    'path': rel,
+                    'detail': f'{count} landed {"table" if count == 1 else "tables"}',
+                }
+            )
+        # The tables the files say a loader lands, which refine the family the warehouse shows.
+        self.index = RelationIndex(self.graph)
+        self.declared = {}
+        for feed in feeds:
+            found = None if feed.stream else self.index.find(relation_key(*feed.target), drop_leading=True)
+            if found is not None:
+                self.declared.setdefault(found.id, feed.loader)
+        return feeds
+
+    def apply_ingestion(self, feeds: list[Any]) -> None:
+        """Each feed a configuration file describes: its source table, outside the warehouse and
+        named after its system (``postgres.app.public.orders``), feeds the loader's task, which
+        feeds the table it lands, column by column where the file names the columns. The task is
+        the warehouse's sync task for that table when the same loader landed it.
+
+        Only a file listed in ``[ingestion] paths`` adds a table the graph does not have: one that
+        discovery found may be an application's file that looks like a loader's, so its feeds
+        reach only tables the warehouse, dbt or SQL already show."""
+        adds_tables = self.config.ingestion_paths is not None
+        applied: set[tuple[str, ...]] = set()
+        for feed in feeds:
+            evidence = f'{feed.path}:{feed.line}' if feed.line else feed.path
+            if feed.stream:
+                target = self.outside_table(feed.loader, feed.target)
+            else:
+                key = relation_key(*feed.target)
+                if not adds_tables and self.index.find(key, drop_leading=True) is None:
+                    continue
+                target = self.relation(key, feed.loader, drop_leading=True)
+                target.attrs.setdefault('loaded_by', feed.loader)
+            source = self.outside_table(feed.loader, feed.source)
+            applied.add(feed.source)
+            sync = next(
+                (
+                    self.graph.nodes[e.source]
+                    for e in self.graph.in_edges(target.id, 'feeds')
+                    if self.graph.nodes[e.source].attrs.get('loader') == feed.loader
+                ),
+                None,
+            ) or self.loader_task(feed.loader, feed.task, pipeline=feed.task)
+            sync.path = sync.path or feed.path
+            sync.attrs.setdefault('pipeline', feed.task)
+            self.graph.add_edge(source.id, sync.id, 'feeds', origin=feed.loader, evidence=evidence)
+            self.graph.add_edge(sync.id, target.id, 'feeds', origin=feed.loader, evidence=evidence)
+            known = self.columns_known(target)
+            for landed, read, transform in feed.columns:
+                column = self.graph.column(target.id, landed)
+                if column is None and known and not feed.stream:
+                    continue
+                column = column or self.graph.add_column(
+                    target, landed, origin=feed.loader, attrs={'inferred': True}
+                )
+                upstream = self.graph.column(source.id, read) or self.graph.add_column(
+                    source, read, origin=feed.loader
+                )
+                self.graph.add_edge(
+                    column.id,
+                    upstream.id,
+                    'derived_from',
+                    transform=transform,
+                    loaded=True,
+                    origin=feed.loader,
+                )
+        if applied:
+            self.inputs['loader_source_tables'] = len(applied)
+
+    def outside_table(self, loader: str, parts: tuple[str, ...]) -> Node:
+        """A table, topic or collection of a system outside the warehouse, such as a source
+        database a loader reads. It has no relation name, so SQL never resolves to it."""
+        key = relation_key(*parts)
+        return self.graph.nodes.get(f'system.{key}') or self.graph.add_node(
+            Node(
+                id=f'system.{key}',
+                kind='table',
+                name='.'.join(parts),
+                origins=[loader],
+                attrs={'system': parts[0], 'source_table': '.'.join(parts[1:]), 'outside_warehouse': True},
+            )
+        )
+
     def load_loaders(self) -> None:
         """Loaders: a loader task per schema for the tables each lands (known by the marks it
         leaves, see :mod:`konstruct.inputs.loaders`), and, from the Fivetran Platform Connector's
@@ -507,19 +646,7 @@ class Builder:
         from konstruct.inputs.warehouse import query
 
         def task(loader: str, schema: str) -> Node:
-            node_id = f'task.{loader}.{schema}'
-            existing = self.graph.nodes.get(node_id)
-            if existing is not None:
-                return existing
-            return self.graph.add_node(
-                Node(
-                    id=node_id,
-                    kind='task',
-                    name=f'{loader} {schema}',
-                    origins=[loader],
-                    attrs={'type': f'{loader} sync', 'loader': loader, 'schema': schema},
-                )
-            )
+            return self.loader_task(loader, schema, schema=schema)
 
         nodes: list[Node] = []
         tables: list[loaders.Table] = []
@@ -531,6 +658,8 @@ class Builder:
                 declared[len(nodes)] = loaders.loader_name(str(relation.attrs['declared_loader']))
             elif not relation.attrs.get('in_warehouse'):
                 continue
+            elif relation.id in self.declared:
+                declared[len(nodes)] = self.declared[relation.id]
             schema_key, _, name = relation.relation.rpartition('.')
             nodes.append(relation)
             tables.append(

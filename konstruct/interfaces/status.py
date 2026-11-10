@@ -19,6 +19,7 @@ from konstruct.engine.config import (
     discover_dag_files,
     discover_dagster_files,
     discover_definitions_files,
+    discover_ingestion_files,
     discover_looker_files,
     discover_ossie_files,
     discover_powerbi_files,
@@ -49,6 +50,8 @@ class Status:
     definitions_files: list[str] = field(default_factory=list)
     dagster_files: list[str] = field(default_factory=list)
     ossie_files: list[str] = field(default_factory=list)
+    ingestion_files: list[str] = field(default_factory=list)
+    """Loader configuration files: dlt pipelines, meltano.yml, Singer catalogs and the rest."""
     vocabulary_files: list[str] = field(default_factory=list)
     ontology_packs: list[dict[str, str]] = field(default_factory=list)
     """The ontology packs the last build bound: each pack's name and its schema and term count."""
@@ -82,6 +85,7 @@ class Status:
             'definitions_files': self.definitions_files,
             'dagster_files': self.dagster_files,
             'ossie_files': self.ossie_files,
+            'ingestion_files': self.ingestion_files,
             'vocabulary_files': self.vocabulary_files,
             'ontology_packs': self.ontology_packs,
             'built_from': self.built_from,
@@ -142,6 +146,8 @@ class Status:
             rows.append(('vocabularies', _files(self.vocabulary_files, 'vocabulary file')))
         if self.ossie_files:
             rows.append(('ossie', _files(self.ossie_files, 'Ossie model')))
+        if self.ingestion_files:
+            rows.append(('ingestion', _files(self.ingestion_files, 'loader configuration file')))
         if self.graph.get('exists') and 'unreadable' not in self.graph:
             shown = [f'{p["name"]} ({p["detail"]})' for p in self.ontology_packs]
             packs = ', '.join(shown[:4]) + (f' and {len(shown) - 4} more' if len(shown) > 4 else '')
@@ -210,6 +216,7 @@ _INPUT_KEYS = (
     'powerbi_files',
     'definitions_files',
     'vocabulary_files',
+    'ingestion_files',
     'ossie_files',
 )
 
@@ -316,6 +323,7 @@ def inspect(
     status.powerbi_files = [_relative(p, root) for p in discover_powerbi_files(config)]
     status.dagster_files = [_relative(p, root) for p in discover_dagster_files(config)]
     status.ossie_files = [_relative(p, root) for p in discover_ossie_files(config)]
+    status.ingestion_files = [_relative(p, root) for p, _ in discover_ingestion_files(config)]
     status.vocabulary_files = [_relative(p, root) for p in config.vocabulary_paths if p.is_file()]
     status.plugins = [p.to_dict() for p in registry.installed()]
     status.missing_plugins = registry.missing
@@ -341,6 +349,7 @@ def inspect(
                 _count(len(other.definitions_files), 'definitions file'),
                 _count(len(other.vocabulary_files), 'vocabulary file'),
                 _count(len(other.ossie_files), 'Ossie model'),
+                _count(len(other.ingestion_files), 'loader configuration file'),
             ]
             entry['found'] = ', '.join(c for c in counts if c) or 'no inputs found'
             entry['inputs'] = {k: v for k, v in other.to_dict().items() if k in _INPUT_KEYS}
@@ -442,6 +451,12 @@ def render_config(config: Config, status: Status, warehouses: list[WarehouseConf
     lines += ['', '[powerbi]']
     models = sorted({_semantic_model(f) for f in status.powerbi_files})
     lines.append(f'paths = {_toml_list(models)}' if models else '# paths = ["reports/Sales.SemanticModel"]')
+    lines += ['', '[ingestion]']
+    lines.append(
+        f'paths = {_toml_list(status.ingestion_files)}'
+        if status.ingestion_files
+        else '# paths = ["pipelines/", "meltano.yml"]  # loader configuration; default: discovered'
+    )
     lines += [
         '',
         '[fivetran]',

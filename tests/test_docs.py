@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import ast
+import json
+import re
 import tomllib
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -249,3 +253,35 @@ def test_the_inputs_guide_lists_every_loader() -> None:
         if line.startswith('| ') and '`' in line.split('|')[2]
     }
     assert listed - {'loaded_by'} == set(LOADERS)
+
+
+def test_every_toml_example_in_the_docs_parses() -> None:
+    """A configuration example a reader copies must be valid TOML: a duplicated key or a lost
+    table header fails here."""
+    pages = [ROOT / 'README.md', *sorted((ROOT / 'docs').rglob('*.md'))]
+    broken = []
+    for page in pages:
+        for block in re.findall(r'```toml\n(.*?)```', page.read_text(encoding='utf-8'), re.DOTALL):
+            try:
+                tomllib.loads(block)
+            except tomllib.TOMLDecodeError as error:
+                broken.append(f'{page.relative_to(ROOT)}: {error}')
+    assert broken == []
+
+
+def test_every_documented_setting_is_one_konstruct_reads() -> None:
+    """Each key of the configuration reference's examples is one ``load_config`` reads, as the
+    interface snapshot records them: a setting under a lost or misspelt table header fails here."""
+    read = set(json.loads((ROOT / 'tests' / 'golden' / 'interfaces' / 'config.json').read_text()))
+    page = (ROOT / 'docs' / 'reference' / 'configuration.md').read_text(encoding='utf-8')
+
+    def keys(table: dict[str, Any], prefix: str = '') -> Iterator[str]:
+        for key, value in table.items():
+            yield f'{prefix}{key}'
+            if isinstance(value, dict):
+                yield from keys(value, f'{prefix}{key}.')
+
+    documented = {
+        k for block in re.findall(r'```toml\n(.*?)```', page, re.DOTALL) for k in keys(tomllib.loads(block))
+    }
+    assert documented and sorted(documented - read) == []
