@@ -1,3 +1,20 @@
+## v0.12.6 (2026-11-10)
+
+### Feat
+
+- **cli**: Group the commands in help, add examples, and suggest close names
+- **cli**: Accept --json on diff and gate, and -n on history
+- **cli**: Colour, fit and show progress on a terminal, and plain text in pipes
+- **cli**: Render every result as a header, aligned tables and lineage trees
+- **build**: Log each stage of the build for progress displays
+- **definitions**: Ship 274 ontology packs from permissively licensed connector schemas
+
+### Perf
+
+- **cli**: Measure start-up and the text of a large result in the benchmark
+- **cli**: Import the error types only when one is raised
+- **cli**: Import the package's public names when first used
+
 ## v0.12.5 (2026-11-10)
 
 ### Feat

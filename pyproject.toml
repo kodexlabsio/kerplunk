@@ -1,6 +1,6 @@
 [project]
 name = "konstruct"
-version = "0.12.5"
+version = "0.12.6"
 description = "Turn a data stack (dbt, SQL, Airflow, warehouse and Iceberg metadata) into a queryable graph with column-level lineage for coding agents."
 readme = "README.md"
 license = "MIT AND Apache-2.0 AND OFL-1.1"
