@@ -1,0 +1,11 @@
+{
+  "comment": "SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY grouped as snowflake_history_sql asks: QUERY_TEXT as run (trailing semicolons, comments, upper-case user names), USER_NAME, runs.",
+  "rows": [
+    ["select c.region, sum(o.amount) as net_revenue\nfrom raw.orders o join raw.customers c on c.customer_id = o.customer_id\ngroup by c.region;", "ANA", 14],
+    ["-- weekly revenue\nselect c.region, sum(o.amount) as net_revenue from raw.orders o join raw.customers c on c.customer_id = o.customer_id group by c.region", "BEN", 3],
+    ["select region, sum(net_revenue) as net_revenue from mart.customer_revenue group by region", "CARA", 40],
+    ["select sum(o.amount) as net_revenue from raw.orders o where o.status <> 'returned' and o.customer_id <> 1042", "DEV", 2],
+    ["SELECT 1", "SVC_LOOKER", 900],
+    [null, "ANA", 1]
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "comment": "system.query.history grouped as databricks_history_sql asks: statement_text (<REDACTED> for a reader outside databricks_pii_access), executed_by, runs.",
+  "rows": [
+    ["SELECT c.region, SUM(o.amount) AS net_revenue FROM raw.orders o JOIN raw.customers c ON c.customer_id = o.customer_id GROUP BY c.region", "ana@example.com", 6],
+    ["<REDACTED>", "ben@example.com", 11],
+    ["<REDACTED>", "cara@example.com", 4],
+    ["SELECT region, SUM(net_revenue) AS net_revenue FROM mart.customer_revenue GROUP BY region", "dev@example.com", 2]
+  ]
+}

@@ -758,3 +758,58 @@ def test_patterns_and_untyped_times_keep_their_meaning() -> None:
     assert condition_key("WHERE: o.note = '2020-01-01 00:00:00'", 'duckdb') != condition_key(
         "WHERE: o.note = '2020-01-01'", 'duckdb'
     )
+
+
+# check-sql: one small case for each finding, against the shop of tests/test_checksql.py
+
+CHECK_SQL_CASES = [
+    (
+        'missing-filter',
+        'select c.region, sum(o.amount) as net_revenue from raw.orders o '
+        'join raw.customers c on c.customer_id = o.customer_id group by 1',
+    ),
+    ('formula-differs', "select sum(amount * 2) as net_revenue from raw.orders where status <> 'returned'"),
+    ('recomputes-measure', "select sum(amount) as net_revenue from raw.orders where status <> 'returned'"),
+    ('retired-column', 'select sum(gross_revenue) as total from mart.customer_revenue'),
+    (
+        'fan-out',
+        'select sum(o.amount) as total from raw.orders o join raw.payments p on p.order_id = o.order_id',
+    ),
+    (
+        'mixed-grain',
+        'select o.order_id, r.net_revenue from raw.orders o '
+        'join mart.customer_revenue r on r.customer_id = o.customer_id',
+    ),
+    (
+        'join-off-relationship',
+        'select o.order_id, c.name from raw.orders o join raw.customers c on o.order_id = c.customer_id',
+    ),
+    ('unknown-join', 'select o.order_id from raw.orders o join raw.payments p on o.status = p.method'),
+    ('unknown-relation', 'select * from raw.orderz'),
+    ('unknown-column', 'select amount_total from raw.orders'),
+    ('unparsed', 'select sum(amount from raw.orders'),
+    (
+        'unchecked',
+        'select p.customer_id, p.returned from (pivot raw.orders on status using sum(amount) group by customer_id) p',
+    ),
+]
+
+
+@pytest.fixture(scope='module')
+def check_sql_shop(tmp_path_factory: pytest.TempPathFactory) -> Any:
+    from konstruct.analysis.checksql import Checker
+    from tests.test_checksql import make_shop
+
+    return Checker(make_shop(tmp_path_factory.mktemp('check_sql_shop')))
+
+
+def test_every_check_sql_rule_has_a_case() -> None:
+    from konstruct.analysis.checksql import RULES
+
+    assert sorted({rule for rule, _ in CHECK_SQL_CASES}) == sorted(RULES)
+
+
+@pytest.mark.parametrize(('rule', 'sql'), CHECK_SQL_CASES)
+def test_check_sql_finds_each_rule(check_sql_shop: Any, rule: str, sql: str) -> None:
+    result = check_sql_shop.check(sql)
+    assert [f.rule for f in result.findings] == [rule], str(result)
