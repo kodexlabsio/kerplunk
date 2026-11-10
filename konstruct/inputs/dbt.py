@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import os
@@ -47,6 +48,7 @@ class DbtProject:
     target_path: Path
     profile: str | None = None
     source_paths: list[Path] = field(default_factory=list)
+    seed_paths: list[Path] = field(default_factory=list)
 
     @property
     def manifest_path(self) -> Path:
@@ -69,6 +71,17 @@ class ModelSql:
 
 
 @dataclass
+class SeedFile:
+    """A seed the catalog has no columns for, and how dbt would read its CSV file."""
+
+    node_id: str
+    name: str
+    path: Path | None
+    delimiter: str
+    column_types: dict[str, str]
+
+
+@dataclass
 class DbtLoad:
     project: DbtProject
     dialect: str | None
@@ -78,6 +91,7 @@ class DbtLoad:
     manifest_checksum: str | None
     has_catalog: bool = True
     counts: dict[str, int] = field(default_factory=dict)
+    seeds: list[SeedFile] = field(default_factory=list)
 
 
 def walk_dirs(root: Path) -> Iterator[Path]:
@@ -105,6 +119,7 @@ def read_project(root: Path) -> DbtProject | None:
     if not isinstance(config, dict):
         return None
     paths: list[Path] = []
+    seed_paths: list[Path] = []
     for key, default in (
         ('model-paths', ['models']),
         ('seed-paths', ['seeds']),
@@ -112,13 +127,17 @@ def read_project(root: Path) -> DbtProject | None:
         ('macro-paths', ['macros']),
         ('test-paths', ['tests']),
     ):
-        paths.extend(root / p for p in config.get(key, default) if isinstance(p, str))
+        found = [root / p for p in config.get(key, default) if isinstance(p, str)]
+        paths.extend(found)
+        if key == 'seed-paths':
+            seed_paths = found
     return DbtProject(
         root=root,
         name=str(config.get('name', root.name)),
         target_path=root / str(config.get('target-path', 'target')),
         profile=config.get('profile'),
         source_paths=paths,
+        seed_paths=seed_paths,
     )
 
 
@@ -269,7 +288,8 @@ def _primary_key(item: dict[str, Any]) -> list[str]:
     ]
 
 
-def _add_columns(graph: Graph, parent: Node, item: dict[str, Any], catalog: dict[str, Any] | None) -> None:
+def _add_columns(graph: Graph, parent: Node, item: dict[str, Any], catalog: dict[str, Any] | None) -> bool:
+    """Add a node's columns from the catalog and its documentation; whether the catalog had any."""
     primary_key = _primary_key(item)
     if primary_key:
         parent.attrs['primary_key'] = primary_key
@@ -298,6 +318,59 @@ def _add_columns(graph: Graph, parent: Node, item: dict[str, Any], catalog: dict
             origin='dbt',
             attrs={'documented_only': True} if catalog else {},
         )
+    return bool(seen)
+
+
+def _seed_file(project: DbtProject, item: dict[str, Any]) -> SeedFile:
+    config = item.get('config') or {}
+    delimiter = config.get('delimiter')
+    column_types = config.get('column_types')
+    path: Path | None = None
+    original = item.get('original_file_path')
+    if isinstance(original, str) and original:
+        path = project.root / original
+    else:
+        found = (
+            p
+            for base in project.seed_paths
+            if base.is_dir()
+            for p in sorted(base.rglob(f'{item["name"]}.csv'))
+        )
+        path = next(found, None)
+    return SeedFile(
+        node_id=item['unique_id'],
+        name=item['name'],
+        path=path,
+        delimiter=delimiter if isinstance(delimiter, str) and len(delimiter) == 1 else ',',
+        column_types={str(k).lower(): str(v) for k, v in column_types.items()}
+        if isinstance(column_types, dict)
+        else {},
+    )
+
+
+def seed_header(project: DbtProject, seed: SeedFile) -> list[str]:
+    """The column names in the header row of a seed's CSV file, as ``dbt seed`` would load them.
+
+    Only a ``.csv`` file inside the project is read, and only its first row. Raises OSError or
+    ValueError when the file cannot be read.
+    """
+    if seed.path is None:
+        raise FileNotFoundError(f'no {seed.name}.csv under the seed paths')
+    path = seed.path.resolve()
+    if path.suffix.lower() != '.csv' or not path.is_relative_to(project.root.resolve()):
+        raise ValueError(f'{seed.path} is not a CSV file in the project')
+    # utf-8-sig drops the byte order mark that spreadsheet exports write.
+    with path.open(encoding='utf-8-sig', newline='') as handle:
+        try:
+            row = next(csv.reader(handle, delimiter=seed.delimiter), [])
+        except csv.Error as error:
+            raise ValueError(str(error)) from error
+    names: list[str] = []
+    for cell in row:
+        name = cell.strip()
+        if name and name.lower() not in {n.lower() for n in names}:
+            names.append(name)
+    return names
 
 
 _REF = re.compile(
@@ -350,6 +423,7 @@ def load(project: DbtProject, graph: Graph, *, dialect: str | None) -> DbtLoad |
         return os.path.relpath(root / str(path), str(graph.meta.get('root', root)))
 
     models: list[ModelSql] = []
+    seeds: list[SeedFile] = []
     schemas: dict[tuple[str | None, str | None], int] = {}
     renderer: Renderer | None = None
     for item in manifest.get('nodes', {}).values():
@@ -377,7 +451,8 @@ def load(project: DbtProject, graph: Graph, *, dialect: str | None) -> DbtLoad |
                 },
             )
         )
-        _add_columns(graph, node, item, catalog)
+        if not _add_columns(graph, node, item, catalog) and kind == 'seed':
+            seeds.append(_seed_file(project, item))
         upstream = [n for n in item.get('depends_on', {}).get('nodes', []) if not n.startswith('macro.')]
         for parent in upstream:
             graph.add_edge(parent, node.id, 'feeds', origin='dbt')
@@ -451,6 +526,7 @@ def load(project: DbtProject, graph: Graph, *, dialect: str | None) -> DbtLoad |
         default_schema=default_schema,
         manifest_checksum=metadata.get('invocation_id'),
         has_catalog=catalog is not None,
+        seeds=seeds,
         counts={
             kind: sum(1 for item in group.values() if item.get('resource_type') == kind)
             for kind, group in (

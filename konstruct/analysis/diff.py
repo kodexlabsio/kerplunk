@@ -755,12 +755,18 @@ class _Context:
         return sql, item.get('database'), item.get('schema')
 
     def lineage(
-        self, sql: str, catalog: str | None, schema: str | None, target: str | None
+        self,
+        sql: str,
+        catalog: str | None,
+        schema: str | None,
+        target: str | None,
+        *,
+        columns: dict[str, dict[str, str]] | None = None,
     ) -> list[StatementLineage]:
         return analyse(
             sql,
             dialect=self.dialect,
-            schema=self.schema,
+            schema=columns if columns is not None else self.schema,
             default_catalog=catalog or self.graph.meta.get('default_catalog'),
             default_db=schema or self.graph.meta.get('default_schema'),
             target=target,
@@ -1005,6 +1011,13 @@ def _still_read(context: _Context, node: Node, column: str) -> list[str]:
     if target is not None:
         consumers |= {e.source.split('#')[0] for e in graph.in_edges(target.id, 'derived_from')}
         consumers |= {e.target for e in graph.out_edges(target.id, 'feeds')}
+    # The graph is the new version, where the column may be gone. With it put back, a `select *`
+    # over the relation still carries it, so a reader that names it through a CTE is found.
+    columns = context.schema
+    if node.relation:
+        known = context.schema.get(node.relation, {})
+        if column.lower() not in {name.lower() for name in known}:
+            columns = {**context.schema, node.relation: {**known, column: 'UNKNOWN'}}
     for consumer_id in sorted(consumers):
         consumer = graph.nodes.get(consumer_id)
         if consumer is None or consumer.kind not in RELATION_KINDS:
@@ -1019,11 +1032,11 @@ def _still_read(context: _Context, node: Node, column: str) -> list[str]:
         text = current.read_text(encoding='utf-8')
         if 'dbt' in consumer.origins:
             sql, catalog, schema = context.model_sql(consumer, text)
-            statements = context.lineage(sql, catalog, schema, consumer.relation)
+            statements = context.lineage(sql, catalog, schema, consumer.relation, columns=columns)
         else:
             statements = [
                 s
-                for s in context.lineage(strip_templating(text), None, None, None)
+                for s in context.lineage(strip_templating(text), None, None, None, columns=columns)
                 if s.target == consumer.relation
             ]
         for statement in statements:

@@ -272,6 +272,10 @@ class Builder:
             target.attrs['conditions'] = statement.conditions
         for name, sources in statement.columns.items():
             out = self.column(target, name, origin)
+            if not target.attrs.get('in_warehouse'):
+                # A documented column the catalog lacks, as when the model was never built: the SQL
+                # that writes the relation produces it, so later models that `select *` read it.
+                out.attrs.pop('documented_only', None)
             expression = statement.expressions.get(name)
             if expression and not expression.endswith('.*'):
                 # The column as SQL over physical columns, with CTEs and aliases inlined.
@@ -319,6 +323,7 @@ class Builder:
     def run(self) -> Graph:
         projects = self.load_dbt()
         self.load_warehouses(projects)
+        self.load_seed_files()
         self.load_loaders()
         self.link_shared_relations()
         self.warn_missing_catalogs()
@@ -375,6 +380,44 @@ class Builder:
             self.default_schema = self.default_schema or loaded.default_schema
         self.inputs['dbt_projects'] = len(self.loads)
         return projects
+
+    def load_seed_files(self) -> None:
+        """Columns for seeds that neither the catalog nor a warehouse has, such as seeds that were
+        never loaded: the names in the header row of the CSV file, without types. A `select *`
+        over the seed then has columns to expand to."""
+        for loaded in self.loads:
+            for seed in loaded.seeds:
+                node = self.graph.nodes[seed.node_id]
+                existing = self.graph.columns_of(node.id)
+                if any(c.attrs.get('in_warehouse') for c in existing):
+                    continue
+                try:
+                    names = dbt.seed_header(loaded.project, seed)
+                except (OSError, ValueError) as error:
+                    where = self.rel_path(seed.path) if seed.path else seed.name
+                    self.graph.warn(
+                        f'dbt: {loaded.project.name}: seed {seed.name}: cannot read the header of {where}: '
+                        f'{error}'
+                    )
+                    continue
+                if not names:
+                    continue
+                in_file = {name.lower() for name in names}
+                for documented in existing:
+                    # Documented but not in the file: dbt would not load it, so `select *` has no such column.
+                    if documented.name.lower() not in in_file:
+                        documented.attrs['documented_only'] = True
+                for name in names:
+                    data_type = seed.column_types.get(name.lower())
+                    found = self.graph.column(node.id, name)
+                    if found is None:
+                        self.graph.add_column(
+                            node, name, data_type=data_type, origin='dbt', attrs={'seed_header': True}
+                        )
+                    else:
+                        found.data_type = data_type or found.data_type
+                        found.attrs.pop('documented_only', None)
+                        found.attrs['seed_header'] = True
 
     def load_warehouses(self, projects: list[dbt.DbtProject]) -> None:
         count = 0

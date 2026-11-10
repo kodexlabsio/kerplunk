@@ -234,3 +234,22 @@ def test_a_removed_column_is_not_taken_for_one_of_the_same_name(repo: Path) -> N
     )
     # The approved term names main.ltv.revenue, which is still there.
     assert Project(repo).gate(base='HEAD').passed
+
+
+@pytest.mark.dbt
+def test_renaming_a_column_read_from_an_unloaded_seed_fails(tmp_path: Path, dbt_on_path: None) -> None:
+    from .conftest import copy_example
+
+    # `dbt build` has not run, so the warehouse is empty and the seeds' columns are in their files.
+    root = copy_example(tmp_path)
+    (root / '.gitignore').write_text('target/\nlogs/\nkonstruct-out/\n*.duckdb\n')
+    git(root, 'init', '-q', '-b', 'main')
+    git(root, 'add', '-A')
+    git(root, 'commit', '-qm', 'base')
+    Project(root).build()
+    model = root / 'models' / 'staging' / 'stg_payments.sql'
+    model.write_text(model.read_text().replace('amount / 100 as amount', 'amount / 100 as amount_aud'))
+    result = Project(root).gate(base='HEAD')
+    assert not result.passed
+    messages = [f.message for f in result.findings if f.rule == 'breaking']
+    assert any(m.startswith('stg_payments.amount is removed but still read by') for m in messages)

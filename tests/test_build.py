@@ -5,6 +5,7 @@ import os
 import shutil
 import uuid
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pytest
@@ -326,6 +327,129 @@ def test_dbt_project_without_artefacts_or_dbt(tmp_path: Path, monkeypatch: pytes
     # Airflow still parses; dbt tasks cannot be resolved without a manifest.
     assert result.inputs['airflow_dags'] == 1
     assert any('matched no dbt nodes' in w for w in result.graph.warnings)
+
+
+def _seed_project(root: Path, *, catalog: bool) -> None:
+    """A dbt project whose seeds were never loaded: the manifest names them, and neither the
+    catalog nor a warehouse has their columns."""
+
+    def node(kind: str, name: str, **extra: Any) -> dict[str, Any]:
+        return {
+            'unique_id': f'{kind}.shop.{name}',
+            'resource_type': kind,
+            'name': name,
+            'alias': name,
+            'package_name': 'shop',
+            'database': 'shop',
+            'schema': 'main',
+            'relation_name': f'"shop"."main"."{name}"',
+            'fqn': ['shop', name],
+            'columns': {},
+            'depends_on': {'nodes': [], 'macros': []},
+            'config': {},
+            **extra,
+        }
+
+    (root / 'dbt_project.yml').write_text("name: shop\nseed-paths: ['data']\n")
+    (root / 'data' / 'nested').mkdir(parents=True)
+    # A byte order mark, quoting and padding, as spreadsheet exports write them.
+    (root / 'data' / 'raw_payments.csv').write_text(
+        '﻿"id",order_id, payment_method ,amount\n1,1,card,1000\n', encoding='utf-8'
+    )
+    (root / 'data' / 'nested' / 'raw_orders.csv').write_text('id;status\n1;placed\n')
+    (root / 'models').mkdir()
+    nodes = [
+        node(
+            'seed',
+            'raw_payments',
+            original_file_path='data/raw_payments.csv',
+            columns={
+                'id': {'name': 'id', 'description': 'Payment id'},
+                'refunded': {'name': 'refunded', 'description': 'Not in the file'},
+            },
+            config={'column_types': {'Amount': 'integer'}},
+        ),
+        # No file path in the manifest: the seed is found by name under the seed paths.
+        node('seed', 'raw_orders', config={'delimiter': ';'}),
+        node(
+            'model',
+            'stg_payments',
+            original_file_path='models/stg_payments.sql',
+            compiled_code=(
+                'with source as (select * from "shop"."main"."raw_payments") '
+                'select id as payment_id, order_id, amount / 100 as amount from source'
+            ),
+            depends_on={'nodes': ['seed.shop.raw_payments'], 'macros': []},
+            # Documented, and not built: the catalog does not have the model either.
+            columns={'order_id': {'name': 'order_id'}, 'amount': {'name': 'amount'}},
+        ),
+        node(
+            'model',
+            'orders',
+            original_file_path='models/orders.sql',
+            compiled_code=(
+                'with payments as (select * from "shop"."main"."stg_payments"), '
+                'totals as (select order_id, sum(amount) as amount from payments group by order_id) '
+                'select o.id as order_id, o.status, totals.amount from "shop"."main"."raw_orders" as o '
+                'left join totals on totals.order_id = o.id'
+            ),
+            depends_on={'nodes': ['seed.shop.raw_orders', 'model.shop.stg_payments'], 'macros': []},
+        ),
+    ]
+    manifest = {
+        'metadata': {'adapter_type': 'duckdb', 'invocation_id': 'abc'},
+        'nodes': {n['unique_id']: n for n in nodes},
+        'sources': {},
+        'exposures': {},
+    }
+    (root / 'target').mkdir()
+    (root / 'target' / 'manifest.json').write_text(json.dumps(manifest))
+    if catalog:
+        (root / 'target' / 'catalog.json').write_text(json.dumps({'nodes': {}, 'sources': {}}))
+
+
+@pytest.mark.parametrize('catalog', [True, False], ids=['empty catalog', 'no catalog'])
+def test_seed_columns_come_from_the_csv_header_when_the_seed_is_not_loaded(
+    tmp_path: Path, catalog: bool
+) -> None:
+    _seed_project(tmp_path, catalog=catalog)
+    config = load_config(tmp_path)
+    config.run_dbt = False
+    graph = build(config).graph
+    payments = graph.columns_of('seed.shop.raw_payments')
+    in_file = [c for c in payments if not c.attrs.get('documented_only')]
+    assert [c.name for c in in_file] == ['id', 'order_id', 'payment_method', 'amount']
+    assert [c.data_type for c in in_file] == [None, None, None, 'integer']
+    column = graph.column('seed.shop.raw_payments', 'id')
+    assert column is not None and column.description == 'Payment id'
+    # A documented column the file does not have is not read by `select *`.
+    refunded = graph.column('seed.shop.raw_payments', 'refunded')
+    assert refunded is not None and refunded.attrs.get('documented_only')
+    assert [c.name for c in graph.columns_of('seed.shop.raw_orders')] == ['id', 'status']
+    assert not [w for w in graph.warnings if 'unknown columns' in w or 'lineage failed' in w]
+    derived = edges(graph, 'derived_from')
+    assert ('model.shop.stg_payments#amount', 'seed.shop.raw_payments#amount') in derived
+    assert ('model.shop.orders#amount', 'model.shop.stg_payments#amount') in derived
+    assert ('model.shop.orders#status', 'seed.shop.raw_orders#status') in derived
+
+
+def test_seed_files_that_cannot_be_read_are_warnings(tmp_path: Path) -> None:
+    _seed_project(tmp_path, catalog=False)
+    (tmp_path / 'data' / 'raw_payments.csv').write_bytes(b'\xff\xfe\x00bad')
+    (tmp_path / 'data' / 'nested' / 'raw_orders.csv').unlink()
+    outside = tmp_path.parent / f'{tmp_path.name}-outside.csv'
+    outside.write_text('secret\n')
+    manifest = json.loads((tmp_path / 'target' / 'manifest.json').read_text())
+    # A manifest can name any path; only CSV files inside the project are read.
+    manifest['nodes']['seed.shop.raw_orders']['original_file_path'] = f'../{outside.name}'
+    (tmp_path / 'target' / 'manifest.json').write_text(json.dumps(manifest))
+    config = load_config(tmp_path)
+    config.run_dbt = False
+    graph = build(config).graph
+    assert graph.column('seed.shop.raw_orders', 'secret') is None
+    assert any(
+        'seed raw_payments: cannot read the header of data/raw_payments.csv' in w for w in graph.warnings
+    )
 
 
 def test_relation_index_suffixes_and_placeholders() -> None:
