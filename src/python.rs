@@ -101,7 +101,7 @@ impl FromPyObject<'_, '_> for Key {
     fn extract(object: Borrowed<'_, '_, PyAny>) -> PyResult<Self> {
         let text = object.cast::<PyString>()?.to_owned();
         if let Ok(utf8) = text.to_str()
-            && !utf8.contains(keys::ESCAPE)
+            && !keys::holds_escape(utf8)
         {
             return Ok(Self::Python(PyBackedStr::try_from(text)?));
         }

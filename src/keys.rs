@@ -13,8 +13,19 @@
 
 use std::borrow::Cow;
 
+use crate::substring;
+
 /// The character that starts an escape.
 pub const ESCAPE: char = '\u{D7FF}';
+
+/// [`ESCAPE`] in UTF-8.
+const ESCAPE_UTF8: &[u8] = "\u{D7FF}".as_bytes();
+
+/// Whether `text` holds [`ESCAPE`]: every string that crosses from Python is checked, and almost
+/// none does.
+pub fn holds_escape(text: &str) -> bool {
+    substring::contains(text.as_bytes(), ESCAPE_UTF8)
+}
 
 /// The character after [`ESCAPE`] that stands for U+D7FF; the surrogates follow it in order.
 const ESCAPED: u32 = 0xF_0000;
@@ -42,7 +53,7 @@ fn push_escaped(key: &mut String, text: &str) {
 
 /// The key of a string with no lone surrogates: the string itself unless it holds [`ESCAPE`].
 pub fn from_str(text: &str) -> Cow<'_, str> {
-    if text.contains(ESCAPE) {
+    if holds_escape(text) {
         let mut key = String::with_capacity(text.len() + 4);
         push_escaped(&mut key, text);
         Cow::Owned(key)
@@ -82,7 +93,7 @@ pub fn from_generalized_utf8(bytes: &[u8]) -> Option<String> {
 /// holds an escape. (Given a string that is not a key, an [`ESCAPE`] that starts no escape is
 /// kept as it is.)
 pub fn to_generalized_utf8(key: &str) -> Cow<'_, [u8]> {
-    if !key.contains(ESCAPE) {
+    if !holds_escape(key) {
         return Cow::Borrowed(key.as_bytes());
     }
     let mut bytes = Vec::with_capacity(key.len());
@@ -154,6 +165,21 @@ mod tests {
             1 => ESCAPED..ESCAPED + 0x900,
             1 => 0u32..=0x10_FFFF,
         ]
+    }
+
+    #[test]
+    fn the_escape_is_found_anywhere() {
+        assert_eq!(ESCAPE_UTF8, ESCAPE.encode_utf8(&mut [0; 4]).as_bytes());
+        for text in [
+            "",
+            "a",
+            "\u{D7FE}\u{D7FE}",
+            "\u{D7FF}",
+            "abc\u{D7FF}",
+            "\u{F0000}\u{D7FF}x",
+        ] {
+            assert_eq!(holds_escape(text), text.contains(ESCAPE), "{text:?}");
+        }
     }
 
     #[test]
