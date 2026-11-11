@@ -468,6 +468,24 @@ def test_canonical_expansion_leaves_the_statement_as_it_was() -> None:
         assert tree.sql() == before
 
 
+# A bind parameter or a Snowflake stage where a relation's name belongs, which the parser accepts
+# and sqlglot's qualify cannot normalise. Found by the SQL fuzz target.
+PARAMETER_RELATIONS = [
+    (None, 'select c from ?'),
+    ('duckdb', 'select c from a.?'),
+    ('postgres', 'select c from ? as t'),
+    ('snowflake', 'select c from @p'),
+    ('snowflake', 'select c from @p/x.csv'),
+]
+
+
+@pytest.mark.parametrize(('dialect', 'sql'), PARAMETER_RELATIONS)
+def test_a_relation_named_by_a_parameter_has_no_column_lineage(dialect: str | None, sql: str) -> None:
+    [result] = analyse(sql, dialect=dialect, target='db.schema.model')
+    assert result.columns == {}
+    assert result.errors == ['column lineage failed: a relation is named by a parameter or a stage']
+
+
 CRASHES = [
     ('duckdb', '->'),
     ('duckdb', 'select ->'),

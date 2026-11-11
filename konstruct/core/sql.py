@@ -318,6 +318,13 @@ def _column_lineage(
         qualify_kwargs['db'] = default_db
         if default_catalog:
             qualify_kwargs['catalog'] = default_catalog
+    # A bind parameter (`from ?`) or a Snowflake stage (`from @stage`) where a relation's name belongs
+    # names nothing a schema can hold, and qualify cannot normalise it.
+    if any(
+        isinstance(part, (exp.Placeholder, exp.Var)) for t in query.find_all(exp.Table) for part in t.parts
+    ):
+        result.errors.append('column lineage failed: a relation is named by a parameter or a stage')
+        return
     # The statement was parsed for this analysis alone and is not read again, so it is qualified in
     # place rather than copied first.
     qualified = qualify(query, **qualify_kwargs)
