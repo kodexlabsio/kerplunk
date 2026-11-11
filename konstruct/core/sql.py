@@ -16,7 +16,7 @@ from typing import Any, Literal, NamedTuple
 
 import sqlglot
 from sqlglot import exp
-from sqlglot.dialects.dialect import Dialect, DialectType
+from sqlglot.dialects.dialect import Dialect, DialectType, NormalizationStrategy
 from sqlglot.errors import SqlglotError
 from sqlglot.lineage import Node as LineageNode
 from sqlglot.lineage import lineage, to_node
@@ -190,7 +190,14 @@ def strip_templating(sql: str) -> str:
 
 
 def build_schema(columns: SchemaColumns, dialect: DialectType) -> MappingSchema:
-    """A sqlglot schema with every relation at catalog.db.table depth."""
+    """A sqlglot schema with every relation at catalog.db.table depth.
+
+    Its names are matched whatever their case, quoted or not, as Konstruct matches identifiers: a
+    build lists them in lower case, while qualify folds Snowflake's unquoted names to upper case and
+    keeps a quoted name as written. The names are put in lower case here, once, rather than
+    normalised by sqlglot, which costs as much as the rest of an analysis on a large schema; the
+    query's are put in lower case by the same case-insensitive dialect when it is qualified.
+    """
     nested: dict[str, Any] = {}
     for key, cols in columns.items():
         parts = key.split('.')
@@ -200,11 +207,24 @@ def build_schema(columns: SchemaColumns, dialect: DialectType) -> MappingSchema:
             parts = ['', '', *parts]
         if len(parts) != 3 or not cols:
             continue
-        catalog, db, table = parts
+        catalog, db, table = (part.lower() for part in parts)
         nested.setdefault(catalog, {}).setdefault(db, {})[table] = {
-            name: _safe_type(dtype, dialect) for name, dtype in cols.items()
+            name.lower(): _safe_type(dtype, dialect) for name, dtype in cols.items()
         }
-    return MappingSchema(nested, dialect=dialect, normalize=False)
+    return MappingSchema(nested, dialect=case_insensitive(dialect), normalize=False)
+
+
+_CASE_INSENSITIVE: dict[type[Dialect], Dialect] = {}
+
+
+def case_insensitive(dialect: DialectType) -> Dialect:
+    """``dialect`` with names that match in any case, made once per dialect."""
+    resolved = Dialect.get_or_raise(dialect)
+    found = _CASE_INSENSITIVE.get(type(resolved))
+    if found is None:
+        found = type(resolved)(normalization_strategy=NormalizationStrategy.CASE_INSENSITIVE)
+        _CASE_INSENSITIVE[type(resolved)] = found
+    return found
 
 
 # Every analysis builds the schema of the whole project, so each type would be parsed once per
@@ -366,6 +386,9 @@ def _column_lineage(
     out_names: list[str] | None,
     result: StatementLineage,
 ) -> None:
+    # Names match whatever their case, as in the schema: Snowflake would fold the query's unquoted
+    # names to upper case and keep its quoted ones as written.
+    dialect = case_insensitive(dialect)
     qualify_kwargs: dict[str, Any] = {
         'dialect': dialect,
         'validate_qualify_columns': False,

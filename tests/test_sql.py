@@ -473,6 +473,44 @@ def test_snowflake_dialect() -> None:
     assert results[0].columns['positive'] == [src('raw.shop.orders', 'amount', 'transformed')]
 
 
+@pytest.mark.parametrize('upper', [False, True], ids=['as a build lists them', 'as Snowflake spells them'])
+def test_snowflake_names_match_the_schema_in_either_case(upper: bool) -> None:
+    # Snowflake folds unquoted names to upper case; a build lists them in lower case.
+    schema = {k.upper(): {c.upper(): t for c, t in v.items()} for k, v in SCHEMA.items()} if upper else SCHEMA
+    star = one('with x as (select * from orders) select * from x', dialect='snowflake', schema=schema)
+    assert star.errors == []
+    assert star.columns == {name: [src(ORDERS, name)] for name in SCHEMA[ORDERS]}
+    sql = """
+    select o.id from orders o
+    where exists (select 1 from payments where order_id = o.id and method = 'card')
+    """
+    filtered = one(sql, dialect='snowflake', schema=schema)
+    assert filtered.errors == []
+    assert filtered.columns == {'id': [src(ORDERS, 'id')]}
+    assert set(filtered.references) == {(PAYMENTS, 'order_id'), (PAYMENTS, 'method'), (ORDERS, 'id')}
+    assert "WHERE: db.main.payments.order_id = db.main.orders.id AND db.main.payments.method = 'card'" in (
+        filtered.conditions
+    )
+
+
+@pytest.mark.parametrize('dialect', ['snowflake', 'postgres', 'duckdb'])
+@pytest.mark.parametrize(
+    ('sql', 'schema', 'column'),
+    [
+        ('select o."id" from orders o', {ORDERS: {'id': 'int'}}, 'id'),
+        ('select o."CustomerId" from orders o', {ORDERS: {'customerid': 'int'}}, 'customerid'),
+        ('select o.customerid from orders o', {ORDERS: {'CustomerId': 'int'}}, 'customerid'),
+        ('select "Amount" from orders', {ORDERS: {'Amount': 'int'}}, 'amount'),
+    ],
+)
+def test_quoted_names_match_the_schema_in_any_case(
+    sql: str, schema: dict[str, Any], column: str, dialect: str
+) -> None:
+    result = one(sql, dialect=dialect, schema=schema)
+    assert result.errors == []
+    assert result.columns == {column: [src(ORDERS, column)]}
+
+
 def test_unparseable_sql_is_reported_not_raised() -> None:
     results = analyse('select from where (', dialect='duckdb', target='db.main.x')
     assert results[0].kind == 'unparsed'
@@ -874,9 +912,7 @@ def test_group_by_all_groups_by_the_select_items_without_an_aggregate(dialect: s
     select customer_id, upper(status) as status_code, count(*) as order_count, sum(amount) as total
     from o
     """
-    # Snowflake folds unquoted names to upper case, and so must the schema.
-    schema = {k.upper(): {c.upper(): t for c, t in v.items()} for k, v in SCHEMA.items()}
-    kwargs: dict[str, Any] = {'dialect': dialect, 'schema': schema if dialect == 'snowflake' else SCHEMA}
+    kwargs: dict[str, Any] = {'dialect': dialect}
     grouped = one(f'{select} group by all', **kwargs)
     assert grouped.conditions == one(f'{select} group by 1, 2', **kwargs).conditions
     assert set(grouped.references) == {(ORDERS, 'customer_id'), (ORDERS, 'status')}

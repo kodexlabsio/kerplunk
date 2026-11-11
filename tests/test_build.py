@@ -266,6 +266,21 @@ def test_sql_reads_the_columns_of_a_relation_whose_name_is_not_a_word(
     ]
 
 
+def test_snowflake_sql_reads_the_columns_a_build_lists(tmp_path: Path) -> None:
+    # The build lists names in lower case; Snowflake folds the SQL's unquoted names to upper case.
+    (tmp_path / 'a.sql').write_text('create table main.orders as select id, amount, status from raw.src')
+    (tmp_path / 'b.sql').write_text(
+        "create table main.paid as with o as (select * from main.orders) select * from o where status = 'paid'"
+    )
+    (tmp_path / 'konstruct.toml').write_text('dialect = "snowflake"\n')
+    graph = build(load_config(tmp_path)).graph
+    assert {c.name for c in graph.columns_of('table.main.paid')} == {'id', 'amount', 'status'}
+    assert [e.target for e in graph.out_edges('table.main.paid#amount', 'derived_from')] == [
+        'table.main.orders#amount'
+    ]
+    assert graph.nodes['table.main.paid'].attrs['conditions'] == ["WHERE: main.orders.status = 'paid'"]
+
+
 def test_sql_files_and_views_without_dbt(tmp_path: Path) -> None:
     make_warehouse(tmp_path / 'app.duckdb')
     (tmp_path / 'sql').mkdir()

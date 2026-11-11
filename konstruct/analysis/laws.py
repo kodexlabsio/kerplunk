@@ -69,7 +69,7 @@ from konstruct.analysis.verify import (
 )
 from konstruct.core import jsonio
 from konstruct.core.graph import Graph, Node
-from konstruct.core.sql import PARSE_ERRORS, build_schema, table_key
+from konstruct.core.sql import PARSE_ERRORS, build_schema, case_insensitive, table_key
 
 FORMAT = 1
 """The version of the ``laws.json`` format, raised when a reader of an older one would misread it."""
@@ -1100,7 +1100,8 @@ class _Analyser:
             if any(isinstance(p, exp.Star) or isinstance(p.this, exp.Star) for p in select.selects):
                 select.meta['star'] = True
         try:
-            options: dict[str, Any] = {'dialect': dialect, 'schema': self.schema}
+            # Names match in any case, as in the schema.
+            options: dict[str, Any] = {'dialect': case_insensitive(dialect), 'schema': self.schema}
             if self.db:
                 options['db'] = self.db
                 if self.catalog:
