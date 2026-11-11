@@ -1,0 +1,7 @@
+{
+ "format_version": 1,
+ "summary": "No conflicting definitions among 11 computed columns.",
+ "candidates": 11,
+ "groups": 1,
+ "conflicts": []
+}
