@@ -371,7 +371,17 @@ def _analyse_statement(
 
     try:
         _column_lineage(query, dialect, known, partial, default_catalog, default_db, out_names, result)
-    except (SqlglotError, ValueError, KeyError, IndexError, AttributeError, RecursionError) as error:
+    # An AssertionError is one of sqlglot's internal checks, as on a position over a star qualify
+    # cannot expand or a subquery that is not a query.
+    except (
+        SqlglotError,
+        ValueError,
+        KeyError,
+        IndexError,
+        AttributeError,
+        RecursionError,
+        AssertionError,
+    ) as error:
         result.errors.append(f'{LINEAGE_FAILED}: {_first_line(error)}')
     return result
 
@@ -441,12 +451,7 @@ def _column_lineage(
     qualify_kwargs['schema'] = schema
     # The statement was parsed for this analysis alone and is not read again, so it is qualified in
     # place rather than copied first.
-    try:
-        qualified = qualify(query, **qualify_kwargs)
-    except AssertionError as error:
-        # An internal check of qualify, as on a position over a star it cannot expand.
-        result.errors.append(f'{LINEAGE_FAILED}: {_first_line(error)}')
-        return
+    qualified = qualify(query, **qualify_kwargs)
     scope = build_scope(qualified)
     if scope is None:
         result.errors.append(f'{LINEAGE_FAILED}: not a query')

@@ -736,6 +736,24 @@ def test_sql_the_parser_fails_on_is_unparsed(dialect: str, sql: str) -> None:
     assert [r.kind for r in results] == ['unparsed'] and results[0].errors
 
 
+@pytest.mark.parametrize(
+    'sql',
+    [
+        'select * from (x {}) s',
+        'select * from t, (x {}) s',
+        'select * from t join (x {}) s on true',
+        # The input the SQL fuzz target found, as it decodes it: the dialect, then the text.
+        "i; from '__konstruct__'\n\n\x04,\n\n(xS\x7f\x7fdbz.schema\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f"
+        '{\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x00\x00\x00}\x7fo)Y\x01;\x19\x00\x08\x00O;\x00\x00\x00\x00\x00'
+        '\x19\x00\x00\x00\x00\x04<\x00',
+    ],
+)
+def test_sql_that_fails_a_check_of_sqlglots_reports_its_lineage_failed(sql: str) -> None:
+    # Snowflake parses `(x {})` as a subquery of a struct, which sqlglot's scopes assert is a query.
+    results = analyse(sql, dialect='snowflake', target='db.schema.model')
+    assert any(e.startswith('column lineage failed: STRUCT(') for r in results for e in r.errors)
+
+
 @pytest.mark.parametrize(('dialect', 'sql'), CRASHES)
 def test_every_reader_of_sql_survives_what_the_parser_fails_on(dialect: str, sql: str) -> None:
     from konstruct.analysis import conflicts
