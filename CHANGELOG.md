@@ -1,3 +1,17 @@
+## v0.13.11 (2026-11-11)
+
+### Fix
+
+- **sql**: Report a failed lineage, not a crash, when one of sqlglot's checks rejects the SQL
+- **sql**: Look a subquery's alias up in the subquery before the query around it
+- **sql**: Trace a lateral subquery's columns through the select that makes them
+- **sql**: Warn when a subquery's column is taken to be its own relation's
+- **sql**: Match names in any case, as Snowflake's upper-case names need
+- **sql**: Record the columns DISTINCT, LIMIT and set operations pick rows by as references
+- **sql**: Follow a column through a SELECT * over unknown columns
+- **sql**: Keep the lineage of a model that filters on a subquery over unknown columns
+- **sql**: Leave functions sqlglot does not know out of the keys of GROUP BY ALL
+
 ## v0.13.10 (2026-11-11)
 
 ### Fix
