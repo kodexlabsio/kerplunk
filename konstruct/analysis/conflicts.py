@@ -21,7 +21,7 @@ from __future__ import annotations
 from bisect import bisect_right
 from collections import Counter, defaultdict
 from collections.abc import Collection, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import combinations
 from typing import TYPE_CHECKING, Any
 
@@ -302,6 +302,7 @@ class _Finder:
         self.joinless: Formulas | None = None
         self._conditions: dict[str, tuple[list[Condition], list[Condition]]] = {}
         self._sides: dict[str, Side] = {}
+        self._ideas: dict[tuple[str, str], Side] = {}
         self._keyed: dict[str, tuple[Keyed, Keyed]] = {}
         self._keys: dict[str, str] = {}
         self._tops: dict[str, str | None] = {}
@@ -380,6 +381,14 @@ class _Finder:
         found = self._sides.get(column.id)
         if found is None:
             found = self._sides[column.id] = self._side(column)
+        return found
+
+    def side_in(self, idea: str, column: Node, carried: list[str]) -> Side:
+        """The column's side in the conflicts of one idea, with the columns of that idea derived
+        from it: a column can be a side in several ideas, with other copies in each."""
+        found = self._ideas.get((idea, column.id))
+        if found is None:
+            found = self._ideas[idea, column.id] = replace(self.side(column), carried_into=carried)
         return found
 
     def approved(self) -> Counter[str]:
@@ -553,9 +562,7 @@ def find_conflicts(
 
     With ``touching``, a set of column ids, only the pairs with a column in it are compared: the
     conflicts are those of every pair that involve one of those columns, in the same order, at a
-    cost that grows with how many columns it names rather than with the number of pairs. A side's
-    ``carried_into`` is that of the last idea it is compared in, so for a column in more than one
-    idea it can differ from a comparison of every pair."""
+    cost that grows with how many columns it names rather than with the number of pairs."""
     finder = _Finder(graph)
     candidates = finder.candidates()
     term_keys = finder.term_keys()
@@ -605,9 +612,10 @@ def find_conflicts(
             # A column derived from the other is a copy, not a competing definition.
             if first.id in finder.upstream(second.id) or second.id in finder.upstream(first.id):
                 continue
-            a, b = finder.side(first), finder.side(second)
-            a.carried_into = carried.get(first.id, [])
-            b.carried_into = carried.get(second.id, [])
+            a, b = (
+                finder.side_in(key, first, carried[first.id]),
+                finder.side_in(key, second, carried[second.id]),
+            )
             differences = finder.compare(a, b)
             if not differences:
                 continue

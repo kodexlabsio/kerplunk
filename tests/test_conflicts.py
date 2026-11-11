@@ -405,3 +405,38 @@ def test_a_source_difference_hides_a_formula_the_same_unless_null() -> None:
     )
     [conflict] = find_conflicts(graph).conflicts
     assert [(d.kind, d.side) for d in conflict.differences] == [('source', 'a')]
+
+
+def test_each_conflict_lists_the_copies_of_its_own_idea(tmp_path: Path) -> None:
+    """base.revenue is one side of two ideas: revenue, where copy.revenue is derived from it, and
+    the term Booked value, where nothing is. Each conflict lists the copies of its own idea."""
+    (tmp_path / 'konstruct.toml').write_text('dialect = "duckdb"\n')
+    (tmp_path / 'base.sql').write_text(
+        'create table main.base as select customer_id, sum(amount) as revenue from raw.orders group by 1'
+    )
+    (tmp_path / 'copy.sql').write_text(
+        'create table main.copy as select customer_id, revenue * 1 as revenue from main.base'
+    )
+    (tmp_path / 'other.sql').write_text(
+        'create table main.other as select customer_id, sum(amount) as revenue from raw.orders '
+        "where status = 'paid' group by 1"
+    )
+    (tmp_path / 'booked.sql').write_text(
+        'create table main.booked as select customer_id, sum(total) as booked from raw.invoices group by 1'
+    )
+    (tmp_path / 'definitions.yml').write_text(
+        'terms:\n  - name: Booked value\n    definition: What customers are billed.\n'
+        '    columns: [main.base.revenue, main.booked.booked]\n'
+    )
+    graph = Project(tmp_path).build(run_dbt=False, warehouses=False).graph
+    found = {(c.idea, c.a.label, c.b.label): c for c in find_conflicts(graph).conflicts}
+    assert set(found) == {
+        ('revenue', 'base.revenue', 'other.revenue'),
+        ('Booked value', 'base.revenue', 'booked.booked'),
+    }
+    assert found['revenue', 'base.revenue', 'other.revenue'].a.carried_into == ['copy.revenue']
+    assert found['Booked value', 'base.revenue', 'booked.booked'].a.carried_into == []
+    assert 'carried into `copy.revenue`' in find_conflicts(graph).markdown()
+    # Only the pairs of one column, as the gate compares them, give the same.
+    [revenue] = find_conflicts(graph, touching={'table.main.other#revenue'}).conflicts
+    assert revenue.a.carried_into == ['copy.revenue']
