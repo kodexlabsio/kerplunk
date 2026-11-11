@@ -5,6 +5,7 @@ import os
 import shutil
 import uuid
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pytest
@@ -218,6 +219,44 @@ def test_a_build_records_the_relations_whose_columns_it_only_guessed(tmp_path: P
         True,
         False,
         False,
+    ]
+
+
+@pytest.mark.parametrize(
+    'first',
+    [
+        'create table m.x as select p.dept from raw.pay p',
+        'create table m.x as select p.dept from raw.pay p join raw.users u on p.payment_id = u.id',
+    ],
+    ids=['alone', 'joined'],
+)
+def test_the_graph_of_sql_files_does_not_depend_on_the_order_they_are_read(
+    tmp_path: Path, first: str
+) -> None:
+    """A relation's columns, known only from the SQL that reads it, are not all those the first
+    file to read it names: a later file that reads another is traced all the same."""
+    models = 'create table crm.copy as select p.dept, p.salary from raw.pay p'
+
+    def graph_of(files: dict[str, str]) -> tuple[Graph, dict[str, Any]]:
+        root = tmp_path / str(len(list(tmp_path.iterdir())))
+        root.mkdir()
+        for name, sql in files.items():
+            (root / name).write_text(sql)
+        graph = build(load_config(root)).graph
+        # The same graph but for which file each relation came from, as the files swap contents.
+        text = json.dumps({k: v for k, v in graph.to_dict().items() if k != 'meta'}, sort_keys=True)
+        if files['a.sql'] == models:
+            text = text.replace('a.sql', '<b>').replace('b.sql', 'a.sql').replace('<b>', 'b.sql')
+        return graph, {
+            k: sorted(map(repr, v)) if isinstance(v, list) else v for k, v in json.loads(text).items()
+        }
+
+    graph, before = graph_of({'a.sql': first, 'b.sql': models})
+    _, after = graph_of({'a.sql': models, 'b.sql': first})
+    assert before == after
+    assert graph.warnings == []
+    assert [e.target for e in graph.out_edges('table.crm.copy#salary', 'derived_from')] == [
+        'table.raw.pay#salary'
     ]
 
 
