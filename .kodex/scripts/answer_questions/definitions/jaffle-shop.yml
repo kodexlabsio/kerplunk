@@ -1,0 +1,75 @@
+version: 1
+terms:
+  - name: Revenue
+    synonyms: [sales]
+    definition: >
+      The sum of the product prices of the items in each order, in US dollars, excluding tax.
+      Revenue is counted from order items; an order with no items has no revenue.
+    owner: {name: Finance team}
+    status: approved
+    approved: 2026-11-11
+    grain: one row per order item
+    columns: [order_items.product_price]
+    unit: currency
+    currency: USD
+    related: [Order total]
+
+  - name: Order total
+    synonyms: [order value]
+    definition: The total amount of an order in US dollars, including tax.
+    owner: {name: Finance team}
+    status: approved
+    approved: 2026-11-11
+    grain: one row per order
+    columns: [orders.order_total]
+    unit: currency
+    currency: USD
+    related: [Revenue]
+
+  - name: Order cost
+    definition: The sum of the supply cost of every item in an order, in US dollars.
+    owner: {name: Finance team}
+    status: approved
+    approved: 2026-11-11
+    grain: one row per order
+    columns: [orders.order_cost]
+    unit: currency
+    currency: USD
+
+  - name: Gross profit
+    definition: Revenue less order cost, in US dollars.
+    owner: {name: Finance team}
+    status: approved
+    approved: 2026-11-11
+    columns: [order_items.product_price, order_items.supply_cost]
+    unit: currency
+    currency: USD
+    related: [Revenue, Order cost]
+
+  - name: Large order
+    definition: An order whose order total, including tax, is 20 US dollars or more.
+    owner: {name: Finance team}
+    status: approved
+    approved: 2026-11-11
+    grain: one row per order
+    columns: [orders.order_total]
+    filters: ["orders.order_total >= 20"]
+    related: [Order total]
+
+  - name: New customer order
+    definition: A customer's first order.
+    owner: {name: Finance team}
+    status: approved
+    approved: 2026-11-11
+    grain: one row per order
+    columns: [orders.customer_order_number]
+    filters: ["orders.customer_order_number = 1"]
+
+  - name: Food revenue share
+    definition: Revenue from food items (jaffles) as a percentage of revenue.
+    owner: {name: Finance team}
+    status: approved
+    approved: 2026-11-11
+    columns: [order_items.product_price, order_items.is_food_item]
+    unit: percent
+    related: [Revenue]

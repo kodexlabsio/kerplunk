@@ -1,0 +1,51 @@
+version: 1
+terms:
+  - name: Net revenue
+    synonyms: [revenue net of returns, net sales]
+    definition: >
+      The order amount of completed orders only, in Australian dollars. Orders that are placed
+      or shipped but not yet received, returned, or awaiting a return are left out.
+    owner: {name: Finance team}
+    status: approved
+    approved: 2026-11-11
+    grain: one row per order
+    columns: [orders.amount]
+    filters: ["orders.status = 'completed'"]
+    unit: currency
+    currency: AUD
+    related: [Order amount, Completed order]
+
+  - name: Average order value
+    synonyms: [AOV]
+    definition: Net revenue divided by the number of completed orders, in Australian dollars.
+    owner: {name: Finance team}
+    status: approved
+    approved: 2026-11-11
+    grain: one row per order
+    columns: [orders.amount]
+    filters: ["orders.status = 'completed'"]
+    unit: currency
+    currency: AUD
+    related: [Net revenue, Completed order]
+
+  - name: Return rate
+    definition: >
+      The share of all orders that were returned or are awaiting a return, as a percentage of
+      every order placed whatever its status.
+    owner: {name: Finance team}
+    status: approved
+    approved: 2026-11-11
+    grain: one row per order
+    columns: [orders.status]
+    unit: percent
+    related: [Completed order]
+
+  - name: Active customer
+    definition: A customer with at least one completed order.
+    owner: {name: Finance team}
+    status: approved
+    approved: 2026-11-11
+    grain: one row per customer
+    columns: [customers.customer_id]
+    filters: ["orders.status = 'completed'"]
+    related: [Customer, Completed order]

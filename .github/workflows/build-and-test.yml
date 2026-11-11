@@ -373,6 +373,11 @@ jobs:
           KONSTRUCT_REALWORLD: '1'
         run: uv run pytest tests/test_realworld.py
 
+      - name: Check the answer benchmark's reference answers on its warehouse
+        env:
+          KONSTRUCT_REALWORLD: '1'
+        run: uv run pytest tests/test_answer_benchmark.py -m realworld
+
   airflow-parity:
     name: Airflow parser against Apache Airflow
     runs-on: ubuntu-latest

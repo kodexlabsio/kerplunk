@@ -4,7 +4,8 @@ The paper (``paper/konstruct.tex``) types no result by hand, and git ignores wha
 runs it before building the PDF. This script builds the bundled
 example and dbt Labs' jaffle-shop, verifies their lineage by perturbation, deletes each verified
 edge in turn to see that verification notices, runs the differential test, grades the Apache Ossie
-portability ladder, counts the ontology packs and runs ``.kodex/scripts/benchmark.py``. It writes:
+portability ladder, counts the ontology packs, runs ``.kodex/scripts/benchmark.py`` and counts the
+questions of ``.kodex/scripts/answer_benchmark.py``. It writes:
 
 * ``paper/generated/numbers.tex``: one ``\\newcommand`` per number, such as ``\\jsClaimed``;
 * ``paper/generated/*-table.tex``: the rows of the paper's tables, as macros such as ``\\ossieTable``;
@@ -15,6 +16,10 @@ Usage::
     uv run python paper/generate.py                         # everything, as CI runs it
     uv run python paper/generate.py --sizes 100 500         # a quicker benchmark
     uv run python paper/generate.py --only ossie packs      # some sections, keeping the rest
+
+    # The answer benchmark run too, which calls the model's API:
+    KONSTRUCT_PAPER_ANSWER_BENCHMARK=1 KONSTRUCT_BENCH_MODEL=<model id> ANTHROPIC_API_KEY=<key> \\
+        uv run --with anthropic python paper/generate.py --only answers
 
 Cloning jaffle-shop and running ``dbt deps`` for its packages need network access.
 """
@@ -45,7 +50,20 @@ OUT = ROOT / 'paper' / 'generated'
 SEED = 1729
 SIZES = (100, 500, 2000, 5000)
 DIFFERENTIAL = 300
-SECTIONS = ('meta', 'interfaces', 'example', 'realworld', 'differential', 'ossie', 'packs', 'benchmark')
+SECTIONS = (
+    'meta',
+    'interfaces',
+    'example',
+    'realworld',
+    'differential',
+    'ossie',
+    'packs',
+    'benchmark',
+    'answers',
+)
+# A run of the answer benchmark calls a model's API, which costs money, so it runs only when asked:
+# KONSTRUCT_PAPER_ANSWER_BENCHMARK=1 with KONSTRUCT_BENCH_MODEL and the API key set.
+ANSWER_BENCHMARK_FLAG = 'KONSTRUCT_PAPER_ANSWER_BENCHMARK'
 
 
 class Numbers:
@@ -636,14 +654,59 @@ def benchmark(numbers: Numbers, sizes: list[int]) -> None:
 
 def _benchmark_script() -> Any:
     """``.kodex/scripts/benchmark.py`` as a module, for the constants it measures with."""
+    return _script('benchmark')
+
+
+def _script(name: str) -> Any:
+    """A script in ``.kodex/scripts/`` as a module."""
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location('benchmark', ROOT / '.kodex' / 'scripts' / 'benchmark.py')
+    spec = importlib.util.spec_from_file_location(name, ROOT / '.kodex' / 'scripts' / f'{name}.py')
     if spec is None or spec.loader is None:
-        raise RuntimeError('cannot load .kodex/scripts/benchmark.py')
+        raise RuntimeError(f'cannot load .kodex/scripts/{name}.py')
     module = importlib.util.module_from_spec(spec)
+    # Dataclasses look their module up by name while it runs.
+    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
+
+
+# The answer benchmark
+
+
+def answers(numbers: Numbers) -> None:
+    """The answer benchmark's question set, and, only when the flag is set, a run of it."""
+    script = _script('answer_benchmark')
+    questions = script.load_questions()
+    numbers.add('answerQuestions', len(questions.questions), 'questions in the answer benchmark')
+    numbers.add('answerSetVersion', questions.version, 'the version of its question set')
+    numbers.add('answerArms', len(script.ARMS), 'its arms')
+    numbers.add('answerCorpora', len(script.CORPORA), 'the dbt projects it asks about')
+    for macro, corpus in (('answerExampleQuestions', 'jaffle_shop'), ('answerJsQuestions', 'jaffle-shop')):
+        numbers.add(macro, len(questions.for_corpora([corpus])), f'its questions on {corpus}')
+    numbers.add(
+        'answerTrapQuestions',
+        sum(1 for q in questions.questions if q.trap != 'control'),
+        'its questions with a trap',
+    )
+    if os.environ.get(ANSWER_BENCHMARK_FLAG) != '1':
+        return
+    with tempfile.TemporaryDirectory(prefix='konstruct-paper-') as directory:
+        subprocess.run(
+            [sys.executable, str(ROOT / '.kodex' / 'scripts' / 'answer_benchmark.py'), '--out', directory],
+            cwd=ROOT,
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+        data = json.loads((Path(directory) / 'results.json').read_text())
+    numbers.add('answerModel', tex(data['model']), 'the model the answer benchmark ran')
+    for arm, measured in data['arms'].items():
+        name = arm.capitalize()
+        for key in ('correct', 'wrong', 'abstained', 'confidently_wrong'):
+            label = ''.join(part.capitalize() for part in key.split('_'))
+            numbers.add(f'answer{name}{label}', measured[key], f'{key} answers, {arm} arm')
+            rate = measured[f'{key}_rate']
+            numbers.add(f'answer{name}{label}Pct', f'{100 * rate:.1f}', f'{key} share, {arm} arm, in %')
 
 
 def _loglog(xs: list[float], ys: list[float]) -> tuple[float, float]:
@@ -685,6 +748,7 @@ def main() -> int:
         'ossie': ossie,
         'packs': packs,
         'benchmark': lambda n: benchmark(n, sorted(args.sizes)),
+        'answers': answers,
     }
     for section in args.only or SECTIONS:
         timed(numbers, section, runs[section])
