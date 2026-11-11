@@ -392,9 +392,10 @@ class Checker:
         self.derived = derivation(graph)
         self.ontology = self.derived.ontology
         self.keys: dict[str, str] = dict(self.derived.keys)
-        self.unique: set[str] = set(self.derived.unique) | {
-            i for e in self.ontology.entities for i in e.key_ids
-        }
+        # What a test, a key or an identifier field shows unique, and the identifiers a pack binds
+        # as its source's own; never every entity key, which can be a referring column a definition
+        # merely lists, shared by many rows.
+        self.unique: frozenset[str] = self.derived.unique | self.derived.presumed
         self.explainer = Explainer(graph)
         self.composer = Explainer(graph, qualified=True)
         self.relationships = self.ontology.relationships

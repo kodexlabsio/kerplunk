@@ -2058,3 +2058,18 @@ def test_checking_a_query_on_a_large_project_is_fast(tmp_path: Path) -> None:
         checker.check(sql)
     per_query = (time.perf_counter() - started) / 20
     assert ready < 20 and per_query < 2, (ready, per_query)
+
+
+def test_a_key_a_definition_lists_without_a_test_does_not_hide_a_fan_out(tmp_path: Path) -> None:
+    """A term of kind entity binds payments.order_id as well as orders.order_id. That makes it a key
+    of order, but no test or constraint makes it unique: many payments still match one order, so a
+    sum of the order's amount over the join is still a fan-out."""
+    definitions = (
+        'version: 1\nterms:\n  - name: Order\n    kind: entity\n'
+        '    columns: [orders.order_id, payments.order_id]\n'
+    )
+    checker = Checker(make_shop(tmp_path, definitions=definitions))
+    order = next(e for e in checker.ontology.entities if e.name == 'order')
+    assert any(i.endswith('payments#order_id') for i in order.key_ids)
+    sql = 'select sum(o.amount) as total from raw.orders o join raw.payments p on p.order_id = o.order_id'
+    assert only(checker.check(sql), 'fan-out').column == 'total'

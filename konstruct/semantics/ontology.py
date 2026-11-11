@@ -371,6 +371,10 @@ class Derivation:
     """Each relation's graph id, to the column names of the composite keys it declares (a primary
     key or identifier fields of more than one column), which are unique only together."""
     graph: Graph = field(repr=False)
+    presumed: frozenset[str] = frozenset()
+    """The key columns an ontology pack binds as its source system's own identifier (Stripe's
+    ``customer.id``). Nothing has tested them, so they are not in ``unique`` and give no
+    cardinality; a tool looking for rows a join repeats may still take them as unique."""
 
     def entity_of(self, relation: Node) -> str | None:
         """The entity whose instances ``relation`` holds one row each of."""
@@ -381,7 +385,14 @@ def derivation(graph: Graph) -> Derivation:
     """The ontology of ``graph`` with the keys and unique columns it was derived from."""
     deriver = _Deriver(graph)
     ontology = deriver.run()
-    return Derivation(ontology, dict(deriver.keys), frozenset(deriver.unique), deriver.composite, graph)
+    return Derivation(
+        ontology,
+        dict(deriver.keys),
+        frozenset(deriver.unique),
+        deriver.composite,
+        graph,
+        frozenset(deriver.presumed),
+    )
 
 
 def _entity_of(graph: Graph, keys: dict[str, str], relation: Node) -> str | None:
@@ -403,6 +414,7 @@ class _Deriver:
         self.keys: dict[str, str] = {}  # column id of a key -> entity name
         self.entities: dict[str, Entity] = {}
         self.unique: set[str] = set()  # column ids with a uniqueness guarantee
+        self.presumed: set[str] = set()  # keys a pack binds as its source's own identifier
         self.composite: dict[str, list[tuple[str, ...]]] = {}  # relation id -> composite keys
         self.terms = sorted(
             (n for n in graph.nodes.values() if n.kind == 'term'), key=lambda n: (n.name.lower(), n.id)
@@ -618,6 +630,8 @@ class _Deriver:
         if not term.attrs.get('registry'):
             # definitions.yml names these the keys of an entity; a pack's binding is only a match.
             self.stated.update(c.id for c in columns)
+        else:
+            self.presumed.update(c.id for c in columns)
         for column in columns:
             if column.id in self.keys:
                 continue
