@@ -43,6 +43,16 @@ Every command reads `graph.json` first. Konstruct reads it in two passes: the fi
 
 Making every edge a Python object, when a caller asks for all of them (`Graph.edges`, `to_dict`) or changes the graph, takes about 0.2 s more. `cargo bench --bench core` times the two passes without Python on a 45.5 MB `graph.json` of the same shape: finding the tokens takes 35 ms, finding them and checking the JSON 70 ms, and the graph's shape and index from those another 65 ms.
 
+## Comparing Versions
+
+`konstruct diff` analyses each changed model's SQL before and after a change. On the 2,000-model project, with a commit that changes 100 models:
+
+| Command | Time |
+|---|---:|
+| `Project.diff` between the tag before the change and the change | 18.8 s |
+
+`uv run .kodex/scripts/history_benchmark.py` measures it on your machine, and `--models` and `--changed` set the sizes.
+
 ## Search by Meaning
 
 A build makes no index for search by meaning; the first search by meaning does, and saves it as `vectors.bin` (see [Searching by Meaning](guide/search.md)). On the 2,000-model project:

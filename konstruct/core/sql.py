@@ -8,6 +8,7 @@ is derived from, and the columns it only joins, filters or groups on.
 from __future__ import annotations
 
 import datetime
+import functools
 import re
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -179,6 +180,9 @@ def build_schema(columns: SchemaColumns, dialect: DialectType) -> MappingSchema:
     return MappingSchema(nested, dialect=dialect, normalize=False)
 
 
+# Every analysis builds the schema of the whole project, so each type would be parsed once per
+# column per statement; a project has few distinct types.
+@functools.lru_cache(maxsize=65536)
 def _safe_type(dtype: str | None, dialect: DialectType) -> str:
     if not dtype:
         return 'UNKNOWN'
