@@ -729,8 +729,12 @@ class McpTools:
 
     async def __aenter__(self) -> McpTools:
         from mcp import Client
+        from mcp.client.stdio import stdio_client
 
-        self.client = await Client(self.params).__aenter__()
+        # stdio_client's own default is the sys.stderr of the moment mcp is first imported, which
+        # under pytest's capsys, or any other stand-in stream, has no file the server can write to.
+        errlog = sys.__stderr__ or sys.stderr
+        self.client = await Client(stdio_client(self.params, errlog=errlog)).__aenter__()
         return self
 
     async def __aexit__(self, *exc: object) -> None:
