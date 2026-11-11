@@ -1054,8 +1054,9 @@ class _Clause(NamedTuple):
 def _row_clauses(query: exp.Query, scope: Scope, folded: Collection[int] = ()) -> Iterator[_Clause]:
     """The joins, filters and grouping of ``query``, its DISTINCT and DISTINCT ON, LIMIT and OFFSET,
     the ORDER BY those pick rows by, the rows a set operation that removes duplicates compares, and
-    the rows it makes from a table function or VALUES. One walk gives both the conditions and the
-    references; the WHERE of a scope in ``folded`` (by id) is part of a join's ON instead."""
+    the rows it makes from a table function, VALUES, an UNNEST, a LATERAL or a Snowflake TABLE(...).
+    One walk gives both the conditions and the references; the WHERE of a scope in ``folded`` (by
+    id) is part of a join's ON instead."""
     args = query.args
     for join in args.get('joins') or []:
         on = join.args.get('on')
@@ -1117,11 +1118,17 @@ def _row_clauses(query: exp.Query, scope: Scope, folded: Collection[int] = ()) -
     # describes: what they are is in the SQL.
     for _, source in scope.selected_sources.values():
         if isinstance(source, exp.Table) and not isinstance(source.this, exp.Identifier):
-            yield _Clause('ROWS FROM', [_Printed(source.this)], [])
+            yield _Clause('ROWS FROM', [source.this], [])
         elif isinstance(source, Scope) and isinstance(source.expression, exp.Values):
             values = source.expression.copy()
             values.set('alias', None)  # what it is called is not what it holds
             yield _Clause('ROWS FROM', [_Printed(values, unbracket=True)], [])
+    # An UNNEST, a LATERAL or a Snowflake TABLE(...) makes rows from each row of another source, and
+    # no relation describes them.
+    joined = [args.get('from_'), *(args.get('joins') or [])]
+    for made in [*(j.this for j in joined if j is not None), *(args.get('laterals') or [])]:
+        if isinstance(made, (exp.Unnest, exp.Lateral, exp.TableFromRows)):
+            yield _Clause('ROWS FROM', [made], [])
 
 
 def _selected(select: exp.Select) -> list[exp.Expr]:
@@ -1523,6 +1530,8 @@ class Canonical:
         if isinstance(term, _Printed):
             text = term.expression.sql(dialect=self.dialect)
             return _unbracket(text) if term.unbracket else text
+        if isinstance(term, (exp.Unnest, exp.Lateral, exp.TableFromRows)):
+            return self.made_rows(term, scope, schema)
         if union is not None:
             return self._union_term(union, term, schema)
         return self.expression(term, scope, schema)
@@ -1560,6 +1569,27 @@ class Canonical:
             )
             return ordered.sql(dialect=self.dialect)
         return replaced.sql(dialect=self.dialect)
+
+    def made_rows(self, made: exp.Expr, scope: Scope, schema: MappingSchema) -> str:
+        """An UNNEST, LATERAL or Snowflake TABLE(...) source in canonical form: without its alias,
+        which is what it is called, not what it holds, and with each column named by its relation,
+        as :meth:`expression` names them. A LATERAL is written as what it reads."""
+        prefix = ''
+        if isinstance(made, exp.Lateral):
+            prefix = (
+                'LATERAL VIEW OUTER '
+                if made.args.get('outer')
+                else 'LATERAL VIEW '
+                if made.args.get('view')
+                else 'LATERAL '
+            )
+            return prefix + self.expression(made.this, scope, schema)
+        alias = made.args.get('alias')
+        made.set('alias', None)
+        try:
+            return self.expression(made, scope, schema)
+        finally:
+            made.set('alias', alias)
 
     def expression(self, part: exp.Expr, scope: Scope, schema: MappingSchema) -> str:
         """``part``, an expression of the qualified query that ``scope`` belongs to, in canonical
@@ -1606,14 +1636,21 @@ class Canonical:
         if isinstance(part, exp.Column):
             return replace(part).sql(dialect=self.dialect)
         swapped: list[tuple[exp.Expr, exp.Expr]] = []
+        # A table a subquery in it reads is named, and its columns are, by the relation, so its
+        # alias, which is what it is called and not what it is, is left out.
+        aliased = [(t, t.args['alias']) for t in part.find_all(exp.Table) if t.args.get('alias')]
         try:
             for column in list(part.find_all(exp.Column)):
                 new = replace(column)
                 if new is not column:
                     column.replace(new)
                     swapped.append((new, column))
+            for table, _ in aliased:
+                table.set('alias', None)
             return part.sql(dialect=self.dialect, copy=False)
         finally:
+            for table, alias in aliased:
+                table.set('alias', alias)
             for new, old in reversed(swapped):
                 new.replace(old)
 

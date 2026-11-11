@@ -1808,3 +1808,37 @@ def test_the_consumer_check_reads_no_lockfile_when_the_change_alters_no_column(
         producer.graph, finance, path=dash / FILE_NAME, consumer='dash', only={'table.main.ltv#total'}
     )
     assert [c.column for c in judged.changes] == ['main.ltv.total'] and judged.notes == []
+
+
+UNNESTED = """create table main.ltv as
+select o.customer_id, sum(o.amount) as total from raw.orders o cross join unnest(o.tags) as t(tag)
+group by o.customer_id
+"""
+
+
+def test_a_condition_the_canonical_form_adds_fails_once_and_changes_nothing(
+    repositories: tuple[Path, Path],
+) -> None:
+    """Canonical form 3 records an UNNEST as a ROWS FROM condition, which form 2 did not: a pin
+    locked in form 2 reads differently only in how it is printed, so the check asks once for a
+    re-lock and reports no change to it."""
+    finance, marketing = repositories
+    (finance / 'ltv.sql').write_text(UNNESTED)
+    graph = build(marketing)
+    lock(graph, marketing)
+    text = (marketing / FILE_NAME).read_text()
+    assert '  "ROWS FROM: UNNEST(raw.orders.tags)",\n' in text
+    form_two = text.replace('  "ROWS FROM: UNNEST(raw.orders.tags)",\n', '')
+    # Had the form stayed the same, the pin locked without the condition would read as changed.
+    (marketing / FILE_NAME).write_text(form_two)
+    same_form = check(graph, marketing, history=False)
+    assert [(c.column, c.reasons) for c in same_form.changes] == [
+        ('main.ltv.customer_id', ['conditions']),
+        ('main.ltv.total', ['conditions']),
+    ]
+    (marketing / FILE_NAME).write_text(form_two.replace(CANONICAL, 'konstruct-2/sqlglot-30.30'))
+    result = check(graph, marketing, history=False)
+    assert result.changes == [] and result.relock == 2
+    assert 'written with canonical form konstruct-2/sqlglot-30.30' in result.summary()
+    assert lock(graph, marketing, update=True).lockfile.canonical == CANONICAL
+    assert check(graph, marketing, history=False).passed

@@ -2,7 +2,7 @@
 
 `konstruct diff` answers "what does this branch do to the data?" For each dbt model, SQL file and DAG file that changed, it analyses the base and current versions and compares each output column's canonical expression: the expression with every CTE, subquery and alias inlined down to physical columns. Reformatting, renaming a CTE or reordering columns is therefore not a change, and a real change is shown in full. Join, filter and grouping conditions are compared the same way. A removed column is breaking when a downstream model's current SQL still reads it, so a change that also updates its consumers is not flagged.
 
-A relation's conditions are the clauses that decide which rows it has. Each is listed with a label that says where it applies, so moving it to where it decides other rows is a change:
+A relation's conditions are the clauses that decide which rows it has. Each names its columns, and the tables a subquery in it reads, by their relations, without aliases, so renaming an alias is no change. Each is listed with a label that says where it applies, so moving it to where it decides other rows is a change:
 
 | Label | Where the condition applies |
 |-------|-----------------------------|
@@ -12,7 +12,7 @@ A relation's conditions are the clauses that decide which rows it has. Each is l
 | `DISTINCT`, `DISTINCT ON` | The rows a `SELECT DISTINCT` keeps, by the columns it selects, or the one row for each key a `DISTINCT ON` keeps |
 | `LIMIT`, `OFFSET`, `ORDER BY` | How many rows a query keeps or skips, and the order it picks them in. An `ORDER BY` is listed only where a `LIMIT`, an `OFFSET` or a `DISTINCT ON` picks rows by it |
 | `UNION`, `INTERSECT`, `EXCEPT` | A set operation that removes duplicates or matches rows, as `UNION: DISTINCT` or `INTERSECT: ALL`. A `UNION ALL` keeps every row of each branch and has no label |
-| `ROWS FROM` | The rows a query makes itself, from a table function such as `range(2)` or a `VALUES` list, which no column of a relation describes |
+| `ROWS FROM` | The rows a query makes itself, from a table function such as `range(2)`, a `VALUES` list, an `UNNEST`, a `LATERAL`, a `LATERAL VIEW` or a Snowflake `TABLE(...)`, which no column of a relation describes |
 | `... BEFORE WINDOW`, `... BEFORE LIMIT` | A condition applied before a window function or `QUALIFY`, or before a `LIMIT` or `OFFSET`, which see the rows it leaves; the steps are listed nearest first, as `WHERE BEFORE WINDOW, LIMIT` |
 
 In an [OpenLineage export](exporting.md), a filter of the side of a `LEFT JOIN` that is listed under the join's `LEFT JOIN ON` has the subtype `JOIN`; one listed as a `LEFT JOIN WHERE` keeps the subtype `FILTER`.

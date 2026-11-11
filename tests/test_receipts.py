@@ -762,3 +762,33 @@ def test_a_link_planted_after_the_check_is_not_written_through(
     with pytest.raises(QueryError, match='cannot write'):
         project.receipt(['ltv.total'])
     assert outside.read_text() == 'ORIGINAL\n'
+
+
+def test_a_receipt_issued_before_unnest_was_a_condition_still_holds(tmp_path: Path) -> None:
+    """Canonical form 3 records an UNNEST as a ROWS FROM condition, which form 2 did not: a
+    receipt issued in form 2 reads differently only in how it is printed, so it is not stale."""
+    root = tmp_path / 'tags'
+    root.mkdir()
+    (root / 'tagged.sql').write_text(
+        'create table main.tagged as select o.id, o.amount, t.tag from raw.orders o\n'
+        'cross join unnest(o.tags) as t(tag)\n'
+    )
+    (root / '.gitignore').write_text('konstruct-out/\n')
+    git(root, 'init', '-q', '-b', 'main')
+    commit(root, 'Add the tags')
+    project = Project(root)
+    rebuild(project)
+    project.receipt(['tagged.amount'])
+    [path] = (project.out_dir / DIRECTORY).glob('*.jsonl')
+    record = json.loads(path.read_text().splitlines()[0])
+    assert record['relations'] == [
+        {'name': 'main.tagged', 'conditions': ['ROWS FROM: UNNEST(raw.orders.tags)']}
+    ]
+    without = [{'name': 'main.tagged', 'conditions': []}]
+    _rewrite(path, {'relations': without})
+    [checked] = project.check_receipts(history=False).receipts
+    assert checked.status == 'stale'  # in the same form, the condition is a change
+    _rewrite(path, {'relations': without, 'canonical': 'konstruct-2/sqlglot-30.30'})
+    [checked] = project.check_receipts(history=False).receipts
+    assert checked.status == 'holds' and checked.changes == []
+    assert 'issued with canonical form konstruct-2/sqlglot-30.30' in checked.notes[0]

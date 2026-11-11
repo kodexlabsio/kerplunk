@@ -1000,7 +1000,7 @@ def test_a_subquery_that_reuses_an_outer_alias_reads_its_own_relation(schema: di
     )
     assert (PAYMENTS, 'order_id') in result.references
     assert (CUSTOMERS, 'order_id') not in result.references
-    assert f'WHERE: {ORDERS}.id IN (SELECT {PAYMENTS}.order_id AS order_id FROM {PAYMENTS} AS c)' in (
+    assert f'WHERE: {ORDERS}.id IN (SELECT {PAYMENTS}.order_id AS order_id FROM {PAYMENTS})' in (
         result.conditions
     )
 
@@ -1012,7 +1012,7 @@ def test_a_subquery_that_reuses_a_lateral_alias_reads_its_own_relation() -> None
         'where o.id in (select l.id from customers l)'
     )
     assert set(result.references) == {(ORDERS, 'id'), (PAYMENTS, 'order_id'), (CUSTOMERS, 'id')}
-    assert f'WHERE: {ORDERS}.id IN (SELECT {CUSTOMERS}.id AS id FROM {CUSTOMERS} AS l)' in result.conditions
+    assert f'WHERE: {ORDERS}.id IN (SELECT {CUSTOMERS}.id AS id FROM {CUSTOMERS})' in result.conditions
 
 
 def test_a_correlated_subquery_names_the_outer_column() -> None:
@@ -1294,6 +1294,94 @@ def test_rows_from_a_table_function_or_values_are_a_condition() -> None:
         "select o.id from db.main.orders o join (values ('paid', 1)) v(status, w) on v.status = o.status"
     )
     assert "ROWS FROM: VALUES ('paid', 1)" in made.conditions
+
+
+def test_rows_from_unnest_and_lateral_are_a_condition() -> None:
+    """An UNNEST or a LATERAL makes rows from each row of another source, so the rows a query keeps
+    depend on it as on a table function."""
+    assert one('select o.id, t.x from db.main.orders o cross join unnest([1, 2]) as t(x)').conditions == [
+        'ROWS FROM: UNNEST([1, 2])'
+    ]
+    lateral = one('select o.id, l.y from db.main.orders o, lateral (select o.id + 1 as y) as l')
+    assert [c for c in lateral.conditions if c.startswith('ROWS FROM: LATERAL')]
+    exploded = one(
+        'select o.id, e.x from db.main.orders o lateral view explode(array(o.id)) e as x', dialect='spark'
+    )
+    assert [c for c in exploded.conditions if c.startswith('ROWS FROM: LATERAL VIEW')]
+
+
+def test_conditions_do_not_depend_on_alias_names() -> None:
+    """A Snowflake TABLE(...) source, a table function in FROM and a subquery in a filter name
+    their columns by relation and drop their aliases, so renaming an alias changes no condition."""
+    spellings = [
+        (
+            'select o.amount as v from db.main.orders o, table(flatten(input => o.status)) f',
+            'select q.amount as v from db.main.orders q, table(flatten(input => q.status)) g',
+            'snowflake',
+        ),
+        (
+            'select o.amount from db.main.orders o, table(generator(rowcount => 3)) g',
+            'select q.amount from db.main.orders q, table(generator(rowcount => 3)) h',
+            'snowflake',
+        ),
+        (
+            'select o.id from db.main.orders o, jsonb_array_elements(o.status) e',
+            'select q.id from db.main.orders q, jsonb_array_elements(q.status) x',
+            'postgres',
+        ),
+        (
+            'select o.id from db.main.orders o where exists '
+            '(select 1 from db.main.payments p where p.order_id = o.id)',
+            'select q.id from db.main.orders q where exists '
+            '(select 1 from db.main.payments r where r.order_id = q.id)',
+            'duckdb',
+        ),
+        (
+            'select o.id from db.main.orders o where o.id in (select p.order_id from db.main.payments p)',
+            'select q.id from db.main.orders q where q.id in (select r.order_id from db.main.payments r)',
+            'duckdb',
+        ),
+    ]
+    for first, second, dialect in spellings:
+        conditions = one(first, dialect=dialect).conditions
+        assert conditions and conditions == one(second, dialect=dialect).conditions, (first, conditions)
+    assert one(spellings[0][0], dialect='snowflake').conditions == [
+        'ROWS FROM: TABLE(FLATTEN(input => db.main.orders.status))'
+    ]
+    assert one(spellings[3][0]).conditions == [
+        'WHERE: EXISTS(SELECT 1 AS "1" FROM db.main.payments WHERE db.main.payments.order_id = db.main.orders.id)',
+        'WHERE: db.main.payments.order_id = db.main.orders.id',
+    ]
+
+
+def test_rows_from_unnest_and_lateral_do_not_depend_on_alias_names() -> None:
+    """Renaming an alias changes no condition, so it makes no lockfile pin or receipt stale."""
+    spellings = [
+        (
+            'select o.id, t.n from db.main.orders o cross join unnest([o.amount, o.customer_id]) as t(n)',
+            'select ord.id, x.n from db.main.orders ord cross join unnest([ord.amount, ord.customer_id]) as x(n)',
+        ),
+        (
+            'select o.id, l.m from db.main.orders o, lateral (select p.method as m from db.main.payments p '
+            'where p.order_id = o.id) as l',
+            'select ord.id, z.m from db.main.orders ord, lateral (select pay.method as m from db.main.payments pay '
+            'where pay.order_id = ord.id) as z',
+        ),
+    ]
+    for first, second in spellings:
+        made = [c for c in one(first).conditions if c.startswith('ROWS FROM')]
+        assert made and made == [c for c in one(second).conditions if c.startswith('ROWS FROM')]
+    exploded = [
+        one(
+            f'select {a}.id, {b}.x from db.main.orders {a} lateral view explode(array({a}.amount)) {b} as x',
+            dialect='spark',
+        ).conditions
+        for a, b in (('o', 'e'), ('ord', 'items'))
+    ]
+    assert exploded[0] == exploded[1] == ['ROWS FROM: LATERAL VIEW EXPLODE(ARRAY(db.main.orders.amount))']
+    assert one(spellings[0][0]).conditions == [
+        'ROWS FROM: UNNEST([db.main.orders.amount, db.main.orders.customer_id])'
+    ]
 
 
 @pytest.mark.parametrize(

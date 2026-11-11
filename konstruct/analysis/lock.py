@@ -39,7 +39,7 @@ relations it relies on, with the outer join it reaches a relation through, if an
 
     # Konstruct lockfile: the upstream columns this project reads, pinned by meaning.
     format = 1
-    canonical = "konstruct-2/sqlglot-30.30"
+    canonical = "konstruct-3/sqlglot-30.30"
     reads = []
 
     [[pin]]
@@ -117,7 +117,7 @@ if TYPE_CHECKING:
 FILE_NAME = 'konstruct.lock'
 FORMAT = 1
 """The layout of the file: which keys it has and what they hold."""
-CANONICAL_FORM = 2
+CANONICAL_FORM = 3
 """How Konstruct prints the formulas and conditions it fingerprints. Raise it with any change
 that prints one differently (a new normalisation, a core that is not sqlglot's printer)."""
 CANONICAL = f'konstruct-{CANONICAL_FORM}/sqlglot-{".".join(package_version("sqlglot").split(".")[:2])}'
