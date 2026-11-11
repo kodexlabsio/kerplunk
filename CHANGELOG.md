@@ -1,3 +1,14 @@
+## v0.13.4 (2026-11-11)
+
+### Feat
+
+- **cli**: Serve the viewer and a versioned JSON API over the graph with konstruct serve
+- **build**: Write explain.json, the viewer's data, beside graph.html
+
+### Fix
+
+- **cli**: Resolve each diff base and head to a commit before git is given it anywhere else
+
 ## v0.13.3 (2026-11-10)
 
 ### Fix
