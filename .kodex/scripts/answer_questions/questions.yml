@@ -15,6 +15,10 @@
 #   minor-units      the raw tables hold cents, and the question asks for dollars
 #   conflicting-column  another column has a plausible name and a different value
 #
+# Each question with a trap has `naive`: a plausible query that falls into the trap. The tests and
+# the dry run check that its result is further from the answer than the tolerance, so every trap
+# bites; a control question has none.
+#
 # Each corpus also has business definitions in definitions/, which the harness copies into the
 # project as answer-benchmark/definitions.yml: for the bundled example, terms beside its own
 # definitions.yml; for dbt Labs' jaffle-shop (Apache-2.0), the metrics its MetricFlow YAML declares
@@ -23,8 +27,8 @@
 # Changing a question, a reference, an answer, the rubric or a definitions file changes the set:
 # raise `version` and set `fingerprint` to what `uv run .kodex/scripts/answer_benchmark.py --plan`
 # prints.
-version: 1
-fingerprint: aad22084e477e01ec947a33f79adc53867d5eab2c42d5502c62af6f26d48a64a
+version: 2
+fingerprint: d425f4c1f71aaf13e633f92c981c190473c666d8294af5ce40f9e4c7a2073e05
 
 # The tolerance of each unit: a value is correct when it is within the tolerance of the answer.
 # The questions ask for money to the cent, percentages to one decimal place and exact counts.
@@ -38,7 +42,7 @@ questions:
 
   - id: jaffle_shop.lifetime-value-total
     corpus: jaffle_shop
-    trap: minor-units
+    trap: control
     unit: currency
     question: What is the total customer lifetime value across all customers, in Australian dollars?
     reference: select sum(amount) / 100.0 from raw_payments
@@ -70,17 +74,23 @@ questions:
       select sum(p.amount) / 100.0
       from raw_orders as o join raw_payments as p on p.order_id = o.id
       where o.status = 'completed'
+    naive: |
+      select sum(amount) from orders
     answer: 1103
 
   - id: jaffle_shop.net-revenue-{month}
     corpus: jaffle_shop
     trap: required-filter
     unit: currency
-    question: What was net revenue from orders placed in {month_name} 2018, in Australian dollars?
+    question: >
+      What was net revenue from orders placed in {month_name} 2018, in Australian dollars (zero if
+      there was none)?
     reference: |
       select coalesce(sum(p.amount), 0) / 100.0
       from raw_orders as o join raw_payments as p on p.order_id = o.id
       where o.status = 'completed' and date_trunc('month', o.order_date) = date '{month}'
+    naive: |
+      select coalesce(sum(amount), 0) from orders where date_trunc('month', order_date) = date '{month}'
     cases:
       - {month: 2018-01-01, month_name: January, answer: 424}
       - {month: 2018-02-01, month_name: February, answer: 400}
@@ -96,6 +106,8 @@ questions:
       select coalesce(sum(p.amount), 0) / 100.0
       from raw_orders as o join raw_payments as p on p.order_id = o.id
       where o.status = 'completed' and p.payment_method = '{method}'
+    naive: |
+      select sum({method}_amount) from orders
     cases:
       - {method: credit_card, method_name: credit card, answer: 627}
       - {method: bank_transfer, method_name: bank transfer, answer: 243}
@@ -104,7 +116,7 @@ questions:
 
   - id: jaffle_shop.completed-orders
     corpus: jaffle_shop
-    trap: definition
+    trap: control
     unit: count
     question: How many completed orders are there?
     reference: select count(*) from raw_orders where status = 'completed'
@@ -116,6 +128,8 @@ questions:
     unit: count
     question: How many customers does the business have?
     reference: select count(*) from raw_customers
+    naive: |
+      select count(distinct customer_id) from orders
     answer: 100
 
   - id: jaffle_shop.customers-without-orders
@@ -134,6 +148,8 @@ questions:
     unit: count
     question: How many active customers are there?
     reference: select count(distinct user_id) from raw_orders where status = 'completed'
+    naive: |
+      select count(*) from customers where number_of_orders > 0
     answer: 48
 
   - id: jaffle_shop.return-rate
@@ -144,11 +160,13 @@ questions:
     reference: |
       select round(100.0 * count(*) filter (where status in ('returned', 'return_pending')) / count(*), 1)
       from raw_orders
+    naive: |
+      select round(100.0 * count(*) filter (where status = 'returned') / count(*), 1) from orders
     answer: 6.1
 
   - id: jaffle_shop.average-order-amount
     corpus: jaffle_shop
-    trap: grain
+    trap: control
     unit: currency
     question: >
       What is the average order amount over every order, whatever its status, in Australian
@@ -167,6 +185,8 @@ questions:
       select round(sum(p.amount) / 100.0 / count(distinct o.id), 2)
       from raw_orders as o join raw_payments as p on p.order_id = o.id
       where o.status = 'completed'
+    naive: |
+      select round(avg(amount), 2) from orders
     answer: 16.46
 
   - id: jaffle_shop.lifetime-value-of-active-customers
@@ -180,6 +200,10 @@ questions:
       select sum(p.amount) / 100.0
       from raw_payments as p join raw_orders as o on o.id = p.order_id
       where o.user_id in (select user_id from raw_orders where status = 'completed')
+    naive: |
+      select sum(c.customer_lifetime_value)
+      from customers as c join orders as o on o.customer_id = c.customer_id
+      where o.status = 'completed'
     answer: 1343
 
   - id: jaffle_shop.lifetime-value-of-{month}-customers
@@ -195,13 +219,17 @@ questions:
       where o.user_id in (
           select user_id from raw_orders where date_trunc('month', order_date) = date '{month}'
       )
+    naive: |
+      select sum(c.customer_lifetime_value)
+      from customers as c join orders as o on o.customer_id = c.customer_id
+      where date_trunc('month', o.order_date) = date '{month}'
     cases:
       - {month: 2018-01-01, month_name: January, answer: 797}
       - {month: 2018-03-01, month_name: March, answer: 951}
 
   - id: jaffle_shop.lifetime-value-customer-{customer}
     corpus: jaffle_shop
-    trap: definition
+    trap: control
     unit: currency
     question: What is the lifetime value of customer {customer}, in Australian dollars?
     reference: |
@@ -238,6 +266,8 @@ questions:
     reference: |
       select sum(p.price) / 100.0
       from raw.raw_items as i join raw.raw_products as p on p.sku = i.sku
+    naive: |
+      select sum(order_total) / 100.0 from raw.raw_orders
     answer: 637444
 
   - id: jaffle-shop.revenue-{month}
@@ -251,6 +281,9 @@ questions:
       join raw.raw_products as p on p.sku = i.sku
       join raw.raw_orders as o on o.id = i.order_id
       where date_trunc('month', cast(o.ordered_at as timestamp)) = timestamp '{month}'
+    naive: |
+      select sum(order_total) / 100.0 from raw.raw_orders
+      where date_trunc('month', cast(ordered_at as timestamp)) = timestamp '{month}'
     cases:
       - {month: 2024-10-01, month_name: October 2024, answer: 19422}
       - {month: 2025-01-01, month_name: January 2025, answer: 37824}
@@ -268,6 +301,10 @@ questions:
       join raw.raw_products as p on p.sku = i.sku
       join raw.raw_orders as o on o.id = i.order_id
       join raw.raw_stores as s on s.id = o.store_id
+      where s.name = '{store}'
+    naive: |
+      select sum(o.order_total) / 100.0
+      from raw.raw_orders as o join raw.raw_stores as s on s.id = o.store_id
       where s.name = '{store}'
     cases:
       - {slug: philadelphia, store: Philadelphia, answer: 425467}
@@ -289,6 +326,8 @@ questions:
     reference: |
       select sum(tax_paid) / 100.0 from raw.raw_orders
       where year(cast(ordered_at as timestamp)) = 2025
+    naive: |
+      select sum(tax_paid) from raw.raw_orders where year(cast(ordered_at as timestamp)) = 2025
     answer: 28530.59
 
   - id: jaffle-shop.largest-order
@@ -297,6 +336,8 @@ questions:
     unit: currency
     question: What is the largest order total of any single order, including tax, in US dollars?
     reference: select max(order_total) / 100.0 from raw.raw_orders
+    naive: |
+      select max(order_total) from raw.raw_orders
     answer: 104.94
 
   - id: jaffle-shop.{kind}-orders-value
@@ -312,6 +353,12 @@ questions:
           select 1 from raw.raw_items as i join raw.raw_products as p on p.sku = i.sku
           where i.order_id = o.id and p.type = '{type}'
       )
+    naive: |
+      select sum(o.order_total) / 100.0
+      from raw.raw_orders as o
+      join raw.raw_items as i on i.order_id = o.id
+      join raw.raw_products as p on p.sku = i.sku
+      where p.type = '{type}'
     cases:
       - {kind: drink, kind_name: drink, type: beverage, answer: 646915.48}
       - {kind: food, kind_name: jaffle, type: jaffle, answer: 368220.26}
@@ -322,13 +369,19 @@ questions:
     unit: currency
     question: >
       Across the customers who have placed at least one order at the {store} store, what is the
-      sum of their lifetime spend at every store, including tax, in US dollars?
+      sum of their lifetime spend, including tax, in US dollars?
     reference: |
       select sum(o.order_total) / 100.0 from raw.raw_orders as o
       where o.customer in (
           select r.customer from raw.raw_orders as r join raw.raw_stores as s on s.id = r.store_id
           where s.name = '{store}'
       )
+    naive: |
+      select sum(o.order_total) / 100.0
+      from raw.raw_orders as r
+      join raw.raw_stores as s on s.id = r.store_id
+      join raw.raw_orders as o on o.customer = r.customer
+      where s.name = '{store}'
     cases:
       - {slug: philadelphia, store: Philadelphia, answer: 450969.65}
       - {slug: brooklyn, store: Brooklyn, answer: 220455.72}
@@ -337,16 +390,23 @@ questions:
     corpus: jaffle-shop
     trap: grain
     unit: currency
-    question: What is the average order total per order, including tax, in US dollars to the cent?
+    question: >
+      What is the average order total per order, including tax and counting the orders with a
+      total of zero, in US dollars to the cent?
     reference: select round(avg(order_total) / 100.0, 2) from raw.raw_orders
+    naive: |
+      select round(avg(o.order_total) / 100.0, 2)
+      from raw.raw_orders as o join raw.raw_items as i on i.order_id = o.id
     answer: 10.84
 
   - id: jaffle-shop.large-orders
     corpus: jaffle-shop
-    trap: required-filter
+    trap: definition
     unit: count
     question: How many large orders have been placed?
     reference: select count(*) from raw.raw_orders where order_total >= 2000
+    naive: |
+      select count(*) from raw.raw_orders where order_total >= 20
     answer: 7219
 
   - id: jaffle-shop.new-customer-orders-{year}
@@ -360,6 +420,8 @@ questions:
           from raw.raw_orders group by customer
       )
       where year(first_ordered_at) = {year}
+    naive: |
+      select count(*) from raw.raw_orders where year(cast(ordered_at as timestamp)) = {year}
     cases:
       - {year: 2024, answer: 278}
       - {year: 2025, answer: 657}
@@ -375,6 +437,10 @@ questions:
       from raw.raw_items as i
       join raw.raw_products as p on p.sku = i.sku
       left join supply as s on s.sku = i.sku
+    naive: |
+      with supply as (select sku, sum(cost) as cost from raw.raw_supplies group by sku)
+      select ((select sum(order_total) from raw.raw_orders) - sum(coalesce(s.cost, 0))) / 100.0
+      from raw.raw_items as i left join supply as s on s.sku = i.sku
     answer: 505655.62
 
   - id: jaffle-shop.food-revenue-share
@@ -384,6 +450,9 @@ questions:
     question: What is the food revenue share, as a percentage to one decimal place?
     reference: |
       select round(100.0 * sum(p.price) filter (where p.type = 'jaffle') / sum(p.price), 1)
+      from raw.raw_items as i join raw.raw_products as p on p.sku = i.sku
+    naive: |
+      select round(100.0 * count(*) filter (where p.type = 'jaffle') / count(*), 1)
       from raw.raw_items as i join raw.raw_products as p on p.sku = i.sku
     answer: 37.8
 

@@ -702,7 +702,7 @@ def answers(numbers: Numbers) -> None:
     numbers.add('answerModel', tex(data['model']), 'the model the answer benchmark ran')
     for arm, measured in data['arms'].items():
         name = arm.capitalize()
-        for key in ('correct', 'wrong', 'abstained', 'confidently_wrong'):
+        for key in ('correct', 'wrong', 'abstained', 'unanswered', 'confidently_wrong'):
             label = ''.join(part.capitalize() for part in key.split('_'))
             numbers.add(f'answer{name}{label}', measured[key], f'{key} answers, {arm} arm')
             rate = measured[f'{key}_rate']

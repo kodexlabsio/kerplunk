@@ -60,6 +60,8 @@ from typing import Any
 
 import yaml
 
+from konstruct.core.jsonio import read_jsonl
+
 ARMS = ('baseline', 'konstruct', 'konstruct-general')
 DEFAULT_ARMS = ('baseline', 'konstruct')
 # Files and directories an agent reads instructions or settings from, in a directory or above it.
@@ -98,10 +100,6 @@ class Result:
     agent_exit: int | None
     dbt_exit: int | None
     error: str | None = None
-
-
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines() if line.strip()]
 
 
 def load_tasks(spider: Path) -> list[Task]:

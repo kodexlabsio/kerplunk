@@ -37,6 +37,11 @@ def loads(text: str | bytes) -> Any:
     return orjson.loads(text)
 
 
+def read_jsonl(path: Path) -> list[Any]:
+    """The values of a JSON Lines file, one per line that is not blank."""
+    return [orjson.loads(line) for line in path.read_text(encoding='utf-8').splitlines() if line.strip()]
+
+
 def _umask() -> int:
     # The umask can only be read by setting it; do so once, at import, before any thread starts.
     mask = os.umask(0)

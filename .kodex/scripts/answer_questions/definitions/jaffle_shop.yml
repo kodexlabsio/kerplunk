@@ -1,7 +1,6 @@
 version: 1
 terms:
   - name: Net revenue
-    synonyms: [revenue net of returns, net sales]
     definition: >
       The order amount of completed orders only, in Australian dollars. Orders that are placed
       or shipped but not yet received, returned, or awaiting a return are left out.

@@ -348,7 +348,8 @@ jobs:
   real-world:
     name: Real-world dbt project (dbt-labs/jaffle-shop)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Two clones and dbt builds of jaffle-shop: the real-world tests and the answer benchmark's.
+    timeout-minutes: 30
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
