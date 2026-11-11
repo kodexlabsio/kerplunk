@@ -1,3 +1,9 @@
+## v0.13.15 (2026-11-11)
+
+### Fix
+
+- **lineage**: Keep a product's presence the same however its operands are grouped
+
 ## v0.13.14 (2026-11-11)
 
 ### Feat
