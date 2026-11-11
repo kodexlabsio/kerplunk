@@ -743,7 +743,7 @@ def test_tools_that_fail_are_left_out(
 
 
 def pack_plugin(
-    site: Path, *, manifest: str | None = 'api_version = 1\n', pack: str = 'name: helpdesk\n'
+    site: Path, *, manifest: str | None = 'api_version = 1\n', pack: str | bytes = 'name: helpdesk\n'
 ) -> None:
     package = site / 'packs_only'
     (package / 'packs').mkdir(parents=True)
@@ -751,7 +751,7 @@ def pack_plugin(
     (package / '__init__.py').write_text("raise RuntimeError('a data-only plugin was imported')\n")
     if manifest is not None:
         (package / 'packs' / 'plugin.toml').write_text(manifest)
-    (package / 'packs' / 'helpdesk.yml').write_text(pack)
+    (package / 'packs' / 'helpdesk.yml').write_bytes(pack.encode() if isinstance(pack, str) else pack)
     install(site, 'konstruct-packs-only', '1.0', {'konstruct.packs': {'helpdesk': 'packs_only.packs'}})
 
 
@@ -782,6 +782,10 @@ def test_a_data_only_pack_is_read_without_running_code(site: Path, tmp_path: Pat
         ),
         ({'pack': 'name: stripe\n'}, "pack 'stripe' is already provided by konstruct"),
         ({'pack': 'name: [unclosed\n'}, 'cannot read helpdesk.yml'),
+        ({'pack': 'name: "\\U00110000"\n'}, 'cannot read helpdesk.yml'),
+        ({'pack': 'name: "\\UFFFFFFFF"\n'}, 'cannot read helpdesk.yml'),
+        ({'pack': 'name: !!bool maybe\n'}, 'cannot read helpdesk.yml'),
+        ({'pack': b'name: caf\xe9\n'}, 'cannot read helpdesk.yml'),
     ],
 )
 def test_a_pack_plugin_that_cannot_be_used_is_reported(

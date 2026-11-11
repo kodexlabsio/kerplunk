@@ -101,10 +101,12 @@ def _in_resource_paths(path: Path, root: Path) -> bool:
     """Whether ``path`` is under a resource path of the nearest dbt project that holds it."""
     import yaml
 
+    from konstruct.core import yamlio
+
     for project in path.parents:
         if (project / 'dbt_project.yml').is_file():
             try:
-                data = yaml.safe_load((project / 'dbt_project.yml').read_text(encoding='utf-8')) or {}
+                data = yamlio.read(project / 'dbt_project.yml') or {}
             except (yaml.YAMLError, OSError):
                 data = {}
             if not isinstance(data, dict):
@@ -265,10 +267,12 @@ def _unreadable(path: Path, notes: list[str]) -> list[str]:
     the diff could not compare (its notes for the file)."""
     import yaml
 
+    from konstruct.core import yamlio
+
     problems = list(notes)
     if path.suffix in ('.yml', '.yaml') and path.is_file():
         try:
-            yaml.safe_load(path.read_text(encoding='utf-8'))
+            yamlio.read(path)
         except yaml.YAMLError as error:
             problems.append(f'{path.name} is not valid YAML: {" ".join(str(error).split())}')
     return problems

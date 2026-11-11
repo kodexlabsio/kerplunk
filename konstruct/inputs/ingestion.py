@@ -28,6 +28,7 @@ from urllib.parse import urlparse
 import yaml
 
 from konstruct import _core
+from konstruct.core import yamlio
 from konstruct.inputs import hcl
 
 MAX_BYTES = 2_000_000
@@ -42,9 +43,6 @@ MAX_DEPTH = 500
 """How deeply a JSON document or a Python file may nest. Python 3.14 parses documents far deeper
 than its recursion limit let earlier releases read, so the limit is Konstruct's own, and a file
 reads the same on every release."""
-MAX_YAML_VALUES = 1_000_000
-"""The most values a YAML file may stand for once its aliases are expanded: a few hundred bytes
-of aliases to aliases stand for millions, which reading would expand."""
 MAX_NAME = 1_024
 """The longest table, schema or database name a feed may have; warehouses allow at most this."""
 _PLACEHOLDER = re.compile(r'\$\{|(?<![\w$])\$[A-Za-z_]|Ref\(')
@@ -539,46 +537,13 @@ def _dlt_resources(
 
 def _yaml(text: str, context: _Context) -> Any:
     """A YAML file's value, ``{}`` for an empty one, or None after a problem when it cannot be
-    read. The document is composed first and its values counted with each alias expanded, so a
-    file whose aliases stand for more than :data:`MAX_YAML_VALUES` values is refused before
-    anything expands them."""
+    read, as :func:`konstruct.core.yamlio.load` reads it."""
     try:
-        loader = yaml.SafeLoader(text)
+        data = yamlio.load(text)
     except yaml.YAMLError as error:
         context.problem(0, f'cannot read YAML: {error}')
         return None
-    try:
-        node = loader.get_single_node()
-        if node is None:
-            return {}
-        if _expanded(node, {}) > MAX_YAML_VALUES:
-            context.problem(
-                0, f'cannot read YAML: its aliases stand for more than {MAX_YAML_VALUES:,} values'
-            )
-            return None
-        data = loader.construct_document(node)
-    except yaml.YAMLError as error:
-        context.problem(0, f'cannot read YAML: {error}')
-        return None
-    finally:
-        loader.dispose()
     return {} if data is None else data
-
-
-def _expanded(node: yaml.Node, sizes: dict[int, int]) -> int:
-    """How many values a YAML node stands for with its aliases expanded, each shared node counted
-    once and remembered; a node that contains itself stands for too many."""
-    known = sizes.get(id(node))
-    if known is not None:
-        return known
-    sizes[id(node)] = MAX_YAML_VALUES + 1
-    total = 1
-    if isinstance(node, yaml.SequenceNode):
-        total += sum(_expanded(item, sizes) for item in node.value)
-    elif isinstance(node, yaml.MappingNode):
-        total += sum(_expanded(key, sizes) + _expanded(value, sizes) for key, value in node.value)
-    sizes[id(node)] = min(total, MAX_YAML_VALUES + 1)
-    return sizes[id(node)]
 
 
 def _strings(value: Any) -> list[str]:

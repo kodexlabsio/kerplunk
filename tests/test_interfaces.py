@@ -216,14 +216,15 @@ def small(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def changed_jaffle(jaffle_built_graph: Path, tmp_path_factory: pytest.TempPathFactory) -> Path:
     """The built example in git, with a history and a change to review.
 
-    The commits change stg_payments.amount, break and then mend stg_payments.sql (a formula
-    that cannot be worked out), change the owner of the lifetime value term and add a dbt
-    source. The working tree renames stg_payments.payment_method, which orders still reads,
-    changes the lifetime value formula, adds a filter to orders and drops one from the DAG's SQL,
-    changes a DAG task, tests, a description, an exposure and the source, adds, changes and
-    removes terms, and changes a file Konstruct does not analyse. The broken version is tagged
-    ``broken``, and the lifetime value term is taken back to agreed and then approved again in
-    new words, so its history changes each field from a value to another."""
+    The commits change stg_payments.amount, break and then mend stg_payments.sql (a formula that
+    cannot be worked out) and exposures.yml (YAML that cannot be read), change the owner of the
+    lifetime value term and add a dbt source. The working tree renames
+    stg_payments.payment_method, which orders still reads, changes the lifetime value formula,
+    adds a filter to orders and drops one from the DAG's SQL, changes a DAG task, tests, a
+    description, an exposure and the source, adds, changes and removes terms, and changes a file
+    Konstruct does not analyse. The broken version is tagged ``broken``, and the lifetime value
+    term is taken back to agreed and then approved again in new words, so its history changes
+    each field from a value to another."""
     root = tmp_path_factory.mktemp('interfaces') / 'jaffle_shop'
     shutil.copytree(jaffle_built_graph, root)
     graph = root / 'konstruct-out' / 'graph.json'
@@ -237,10 +238,14 @@ def changed_jaffle(jaffle_built_graph: Path, tmp_path_factory: pytest.TempPathFa
     _git(root, 'commit', '-qam', 'Divide exactly')
     working = payments.read_text()
     payments.write_text('select from where')
-    _git(root, 'commit', '-qam', 'Break the payments model')
+    exposures = root / 'models' / 'exposures.yml'
+    exposures_text = exposures.read_text()
+    exposures.write_text(exposures_text + 'broken: [\n')
+    _git(root, 'commit', '-qam', 'Break the payments model and the exposures')
     _git(root, 'tag', 'broken')
     payments.write_text(working)
-    _git(root, 'commit', '-qam', 'Mend the payments model')
+    exposures.write_text(exposures_text)
+    _git(root, 'commit', '-qam', 'Mend the payments model and the exposures')
     definitions = root / 'definitions.yml'
     _edit(
         definitions, 'owner: {name: Priya Shah, role: Head of Finance}', 'owner: {name: Ada, role: Analyst}'

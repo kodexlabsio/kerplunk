@@ -29,6 +29,7 @@ import copy
 import json
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,7 @@ import sqlglot
 import yaml
 from sqlglot import exp
 
+from konstruct.core import yamlio
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
 from konstruct.core.sql import PARSE_ERRORS
 from konstruct.semantics.ontology import holder
@@ -191,12 +193,13 @@ def _synonyms(ai_context: Any) -> list[str]:
 
 def parse(text: str, path: str) -> OssieFile:
     """Parse an Ossie file; problems are collected, so one bad model does not hide the rest."""
+    return _parse(lambda: yamlio.load(text), path)
+
+
+def _parse(load: Callable[[], Any], path: str) -> OssieFile:
     result = OssieFile(path=path)
     try:
-        data = yaml.safe_load(text)
-    except RecursionError:
-        result.errors.append(f'{path}: not valid YAML: nested too deeply to read')
-        return result
+        data = load()
     except yaml.YAMLError as error:
         result.errors.append(f'{path}: not valid YAML: {error}')
         return result
@@ -265,7 +268,8 @@ def _plain(value: Any) -> Any:
 
 
 def parse_file(path: Path, relative: str | None = None) -> OssieFile:
-    return parse(path.read_text(encoding='utf-8'), relative or str(path))
+    """Parse an Ossie file from disk; ``relative`` is the path reported in problems."""
+    return _parse(lambda: yamlio.read(path), relative or str(path))
 
 
 @dataclass

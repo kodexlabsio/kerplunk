@@ -28,7 +28,7 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 
 | Package | Modules |
 |---------|---------|
-| `konstruct.core` | `graph` (the graph and its traversal), `sql` (column lineage from SQL), `mutate` (mutants of a query), `jsonio` |
+| `konstruct.core` | `graph` (the graph and its traversal), `sql` (column lineage from SQL), `mutate` (mutants of a query), `jsonio`, `yamlio` (YAML read through one loader) |
 | `konstruct.inputs` | `dbt`, `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `ingestion`, `hcl`, `warehouse`, `usage` |
 | `konstruct.engine` | `build`, `config`, `worker` |
 | `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `world`, `ossie`, `rows` (whether a composed formula counts its column's rows), `registry` |

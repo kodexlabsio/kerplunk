@@ -58,6 +58,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from konstruct.core import yamlio  # noqa: E402
 from konstruct.semantics import registry  # noqa: E402
 
 OUT = registry.PACKS / 'generated'
@@ -817,7 +818,7 @@ def staging(repo: Path) -> tuple[Counter[str], set[str]]:
     composite: set[str] = set()
     for path in sorted(repo.glob('models/**/*.yml')):
         try:
-            data = yaml.safe_load(path.read_text(encoding='utf-8')) or {}
+            data = yamlio.read(path) or {}
         except yaml.YAMLError:
             continue
         for model in (data.get('models') or []) if isinstance(data, dict) else []:
@@ -913,7 +914,7 @@ def read_fivetran(directory: Path) -> list[Origin]:
             if 'integration_tests' in path.parts or 'dbt_packages' in path.parts:
                 continue
             try:
-                data = yaml.safe_load(path.read_text(encoding='utf-8')) or {}
+                data = yamlio.read(path) or {}
             except yaml.YAMLError:
                 continue
             for source in data.get('sources') or []:
@@ -1359,7 +1360,7 @@ def read_taps(taps: Path, hub: Path | None) -> list[Origin]:
     labels: dict[str, tuple[str, str | None]] = {}
     if hub is not None:
         for path in sorted((hub / '_data' / 'meltano' / 'extractors').glob('*/*.yml')):
-            data = yaml.safe_load(path.read_text(encoding='utf-8')) or {}
+            data = yamlio.read(path) or {}
             url = str(data.get('repo') or '').strip().rstrip('/').removesuffix('.git').lower()
             if url:
                 labels.setdefault(url, (path.parent.name, data.get('label')))

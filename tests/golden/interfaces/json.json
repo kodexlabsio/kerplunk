@@ -571,6 +571,7 @@
  "json diff .yaml[].descriptions[]": "str",
  "json diff .yaml[].exposures": "list",
  "json diff .yaml[].exposures[]": "str",
+ "json diff .yaml[].note": "null|str",
  "json diff .yaml[].path": "str",
  "json diff .yaml[].sources_added": "list",
  "json diff .yaml[].sources_added[]": "str",

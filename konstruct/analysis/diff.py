@@ -350,6 +350,8 @@ class YamlChange:
     """Source tables only at the base."""
     exposures: list[str] = field(default_factory=list)
     """Exposures added, removed or changed."""
+    note: str | None = None
+    """Why the file could not be compared, when one of its versions cannot be read."""
 
     @property
     def changed(self) -> bool:
@@ -366,6 +368,7 @@ class YamlChange:
 
     def lines(self) -> list[str]:
         return [
+            *([self.note] if self.note else []),
             *(f'test removed: {t}' for t in self.tests_removed),
             *(f'test added: {t}' for t in self.tests_added),
             *(f'source table removed: {s}' for s in self.sources_removed),
@@ -391,14 +394,12 @@ def _test_names(entries: Any) -> set[str]:
 
 
 def _yaml_facts(text: str | None) -> dict[str, Any]:
-    """Tests, descriptions, source tables and exposures declared in a dbt YAML file."""
-    import yaml
+    """Tests, descriptions, source tables and exposures declared in a dbt YAML file, none for a
+    file that is not there. Raises :class:`yaml.YAMLError` for one that cannot be read."""
+    from konstruct.core import yamlio
 
     facts: dict[str, Any] = {'tests': set(), 'descriptions': {}, 'sources': set(), 'exposures': {}}
-    try:
-        data = yaml.safe_load(text or '') or {}
-    except (yaml.YAMLError, RecursionError):
-        return facts
+    data = yamlio.load(text or '') or {}
     if not isinstance(data, dict):
         return facts
     for kind in ('models', 'seeds', 'snapshots'):
@@ -436,8 +437,22 @@ def _yaml_facts(text: str | None) -> dict[str, Any]:
 
 
 def compare_yaml(path: str, before: str | None, after: str | None) -> YamlChange:
-    old, new = _yaml_facts(before), _yaml_facts(after)
+    """What changed in a dbt YAML file. When a version cannot be read nothing is compared, so
+    that its tests are not counted as removed or added, and the change says why."""
+    import yaml
+
     change = YamlChange(path)
+    facts = []
+    for side, text in (('before', before), ('after', after)):
+        try:
+            facts.append(_yaml_facts(text))
+        except yaml.YAMLError as error:
+            mark = getattr(error, 'problem_mark', None)
+            where = f' (line {mark.line + 1})' if mark is not None else ''
+            problem = getattr(error, 'problem', None) or ' '.join(str(error).split())
+            change.note = f'could not compare the {side} version, which is not valid YAML: {problem}{where}'
+            return change
+    old, new = facts
     change.tests_added = sorted(new['tests'] - old['tests'])
     change.tests_removed = sorted(old['tests'] - new['tests'])
     change.sources_added = sorted(new['sources'] - old['sources'])
@@ -603,6 +618,12 @@ class Diff:
             parts.append(f'{c["exposures"]} exposure{"s" if c["exposures"] != 1 else ""} affected')
         if c['terms']:
             parts.append(f'{c["terms"]} business term{"s" if c["terms"] != 1 else ""} changed')
+        uncompared = sum(1 for y in self.yaml if y.note)
+        if uncompared:
+            parts.append(f'{uncompared} YAML file{"s" if uncompared != 1 else ""} could not be compared')
+        if not parts:
+            # Only descriptions changed, which the details list.
+            return 'No change to models, SQL or DAGs.'
         text = ', '.join(parts)
         return text[:1].upper() + text[1:] + '.'
 
@@ -635,7 +656,7 @@ class Diff:
             'relations': [relation(r) for r in self.relations if r.changed or r.note],
             'dags': [d.__dict__ for d in self.dags],
             'other': self.other,
-            'yaml': [y.__dict__ for y in self.yaml if y.changed],
+            'yaml': [y.__dict__ for y in self.yaml if y.changed or y.note],
             'definitions': [d.__dict__ for d in self.definitions],
             'dbt': self.selection.to_dict(),
         }
@@ -835,7 +856,7 @@ def diff(graph: Graph, root: Path, *, base: str | None = None, head: str | None 
                 result.definitions.append(definitions_change)
         elif in_project.endswith(('.yml', '.yaml')) and (before or after):
             yaml_change = compare_yaml(in_project, before, after)
-            if yaml_change.changed:
+            if yaml_change.changed or yaml_change.note:
                 result.yaml.append(yaml_change)
         elif in_project.endswith('.py') and (
             'DAG' in (before or '') + (after or '') or '@dag' in (before or '') + (after or '')

@@ -255,7 +255,7 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/), che
 
 | Path | Contents |
 |------|----------|
-| `konstruct/core/` | `graph.py` (graph model, name resolution, impact, trace and path), `sql.py` (sqlglot column lineage, canonical expressions and conditions), `jsonio.py` |
+| `konstruct/core/` | `graph.py` (graph model, name resolution, impact, trace and path), `sql.py` (sqlglot column lineage, canonical expressions and conditions), `jsonio.py`, `yamlio.py` (every YAML file Konstruct reads, through one loader) |
 | `konstruct/inputs/` | `dbt.py`, `jinja.py` (the sandboxed dbt renderer), `airflow.py`, `dagster.py`, `spark.py`, `looker.py`, `powerbi.py`, `loaders.py`, `ingestion.py` (loader configuration files), `hcl.py` (the Terraform reader), `warehouse.py`, `usage.py` (usage from query history) |
 | `konstruct/engine/` | `config.py`, `build.py` (discovery, the build and its cache), `worker.py` (SQL analysis in worker processes) |
 | `konstruct/semantics/` | `definitions.py` (business definitions), `vocabulary.py` (SKOS and OWL), `ontology.py` (the ontology derived from the graph), `ossie.py` (Apache Ossie models read and written), `registry.py` and `ontologies/` (ontology packs and binding them) |

@@ -71,6 +71,7 @@ import yaml
 if TYPE_CHECKING:
     from konstruct.inputs.usage import UsageSettings
 
+from konstruct.core import yamlio
 from konstruct.core.files import identity
 from konstruct.inputs.dbt import SKIP_DIRS, DbtProject, walk_dirs
 from konstruct.inputs.warehouse import (
@@ -1211,8 +1212,8 @@ def repository_profiles(config: Config, projects: list[DbtProject]) -> list[Path
 
 def _read_target(path: Path, name: str, expand: bool) -> dict[str, Any] | None:
     try:
-        profiles = yaml.safe_load(path.read_text(encoding='utf-8')) or {}
-    except (OSError, yaml.YAMLError, RecursionError):  # the repository's own, maybe nested too deeply
+        profiles = yamlio.read(path) or {}
+    except (OSError, yaml.YAMLError):
         return None
     profile = profiles.get(name) if isinstance(profiles, dict) else None
     if not isinstance(profile, dict):

@@ -51,6 +51,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from konstruct.core import yamlio  # noqa: E402
+
 # Warning kinds, matched in order against the text after the input's prefix.
 KINDS = [
     ('select-star', re.compile(r'SELECT \* over relations with unknown columns')),
@@ -105,7 +107,7 @@ def write_profiles(projects: list[Path], into: Path) -> None:
     names = set()
     for project_file in projects:
         try:
-            data = yaml.safe_load(project_file.read_text(encoding='utf-8')) or {}
+            data = yamlio.read(project_file) or {}
         except (OSError, yaml.YAMLError):
             continue
         name = str(data.get('profile') or data.get('name') or 'default').strip()

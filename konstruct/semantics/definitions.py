@@ -30,11 +30,14 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from konstruct.core import yamlio
 
 STATUSES = ('draft', 'agreed', 'approved', 'retired')
 KINDS = ('entity', 'measure', 'term')
@@ -188,16 +191,17 @@ def _strings(value: Any) -> list[str] | None:
 def parse(text: str, path: str) -> DefinitionsFile:
     """Parse a definitions file. Problems are collected as ``path:line: message``, so one bad
     term does not hide the rest."""
+    return _parse(lambda: yamlio.load(text, _LineLoader), path)
+
+
+def _parse(load: Callable[[], Any], path: str) -> DefinitionsFile:
     result = DefinitionsFile(path=path)
 
     def problem(line: int, message: str) -> None:
         result.errors.append(f'{path}:{line}: {message}')
 
     try:
-        data = yaml.load(text, Loader=_LineLoader)  # a SafeLoader subclass
-    except RecursionError:
-        problem(1, 'not valid YAML: nested too deeply to read')
-        return result
+        data = load()
     except yaml.YAMLError as error:
         mark = getattr(error, 'problem_mark', None)
         line = mark.line + 1 if mark is not None else 1
@@ -316,7 +320,7 @@ def _term(entry: dict[str, Any], path: str, problem: Any) -> Term | None:
 
 def parse_file(path: Path, relative: str | None = None) -> DefinitionsFile:
     """Parse a definitions file from disk; ``relative`` is the path reported in problems."""
-    return parse(path.read_text(encoding='utf-8'), relative or str(path))
+    return _parse(lambda: yamlio.read(path, _LineLoader), relative or str(path))
 
 
 def validate(terms: list[Term]) -> list[str]:

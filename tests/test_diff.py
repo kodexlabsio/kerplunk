@@ -479,7 +479,26 @@ exposures:
     assert change.exposures == [
         "exposure dashboard now depends on ref('customers') (was ref('customers'), ref('orders'))"
     ]
-    assert compare_yaml('x.yml', 'not: [valid', 'models: []').changed is False
+    unreadable = compare_yaml('x.yml', 'not: [valid', 'models: []')
+    assert unreadable.changed is False
+    assert unreadable.note is not None and unreadable.note.startswith('could not compare the before version')
+
+
+def test_the_summary_counts_yaml_files_that_could_not_be_compared() -> None:
+    from konstruct.analysis.diff import Diff, compare_yaml
+
+    unreadable = compare_yaml('a.yml', 'models: [', 'models: []')
+    tested = compare_yaml('b.yml', 'models: []', 'models:\n  - name: m\n    data_tests: [unique]\n')
+    described = compare_yaml('c.yml', 'models: []', 'models:\n  - name: m\n    description: M\n')
+    result = Diff(base='HEAD', head='working tree', files={})
+    result.yaml = [unreadable]
+    assert result.summary() == '1 YAML file could not be compared.'
+    result.yaml = [unreadable, compare_yaml('d.yml', 'x: "\\ud800"', None)]
+    assert result.summary() == '2 YAML files could not be compared.'
+    result.yaml = [tested, unreadable]
+    assert result.summary() == '1 dbt test added, 1 YAML file could not be compared.'
+    result.yaml = [described]
+    assert result.summary() == 'No change to models, SQL or DAGs.'
 
 
 def test_yaml_changes_appear_in_the_diff(repo: Path) -> None:
@@ -495,6 +514,40 @@ def test_yaml_changes_appear_in_the_diff(repo: Path) -> None:
     assert result.summary() == '1 dbt test removed.'
     assert 'test removed: ltv.total: not_null' in str(result)
     assert '- test removed: ltv.total: not_null' in result.markdown()
+
+
+def test_a_character_json_escapes_as_a_surrogate_pair_is_read_in_a_diff(repo: Path) -> None:
+    """``json.dumps`` and Jinja's ``tojson`` write a character past the Basic Multilingual Plane
+    as an escaped surrogate pair, which is the character, not two lone halves."""
+    description = json.dumps('Orders \N{PACKAGE}')
+    assert description == '"Orders \\ud83d\\udce6"'
+    base = f'version: 2\nmodels:\n  - name: ltv\n    description: {description}\n    columns:\n'
+    (repo / 'schema.yml').write_text(base + '      - name: total\n        tests: [not_null]\n')
+    git(repo, 'add', 'schema.yml')
+    git(repo, 'commit', '-qm', 'tests')
+    (repo / 'schema.yml').write_text(base + '      - name: total\n        tests: [not_null, unique]\n')
+    result = Project(repo).diff(base='HEAD')
+    assert result.summary() == '1 dbt test added.'
+    (change,) = result.yaml
+    assert (change.tests_added, change.tests_removed, change.note) == (['ltv.total: unique'], [], None)
+
+
+def test_a_yaml_version_that_cannot_be_read_is_noted_and_not_compared(repo: Path) -> None:
+    (repo / 'schema.yml').write_text(
+        'version: 2\nmodels:\n  - name: ltv\n    columns:\n      - name: total\n        tests: [not_null]\n'
+    )
+    git(repo, 'add', 'schema.yml')
+    git(repo, 'commit', '-qm', 'tests')
+    (repo / 'schema.yml').write_text('version: 2\nmodels:\n  - name: ltv\n    description: "\\ud800"\n')
+    result = Project(repo).diff(base='HEAD')
+    assert result.summary() == '1 YAML file could not be compared.'
+    assert result.counts()['tests_removed'] == 0
+    note = (
+        'could not compare the after version, which is not valid YAML: '
+        'a lone surrogate is not allowed (line 4)'
+    )
+    assert [y['note'] for y in result.to_dict()['yaml']] == [note]
+    assert note in str(result) and f'- {note}' in result.markdown()
 
 
 def _guessed_columns_project(root: Path) -> Graph:

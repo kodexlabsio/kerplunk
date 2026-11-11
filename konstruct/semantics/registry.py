@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING, Any
 import orjson
 import yaml
 
+from konstruct.core import yamlio
 from konstruct.semantics import definitions
 
 if TYPE_CHECKING:
@@ -195,11 +196,11 @@ def build_index(directory: Path = PACKS) -> list[dict[str, Any]]:
     """Every pack in ``directory``, hand-written and generated, merged by name, as index data."""
     own = {}
     for path in sorted(directory.glob('*.yml')):
-        pack = read_pack(yaml.safe_load(path.read_text(encoding='utf-8')) or {}, path.stem, 'hand-written')
+        pack = read_pack(yamlio.read(path) or {}, path.stem, 'hand-written')
         own[pack.name] = pack
     generated = {}
     for path in sorted((directory / 'generated').glob('*.yml')):
-        pack = read_pack(yaml.safe_load(path.read_text(encoding='utf-8')) or {}, path.stem, 'generated')
+        pack = read_pack(yamlio.read(path) or {}, path.stem, 'generated')
         generated[pack.name] = pack
     packs = []
     for name in sorted(own.keys() | generated.keys()):
@@ -242,7 +243,7 @@ def load_packs(
             found = []
             for path in sorted(Path(plugin.loaded).glob('*.yml')):
                 try:
-                    data = yaml.safe_load(path.read_text(encoding='utf-8')) or {}
+                    data = yamlio.read(path) or {}
                     pack = read_pack(data, path.stem, 'hand-written')
                 except (OSError, yaml.YAMLError, AttributeError, TypeError) as error:
                     problems.append(f'{plugin.label}: cannot read {path.name}: {error}')

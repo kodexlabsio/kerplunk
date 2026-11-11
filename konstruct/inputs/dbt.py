@@ -18,7 +18,7 @@ import yaml
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
 
-from konstruct.core import jsonio
+from konstruct.core import jsonio, yamlio
 from konstruct.core.files import identity
 from konstruct.core.graph import Graph, Node, NodeKind, column_id, relation_key
 from konstruct.core.sql import dialect_for, strip_templating
@@ -105,8 +105,8 @@ def find_projects(root: Path) -> list[DbtProject]:
 def read_project(root: Path) -> DbtProject | None:
     found = identity(root / 'dbt_project.yml')
     try:
-        config = yaml.safe_load((root / 'dbt_project.yml').read_text(encoding='utf-8')) or {}
-    except (OSError, yaml.YAMLError, RecursionError) as error:
+        config = yamlio.read(root / 'dbt_project.yml') or {}
+    except (OSError, yaml.YAMLError) as error:
         log.warning('cannot read %s: %s', root / 'dbt_project.yml', error)
         return None
     if not isinstance(config, dict):
