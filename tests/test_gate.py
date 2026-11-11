@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Collection
 from pathlib import Path
 
 import duckdb
 import pytest
 
 from konstruct import Project
+from konstruct.core.graph import Graph
 from konstruct.interfaces.cli import main
 
 
@@ -114,6 +116,59 @@ def test_a_new_column_that_conflicts_with_an_existing_one_fails(repo: Path) -> N
     git(repo, 'commit', '-qm', 'gross')
     (repo / 'sql' / 'report.sql').write_text(REPORT.replace('> 100', '> 200'))
     assert Project(repo).gate(base='HEAD').passed
+
+
+def test_a_plugin_check_sees_every_conflict(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Konstruct's own checks need only the conflicts of the columns a change alters, but a
+    plugin's check is given every conflict at the head, as `konstruct conflicts` finds them."""
+    from konstruct.analysis import gate as gating
+    from konstruct.analysis.conflicts import Conflicts, find_conflicts
+    from konstruct.analysis.gate import gate
+    from konstruct.plugins.api import API_VERSION, CheckContext, Finding
+    from konstruct.plugins.registry import Plugin, Plugins
+
+    (repo / 'sql' / 'gross.sql').write_text(
+        'create table main.gross as select customer_id, sum(amount) as revenue from raw.orders group by customer_id'
+    )
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'gross')
+    (repo / 'sql' / 'report.sql').write_text(REPORT.replace('> 100', '> 200'))
+    project = Project(repo)
+    project.build()
+    diff = project.diff(base='HEAD')
+    asked: list[Collection[str] | None] = []
+
+    def recorded(
+        graph: Graph, limit: int | None = None, *, touching: Collection[str] | None = None
+    ) -> Conflicts:
+        asked.append(touching)
+        return find_conflicts(graph, limit, touching=touching)
+
+    monkeypatch.setattr(gating, 'find_conflicts', recorded)
+
+    class Seen:
+        api_version = API_VERSION
+        description = 'records the conflicts it is given'
+
+        def __init__(self) -> None:
+            self.conflicts: list[Conflicts] = []
+
+        def check(self, context: CheckContext) -> list[Finding]:
+            self.conflicts.append(context.conflicts)
+            return []
+
+    seen = Seen()
+    plugin = Plugin('seen', 'checks', 'seen:SEEN', 'seen', '1.0', False, True, 'enabled', loaded=seen)
+    registry = Plugins([*Plugins.builtin().plugins, plugin])
+    assert gate(project.graph, diff, plugins=registry).passed
+    [given] = seen.conflicts
+    assert given.conflicts and given.to_dict() == find_conflicts(project.graph).to_dict()
+    assert asked == [None]
+    # Without the plugin, only the pairs of the columns the change alters are compared, and the
+    # conflict the change does not touch is not among them.
+    assert gate(project.graph, diff).passed
+    assert asked[1] is not None and 'table.shop.main.report#revenue' in asked[1]
+    assert not {'table.shop.main.ltv#revenue', 'table.shop.main.gross#revenue'} & set(asked[1])
 
 
 def test_the_cli_exits_1_on_failure_and_writes_json(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:

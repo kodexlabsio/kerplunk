@@ -18,7 +18,9 @@ approved terms), so the most consequential disagreements come first.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections import Counter, defaultdict
+from collections.abc import Collection, Iterator
 from dataclasses import dataclass, field
 from itertools import combinations
 from typing import TYPE_CHECKING, Any
@@ -531,8 +533,29 @@ class _Finder:
         return self.formulas.compare(first, self.formulas.column(self.graph.nodes[b.column]))
 
 
-def find_conflicts(graph: Graph, limit: int | None = None) -> Conflicts:
-    """Pairs of columns that appear to be one business idea computed differently, ranked."""
+def _pairs(nodes: list[Node], touching: Collection[str] | None) -> Iterator[tuple[Node, Node]]:
+    """Each pair of ``nodes`` in the order :func:`itertools.combinations` gives them; with
+    ``touching``, only the pairs with a column in it, without visiting the others."""
+    if touching is None:
+        yield from combinations(nodes, 2)
+        return
+    marked = [i for i, node in enumerate(nodes) if node.id in touching]
+    for i, first in enumerate(nodes):
+        later = range(i + 1, len(nodes)) if first.id in touching else marked[bisect_right(marked, i) :]
+        for j in later:
+            yield first, nodes[j]
+
+
+def find_conflicts(
+    graph: Graph, limit: int | None = None, *, touching: Collection[str] | None = None
+) -> Conflicts:
+    """Pairs of columns that appear to be one business idea computed differently, ranked.
+
+    With ``touching``, a set of column ids, only the pairs with a column in it are compared: the
+    conflicts are those of every pair that involve one of those columns, in the same order, at a
+    cost that grows with how many columns it names rather than with the number of pairs. A side's
+    ``carried_into`` is that of the last idea it is compared in, so for a column in more than one
+    idea it can differ from a comparison of every pair."""
     finder = _Finder(graph)
     candidates = finder.candidates()
     term_keys = finder.term_keys()
@@ -574,7 +597,7 @@ def find_conflicts(graph: Graph, limit: int | None = None) -> Conflicts:
                 carried[root].append(graph.label(member))
         for labels in carried.values():
             labels.sort()
-        for first, second in combinations(sorted(roots, key=lambda n: n.id), 2):
+        for first, second in _pairs(sorted(roots, key=lambda n: n.id), touching):
             pair = (first.id, second.id)
             if pair in seen_pairs or first.parent == second.parent:
                 continue

@@ -353,7 +353,7 @@ def _gate(root: Path, out_dir: Path, path: Path, shown: str) -> dict[str, Any]:
             with contextlib.redirect_stdout(sys.stderr):
                 checker.build(update=True, config=config)
                 diff = checker.diff()
-                result = gate(checker.graph, diff, checker.conflicts(), plugins=Plugins.for_config(config))
+                result = gate(checker.graph, diff, plugins=Plugins.for_config(config))
             notes: dict[str, list[str]] = {}
             for relation in diff.relations:
                 if relation.note:

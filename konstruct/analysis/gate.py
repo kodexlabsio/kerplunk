@@ -29,7 +29,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from konstruct.analysis.conflicts import Conflicts
+from konstruct.analysis.conflicts import Conflicts, find_conflicts
 from konstruct.analysis.diff import Diff, RelationChange
 from konstruct.core.graph import Graph, column_id
 from konstruct.plugins.api import API_VERSION, CheckContext, Finding, finding_problem, one_line
@@ -141,16 +141,28 @@ def _name(graph: Graph, node_id: str, fallback: str) -> str:
     return graph.label(node)
 
 
-def gate(graph: Graph, diff: Diff, conflicts: Conflicts, *, plugins: Plugins | None = None) -> Gate:
-    """The gate for ``diff``, given the graph and the conflicts at the head: every check that
-    ``plugins`` (default: Konstruct's own checks) runs. A plugin's check that raises, returns
-    something other than findings or cannot be loaded fails the gate with a finding that says so."""
+def gate(
+    graph: Graph, diff: Diff, conflicts: Conflicts | None = None, *, plugins: Plugins | None = None
+) -> Gate:
+    """The gate for ``diff``, given the graph at the head: every check that ``plugins`` (default:
+    Konstruct's own checks) runs. A plugin's check that raises, returns something other than
+    findings or cannot be loaded fails the gate with a finding that says so.
+
+    ``conflicts`` are the conflicts at the head, as :func:`~konstruct.analysis.conflicts.find_conflicts`
+    finds them. By default the gate finds them itself: every conflict when a plugin's check runs,
+    which sees them all, and otherwise only those of the columns the change alters, which are all
+    that Konstruct's own checks report, at a cost that grows with the change rather than with the
+    square of the columns that share a name."""
     from konstruct.plugins.registry import Plugins
 
     registry = plugins or Plugins.builtin()
+    checks = registry.group('checks')
+    if conflicts is None:
+        touching = None if any(not p.builtin for p in checks) else set(_changed_columns(graph, diff))
+        conflicts = find_conflicts(graph, touching=touching)
     result = Gate(base=diff.shown_base, changed=len(diff.source_files))
     context = CheckContext(graph=graph, diff=diff, conflicts=conflicts)
-    for plugin in registry.group('checks'):
+    for plugin in checks:
         result.findings += _run(plugin, context)
     for plugin in registry.failed('checks'):
         result.findings.append(_failure(plugin, f'cannot run: {plugin.error}'))

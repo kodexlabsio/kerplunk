@@ -69,6 +69,19 @@ The times of `metric`, `entity` and `relate` do not include deriving the ontolog
 
 `uv run .kodex/scripts/benchmark.py 2000` measures them with the rest, and `tests/test_scale.py` checks them on 300 models.
 
+## Conflicts and the Gate
+
+`konstruct conflicts` compares every two columns that appear to be one idea. What it compares of each column (its formula composed down to source, the keys of the filters and joins on its route, what depends on it downstream and the aggregate it applies last) is worked out once per column, so each pair costs one comparison of two formulas. The gate's own rule reports only conflicts of a column the change alters, so `konstruct gate`, the MCP `gate` tool and the coding agent hook compare only the pairs with such a column, and their cost grows with the change rather than with the number of pairs. When a plugin's gate check runs, the gate finds every conflict, as the check is given them all.
+
+On a repository of SQL tables with the same five measures, each table reading its own source, so that every two tables conflict on every measure (`uv run .kodex/scripts/benchmark.py --tables 100 400`; the gate's checks are timed after an edit to one measure of one table, given the diff), in CPU time:
+
+| Tables | Conflicts | `conflicts` | Gate checks |
+|---:|---:|---:|---:|
+| 100 | 24,750 | 0.8 s | 0.09 s |
+| 400 | 399,000 | 9.55 s | 0.34 s |
+
+On the 2,000-model project of the first table, `conflicts` over every candidate column takes 0.85 s of wall time after the graph is loaded (`uv run .kodex/scripts/benchmark.py 2000`). These measurements are on a four-core Intel Xeon cloud machine at 2.3 GHz with Python 3.12.
+
 ## Search by Meaning
 
 A build makes no index for search by meaning; the first search by meaning does, and saves it as `vectors.bin` (see [Searching by Meaning](guide/search.md)). On the 2,000-model project:

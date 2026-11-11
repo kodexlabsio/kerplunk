@@ -23,6 +23,11 @@ models through CTEs, with a manifest, a catalog and Airflow DAGs. For each size 
   time (it uses several threads), the size of the vectors.bin it saves, and the median time of a
   search by meaning after it.
 
+With ``--tables``, it measures conflicts and the gate on a repository of that many SQL tables with
+the same five measures, each table reading its own source, so that every two tables conflict on
+every measure (``make_measures`` in tests/test_scale.py): the CPU time of ``konstruct conflicts``
+over every pair, and of the gate's checks after an edit to one measure of one table.
+
 It also measures start-up: the CPU time of ``konstruct --help``, of ``konstruct status`` and of
 ``konstruct impact`` on a column on the largest project, each in a fresh process, and in the same way ``konstruct search`` with and
 without ``--meaning``, which reads the saved vectors.bin.
@@ -30,6 +35,7 @@ without ``--meaning``, which reads the saved vectors.bin.
 Usage:
     uv run .kodex/scripts/benchmark.py                  # 100, 500, 1000 and 2000 models
     uv run .kodex/scripts/benchmark.py 300 3000 --json results.json
+    uv run .kodex/scripts/benchmark.py --tables 100 400  # conflicts and the gate alone
 """
 
 from __future__ import annotations
@@ -52,11 +58,14 @@ sys.path.insert(0, str(ROOT))
 
 from konstruct import Project, __version__  # noqa: E402
 from konstruct.analysis import semantic  # noqa: E402
+from konstruct.analysis.conflicts import find_conflicts  # noqa: E402
+from konstruct.analysis.gate import gate  # noqa: E402
 from konstruct.analysis.identity import Formulas  # noqa: E402
 from konstruct.analysis.query import search  # noqa: E402
 from konstruct.core.graph import Graph  # noqa: E402
 from konstruct.interfaces import hook  # noqa: E402
-from tests.test_scale import make_project  # noqa: E402
+from tests.test_gate import git  # noqa: E402
+from tests.test_scale import make_measures, make_project  # noqa: E402
 
 COLUMNS = 20
 REPEAT = 5
@@ -235,6 +244,36 @@ def measure(models: int) -> dict[str, Any]:
 SIZES: list[int] = []
 
 
+def measure_measures(tables: int) -> dict[str, Any]:
+    """CPU time of conflicts over every pair of a repository of ``tables`` tables of the same
+    measures, and of the gate's checks (given the diff) after an edit to one measure."""
+    with tempfile.TemporaryDirectory(prefix='konstruct-bench-') as directory:
+        root = Path(directory) / 'repository'
+        make_measures(root, tables)
+        git(root, 'init', '-q', '-b', 'main')
+        git(root, 'add', '-A')
+        git(root, 'commit', '-qm', 'base')
+        project = Project(root)
+        graph = project.build(run_dbt=False, warehouses=False).graph
+        cpu = time.process_time()
+        found = find_conflicts(graph)
+        every = time.process_time() - cpu
+        edited = root / 't7.sql'
+        edited.write_text(edited.read_text().replace('* 1 as m0', '* 10 as m0'))
+        graph = project.build(update=True, run_dbt=False, warehouses=False).graph
+        diff = project.diff(base='HEAD')
+        cpu = time.process_time()
+        result = gate(graph, diff)
+        checks = time.process_time() - cpu
+        return {
+            'tables': tables,
+            'conflicts': len(found.conflicts),
+            'conflicts_cpu_s': round(every, 2),
+            'gate_findings': len(result.findings),
+            'gate_checks_cpu_s': round(checks, 2),
+        }
+
+
 def cpu_ms(args: list[str], cwd: Path, repeat: int = 7) -> float:
     """The median CPU time of ``konstruct <args>`` in a fresh process, which wall time on a busy
     machine would not show reliably."""
@@ -380,24 +419,43 @@ def markdown(rows: list[dict[str, Any]]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument('sizes', nargs='*', type=int, default=[100, 500, 1000, 2000])
+    parser.add_argument('sizes', nargs='*', type=int, help='models (default: 100, 500, 1000 and 2000)')
+    parser.add_argument(
+        '--tables', nargs='+', type=int, default=[], help='also measure conflicts and the gate at these sizes'
+    )
     parser.add_argument('--json', type=Path, help='also write the results as JSON')
     args = parser.parse_args()
-    SIZES.extend(args.sizes)
+    # Without sizes, every size is measured, unless --tables asks for conflicts and the gate alone.
+    sizes = args.sizes or ([] if args.tables else [100, 500, 1000, 2000])
+    SIZES.extend(sizes)
     rows = []
-    for size in args.sizes:
+    for size in sizes:
         row = measure(size)
         rows.append(row)
         print(f'{size} models: {row}', file=sys.stderr)
+    measured = []
+    for tables in args.tables:
+        row = measure_measures(tables)
+        measured.append(row)
+        print(f'{tables} tables: {row}', file=sys.stderr)
     machine = (
         f'{platform.machine()}, {platform.system()} {platform.release()}, Python {platform.python_version()}'
     )
-    print(f'konstruct {__version__} on {machine}, {COLUMNS} columns per model\n')
-    print(markdown(rows))
+    print(f'konstruct {__version__} on {machine}\n')
+    if rows:
+        print(f'{COLUMNS} columns per model\n')
+        print(markdown(rows))
+    if measured:
+        print('\n| Tables | Conflicts | conflicts, CPU | Gate checks after one edit, CPU |')
+        print('|---:|---:|---:|---:|')
+        for r in measured:
+            print(
+                f'| {r["tables"]:,} | {r["conflicts"]:,} | {r["conflicts_cpu_s"]} s '
+                f'| {r["gate_checks_cpu_s"]} s ({r["gate_findings"]} findings) |'
+            )
     if args.json:
-        args.json.write_text(
-            json.dumps({'konstruct': __version__, 'machine': machine, 'results': rows}, indent=1)
-        )
+        data = {'konstruct': __version__, 'machine': machine, 'results': rows, 'tables': measured}
+        args.json.write_text(json.dumps(data, indent=1))
     return 0
 
 

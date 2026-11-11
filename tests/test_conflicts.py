@@ -128,6 +128,21 @@ def test_different_sources_and_ranking(tmp_path: Path) -> None:
     assert result.conflicts[-1] is invoice
 
 
+def test_conflicts_touching_columns_are_those_of_every_conflict(tmp_path: Path) -> None:
+    """The gate compares only the pairs of the columns a change alters: the same conflicts, in the
+    same order, as comparing every pair and keeping those."""
+    project = make_shop(tmp_path, invoices=True)
+    every = find_conflicts(project.graph)
+    columns = sorted({side.column for c in every.conflicts for side in (c.a, c.b)})
+    assert len(every.conflicts) > 1 and len(columns) > 2
+    for touching in [[column] for column in columns] + [columns[:2], columns]:
+        found = find_conflicts(project.graph, touching=set(touching))
+        expected = [c for c in every.conflicts if c.a.column in touching or c.b.column in touching]
+        assert [c.to_dict() for c in found.conflicts] == [c.to_dict() for c in expected]
+        assert (found.candidates, found.groups) == (every.candidates, every.groups)
+    assert find_conflicts(project.graph, touching=set()).conflicts == []
+
+
 def test_terms_group_columns_named_differently(tmp_path: Path) -> None:
     project = make_shop(
         tmp_path,

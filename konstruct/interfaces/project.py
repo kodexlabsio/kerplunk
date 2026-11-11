@@ -1376,7 +1376,7 @@ class Project:
         if update:
             self.build(update=True, run_dbt=run_dbt, warehouses=warehouses, config=config)
         checks = self.plugins() if config.plugins == head else Plugins.for_config(config)
-        return gate(self.graph, self.diff(base=base), self.conflicts(), plugins=checks)
+        return gate(self.graph, self.diff(base=base), plugins=checks)
 
     def query(self, question: str, depth: int = 1) -> query.QueryResult:
         """Answer a question in words with the nodes it is about and their connections.

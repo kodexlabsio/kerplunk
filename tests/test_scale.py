@@ -11,6 +11,8 @@ import pytest
 
 from konstruct import Project
 
+from .test_gate import git
+
 pytestmark = pytest.mark.scale
 
 MODELS = 300
@@ -268,3 +270,56 @@ def test_workers_keep_their_directory_off_the_path() -> None:
     finally:
         workers.close()
     assert directory is not None and not Path(directory).exists()
+
+
+MEASURES = 5
+
+
+def make_measures(root: Path, tables: int) -> None:
+    """A repository of ``tables`` SQL tables with the same five measures, each table reading its own
+    source: every two tables compute each measure from another source, so there is a conflict for
+    every pair of tables and measure. Also used by .kodex/scripts/benchmark.py."""
+    root.mkdir(parents=True)
+    (root / 'konstruct.toml').write_text('dialect = "duckdb"\n')
+    (root / '.gitignore').write_text('konstruct-out/\n')
+    for index in range(tables):
+        measures = ', '.join(f'sum(c{j}) * {j + 1} as m{j}' for j in range(MEASURES))
+        (root / f't{index}.sql').write_text(
+            f'create table main.t{index} as with s as (select k, c0, c1, c2, c3, c4 from raw.r{index} '
+            f"where status <> 'x') select k, {measures} from s group by k\n"
+        )
+
+
+def test_conflicts_and_the_gate_stay_fast(tmp_path: Path) -> None:
+    """Each column's side of a pair is worked out once, and the gate compares only the pairs of
+    the columns a change alters. CPU time, bounded at about ten times what a laptop takes."""
+    from konstruct.analysis.conflicts import find_conflicts
+    from konstruct.analysis.gate import gate
+
+    tables = 120
+    root = tmp_path / 'repository'
+    make_measures(root, tables)
+    git(root, 'init', '-q', '-b', 'main')
+    git(root, 'add', '-A')
+    git(root, 'commit', '-qm', 'base')
+    project = Project(root)
+    graph = project.build(run_dbt=False, warehouses=False).graph
+    started = time.process_time()
+    every = find_conflicts(graph)
+    whole = time.process_time() - started
+    assert len(every.conflicts) == MEASURES * tables * (tables - 1) // 2
+    assert whole < 10, f'conflicts over {len(every.conflicts)} pairs took {whole:.1f}s of CPU'
+
+    edited = root / 't7.sql'
+    edited.write_text(edited.read_text().replace('* 1 as m0', '* 10 as m0'))
+    graph = project.build(update=True, run_dbt=False, warehouses=False).graph
+    diff = project.diff(base='HEAD')
+    started = time.process_time()
+    result = gate(graph, diff)
+    gated = time.process_time() - started
+    assert {f.rule for f in result.findings} == {'conflicting-definition'}
+    assert len(result.findings) == tables - 1
+    assert gated < 1, f'the gate took {gated:.1f}s of CPU'
+    # The same findings as from every conflict, which is what the gate is given when a plugin's check runs.
+    assert gate(graph, diff, find_conflicts(graph)).findings == result.findings
+    print(f'\n{tables} tables: conflicts {whole:.2f}s of CPU, the gate after one edit {gated:.2f}s')
