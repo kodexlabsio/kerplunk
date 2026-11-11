@@ -1487,7 +1487,7 @@ wheels = [
 
 [[package]]
 name = "konstruct"
-version = "0.13.7"
+version = "0.13.8"
 source = { editable = "." }
 dependencies = [
     { name = "duckdb" },

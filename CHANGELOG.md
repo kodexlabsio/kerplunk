@@ -1,3 +1,24 @@
+## v0.13.8 (2026-11-11)
+
+### Feat
+
+- **lineage**: Write release notes of formula changes, and their effect with verify --effect
+- **lineage**: Word a column's formula in plain English with explain --english
+
+### Fix
+
+- **cli**: Serve every graph Graph.read reads, from one copy, and make edges reentrantly
+
+### Refactor
+
+- **cli**: Read graph.json for konstruct serve with the core's one reader
+
+### Perf
+
+- **sql**: Check each column type once rather than once per statement
+- **graph**: Read graph.json in the core and make each edge only when read
+- **graph**: Scan JSON for its tokens in assembly for each architecture
+
 ## v0.13.7 (2026-11-11)
 
 ### Feat
