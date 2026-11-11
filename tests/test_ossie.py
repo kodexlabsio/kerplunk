@@ -17,7 +17,9 @@ from sqlglot import exp
 
 from konstruct import Project
 from konstruct.interfaces.cli import main
-from konstruct.semantics.ossie import datatype, parse
+from konstruct.semantics.ontology import derive
+from konstruct.semantics.ossie import datatype, export, parse
+from tests.test_ontology import shop
 
 FIXTURES = Path(__file__).parent / 'fixtures' / 'ossie'
 SCHEMA = json.loads((FIXTURES / 'ossie-schema.json').read_text())
@@ -767,3 +769,14 @@ def test_authored_relationships_are_written_once_and_only_when_they_resolve(
     assert [r['name'] for r in document['relationships']] == ['orders_customers']
     assert document['relationships'][0]['from_columns'] == ['customer_ref']
     assert "relationship 'dangling' is left out" in caplog.text
+
+
+def test_ossie_names_the_entity_of_each_derived_dataset() -> None:
+    g = shop()
+    document = valid(export(g, derive(g), 'shop'))
+    extensions = {
+        d['name']: json.loads(d['custom_extensions'][0]['data'])
+        for d in document['datasets']
+        if 'custom_extensions' in d
+    }
+    assert extensions == {'customers': {'entity': 'customer'}, 'orders': {'entity': 'order'}}
