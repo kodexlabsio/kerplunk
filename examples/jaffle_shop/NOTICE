@@ -6,3 +6,6 @@ konstruct changes to the original:
 - Removed the files that only serve the original repository (Docker, devcontainer, CI, tooling).
 - Added models/exposures.yml, dags/jaffle_shop_daily.py and dags/sql/customer_ltv.sql to
   show an exposure, an Airflow DAG and a SQL task that writes a table outside dbt.
+- Added four tests to models/staging/schema.yml: not_null and relationships tests on
+  stg_payments.order_id (to stg_orders.order_id) and on stg_orders.customer_id (to
+  stg_customers.customer_id).

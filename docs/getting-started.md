@@ -52,12 +52,12 @@ uv run konstruct impact stg_payments.amount -C examples/jaffle_shop
 $ konstruct build
 Built /src/jaffle_shop
 
-  dbt          jaffle_shop (.)            5 models, 3 seeds, 20 tests, 1 exposure  (artefacts up to date)
+  dbt          jaffle_shop (.)            5 models, 3 seeds, 24 tests, 1 exposure  (artefacts up to date)
   duckdb       duckdb jaffle_shop.duckdb  9 relations  (dbt profile jaffle_shop)
   airflow      dags/jaffle_shop_daily.py  1 DAG, 6 tasks
   definitions  definitions.yml            5 terms
 
-  graph        1 dag, 1 exposure, 5 models, 3 seeds, 1 table, 6 tasks, 5 terms, 20 tests; 44 columns
+  graph        1 dag, 1 exposure, 5 models, 3 seeds, 1 table, 6 tasks, 5 terms, 24 tests; 44 columns
   lineage      32 of 32 columns of models and built tables (100%)
   warnings     none
   wrote        graph.json, REPORT.md, graph.html, ontology.yml to konstruct-out in 0.7s

@@ -554,6 +554,7 @@
  "json diff .relations[].rows_impact.tests[].label": "str",
  "json diff .relations[].rows_impact.tests[].name": "str",
  "json diff .relations[].rows_impact.tests[].path": "str",
+ "json diff .relations[].rows_impact.tests[].role": "str",
  "json diff .relations[].rows_impact.tests[].via": "str",
  "json diff .relations[].rows_impact.total": "int",
  "json diff .relations[].status": "str",

@@ -774,7 +774,7 @@ def test_every_reader_of_sql_survives_what_the_parser_fails_on(dialect: str, sql
     graph = Graph()
     graph.meta['dialect'] = dialect
     assert Explainer(graph).namer.parse(sql) is None
-    assert ontology._Deriver(graph).join_columns(f'INNER JOIN: {sql}') == []
+    assert ontology.join_columns(graph, f'INNER JOIN: {sql}') == []
 
 
 def test_a_filter_on_the_nullable_side_of_a_left_join_belongs_to_the_join() -> None:

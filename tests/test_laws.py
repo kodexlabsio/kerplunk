@@ -1407,9 +1407,10 @@ def test_no_false_law_on_jaffle_shop(jaffle_built_graph: Path) -> None:
     orders = found['count:model.jaffle_shop.orders']
     assert orders.terms[0].source == 'seed.jaffle_shop.raw_orders' and orders.partition is not None
     assert orders.held == orders.checked > 30
-    # orders.amount reads payments through a left join from orders: a payment with no order is
-    # dropped, and no relationships test says there is none.
-    assert 'conservation:model.jaffle_shop.orders#amount' not in found
+    # orders.amount reads payments through a left join from orders, which drops a payment with no
+    # order; the relationships test on stg_payments.order_id says there is none, so the amount is
+    # conserved, and it holds.
+    assert found['conservation:model.jaffle_shop.orders#amount'].always_held
     assert found['additivity:model.jaffle_shop.orders#amount'].always_held
 
 

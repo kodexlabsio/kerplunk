@@ -236,7 +236,9 @@ def test_the_export_is_a_valid_ossie_model(tmp_path: Path, capsys: pytest.Captur
     document = valid(capsys.readouterr().out)
     assert document['version'] == '0.2.0.dev0'
     datasets = {d['name']: d for d in document['datasets']}
-    assert datasets['customers']['primary_key'] == ['customer_id']
+    # Only a term names customer_id as the key, so nothing shows each row is one customer.
+    assert 'primary_key' not in datasets['customers']
+    assert json.loads(datasets['customers']['custom_extensions'][0]['data']) == {'entity': 'customer'}
     assert datasets['customers']['source'] == 'main.customers'
     # Order total is a per-row formula, not an aggregate, so it is not an Ossie metric.
     [metric] = document['metrics']
@@ -244,7 +246,7 @@ def test_the_export_is_a_valid_ossie_model(tmp_path: Path, capsys: pytest.Captur
     # main.orders holds the order entity (from the grain), so raw.orders takes its full name.
     assert metric['expression'] == {'sql': 'SUM(raw_orders.amount_cents) / 100.0'}
     assert datasets['raw_orders']['source'] == 'raw.orders'
-    assert datasets['orders']['primary_key'] == ['order_id']
+    assert 'primary_key' not in datasets['orders']  # the grain names the key; nothing tests it
     assert metric['ai_context'] == {
         'synonyms': ['Customer spend', 'basket value'],
         'instructions': 'Grain: one row per customer.',
@@ -780,3 +782,80 @@ def test_ossie_names_the_entity_of_each_derived_dataset() -> None:
         if 'custom_extensions' in d
     }
     assert extensions == {'customers': {'entity': 'customer'}, 'orders': {'entity': 'order'}}
+
+
+def test_a_dataset_holds_the_entity_named_for_it_with_the_other_keys_unique() -> None:
+    from konstruct.core.graph import Graph
+    from tests.test_ontology import _relation, _unique
+
+    g = Graph()
+    g.meta['dialect'] = 'duckdb'
+    orders = _relation(g, 'orders', ['order_id', 'invoice_id'])
+    _unique(g, orders, 'order_id')
+    _unique(g, orders, 'invoice_id')
+    [dataset] = valid(export(g, derive(g), 'shop'))['datasets']
+    assert (dataset['primary_key'], dataset['unique_keys']) == (['order_id'], [['invoice_id']])
+    assert json.loads(dataset['custom_extensions'][0]['data']) == {'entity': 'order'}
+
+
+def test_a_measure_its_composed_formula_would_miscount_is_left_out(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    (tmp_path / 'models.sql').write_text(
+        'create table main.completed as select id as order_id, customer_id, amount_cents from raw.orders\n'
+        "where status = 'completed';\n"
+        'create table main.spend as select customer_id, sum(amount_cents) as spend from main.completed\n'
+        'group by customer_id;\n'
+        'create table main.gross as select customer_id, sum(amount_cents) as gross from raw.orders\n'
+        'group by customer_id;\n'
+        'create table main.kpis as select avg(gross) as average_gross from main.gross;\n'
+    )
+    (tmp_path / 'definitions.yml').write_text(
+        'version: 1\nterms:\n'
+        '  - {name: Completed spend, kind: measure, definition: x, columns: [main.spend.spend]}\n'
+        '  - {name: Gross spend, kind: measure, definition: y, columns: [main.gross.gross]}\n'
+        '  - {name: Average gross, kind: measure, definition: z, columns: [main.kpis.average_gross]}\n'
+    )
+    assert main(['build', str(tmp_path), '--no-warehouse', '--no-dbt', '--dialect', 'duckdb', '-q']) == 0
+    document = valid(Project(tmp_path).export('ossie'))
+    # SUM(raw_orders.amount_cents) would count every order, not only the completed ones, and
+    # AVG(SUM(...)) is no metric.
+    assert [m['name'] for m in document['metrics']] == ['gross_spend']
+    assert (
+        "measure 'Completed spend' is left out: its composed formula would not count the rows it does "
+        '(WHERE in main.completed)' in caplog.text
+    )
+    assert "measure 'Average gross' is left out: it aggregates an aggregate" in caplog.text
+
+
+def test_a_key_no_test_vouches_for_stays_unproven_after_a_round_trip(tmp_path: Path) -> None:
+    first, second = tmp_path / 'first', tmp_path / 'second'
+    for root in (first, second):
+        root.mkdir()
+        (root / 'models.sql').write_text(
+            'create table main.accounts as select id as account_ref, name from raw.a;\n'
+        )
+        (root / 'definitions.yml').write_text(
+            'version: 1\nterms:\n  - {name: Account, kind: entity, definition: x, columns: '
+            '[main.accounts.account_ref]}\n'
+        )
+    assert main(['build', str(first), '--no-warehouse', '--no-dbt', '--dialect', 'duckdb', '-q']) == 0
+    [dataset] = valid(Project(first).export('ossie'))['datasets']
+    assert 'primary_key' not in dataset
+    # Read back, the model is no evidence that account_ref is unique.
+    (second / 'model.ossie.yaml').write_text(Project(first).export('ossie'))
+    assert main(['build', str(second), '--no-warehouse', '--no-dbt', '--dialect', 'duckdb', '-q']) == 0
+    [rule] = [r for r in Project(second).ontology().rules if r.name == 'entity-keys-are-unique']
+    assert rule.violations
+
+
+def test_when_every_measure_is_left_out_the_error_says_why(tmp_path: Path) -> None:
+    (tmp_path / 'models.sql').write_text(
+        'create table main.orders as select amount_cents / 100.0 as total from raw.o;\n'
+    )
+    (tmp_path / 'definitions.yml').write_text(
+        'version: 1\nterms:\n  - {name: Order total, kind: measure, definition: x, columns: [main.orders.total]}\n'
+    )
+    assert main(['build', str(tmp_path), '--no-warehouse', '--no-dbt', '--dialect', 'duckdb', '-q']) == 0
+    with pytest.raises(ValueError, match="nothing to export: measure 'Order total': it is not an aggregate"):
+        Project(tmp_path).export('ossie')

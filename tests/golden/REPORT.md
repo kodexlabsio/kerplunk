@@ -25,7 +25,7 @@ Built <time> from `<root>` by Konstruct <version> in <seconds>s. SQL dialect: du
 | table | 1 |
 | task | 6 |
 | term | 5 |
-| test | 20 |
+| test | 24 |
 
 | Edge kind | Count |
 |-----------|-------|
@@ -35,8 +35,8 @@ Built <time> from `<root>` by Konstruct <version> in <seconds>s. SQL dialect: du
 | feeds | 21 |
 | precedes | 5 |
 | relates_to | 3 |
-| runs | 34 |
-| tests | 21 |
+| runs | 38 |
+| tests | 27 |
 
 Column lineage covers 32 of 32 columns of models and SQL-built tables (100%).
 

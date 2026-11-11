@@ -39,6 +39,8 @@ from sqlglot import exp
 
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
 from konstruct.core.sql import PARSE_ERRORS
+from konstruct.semantics.ontology import holder
+from konstruct.semantics.rows import Rows
 
 log = logging.getLogger(__name__)
 
@@ -462,12 +464,15 @@ def identifier(text: str) -> str:
     return cleaned or 'unnamed'
 
 
-def unique_name(name: str, used: set[str]) -> str:
+def unique_name(name: str, used: set[str], *, fold: bool = False) -> str:
+    """``name``, or ``name_2``, ``name_3`` and so on, whichever ``used`` does not hold yet; it is
+    added to ``used``. With ``fold``, names are told apart ignoring case, as unquoted SQL names
+    are, and ``used`` holds them in lower case."""
     candidate, index = name, 2
-    while candidate in used:
+    while (candidate.lower() if fold else candidate) in used:
         candidate = f'{name}_{index}'
         index += 1
-    used.add(candidate)
+    used.add(candidate.lower() if fold else candidate)
     return candidate
 
 
@@ -495,6 +500,7 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
     from konstruct.analysis.explain import Explainer
 
     explainer = Explainer(graph, qualified=True)
+    rows = Rows(graph)
     relations: dict[str, Node] = {}  # dataset name -> relation
     names: dict[str, str] = {}  # relation id -> dataset name
     field_names: dict[str, dict[str, str]] = {}  # relation id -> column id -> field name
@@ -564,6 +570,7 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
 
     keys: dict[str, str] = {}  # dataset -> key field
     held_by: dict[str, str] = {}  # derived dataset -> the entity whose key it holds
+    keyed: dict[str, dict[str, tuple[str, bool]]] = {}  # derived dataset -> entity -> (key field, unique)
     for entity in ontology.entities:
         for key_id in entity.key_ids:
             column = graph.nodes.get(key_id)
@@ -571,16 +578,30 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
             if column is None or owner is None:
                 continue
             if owner.id in authored:
-                # An authored dataset keeps its own primary key, or takes one only from its fields.
-                if not authored[owner.id]['dataset'].get('primary_key'):
+                # An authored dataset keeps its own primary key, or takes one only from its fields
+                # and only when the key is known to be unique.
+                if not authored[owner.id]['dataset'].get('primary_key') and key_id in entity.unique_ids:
                     held_name = field_names[owner.id].get(column.id)
                     if held_name is not None:
                         keys.setdefault(names[owner.id], held_name)
                 continue
             key = reference(column)
-            if key is not None and str(key.table) not in keys:
-                keys[str(key.table)] = key.name
-                held_by[str(key.table)] = entity.name
+            if key is not None:
+                keyed.setdefault(str(key.table), {})[entity.name] = (key.name, key_id in entity.unique_ids)
+    # A derived dataset holds the entity relationships read it as holding (the one named for its
+    # relation, else the first by name); the other entities' unique keys are its unique keys.
+    unique_keys: dict[str, list[list[str]]] = {}
+    for dataset, held_keys in keyed.items():
+        chosen = holder(held_keys, graph.label(relations[dataset]))
+        if chosen is not None:
+            held_by[dataset] = chosen
+            # A primary key says each row is one instance; it is written only when that is known,
+            # since a model read back takes its primary key as evidence of uniqueness.
+            if held_keys[chosen][1]:
+                keys[dataset] = held_keys[chosen][0]
+            others = [[f] for e, (f, unique) in sorted(held_keys.items()) if e != chosen and unique]
+            if others:
+                unique_keys[dataset] = others
 
     dialect = graph.meta.get('dialect')
     native = _OSSIE_DIALECTS.get(dialect) if isinstance(dialect, str) else None
@@ -588,11 +609,12 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
     scoped: dict[str, list[dict[str, Any]]] = {}  # dataset -> its own metrics
     used_metrics: set[str] = set()
     origins: set[str | None] = set()  # the Ossie model of each metric written, None for others
+    left_out: list[str] = []  # each measure left out, with the reason
     for measure in ontology.measures:
         term = graph.nodes.get(f'term.{_slug(measure.name)}')
         imported = term is not None and isinstance(term.attrs.get('ossie_expression'), str)
         # A first pass with placeholders, so a measure that is not exported adds no dataset.
-        trial = measure_tree(graph, explainer, measure, _placeholder)
+        trial = measure_tree(graph, explainer, measure, placeholder, rows)
         reason = None
         if trial is None:
             reason = (
@@ -603,12 +625,15 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
         elif not aggregate(trial):
             # An Ossie metric is an aggregate; a per-row formula is not one.
             reason = 'it is not an aggregate'
+        else:
+            reason = composed_reason(graph, measure, trial, rows)
         owner_id = term.attrs.get('ossie_dataset') if term is not None else None
         owner = graph.nodes.get(owner_id) if isinstance(owner_id, str) else None
         if reason is None and trial is not None and not list(trial.find_all(exp.Column)) and owner is None:
             reason = 'it reads no column, so no dataset it belongs to'
         if reason is not None:
             log.warning('ossie export: measure %r is left out: %s', measure.name, reason)
+            left_out.append(f'measure {measure.name!r}: {reason}')
             continue
         authored_metric = term.attrs.get('ossie_metric') if imported and term is not None else None
         reads = term.attrs.get('ossie_reads') if term is not None else None
@@ -627,7 +652,7 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
                 for ds, rid in reads.items()
             )
         )
-        tree = trial if verbatim else measure_tree(graph, explainer, measure, reference)
+        tree = trial if verbatim else measure_tree(graph, explainer, measure, reference, rows)
         if tree is None:
             continue
         home = dataset_for(owner) if owner is not None else None
@@ -830,6 +855,8 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
             item = {'name': dataset, 'source': relation.relation or graph.label(relation)}
         if dataset in keys and not item.get('primary_key'):
             item['primary_key'] = [keys[dataset]]
+        if held is None and dataset in unique_keys:
+            item['unique_keys'] = unique_keys[dataset]
         if relation.description and not item.get('description'):
             item['description'] = relation.description
         if fields:
@@ -846,7 +873,8 @@ def export(graph: Graph, ontology: Any, name: str | None = None) -> str:
     if not datasets:
         from konstruct.outputs.export import ExportError
 
-        raise ExportError('nothing to export: the ontology has no entities or measures')
+        why = '; '.join(left_out) or 'the ontology has no entities or measures'
+        raise ExportError(f'nothing to export: {why}')
     # The datasets of exactly one Ossie model are written back as that model.
     models = {authored[r.id]['model'] for r in relations.values() if r.id in authored} | origins
     single = next(iter(models)) if len(models) == 1 and len(authored) == len(relations) else None
@@ -872,9 +900,12 @@ def _authored_fields(held: dict[str, Any]) -> list[dict[str, Any]]:
     return [f for f in held['dataset'].get('fields') or [] if isinstance(f, dict) and f.get('name')]
 
 
-def measure_tree(graph: Graph, explainer: Any, measure: Any, reference: Any) -> exp.Expression | None:
+def measure_tree(
+    graph: Graph, explainer: Any, measure: Any, reference: Any, rows: Rows
+) -> exp.Expression | None:
     """The measure's expression over dataset fields: a metric read from an Ossie model keeps its
-    own expression; any other measure is its first complete column's formula composed to source."""
+    own expression; any other measure is the formula of :func:`composed_column` composed to
+    source. ``rows`` answers for the graph's rows, built once per export."""
     term = graph.nodes.get(f'term.{_slug(measure.name)}')
     stored = term.attrs.get('ossie_expression') if term is not None else None
     if isinstance(stored, str) and term is not None:
@@ -893,8 +924,7 @@ def measure_tree(graph: Graph, explainer: Any, measure: Any, reference: Any) -> 
         # A metric read from Ossie that did not resolve: its columns are its inputs, and composing
         # one of them would state that input's formula as the metric's.
         return None
-    held = next((c for c in measure.columns if c.formula and c.complete and c.id), None)
-    node = graph.nodes.get(held.id) if held is not None and held.id else None
+    node = composed_column(graph, measure, rows)
     composed = explainer.compose(node) if node is not None else None
     if composed is None or composed.tree is None:
         return None
@@ -912,11 +942,56 @@ def measure_tree(graph: Graph, explainer: Any, measure: Any, reference: Any) -> 
     return tree
 
 
+def composed_column(graph: Graph, measure: Any, rows: Rows) -> Node | None:
+    """The column whose formula, composed down to source, a measure not read from Ossie is
+    written as: its first column with a complete formula whose way down keeps its rows one for one
+    (the columns of one measure compute it the same way), else its first with a complete formula."""
+    complete = [
+        graph.nodes[c.id] for c in measure.columns if c.formula and c.complete and c.id in graph.nodes
+    ]
+    return next((c for c in complete if rows.changed(c) is None), complete[0] if complete else None)
+
+
+# The functions a composed formula names a set operation's branches with, as UNION(a, b).
+_SET_OPERATIONS = frozenset({'UNION', 'INTERSECT', 'EXCEPT'})
+
+
+def nested_aggregate(tree: exp.Expression) -> bool:
+    """Whether ``tree`` aggregates an aggregate (``AVG(SUM(x))``), as a formula composed across two
+    grains does; no metric can hold it."""
+    return any(
+        isinstance(node, exp.AggFunc) and isinstance(node.find_ancestor(exp.AggFunc), exp.AggFunc)
+        for node in tree.walk()
+    )
+
+
+def composed_reason(graph: Graph, measure: Any, tree: exp.Expression, rows: Rows) -> str | None:
+    """Why a measure composed down to source columns cannot be written as one metric, or None:
+    its composed formula ``tree`` aggregates an aggregate or combines the rows of several queries
+    (``UNION(a, b)``, which is no SQL), or a relation on the way down changes which rows it counts
+    (see :mod:`konstruct.semantics.rows`). A metric read from an Ossie model keeps its own
+    expression, so none of them applies to it."""
+    term = graph.nodes.get(f'term.{_slug(measure.name)}')
+    if isinstance(term.attrs.get('ossie_expression') if term is not None else None, str) or _from_ossie(term):
+        return None
+    if nested_aggregate(tree):
+        return 'it aggregates an aggregate, which a metric cannot hold'
+    combined = next(
+        (n.name.upper() for n in tree.find_all(exp.Anonymous) if n.name.upper() in _SET_OPERATIONS), None
+    )
+    if combined:
+        return f'it combines the rows of several queries ({combined}), which a metric cannot hold'
+    start = composed_column(graph, measure, rows)
+    changed = rows.changed(start) if start is not None else None
+    return f'its composed formula would not count the rows it does ({changed})' if changed else None
+
+
 def _from_ossie(term: Node | None) -> bool:
     return term is not None and 'ossie' in term.origins
 
 
-def _placeholder(column: Node) -> exp.Column | None:
+def placeholder(column: Node) -> exp.Column | None:
+    """A stand-in for every column, to try a formula before naming its datasets."""
     return exp.column('x', table='t') if column.kind == 'column' else None
 
 

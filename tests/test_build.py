@@ -114,7 +114,7 @@ def test_example_airflow_tasks_run_dbt_nodes(jaffle_graph: Graph) -> None:
     assert (task + 'dbt_run_staging', 'model.jaffle_shop.orders') not in runs
     assert (task + 'dbt_run_marts', 'model.jaffle_shop.orders') in runs
     tested = {target for source, target in runs if source == task + 'dbt_test'}
-    assert len(tested) == 20
+    assert len(tested) == 24
     assert ('dag.jaffle_shop_daily', task + 'notify_crm') in runs
     assert (task + 'dbt_test', task + 'build_customer_ltv') in edges(jaffle_graph, 'precedes')
 

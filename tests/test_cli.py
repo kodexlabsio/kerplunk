@@ -33,7 +33,7 @@ def test_build_prints_what_it_found(
     lines = out.splitlines()
     assert lines[0] == f'Built {jaffle}'
     assert (
-        '  dbt          jaffle_shop (.)            5 models, 3 seeds, 20 tests, 1 exposure  '
+        '  dbt          jaffle_shop (.)            5 models, 3 seeds, 24 tests, 1 exposure  '
         '(ran dbt docs generate)' in lines
     )
     assert '  duckdb       duckdb jaffle_shop.duckdb  9 relations  (dbt profile jaffle_shop)' in lines

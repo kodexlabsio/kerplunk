@@ -36,7 +36,7 @@ supports and never more:
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -99,6 +99,10 @@ class Entity:
     warehouse, with the detail in ``evidence``; left out when it checked none."""
     key_ids: list[str] = field(default_factory=list, repr=False)
     """The graph ids of the key columns, for tools; not written to ``ontology.yml``."""
+    unique_ids: list[str] = field(default_factory=list, repr=False)
+    """The graph ids of the key columns known to be unique (by a ``unique`` test, a primary key,
+    an identifier field or an Ossie primary key), for tools; not written to ``ontology.yml``. A key
+    named only by a term is not among them."""
 
 
 @dataclass
@@ -284,6 +288,75 @@ class Ontology:
         """The measure called ``name``, matched as :meth:`entity` matches."""
         return next((m for m in self.measures if name_matches(name, m.name)), None)
 
+    def entity_of(self, graph: Graph, relation: Node) -> Entity | None:
+        """The entity whose instances ``relation`` holds one row each of, as relationships read it
+        (see :func:`holder`)."""
+        keyed = {e.name: e for e in self.entities for i in e.key_ids if i.startswith(f'{relation.id}#')}
+        name = holder(keyed, graph.label(relation))
+        return keyed[name] if name is not None else None
+
+
+def unique_columns(graph: Graph) -> set[str]:
+    """The ids of the columns known to be unique, each on its own: a ``unique`` test, a
+    single-column primary key or identifier field, or an Ossie dataset's primary key."""
+    found: set[str] = set()
+    for node in graph.nodes.values():
+        if node.kind == 'test' and node.attrs.get('test') == 'unique':
+            for edge in graph.out_edges(node.id, 'tests'):
+                column = graph.nodes.get(edge.target)
+                if edge.attrs.get('role') is None and column is not None and column.kind == 'column':
+                    found.add(column.id)
+        elif node.kind == 'column' and node.attrs.get('ossie_key'):
+            found.add(node.id)
+        elif node.kind in RELATION_KINDS:
+            for attr in ('primary_key', 'identifier_fields'):
+                names = node.attrs.get(attr) or []
+                # One column of a composite key is not unique on its own.
+                if isinstance(names, list) and len(names) == 1:
+                    key_column = graph.column(node.id, str(names[0]))
+                    if key_column is not None:
+                        found.add(key_column.id)
+    return found
+
+
+def join_columns(graph: Graph, condition: str) -> list[tuple[Node, Node]]:
+    """The pairs of columns a join condition (``LEFT JOIN ON: a.x = b.y``) sets equal."""
+    label, sep, text = condition.partition(': ')
+    if not sep or 'JOIN' not in label:
+        return []
+    dialect = graph.meta.get('dialect')
+    try:
+        tree = sqlglot.parse_one(text, read=dialect if isinstance(dialect, str) else None)
+    except PARSE_ERRORS:
+        return []
+    pairs = []
+    for eq in tree.find_all(exp.EQ):
+        if isinstance(eq.this, exp.Column) and isinstance(eq.expression, exp.Column):
+            left, right = resolve_column(graph, eq.this), resolve_column(graph, eq.expression)
+            if left is not None and right is not None:
+                pairs.append((left, right))
+    return pairs
+
+
+def resolve_column(graph: Graph, column: exp.Column) -> Node | None:
+    """The column node a fully qualified column in a stored condition names."""
+    parts = [p.name for p in column.parts]
+    for split in range(len(parts) - 1, 0, -1):
+        relation = graph.node_for_relation('.'.join(parts[:split]))
+        if relation is not None:
+            return graph.column(relation.id, '.'.join(parts[split:]))
+    return None
+
+
+def holder(names: Iterable[str], relation: str) -> str | None:
+    """Of the entities keyed in the relation labelled ``relation``, the one whose instances it
+    holds one row each of: the one named for the relation, else the first by name."""
+    found = sorted(set(names))
+    if not found:
+        return None
+    own = entity_name('id', relation)
+    return own if own in found else found[0]
+
 
 def name_matches(wanted: str, *names: str | None) -> bool:
     """Whether ``wanted`` names any of ``names``, ignoring case, the difference between spaces,
@@ -303,7 +376,7 @@ def _normal(name: str) -> str:
     return re.sub(r'[\s_-]+', ' ', name.strip().lower())
 
 
-_INTERNAL = frozenset({'key_ids', 'id', 'columns'})
+_INTERNAL = frozenset({'key_ids', 'unique_ids', 'id', 'columns'})
 
 
 def compact(data: dict[str, Any]) -> dict[str, Any]:
@@ -395,13 +468,8 @@ def derivation(graph: Graph) -> Derivation:
 
 
 def _entity_of(graph: Graph, keys: dict[str, str], relation: Node) -> str | None:
-    """Of the entities whose keys ``relation`` holds, the one named for the relation, else the
-    first by name."""
-    names = sorted({keys[c.id] for c in graph.columns_of(relation.id) if c.id in keys})
-    if not names:
-        return None
-    own = entity_name('id', graph.label(relation))
-    return own if own in names else names[0]
+    """Of the entities whose keys ``relation`` holds, the one :func:`holder` chooses."""
+    return holder({keys[c.id] for c in graph.columns_of(relation.id) if c.id in keys}, graph.label(relation))
 
 
 class _Deriver:
@@ -464,6 +532,7 @@ class _Deriver:
             entity.relations = sorted(set(entity.relations))
             entity.keys = sorted(set(entity.keys))
             entity.key_ids = sorted(set(entity.key_ids))
+            entity.unique_ids = [i for i in entity.key_ids if i in self.unique]
             entity.evidence = sorted(set(entity.evidence))
             names = [self.graph.nodes[i].name.lower() for i in entity.key_ids if i in self.graph.nodes]
             names = names or [entity.key]
@@ -529,18 +598,21 @@ class _Deriver:
 
     def find_keys(self) -> None:
         graph = self.graph
+        self.unique = unique_columns(graph)
         found: dict[str, list[str]] = {}
         for node in graph.nodes.values():
             if node.kind == 'test' and node.attrs.get('test') == 'unique':
                 for edge in graph.out_edges(node.id, 'tests'):
                     column = graph.nodes.get(edge.target)
-                    if edge.attrs.get('role') is None and column is not None and column.kind == 'column':
-                        self.unique.add(column.id)
-                        # A unique email or name is not what identifies the business object.
-                        if id_like(column.name):
-                            found.setdefault(column.id, []).append(f'unique test on {graph.label(column)}')
+                    # A unique email or name is not what identifies the business object.
+                    if (
+                        edge.attrs.get('role') is None
+                        and column is not None
+                        and column.kind == 'column'
+                        and id_like(column.name)
+                    ):
+                        found.setdefault(column.id, []).append(f'unique test on {graph.label(column)}')
             elif node.kind == 'column' and node.attrs.get('ossie_key'):
-                self.unique.add(node.id)
                 found.setdefault(node.id, []).append(f'primary key in {node.attrs["ossie_key"]}')
             elif node.kind in RELATION_KINDS:
                 for attr, what in (('primary_key', 'primary key'), ('identifier_fields', 'identifier field')):
@@ -555,7 +627,6 @@ class _Deriver:
                         continue
                     key_column = graph.column(node.id, str(names[0]))
                     if key_column is not None:
-                        self.unique.add(key_column.id)
                         found.setdefault(key_column.id, []).append(f'{what} {graph.label(key_column)}')
         for column_id in sorted(found):
             for evidence in found[column_id]:
@@ -803,7 +874,7 @@ class _Deriver:
                         add(source, target, f'relationships test {node.name}', True)
             elif node.kind in RELATION_KINDS:
                 for condition in node.attrs.get('conditions', []) or []:
-                    for left, right in self.join_columns(str(condition)):
+                    for left, right in join_columns(graph, str(condition)):
                         evidence = f'join in {graph.label(node)}'
                         if right.id in self.keys:
                             add(left, right, evidence, False)
@@ -873,31 +944,6 @@ class _Deriver:
 
     def entity_of(self, relation: Node) -> str | None:
         return _entity_of(self.graph, self.keys, relation)
-
-    def join_columns(self, condition: str) -> list[tuple[Node, Node]]:
-        label, sep, text = condition.partition(': ')
-        if not sep or 'JOIN' not in label:
-            return []
-        dialect = self.graph.meta.get('dialect')
-        try:
-            tree = sqlglot.parse_one(text, read=dialect if isinstance(dialect, str) else None)
-        except PARSE_ERRORS:
-            return []
-        pairs = []
-        for eq in tree.find_all(exp.EQ):
-            if isinstance(eq.this, exp.Column) and isinstance(eq.expression, exp.Column):
-                left, right = self.column(eq.this), self.column(eq.expression)
-                if left is not None and right is not None:
-                    pairs.append((left, right))
-        return pairs
-
-    def column(self, column: exp.Column) -> Node | None:
-        parts = [p.name for p in column.parts]
-        for split in range(len(parts) - 1, 0, -1):
-            relation = self.graph.node_for_relation('.'.join(parts[:split]))
-            if relation is not None:
-                return self.graph.column(relation.id, '.'.join(parts[split:]))
-        return None
 
     # Rules carried from the build
 
