@@ -290,12 +290,12 @@ def test_a_term_reapproved_or_withdrawn(repositories: tuple[Path, Path]) -> None
 
 
 def test_terms_that_were_not_approved_only_note() -> None:
-    from konstruct.analysis.lock import _term_changes
+    from konstruct.analysis.lock import term_changes
 
     notes: list[str] = []
     old = [PinnedTerm('Revenue', 'draft', 'a', definition='Old.'), PinnedTerm('Gone', 'agreed', 'b')]
     new = [PinnedTerm('Revenue', 'draft', 'c', definition='New.'), PinnedTerm('Margin', 'approved', 'd')]
-    assert _term_changes(old, new, 'x.y', notes) == []
+    assert term_changes(old, new, 'x.y', notes) == []
     assert notes == [
         "x.y: 'Revenue' definition: 'Old.' -> 'New.' (not approved when locked)",
         "x.y: 'Gone' is no longer bound to this column (not approved when locked)",

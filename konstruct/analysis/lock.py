@@ -144,18 +144,18 @@ class LockError(QueryError):
 # The file
 
 
-class _Malformed(ValueError):
-    pass
+class Malformed(ValueError):
+    """A stored pin, term or record that is not in the shape its format gives."""
 
 
 def _text(data: dict[str, Any], key: str, *, required: bool = False) -> str | None:
     value = data.get(key)
     if value is None:
         if required:
-            raise _Malformed(f'{key!r} is missing')
+            raise Malformed(f'{key!r} is missing')
         return None
     if not isinstance(value, str):
-        raise _Malformed(f'{key!r} must be a string')
+        raise Malformed(f'{key!r} must be a string')
     return value or None
 
 
@@ -164,13 +164,13 @@ def _known(data: dict[str, Any], keys: Iterable[str], what: str) -> None:
     writes the file."""
     unknown = sorted(set(data) - set(keys))
     if unknown:
-        raise _Malformed(f'{what} has a key the format does not have: {unknown[0]!r}')
+        raise Malformed(f'{what} has a key the format does not have: {unknown[0]!r}')
 
 
 def _texts(data: dict[str, Any], key: str) -> list[str]:
     value = data.get(key, [])
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-        raise _Malformed(f'{key!r} must be a list of strings')
+        raise Malformed(f'{key!r} must be a list of strings')
     return list(value)
 
 
@@ -201,7 +201,7 @@ class PinnedTerm:
     @classmethod
     def from_dict(cls, data: Any) -> PinnedTerm:
         if not isinstance(data, dict):
-            raise _Malformed('a term must be a table')
+            raise Malformed('a term must be a table')
         _known(data, cls.__dataclass_fields__, 'a term')
         return cls(
             name=str(_text(data, 'name', required=True)),
@@ -316,17 +316,17 @@ class Pin:
     def from_dict(cls, data: Any, relations: dict[str, list[str]]) -> Pin:
         """A pin as the lockfile stores it, with ``relations`` the file's relations by name."""
         if not isinstance(data, dict):
-            raise _Malformed('a pin must be a table')
+            raise Malformed('a pin must be a table')
         _known(data, [k for k in cls.__dataclass_fields__ if k != 'rows'] + ['relations'], 'a pin')
         fingerprint = str(_text(data, 'fingerprint', required=True))
         if not _FINGERPRINT.fullmatch(fingerprint):
-            raise _Malformed("'fingerprint' must be sha256: and 64 hex digits")
+            raise Malformed("'fingerprint' must be sha256: and 64 hex digits")
         complete = data.get('complete', True)
         if not isinstance(complete, bool):
-            raise _Malformed("'complete' must be true or false")
+            raise Malformed("'complete' must be true or false")
         terms = data.get('terms', [])
         if not isinstance(terms, list):
-            raise _Malformed("'terms' must be a list of tables")
+            raise Malformed("'terms' must be a list of tables")
         return cls(
             column=str(_text(data, 'column', required=True)),
             id=str(_text(data, 'id', required=True)),
@@ -356,10 +356,10 @@ def _parts(reference: str) -> tuple[str, str, str]:
 def _rows(reference: str, relations: dict[str, list[str]]) -> Rows:
     side, name, steps = _parts(reference)
     if name not in relations:
-        raise _Malformed(f"'relations' names {name!r}, which no [[relation]] defines")
+        raise Malformed(f"'relations' names {name!r}, which no [[relation]] defines")
     before = [s for s in steps.split(', ') if s]
     if any(s not in ('WINDOW', 'LIMIT') for s in before):
-        raise _Malformed(f"'relations': {reference!r} names a step other than WINDOW or LIMIT")
+        raise Malformed(f"'relations': {reference!r} names a step other than WINDOW or LIMIT")
     return Rows(_VERSION.sub('', name), relations[name], side or None, before)
 
 
@@ -386,7 +386,7 @@ class Lockfile:
             self._index = {p.column: p for p in self.pins}
         return self._index.get(column)
 
-    def _stored(self) -> tuple[list[tuple[Pin, list[str]]], dict[str, list[str]]]:
+    def stored(self) -> tuple[list[tuple[Pin, list[str]]], dict[str, list[str]]]:
         """The pins, sorted, each with the names of the relations it relies on, and those
         relations' conditions by name: once per relation, so pins that read the same relations
         share them. Pins kept as locked may rely on conditions a relation no longer has, which are
@@ -407,7 +407,7 @@ class Lockfile:
         return stored, relations
 
     def to_dict(self) -> dict[str, Any]:
-        stored, relations = self._stored()
+        stored, relations = self.stored()
         return {
             'format': self.format,
             'canonical': self.canonical,
@@ -424,7 +424,7 @@ class Lockfile:
             f'canonical = {_toml_string(self.canonical)}',
             f'reads = {_toml_list(self.reads)}',
         ]
-        stored, relations = self._stored()
+        stored, relations = self.stored()
         for pin, references in stored:
             lines += ['', '[[pin]]']
             data = pin.to_dict(references)
@@ -453,21 +453,21 @@ class Lockfile:
             canonical = str(_text(data, 'canonical', required=True))
             reads = _texts(data, 'reads')
             if not isinstance(pins, list):
-                raise _Malformed("'pin' must be a list of tables")
+                raise Malformed("'pin' must be a list of tables")
             if not isinstance(stored, list) or not all(isinstance(r, dict) for r in stored):
-                raise _Malformed("'relation' must be a list of tables")
+                raise Malformed("'relation' must be a list of tables")
             relations: dict[str, list[str]] = {}
             for relation in stored:
                 _known(relation, ('name', 'conditions'), 'a [[relation]]')
                 name = str(_text(relation, 'name', required=True))
                 if name in relations:
-                    raise _Malformed(f'[[relation]] {name!r} is given twice')
+                    raise Malformed(f'[[relation]] {name!r} is given twice')
                 relations[name] = _texts(relation, 'conditions')
-        except _Malformed as error:
+        except Malformed as error:
             raise LockError(f'{where}: {error}') from None
         try:
             loaded = [Pin.from_dict(p, relations) for p in pins]
-        except _Malformed as error:
+        except Malformed as error:
             raise LockError(f'{where}: a pin is malformed: {error}') from None
         twice = sorted(c for c, n in Counter(p.column for p in loaded).items() if n > 1)
         if twice:
@@ -490,7 +490,8 @@ class Lockfile:
         path.write_text(self.dumps(), encoding='utf-8')
 
 
-def _optional(value: Any) -> str | None:
+def optional_text(value: Any) -> str | None:
+    """``value`` as text, or None when it is missing or empty."""
     return None if value in (None, '') else str(value)
 
 
@@ -741,7 +742,9 @@ def _read_by(graph: Graph, node: Node) -> list[Node]:
     return columns
 
 
-def _expand(graph: Graph, ref: str) -> list[Node]:
+def expand_ref(graph: Graph, ref: str) -> list[Node]:
+    """The columns ``ref`` names: a column, every column of a relation, the columns an exposure
+    reads, or those a term defines."""
     node = resolve_one(graph, ref)
     if node.kind == 'column':
         return [node]
@@ -797,7 +800,7 @@ def selection(graph: Graph, reads: list[str], consumer: str | None = None) -> li
         return upstream_reads(graph, consumer)
     found: dict[str, Node] = {}
     for ref in reads:
-        for column in _expand(graph, ref):
+        for column in expand_ref(graph, ref):
             found.setdefault(column.id, column)
     return sorted(found.values(), key=lambda n: column_key(graph, n))
 
@@ -809,7 +812,7 @@ def _boundary(graph: Graph, lockfile: Lockfile) -> set[str]:
     }
 
 
-class _Pinner:
+class Pinner:
     """Pins for the columns of one graph, composing each formula and condition once.
 
     ``boundary`` names columns composed as sources whatever their formula: run in a producer,
@@ -921,7 +924,7 @@ class _Pinner:
                 and _unrecorded(graph, builder, source) is not None
             ):
                 return None
-        return _optional(builder.attrs.get('repository')) or 'this project'
+        return optional_text(builder.attrs.get('repository')) or 'this project'
 
     def judged(self, node: Node | None, column: str) -> bool:
         """Run in a producer: whether this build builds the pinned column (or the relation it
@@ -1211,7 +1214,7 @@ class _Pinner:
             type=_type(node.data_type or defining.data_type),
             complete=composed.complete and not gap,
             verified=_verified(states),
-            repository=_optional(relation.attrs.get('repository') if relation else None),
+            repository=optional_text(relation.attrs.get('repository') if relation else None),
             used_by=self.used_by(node),
             terms=self.terms(node, defining),
         )
@@ -1223,25 +1226,8 @@ class _Pinner:
                 term = self.graph.nodes.get(edge.source)
                 if term is None or term.kind != 'term' or edge.attrs.get('role') == 'input':
                     continue
-                attrs = term.attrs
-                owner = attrs.get('owner')
-                found.setdefault(
-                    term.name,
-                    PinnedTerm(
-                        name=term.name,
-                        status=str(attrs.get('status', 'draft')),
-                        version=_term_version(attrs, term.description),
-                        approved=_optional(attrs.get('approved')),
-                        owner=_optional(owner.get('name')) if isinstance(owner, dict) else None,
-                        definition=term.description,
-                        grain=_optional(attrs.get('grain')),
-                        filters=[str(f) for f in attrs.get('filters', [])],
-                        columns=[str(c) for c in attrs.get('columns', [])],
-                        unit=_optional(attrs.get('unit')),
-                        currency=_optional(attrs.get('currency')),
-                        exceptions=_optional(attrs.get('exceptions')),
-                    ),
-                )
+                if term.name not in found:
+                    found[term.name] = pinned_term(term)
         return [found[name] for name in sorted(found)]
 
     def used_by(self, node: Node) -> list[str]:
@@ -1288,10 +1274,11 @@ class _Pinner:
         return sorted(found)
 
     def compare(
-        self, old: Pin, node: Node | None, display: Any, notes: list[str]
+        self, old: Pin, node: Node | None, display: Any, notes: list[str], *, when: str = 'locked'
     ) -> tuple[PinChange | None, Pin | None]:
         """What fails in ``old`` against this build, if anything, and the pin as it is now.
-        ``display`` names columns for people (an unqualified :class:`Explainer`'s namer)."""
+        ``display`` names columns for people (an unqualified :class:`Explainer`'s namer), and
+        ``when`` says in the notes when ``old`` was made (``locked``, or a receipt's ``issued``)."""
         graph = self.graph
 
         def short(text: str | None, condition: bool = False) -> str | None:
@@ -1373,14 +1360,34 @@ class _Pinner:
             notes.append(
                 f'{change.label}: its type ({old.type}) is not known in this build, so it was not compared'
             )
-        change.terms = _term_changes(old.terms, new.terms, change.label, notes)
+        change.terms = term_changes(old.terms, new.terms, change.label, notes, when)
         if change.terms:
             change.reasons.append('definition')
         if old.verified == 'confirmed' and new.verified != 'confirmed':
             notes.append(
-                f'{change.label}: was verified when locked, and is {new.verified or "not verified"} now'
+                f'{change.label}: was verified when {when}, and is {new.verified or "not verified"} now'
             )
         return (change if change.reasons else None), new
+
+
+def pinned_term(term: Node) -> PinnedTerm:
+    """A business term node as a pin records it: its status, owner, approval and meaning."""
+    attrs = term.attrs
+    owner = attrs.get('owner')
+    return PinnedTerm(
+        name=term.name,
+        status=str(attrs.get('status', 'draft')),
+        version=_term_version(attrs, term.description),
+        approved=optional_text(attrs.get('approved')),
+        owner=optional_text(owner.get('name')) if isinstance(owner, dict) else None,
+        definition=term.description,
+        grain=optional_text(attrs.get('grain')),
+        filters=[str(f) for f in attrs.get('filters', [])],
+        columns=[str(c) for c in attrs.get('columns', [])],
+        unit=optional_text(attrs.get('unit')),
+        currency=optional_text(attrs.get('currency')),
+        exceptions=optional_text(attrs.get('exceptions')),
+    )
 
 
 def _type(value: str | None) -> str | None:
@@ -1411,7 +1418,8 @@ def find(graph: Graph, column: str, node_id: str = '') -> Node | None:
     return node if node is not None and node.kind == 'column' else None
 
 
-def _display(graph: Graph) -> Any:
+def display_namer(graph: Graph) -> Any:
+    """What names columns for people in ``graph``: an unqualified :class:`Explainer`'s namer."""
     return Explainer(graph).namer
 
 
@@ -1467,7 +1475,7 @@ class LockResult:
             )
             if items
         ]
-        lines = [f'{verb} {self.path}: {_plural(count, "upstream column")} pinned ({", ".join(parts)}).']
+        lines = [f'{verb} {self.path}: {plural(count, "upstream column")} pinned ({", ".join(parts)}).']
         lines += [f'  + {c}' for c in self.added]
         lines += [f'  ~ {c} (change accepted)' for c in self.updated]
         lines += [f'  - {c}' for c in self.removed]
@@ -1475,7 +1483,7 @@ class LockResult:
         if self.stale:
             one = len(self.stale) == 1
             lines.append(
-                f'{_plural(len(self.stale), "pinned column")} {"differs" if one else "differ"} from this '
+                f'{plural(len(self.stale), "pinned column")} {"differs" if one else "differ"} from this '
                 f'build and {"was" if one else "were"} kept as locked; `konstruct lock --check` shows '
                 'what changed, `konstruct lock --update` accepts it.'
             )
@@ -1516,9 +1524,9 @@ def lock(
             'columns are known. Name what it relies on, such as `konstruct lock customers` or '
             '`konstruct lock weekly_dashboard`'
         )
-    pinner = _Pinner(graph, Path(root), None)
-    display = _display(graph)
-    result = LockResult(path=_relative(target, root), lockfile=Lockfile(reads=chosen))
+    pinner = Pinner(graph, Path(root), None)
+    display = display_namer(graph)
+    result = LockResult(path=relative_path(target, root), lockfile=Lockfile(reads=chosen))
     printed: list[str] = []
     for node in columns:
         key = column_key(graph, node)
@@ -1555,7 +1563,7 @@ def lock(
     if existing is not None and existing.canonical != CANONICAL and printed:
         raise LockError(
             f'{result.path} was written with canonical form {existing.canonical}, which this Konstruct '
-            f'does not write ({CANONICAL}), and {_plural(len(printed), "pin")} read differently: '
+            f'does not write ({CANONICAL}), and {plural(len(printed), "pin")} read differently: '
             're-lock after review, with `konstruct lock --update`'
         )
     kept = {p.column for p in result.lockfile.pins}
@@ -1581,14 +1589,16 @@ def _pinned_key(graph: Graph, existing: Lockfile, ref: str) -> str:
     raise LockError(f'{ref!r} is not pinned in {FILE_NAME}')
 
 
-def _relative(path: Path, root: Path) -> str:
+def relative_path(path: Path, root: Path) -> str:
+    """``path`` relative to ``root``, with forward slashes, or as it is on another drive."""
     try:
         return Path(os.path.relpath(path, root)).as_posix()
     except ValueError:
         return str(path)
 
 
-def _plural(count: int, word: str) -> str:
+def plural(count: int, word: str) -> str:
+    """``3 pins``, ``1 pin``: a count and a word that takes an s in the plural."""
     return f'{count} {word}{"" if count == 1 else "s"}'
 
 
@@ -1779,7 +1789,7 @@ class LockCheck:
         who = f' ({self.consumer})' if self.consumer else ''
         since = 'it was' if len(self.changes) == 1 else 'they were'
         changed = (
-            f'{len(self.changes)} of {_plural(self.pinned, "pinned upstream column")} changed since '
+            f'{len(self.changes)} of {plural(self.pinned, "pinned upstream column")} changed since '
             f'{since} locked.'
         )
         if self.relock:
@@ -1789,7 +1799,7 @@ class LockCheck:
                 + (f' {changed}' if self.changes else '')
             )
         if self.passed:
-            return f'{self.path}{who}: {_plural(self.pinned, "pinned upstream column")}, none changed.'
+            return f'{self.path}{who}: {plural(self.pinned, "pinned upstream column")}, none changed.'
         return f'{self.path}{who}: {changed}'
 
     def to_dict(self) -> dict[str, Any]:
@@ -1809,7 +1819,7 @@ class LockCheck:
         if not self.relock:
             return []
         return [
-            f'{self.relock} of {_plural(self.pinned, "pin")} read differently in this form, which may '
+            f'{self.relock} of {plural(self.pinned, "pin")} read differently in this form, which may '
             'be the form rather than a change. Review what the project reads (`konstruct explain`), '
             'then accept it: konstruct lock --update'
         ]
@@ -1851,11 +1861,11 @@ def check(
     target = path or Path(root) / FILE_NAME
     lockfile = Lockfile.read(target)
     boundary = _boundary(graph, lockfile) if consumer is not None else set()
-    pinner = _Pinner(graph, Path(root), consumer, boundary)
-    display = _display(graph)
-    attribute = _Attributor(graph, Path(root), pinner, locked_at(target)) if history else None
+    pinner = Pinner(graph, Path(root), consumer, boundary)
+    display = display_namer(graph)
+    attribute = Attributor(graph, Path(root), pinner, locked_at(target)) if history else None
     result = LockCheck(
-        path=_relative(target, root),
+        path=relative_path(target, root),
         pinned=len(lockfile.pins),
         consumer=consumer,
         canonical=lockfile.canonical,
@@ -1890,7 +1900,7 @@ def check(
     if unjudged:
         one = len(unjudged) == 1
         result.notes.append(
-            f'{_plural(len(unjudged), "pinned column")} {"is" if one else "are"} not built in this build, '
+            f'{plural(len(unjudged), "pinned column")} {"is" if one else "are"} not built in this build, '
             f'so {"it was" if one else "they were"} not checked: {", ".join(unjudged)}'
         )
     if not lockfile.reads:
@@ -1902,7 +1912,7 @@ def check(
                 ' and more' if len(unpinned) > 8 else ''
             )
             result.notes.append(
-                f'{_plural(len(unpinned), "upstream column")} read but not pinned: {shown}; '
+                f'{plural(len(unpinned), "upstream column")} read but not pinned: {shown}; '
                 'run `konstruct lock` to pin them'
             )
     return result
@@ -1931,7 +1941,9 @@ def _repository_named(graph: Graph, relative: str) -> str | None:
     return None
 
 
-def _term_changes(old: list[PinnedTerm], new: list[PinnedTerm], label: str, notes: list[str]) -> list[str]:
+def term_changes(
+    old: list[PinnedTerm], new: list[PinnedTerm], label: str, notes: list[str], when: str = 'locked'
+) -> list[str]:
     """Lines for each change to an approved term bound to the column; other changes are notes."""
     lines: list[str] = []
     now = {t.name: t for t in new}
@@ -1951,9 +1963,9 @@ def _term_changes(old: list[PinnedTerm], new: list[PinnedTerm], label: str, note
         if relied:
             lines += found
         else:
-            notes += [f'{label}: {line} (not approved when locked)' for line in found]
+            notes += [f'{label}: {line} (not approved when {when})' for line in found]
     for name in sorted(set(now) - {t.name for t in old}):
-        notes.append(f'{label}: now bound to {name!r} ({now[name].status}), which was not when locked')
+        notes.append(f'{label}: now bound to {name!r} ({now[name].status}), which was not when {when}')
     return lines
 
 
@@ -2008,12 +2020,12 @@ def _difference(before: str, after: str, dialect: str | None = None) -> str | No
     return f'{removed} -> {added}'
 
 
-class _Attributor:
+class Attributor:
     """Who changed what a pin relies on, from git history: the changes to the formulas on its way
     (as ``konstruct history`` reads them, so a reformatting commit is not one), else the last
     commits to the files that build it, preferring those made since the lockfile was written."""
 
-    def __init__(self, graph: Graph, root: Path, pinner: _Pinner, since: tuple[str, str] | None) -> None:
+    def __init__(self, graph: Graph, root: Path, pinner: Pinner, since: tuple[str, str] | None) -> None:
         self.graph = graph
         self.root = root
         self.pinner = pinner
@@ -2158,7 +2170,7 @@ class _Attributor:
         )
 
     def where(self, top: Path) -> str:
-        return _relative(top.resolve(), self.root.resolve())
+        return relative_path(top.resolve(), self.root.resolve())
 
 
 def locked_at(path: Path) -> tuple[str, str] | None:
