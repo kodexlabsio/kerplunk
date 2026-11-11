@@ -14,6 +14,7 @@ import yaml
 from mcp import Client, MCPError, StdioServerParameters
 
 from konstruct import Project
+from konstruct.core.graph import Graph
 from konstruct.interfaces import toolkit
 from konstruct.interfaces.mcp_server import INSTRUCTIONS, UNTRUSTED_CONTENT, build_server
 
@@ -56,8 +57,8 @@ async def _exercise(client: Client) -> None:
         assert tool.annotations is not None, tool.name
         assert all(type(getattr(tool.annotations, hint)) is bool for hint in hints), tool.name
     annotated = {t.name: t.annotations for t in tools.tools if t.annotations is not None}
-    # search saves its index, gate brings graph.json up to date and receipt records a receipt;
-    # everything else writes nothing.
+    # search saves its index, gate brings its copy of the graph up to date and receipt records a
+    # receipt; everything else writes nothing.
     assert {n for n, a in annotated.items() if not a.read_only_hint} == {'search', 'gate', 'receipt'}
     assert {n for n, a in annotated.items() if not a.idempotent_hint} == {'receipt'}
     assert not any(a.destructive_hint for a in annotated.values())
@@ -278,7 +279,7 @@ def test_gate_updates_from_files_alone(tmp_path: Path, monkeypatch: pytest.Monke
             return {'passed': True}
 
     def gate(self: Project, base: str | None = None, **options: Any) -> Result:
-        calls.append({'base': base, **options})
+        calls.append({'base': base, 'out_dir': self.out_dir, **options})
         return Result()
 
     monkeypatch.setattr(Project, 'gate', gate)
@@ -289,7 +290,32 @@ def test_gate_updates_from_files_alone(tmp_path: Path, monkeypatch: pytest.Monke
             assert not result.is_error
 
     anyio.run(run)
-    assert calls == [{'base': 'main', 'run_dbt': False, 'warehouses': False}]
+    copy = (root / 'konstruct-out' / '.gate').resolve()
+    assert calls == [{'base': 'main', 'out_dir': copy, 'run_dbt': False, 'warehouses': False}]
+    assert (copy / '.gitignore').read_text() == '*\n'
+
+
+def test_gate_leaves_the_project_graph_as_it_is(jaffle_built_graph: Path, tmp_path: Path) -> None:
+    """The gate's build connects to no warehouse, so it goes to a copy: the graph the other tools
+    answer from keeps the warehouse's tables and the lineage they carry."""
+    root = tmp_path / 'jaffle_shop'
+    shutil.copytree(jaffle_built_graph, root)
+    (root / '.gitignore').write_text('konstruct-out/\n')
+    identity = ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false']
+    for args in (['init', '-q', '-b', 'main'], ['add', '-A'], ['commit', '-qm', 'Start']):
+        subprocess.run(['git', '-C', str(root), *identity, *args], check=True, capture_output=True)
+    graph = root / 'konstruct-out' / 'graph.json'
+    before = graph.read_bytes()
+    assert any(source['input'] == 'duckdb' for source in Graph.read(graph).meta['sources'])
+
+    async def main() -> dict[str, Any]:
+        async with Client(build_server(root)) as client:
+            return structured(await client.call_tool('gate', {'base': 'HEAD'}))
+
+    result = anyio.run(main)
+    assert result['passed'] is True
+    assert graph.read_bytes() == before
+    assert (root / 'konstruct-out' / '.gate' / 'graph.json').is_file()
 
 
 def test_check_history_never_names_people(jaffle_built_graph: Path, monkeypatch: pytest.MonkeyPatch) -> None:

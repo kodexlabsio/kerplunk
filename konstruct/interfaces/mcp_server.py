@@ -12,9 +12,10 @@ import inspect
 import json
 import logging
 import re
+import shutil
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError, ToolError
@@ -28,6 +29,9 @@ from konstruct.interfaces import toolkit
 from konstruct.interfaces.project import Project
 from konstruct.plugins.registry import describe as describe_error
 from konstruct.semantics.ontology import name_matches
+
+if TYPE_CHECKING:
+    from konstruct.analysis.gate import Gate
 
 log = logging.getLogger(__name__)
 
@@ -321,17 +325,17 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
 
     @server.tool(annotations=UPDATES_OUTPUTS)
     def gate(base: str | None = None) -> dict[str, Any]:
-        """The check a change must pass before you open a pull request: brings the graph up to date
-        with the working tree and reports removed columns something still reads, approved
-        definitions whose meaning changed, and changed columns that compute a business idea
-        differently from an existing one, each with what to do about it. Run it before proposing
-        a change, fix what it reports, and run it again until `passed` is true. It updates the
-        graph from the files alone: it runs no dbt and connects to no warehouse."""
+        """The check a change must pass before you open a pull request: brings a copy of the graph
+        up to date with the working tree and reports removed columns something still reads,
+        approved definitions whose meaning changed, and changed columns that compute a business
+        idea differently from an existing one, each with what to do about it. Run it before
+        proposing a change, fix what it reports, and run it again until `passed` is true. It
+        updates the copy from the files alone: it runs no dbt, connects to no warehouse and leaves
+        the project's graph as it is."""
         from konstruct.analysis.diff import DiffError
 
         try:
-            # A change an agent makes can alter the connections too, so the update reads files only.
-            return run(lambda: project.gate(base, run_dbt=False, warehouses=False))
+            return run(lambda: gate_copy(project, base))
         except DiffError as error:
             raise _untrusted_error(str(error)) from error
 
@@ -501,6 +505,27 @@ def _resources(server: MCPServer, project: Project) -> None:
         ready()
         data = {'untrusted_content': UNTRUSTED_CONTENT, **summary(project)}
         return private(json.dumps(data, indent=2), project)
+
+
+GATE_DIR = '.gate'
+"""Where the MCP gate keeps its copy of the graph, inside the output directory."""
+
+
+def gate_copy(project: Project, base: str | None) -> Gate:
+    """The gate over a copy of the project's graph in ``konstruct-out/.gate``, brought up to date
+    from the files alone. A change an agent makes can alter the connections too, so the update
+    connects to no warehouse; built into the project's own output directory, that build would
+    replace the graph the other tools answer from with one that has lost the warehouse's tables
+    and the lineage they carry."""
+    scratch = project.out_dir / GATE_DIR
+    scratch.mkdir(parents=True, exist_ok=True)
+    # The copy is Konstruct's working space: keep it out of commits.
+    (scratch / '.gitignore').write_text('*\n', encoding='utf-8')
+    cache = project.out_dir / 'cache.json'
+    if cache.is_file() and not (scratch / 'cache.json').is_file():
+        shutil.copy2(cache, scratch / 'cache.json')
+    checker = Project(project.path, out_dir=scratch, plugins=project.use_plugins)
+    return checker.gate(base, run_dbt=False, warehouses=False)
 
 
 def serve(root: Path, *, plugins: bool = True, prompts: bool = True) -> None:
