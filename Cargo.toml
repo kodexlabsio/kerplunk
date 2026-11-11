@@ -22,16 +22,15 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pyo3 = { version = "0.30.1", optional = true }
-# `konstruct serve`: HTTP/1.1 on tokio, graph.json read with serde, and its encodings made once
-# per graph version.
+# `konstruct serve`: HTTP/1.1 on tokio, the API's JSON with serde_json, and its encodings made
+# once per graph version. It checks graph.json with the core's own reader (src/json, src/load).
 brotli = { version = "9.1.1", default-features = false, features = ["std"] }
 bytes = "1.12.1"
 flate2 = "1.1.11"
 http-body-util = "0.1.5"
 hyper = { version = "1.12.0", features = ["http1", "server"] }
 hyper-util = { version = "0.1.21", features = ["http1", "server", "server-graceful", "tokio"] }
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = { version = "1.0.154", features = ["raw_value"] }
+serde_json = "1.0.154"
 sha2 = "0.11.1"
 tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 # Linear-time matching for the routing expressions in Kafka Connect configuration (src/route.rs).

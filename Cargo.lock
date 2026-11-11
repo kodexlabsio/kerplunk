@@ -388,7 +388,6 @@ dependencies = [
  "pyo3",
  "regex",
  "regex-syntax",
- "serde",
  "serde_json",
  "sha2",
  "tokio",

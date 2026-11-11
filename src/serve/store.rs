@@ -3,42 +3,10 @@
 //!
 //! The server answers nothing from the graph itself: every answer comes from the Python API
 //! (`konstruct.interfaces.http_api`), so this reads only what checking the file and the size the
-//! event stream reports need.
+//! event stream reports need, with the JSON reader `Graph.read` uses ([`crate::json`]).
 
-use std::borrow::Cow;
-
-use serde::Deserialize;
-use serde_json::value::RawValue;
-
-/// The fields every node has; reading them is the check. A string with an escape (a quoted
-/// identifier's `"`, a backslash, a tab) cannot be borrowed from the file, so each is a `Cow`:
-/// borrowed when it can be, copied when it must.
-#[derive(Deserialize)]
-#[allow(dead_code, reason = "deserialised to check the entry, never read")]
-struct NodeEntry<'a> {
-    #[serde(borrow)]
-    id: Cow<'a, str>,
-    #[serde(borrow)]
-    kind: Cow<'a, str>,
-}
-
-/// The fields every edge has; reading them is the check.
-#[derive(Deserialize)]
-#[allow(dead_code, reason = "deserialised to check the entry, never read")]
-struct EdgeEntry<'a> {
-    #[serde(borrow)]
-    source: Cow<'a, str>,
-    #[serde(borrow)]
-    target: Cow<'a, str>,
-}
-
-#[derive(Deserialize)]
-struct File<'a> {
-    #[serde(borrow, default)]
-    nodes: Vec<&'a RawValue>,
-    #[serde(borrow, default)]
-    edges: Vec<&'a RawValue>,
-}
+use crate::json::tape::{Doc, Kind, Tape};
+use crate::load::member;
 
 /// Why a graph could not be read.
 #[derive(Debug)]
@@ -63,23 +31,53 @@ pub struct GraphStore {
     pub edges: usize,
 }
 
+/// How many entries the list `name` of the graph has, each an object whose `fields` are strings;
+/// none when it has no such list.
+fn entries(doc: Doc<'_>, name: &str, fields: [&str; 2]) -> Result<usize, LoadError> {
+    let Some(list) = member(doc, 0, name) else {
+        return Ok(0);
+    };
+    if doc.kind(list) != Kind::Array {
+        return Err(LoadError(format!(
+            "graph.json is not a Konstruct graph: its {name} are not a list"
+        )));
+    }
+    let mut count = 0;
+    for (number, item) in doc.items(list).enumerate() {
+        for field in fields {
+            let value = (doc.kind(item) == Kind::Object)
+                .then(|| member(doc, item, field))
+                .flatten();
+            if value.is_none_or(|v| doc.kind(v) != Kind::String) {
+                return Err(LoadError(format!(
+                    "graph.json has an entry {number} in its {name} without a {field} that is a string"
+                )));
+            }
+        }
+        count += 1;
+    }
+    Ok(count)
+}
+
 impl GraphStore {
-    /// Check the bytes of a `graph.json`: UTF-8, an object whose `nodes` have an id and a kind
-    /// and whose `edges` have a source and a target.
+    /// Check the bytes of a `graph.json` with the reader `Graph.read` uses: JSON, and an object
+    /// whose `nodes` have a string id and kind and whose `edges` have a string source and
+    /// target.
     pub fn load(bytes: Vec<u8>) -> Result<Self, LoadError> {
-        let source = std::str::from_utf8(&bytes)
-            .map_err(|e| LoadError(format!("graph.json is not UTF-8: {e}")))?;
-        let file: File<'_> = serde_json::from_str(source)
-            .map_err(|e| LoadError(format!("graph.json is not a Konstruct graph: {e}")))?;
-        for raw in &file.nodes {
-            serde_json::from_str::<NodeEntry<'_>>(raw.get())
-                .map_err(|e| LoadError(format!("graph.json has a node it cannot read: {e}")))?;
+        let tape = Tape::parse(&bytes).map_err(|e| {
+            LoadError(format!(
+                "graph.json is not valid JSON: {} at byte {}",
+                e.message, e.at
+            ))
+        })?;
+        let doc = tape.doc(&bytes);
+        if doc.kind(0) != Kind::Object {
+            return Err(LoadError(
+                "graph.json is not a Konstruct graph: it is not an object".into(),
+            ));
         }
-        for raw in &file.edges {
-            serde_json::from_str::<EdgeEntry<'_>>(raw.get())
-                .map_err(|e| LoadError(format!("graph.json has an edge it cannot read: {e}")))?;
-        }
-        let (nodes, edges) = (file.nodes.len(), file.edges.len());
+        let nodes = entries(doc, "nodes", ["id", "kind"])?;
+        let edges = entries(doc, "edges", ["source", "target"])?;
         Ok(Self {
             bytes: bytes::Bytes::from(bytes),
             nodes,
@@ -114,6 +112,15 @@ mod tests {
         ], "edges": [{"source": "table.main.t", "target": "table.main.t#a\"b", "kind": "contains"}]}"#;
         let graph = GraphStore::load(text.as_bytes().to_vec()).unwrap();
         assert_eq!((graph.nodes, graph.edges), (4, 1));
+    }
+
+    #[test]
+    fn values_konstruct_does_not_write_are_served() {
+        // Graph.read gives these the meaning Graph.from_dict always gave them.
+        let text = r#"{"nodes": [{"id": "a", "kind": "model", "attrs": [], "origins": "abc"}],
+            "edges": [{"source": "a", "target": "b", "kind": 2}, {"source": "a", "target": "a"}]}"#;
+        let graph = GraphStore::load(text.as_bytes().to_vec()).unwrap();
+        assert_eq!((graph.nodes, graph.edges), (1, 2));
     }
 
     #[test]

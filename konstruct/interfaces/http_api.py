@@ -203,7 +203,7 @@ class Api:
         if stamp == self._stamp and self.project.served is not None:
             return
         data = self.project.graph_path.read_bytes()
-        self.project.served = Graph.from_dict(jsonio.loads(data))
+        self.project.served = Graph.from_json(data, str(self.project.graph_path))
         self.version = _core.graph_version(data)
         # Taken before the read: a file replaced during it is read again next time.
         self._stamp = stamp
