@@ -736,14 +736,17 @@ def _named(query: exp.Query, term: exp.Expr) -> exp.Expr:
 
 
 def _spell_out_group_by_all(select: exp.Expr) -> None:
-    """Rewrite ``GROUP BY ALL`` as the select items it groups by, those without an aggregate or a
-    window function, so that its columns are references and its condition names them."""
+    """Rewrite ``GROUP BY ALL`` as the select items it groups by, those without an aggregate, a
+    window function or a function sqlglot does not know, so that its columns are references and its
+    condition names them."""
     group = select.args.get('group')
     if not isinstance(select, exp.Select) or not isinstance(group, exp.Group):
         return
     if not group.args.get('all') or group.expressions:
         return
-    keys = [s.unalias().copy() for s in select.selects if not s.find(exp.AggFunc, exp.Window)]
+    # A function sqlglot does not know (a user-defined aggregate, or one such as DuckDB's product)
+    # could aggregate, so an item that calls one is left out rather than claimed as a key.
+    keys = [s.unalias().copy() for s in select.selects if not s.find(exp.AggFunc, exp.Window, exp.Anonymous)]
     if keys:
         group.set('all', None)
         group.set('expressions', keys)

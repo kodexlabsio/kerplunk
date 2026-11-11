@@ -670,6 +670,45 @@ def test_distinct_set_operations_and_group_by_all_are_conditions() -> None:
     assert ('db.main.orders', 'status') in grouped.references
 
 
+@pytest.mark.parametrize('dialect', ['duckdb', 'snowflake', 'databricks', 'bigquery'])
+def test_group_by_all_groups_by_the_select_items_without_an_aggregate(dialect: str) -> None:
+    select = """
+    with o as (select * from orders)
+    select customer_id, upper(status) as status_code, count(*) as order_count, sum(amount) as total
+    from o
+    """
+    # Snowflake folds unquoted names to upper case, and so must the schema.
+    schema = {k.upper(): {c.upper(): t for c, t in v.items()} for k, v in SCHEMA.items()}
+    kwargs: dict[str, Any] = {'dialect': dialect, 'schema': schema if dialect == 'snowflake' else SCHEMA}
+    grouped = one(f'{select} group by all', **kwargs)
+    assert grouped.conditions == one(f'{select} group by 1, 2', **kwargs).conditions
+    assert set(grouped.references) == {(ORDERS, 'customer_id'), (ORDERS, 'status')}
+    if dialect == 'duckdb':
+        assert grouped.conditions == ['GROUP BY: UPPER(db.main.orders.status), db.main.orders.customer_id']
+
+
+def test_group_by_all_leaves_out_window_functions() -> None:
+    sql = """
+    select customer_id, sum(amount) as total, rank() over (order by sum(amount)) as position
+    from orders group by all
+    """
+    assert one(sql).conditions == ['GROUP BY BEFORE WINDOW: db.main.orders.customer_id']
+
+
+def test_group_by_all_of_aggregates_alone_and_with_named_keys() -> None:
+    assert one('select sum(amount) as total from orders group by all').conditions == []
+    named = one('select status, count(*) as n from orders group by all status', dialect='postgres')
+    assert named.conditions == ['GROUP BY: db.main.orders.status']
+
+
+def test_group_by_all_leaves_out_functions_sqlglot_does_not_know() -> None:
+    # my_udaf is a user-defined aggregate, and sqlglot does not know DuckDB's product as one.
+    sql = 'select customer_id, my_udaf(amount) as spread, product(amount) as factor from orders group by all'
+    result = one(sql)
+    assert result.conditions == ['GROUP BY: db.main.orders.customer_id']
+    assert result.references == [(ORDERS, 'customer_id')]
+
+
 def test_the_relations_a_star_it_could_not_expand_reads() -> None:
     """Every column of a relation with unknown columns reaches the output of a ``SELECT *`` over it,
     beside any other item and through a CTE, except those it leaves out."""
