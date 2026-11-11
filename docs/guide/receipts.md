@@ -45,6 +45,6 @@ What changed without making a receipt stale is a note: a lineage no longer confi
 
 Receipts are JSON lines in `konstruct-out/receipts/`, one file for each day (UTC) of issue, so old receipts can be removed a day at a time. Only a newline ends a line. Each line carries `format_version` and a `digest`: `sha256:` and the SHA-256 of the UTF-8 bytes of the record without `digest`, written as JSON with its keys sorted, `,` and `:` as separators with no spaces, and every character written as itself rather than escaped. A reader ignores fields it does not know, which a later release may add. Receipts are written and read only as regular files in a real folder: a symbolic link in place of the folder or of a day's file is removed before a receipt is written, and is not followed when receipts are read. The digest finds a record edited by hand or damaged; it is not a signature, as whoever can write the file can write a new record with a matching digest, and a removed line is not found. Nothing is sent anywhere.
 
-## From Python
+## From an Agent or Python
 
-{meth}`konstruct.Project.receipt`, {meth}`konstruct.Project.receipts` and {meth}`konstruct.Project.check_receipts` issue, read and check receipts as the commands do.
+The MCP server's `receipt` tool issues a receipt as `konstruct receipts issue --json` does, and the server's instructions ask the agent to call it after answering a question about the data and to put the citation under its answer. {meth}`konstruct.Project.receipt`, {meth}`konstruct.Project.receipts` and {meth}`konstruct.Project.check_receipts` do the same from Python.

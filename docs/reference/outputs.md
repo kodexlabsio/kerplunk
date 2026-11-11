@@ -6,7 +6,7 @@
 | `REPORT.md` | Summary and coverage, the most queried columns (with usage on), business terms, the most used columns, orphans, untested models, columns with no lineage, columns documented in dbt but missing from the warehouse, and warnings |
 | `ontology.yml` | The entities, measures, relationships and rules derived from the graph (see [The Ontology](../guide/ontology.md)); `konstruct verify` refreshes its verified counts |
 | `vectors.bin` | The index of search by meaning and every node's blocks, written by the first search by meaning and brought up to date by the first after each build (see [Searching by Meaning](../guide/search.md)) |
-| `receipts/` | The answer receipts `konstruct receipts issue` records, as JSON lines, one file for each day of issue (see [Answer Receipts](../guide/receipts.md)) |
+| `receipts/` | The answer receipts `konstruct receipts issue` and the MCP `receipt` tool record, as JSON lines, one file for each day of issue (see [Answer Receipts](../guide/receipts.md)) |
 | `graph.html` | A single offline file (open it with `konstruct open`): tables, models and tasks in dependency order; cards that expand to their columns; column lineage drawn between columns, isolated and fitted to the screen; each column's formula in terms of its sources; the conditions that shape each model; verification results; search, deep links to any table or column, dark and light themes |
 | `explain.json` | What `graph.html` holds beside the graph (formulas, SQL, the ontology and conflicts), written with it, for the viewer when `konstruct serve` serves it |
 

@@ -47,6 +47,7 @@ async def _exercise(client: Client) -> None:
         'check_history',
         'mutation_test',
         'why',
+        'receipt',
     }
     assert all(t.description and t.input_schema for t in tools.tools)
     # Every tool states all four hints as booleans, as hosts and directories require.
@@ -55,8 +56,10 @@ async def _exercise(client: Client) -> None:
         assert tool.annotations is not None, tool.name
         assert all(type(getattr(tool.annotations, hint)) is bool for hint in hints), tool.name
     annotated = {t.name: t.annotations for t in tools.tools if t.annotations is not None}
-    # search saves its index and gate brings graph.json up to date; everything else writes nothing.
-    assert {n for n, a in annotated.items() if not a.read_only_hint} == {'search', 'gate'}
+    # search saves its index, gate brings graph.json up to date and receipt records a receipt;
+    # everything else writes nothing.
+    assert {n for n, a in annotated.items() if not a.read_only_hint} == {'search', 'gate', 'receipt'}
+    assert {n for n, a in annotated.items() if not a.idempotent_hint} == {'receipt'}
     assert not any(a.destructive_hint for a in annotated.values())
     # These reach the warehouse: running the models' SQL, or reading its query history.
     assert {n for n, a in annotated.items() if a.open_world_hint} == {'mutation_test', 'why', 'check_history'}
@@ -425,3 +428,38 @@ def test_why_without_a_row_names_the_where_argument(tmp_path: Path) -> None:
             )
 
     anyio.run(main)
+
+
+def test_receipt_records_what_an_answer_rests_on(tmp_path: Path) -> None:
+    from .test_receipts import make_shop
+
+    project = make_shop(tmp_path / 'shop')
+
+    async def main() -> dict[str, Any]:
+        async with Client(build_server(project.root)) as client:
+            return structured(
+                await client.call_tool(
+                    'receipt', {'refs': ['report.doubled'], 'question': 'How much?', 'answer': '70'}
+                )
+            )
+
+    result = anyio.run(main)
+    assert result['untrusted_content'] == UNTRUSTED_CONTENT and result['format_version'] == 1
+    assert result['citation'].startswith('Relied on report.doubled = SUM(orders.amount) * 2.')
+    assert [r.id for r in project.receipts()] == [result['id']]
+    assert project.check_receipts().passed
+
+
+def test_receipt_refuses_text_that_is_not_valid_unicode(tmp_path: Path) -> None:
+    from .test_receipts import make_shop
+
+    project = make_shop(tmp_path / 'shop')
+
+    async def call() -> str:
+        async with Client(build_server(project.root)) as client:
+            result = await client.call_tool('receipt', {'refs': ['ltv.total'], 'answer': 'x \ud800'})
+            assert result.is_error
+            return str(result.content)
+
+    assert 'the answer is not valid text: it holds U+D800' in anyio.run(call)
+    assert project.receipts() == []

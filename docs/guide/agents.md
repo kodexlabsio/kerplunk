@@ -78,7 +78,7 @@ The hook works from the project root, the directory Claude Code names in `CLAUDE
 
 ## The MCP Server
 
-The server exposes `impact`, `trace`, `search`, `describe`, `conflicts`, `define`, `ontology`, `explain`, `history`, `path`, `query`, `diff`, `gate`, `check_sql`, `check_history`, `mutation_test` and `why`, returns the same structured results as `--json`, and rereads `graph.json` when a build changes it. Its prompts are the workflows of the skills, and its resources are `REPORT.md`, the ontology and a summary of the graph (see [MCP Server](../reference/mcp.md)).
+The server exposes `impact`, `trace`, `search`, `describe`, `conflicts`, `define`, `ontology`, `explain`, `history`, `path`, `query`, `diff`, `gate`, `check_sql`, `check_history`, `mutation_test` and `why`, returns the same structured results as `--json`, and rereads `graph.json` when a build changes it. Its `receipt` tool records what an answer rests on, so that `konstruct receipts check` can say later whether it still holds (see [Answer Receipts](receipts.md)). Its prompts are the workflows of the skills, and its resources are `REPORT.md`, the ontology and a summary of the graph (see [MCP Server](../reference/mcp.md)).
 
 ## Checking the SQL an Agent Writes
 
