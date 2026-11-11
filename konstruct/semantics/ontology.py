@@ -365,8 +365,6 @@ class Derivation:
     ontology: Ontology
     keys: dict[str, str]
     """The graph id of each key column, to the entity it identifies."""
-    unique: frozenset[str]
-    """The graph ids of the columns with a uniqueness guarantee."""
     composite: dict[str, list[tuple[str, ...]]]
     """Each relation's graph id, to the column names of the composite keys it declares (a primary
     key or identifier fields of more than one column), which are unique only together."""
@@ -375,6 +373,12 @@ class Derivation:
     """The key columns an ontology pack binds as its source system's own identifier (Stripe's
     ``customer.id``). Nothing has tested them, so they are not in ``unique`` and give no
     cardinality; a tool looking for rows a join repeats may still take them as unique."""
+
+    @property
+    def unique(self) -> frozenset[str]:
+        """The graph ids of the columns with a uniqueness guarantee: the ontology's own
+        ``unique_ids``, so the two cannot disagree."""
+        return self.ontology.unique_ids
 
     def entity_of(self, relation: Node) -> str | None:
         """The entity whose instances ``relation`` holds one row each of."""
@@ -385,14 +389,7 @@ def derivation(graph: Graph) -> Derivation:
     """The ontology of ``graph`` with the keys and unique columns it was derived from."""
     deriver = _Deriver(graph)
     ontology = deriver.run()
-    return Derivation(
-        ontology,
-        dict(deriver.keys),
-        frozenset(deriver.unique),
-        deriver.composite,
-        graph,
-        frozenset(deriver.presumed),
-    )
+    return Derivation(ontology, dict(deriver.keys), deriver.composite, graph, frozenset(deriver.presumed))
 
 
 def _entity_of(graph: Graph, keys: dict[str, str], relation: Node) -> str | None:
