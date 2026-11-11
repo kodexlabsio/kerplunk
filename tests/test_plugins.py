@@ -1813,7 +1813,15 @@ def test_tool_listings_a_plugin_gets_wrong_leave_the_rest_served(
             return [t.name for t in (await client.list_tools()).tools]
 
     tools = anyio.run(names)
-    assert [t for t in tools if '_' in t] == ['mutation_test', 'a_b_c', 'list_terms', 'list_x', 'mixed_ok']
+    assert [t for t in tools if '_' in t] == [
+        'check_sql',
+        'check_history',
+        'mutation_test',
+        'a_b_c',
+        'list_terms',
+        'list_x',
+        'mixed_ok',
+    ]
     assert (
         f"{TOOLS_LABEL.format('mutation')}: tool 'mutation_test' is left out: Konstruct has a tool of that name"
         in caplog.text

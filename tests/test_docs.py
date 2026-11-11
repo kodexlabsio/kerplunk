@@ -114,6 +114,7 @@ PUBLIC_RESULTS = {
     'core/graph.py': ['Node', 'Edge', 'Step'],
     'analysis/explain.py': ['Step', 'Explanation'],
     'analysis/conflicts.py': ['Difference', 'Side', 'Conflict', 'Conflicts'],
+    'analysis/checksql.py': ['Finding', 'SqlCheck', 'ShadowMetric', 'Adoption', 'HistoryCheck'],
     'semantics/ontology.py': ['Entity', 'MeasureColumn', 'Measure', 'Relationship', 'Rule', 'Ontology'],
 }
 

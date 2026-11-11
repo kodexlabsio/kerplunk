@@ -299,7 +299,8 @@ formula and when it changed; \cmd{konstruct verify} checks lineage against data,
 \cmd{--mutate} whether a model's dbt tests fail on small changes to its SQL, and with
 \cmd{--why} the source rows behind one value with each row's share;
 \cmd{konstruct diff} and \cmd{konstruct gate} review changes; \cmd{konstruct define},
-\cmd{konstruct ontology} and \cmd{konstruct conflicts} answer what things mean;
+\cmd{konstruct ontology} and \cmd{konstruct conflicts} answer what things mean, and
+\cmd{konstruct check-sql} checks a query against them without running it;
 \cmd{konstruct export} writes OpenLineage events (\cmd{openlineage}), Mermaid (\cmd{mermaid}),
 Graphviz (\cmd{dot}), CSV (\cmd{csv}) and Apache Ossie (\cmd{ossie}); \cmd{konstruct plugins}
 lists the installed plugins, which add inputs, export formats, gate checks, ontology packs and
@@ -317,13 +318,26 @@ with the question.
 \paragraph{Grounding agents} \cmd{konstruct mcp} runs a Model Context Protocol server with
 \mcpTools{} tools: \cmd{impact}, \cmd{trace}, \cmd{path}, \cmd{search}, \cmd{describe},
 \cmd{query}, \cmd{explain}, \cmd{history}, \cmd{define}, \cmd{conflicts}, \cmd{ontology},
-\cmd{diff}, \cmd{gate}, \cmd{mutation\_test} and \cmd{why}. Answers are the same structured results the Python API returns, so an
+\cmd{diff}, \cmd{gate}, \cmd{check\_sql}, \cmd{check\_history}, \cmd{mutation\_test} and
+\cmd{why}. Answers are the same structured results the Python API returns, so an
 agent learns a column's formula, its sources, which of its edges the data confirmed, the approved
 definition of the business term it holds, its owner and the entities it touches, before it writes
 a query that joins or aggregates. The server rereads the graph whenever it changes, and
 \cmd{konstruct install} writes skills for Claude Code, Cursor, Codex, GitHub Copilot, Gemini CLI and
 Windsurf that teach the agent whole workflows, such as a safe change, a review or a correct query,
 with the commands each step needs.
+
+\paragraph{Checking a query} An agent that answers a business question writes SQL, and SQL that
+runs can still be wrong. \cmd{konstruct check-sql} reads a query without running it and composes
+each aggregated output column down to source columns, with the filters on its way, as the graph's
+columns are composed. It reports a measure that leaves out a filter its approved definition
+requires or computes it differently, a column of a retired term, a sum, count or average over a
+join that repeats the rows it aggregates, judged from the keys, tests and relationships of the
+ontology, and names the project does not have. Each finding carries its fix, and where a fix
+changes only the measure the result carries the corrected query. A match by name alone is never
+an error, since an agent told that a correct query is wrong will break it. With
+\cmd{--history}, the same checks run over a warehouse's query history and count the queries,
+runs and people that compute an approved measure differently from its definition.
 
 \paragraph{The gate} An agent that changes a data stack should prove the change is safe before it
 proposes it. \cmd{konstruct gate} compares the working tree with a base, as \cmd{diff} does, and

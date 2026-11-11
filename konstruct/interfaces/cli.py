@@ -250,6 +250,44 @@ def cmd_define(args: argparse.Namespace, console: Console) -> int:
     return 0 if result.terms else 3
 
 
+def cmd_check_sql(args: argparse.Namespace, console: Console) -> int:
+    as_json = args.json or args.format == 'json'
+    for option, value in (('--days', args.days), ('--limit', args.limit)):
+        if value is not None and value < 1:
+            console.error(f'{option} must be at least 1')
+            return 2
+    if args.history:
+        if args.file is not None:
+            console.error('give a file of SQL or --history, not both')
+            return 2
+        if args.format == 'markdown':
+            console.error('--format markdown is for a check of SQL; --history prints text or json')
+            return 2
+        project = _ready(_project(args), args, console)
+        with console.progress('Checking the query history'):
+            history = project.check_history(days=args.days, limit=args.limit, pseudonymise=args.pseudonymise)
+        _emit(console, history, as_json)
+        return 1 if args.strict and history.approved_shadow else 0
+    if args.file is None:
+        console.error('give a file of SQL, - for standard input, or --history')
+        return 2
+    if args.file == '-':
+        sql = sys.stdin.read()
+    else:
+        try:
+            sql = Path(args.file).read_text(encoding='utf-8')
+        except OSError as error:
+            console.error(f'cannot read {args.file}: {error.strerror or error}')
+            return 1
+    project = _ready(_project(args), args, console)
+    result = project.check_sql(sql)
+    if args.format == 'markdown':
+        console.print(result.markdown().rstrip())
+    else:
+        _emit(console, result, as_json)
+    return 1 if result.failed(strict=args.strict) else 0
+
+
 def cmd_ontology(args: argparse.Namespace, console: Console) -> int:
     project = _ready(_project(args), args, console)
     result = project.ontology()
@@ -533,7 +571,7 @@ GROUPS = (
     ('Build', ('build', 'status', 'trust', 'init', 'open', 'serve')),
     ('Lineage', ('impact', 'trace', 'path', 'explain', 'history')),
     ('Explore', ('search', 'describe', 'list', 'query', 'export')),
-    ('Business meaning', ('define', 'ontology', 'conflicts')),
+    ('Business meaning', ('define', 'ontology', 'conflicts', 'check-sql')),
     ('Changes', ('diff', 'gate', 'verify')),
     ('Agents', ('install', 'mcp', 'hook')),
     ('Plugins', ('plugins',)),
@@ -593,6 +631,11 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ('konstruct conflicts', 'columns that compute one idea in different ways'),
         ('konstruct conflicts --format markdown --no-write', 'as markdown, writing nothing'),
         ('konstruct conflicts --fail-on-conflict', 'exit 1 on a conflict, for CI'),
+    ),
+    'check-sql': (
+        ('konstruct check-sql query.sql', 'check a query against the definitions before it runs'),
+        ('konstruct check-sql - --strict < query.sql', 'from standard input; exit 1 on a warning too'),
+        ('konstruct check-sql --history --days 30', 'shadow metrics in the warehouse query history'),
     ),
     'define': (
         ('konstruct define lifetime value', 'a term, by name or synonym'),
@@ -999,6 +1042,53 @@ def parser() -> argparse.ArgumentParser:
     )
     _query_options(conflicting)
     conflicting.set_defaults(func=cmd_conflicts)
+
+    checking = add(
+        'check-sql', "check SQL against the project's definitions, keys and relationships, without running it"
+    )
+    checking.add_argument(
+        'file', nargs='?', metavar='FILE', help='a file of SQL, or - to read it from standard input'
+    )
+    checking.add_argument(
+        '--format',
+        choices=['text', 'markdown', 'json'],
+        default='text',
+        metavar='FORMAT',
+        help='text, markdown or json',
+    )
+    checking.add_argument(
+        '--strict',
+        action='store_true',
+        help='exit with status 1 on a warning as well as an error; with --history, on a shadow metric of an '
+        'approved term',
+    )
+    reading = checking.add_argument_group(
+        'query history', "with --history: the queries run in the project's warehouses, checked"
+    )
+    reading.add_argument(
+        '--history',
+        action='store_true',
+        help='check the query history of the configured Snowflake, BigQuery and Databricks warehouses '
+        'for measures computed differently from their definitions (shadow metrics)',
+    )
+    reading.add_argument(
+        '--days', type=int, metavar='N', help='read N days of history (default: [usage] days, 90)'
+    )
+    reading.add_argument(
+        '-n',
+        '--limit',
+        type=int,
+        default=5000,
+        metavar='N',
+        help='the most distinct query texts read, those run most often first (default 5000)',
+    )
+    reading.add_argument(
+        '--pseudonymise',
+        action='store_true',
+        help='count people without naming them, and leave literals out of the example queries',
+    )
+    _query_options(checking)
+    checking.set_defaults(func=cmd_check_sql)
 
     defining = add('define', 'what a business term means, who owns it and which columns hold it')
     defining.add_argument(

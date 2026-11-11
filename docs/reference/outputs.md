@@ -79,6 +79,8 @@ misread it; `konstruct status` reports such a graph rather than failing.
 | `verify` and `verify.json` | 1 |
 | `diff` | 1 |
 | `gate` | 1 |
+| `check-sql` | 1 |
+| `check-sql --history` | 1 |
 
 The exports follow their own specifications: OpenLineage events carry their `schemaURL`, and an
 Apache Ossie model its Ossie `version`. Mermaid and Graphviz DOT are drawn for people, and their

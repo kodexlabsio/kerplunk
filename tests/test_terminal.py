@@ -456,6 +456,51 @@ def test_gate_verify_history_and_ontology_edge_cases() -> None:
     assert 'Rule violations (1)\n  one-formula-per-measure: Revenue has two formulas' in text
 
 
+def test_a_check_of_sql_and_of_query_history() -> None:
+    from konstruct.analysis.checksql import Adoption, Finding, HistoryCheck, ShadowMetric, SqlCheck
+
+    finding = Finding(
+        'missing-filter',
+        'error',
+        "revenue computes 'Revenue' without its filter",
+        'Apply the filter.',
+        column='revenue',
+        term='Revenue',
+        evidence=['WHERE in orders'],
+    )
+    fan = Finding('fan-out', 'warning', 'SUM(o.amount) repeats rows', 'Aggregate first.', column='total')
+    result = SqlCheck('select 1', [finding, fan], corrected='SELECT\n  1', statements=1)
+    text = str(result)
+    assert text.startswith('1 error, 1 warning, 0 notes in 1 statement.\n\n')
+    # A message that names its column is not led by it again.
+    assert "\nerror    missing-filter  revenue computes 'Revenue' without its filter\n" in text
+    assert '\nwarning  fan-out  total: SUM(o.amount) repeats rows\n' in text
+    assert '\n         evidence  WHERE in orders\n' in text and text.endswith(
+        'Corrected SQL\n  SELECT\n    1'
+    )
+    drawn = result.text(Style(colour=True, unicode=True, width=40))
+    plain = re.sub(r'\x1b\[[0-9;]*m', '', drawn)
+    assert drawn.startswith('\x1b[1;31m1') and '\x1b[31merror  \x1b[0m' in drawn
+    assert plain.startswith('1 error, 1 warning, 0 notes in 1\nstatement.')
+    assert max(len(line) for line in plain.splitlines()) <= 40
+    assert str(SqlCheck('select 1', statements=1)) == 'No findings in 1 statement.'
+
+    history = HistoryCheck(
+        queries=3,
+        runs=9,
+        shadow=[ShadowMetric('Revenue', 'approved', 'formula-differs', 'SUM(x)', 'Use the column.', 1, 2, 1)],
+        adoption=[Adoption('Revenue', 2, 7, 2)],
+        notes=['Some texts were withheld.'],
+    )
+    text = str(history)
+    assert text.startswith('3 queries checked (9 runs); 1 shadow metric, 1 of an approved measure.\n')
+    assert (
+        "\n  1 query by 1 person computes 'Revenue' (approved) as SUM(x)\n    rule  formula-differs\n" in text
+    )
+    assert text.endswith('  term     queries  runs  people\n  Revenue        2     7       2')
+    assert '\x1b[32mapproved\x1b[0m' in history.text(Style(colour=True))
+
+
 def test_commands_in_status_values_are_picked_out() -> None:
     from konstruct.interfaces.render import _commands
 

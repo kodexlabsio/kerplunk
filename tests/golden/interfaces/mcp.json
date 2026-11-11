@@ -1,4 +1,9 @@
 {
+ "mcp check_history": "tool",
+ "mcp check_history days": "integer|null = None",
+ "mcp check_history limit": "integer = 5000",
+ "mcp check_sql": "tool",
+ "mcp check_sql sql": "string, required",
  "mcp conflicts": "tool",
  "mcp conflicts limit": "integer = 20",
  "mcp define": "tool",

@@ -78,7 +78,37 @@ The hook works from the project root, the directory Claude Code names in `CLAUDE
 
 ## The MCP Server
 
-The server exposes `impact`, `trace`, `search`, `describe`, `conflicts`, `define`, `ontology`, `explain`, `history`, `path`, `query`, `diff` and `gate`, returns the same structured results as `--json`, and rereads `graph.json` when a build changes it. Its prompts are the workflows of the skills, and its resources are `REPORT.md`, the ontology and a summary of the graph (see [MCP Server](../reference/mcp.md)).
+The server exposes `impact`, `trace`, `search`, `describe`, `conflicts`, `define`, `ontology`, `explain`, `history`, `path`, `query`, `diff`, `gate`, `check_sql`, `check_history`, `mutation_test` and `why`, returns the same structured results as `--json`, and rereads `graph.json` when a build changes it. Its prompts are the workflows of the skills, and its resources are `REPORT.md`, the ontology and a summary of the graph (see [MCP Server](../reference/mcp.md)).
+
+## Checking the SQL an Agent Writes
+
+`konstruct check-sql` reads a query an agent (or an analyst) wrote, without running it, and says where it disagrees with the project, before the query runs or its answer is given. The `check_sql` MCP tool runs the same check.
+
+```bash
+konstruct check-sql query.sql            # exit 1 when the query breaks an approved definition
+konstruct check-sql - --strict < query.sql   # from standard input; exit 1 on a warning too
+```
+
+The query is read in the graph's dialect. Each output column that aggregates is a measure: its formula is composed through CTEs, subqueries and each branch of a UNION down to source columns, with the WHERE, ON and HAVING clauses on the way, the condition of a `FILTER` or `CASE` inside the aggregate, and the filters on the routes of the columns it reads in the graph. Each measure is compared with the business term it is named for (by name or synonym) and with the column of the project that already holds it.
+
+| Rule | What it finds |
+|------|---------------|
+| `missing-filter` | A measure computed without a filter its definition, or the column that holds it, applies |
+| `formula-differs` | A measure computed differently from the column that holds it |
+| `recomputes-measure` | A measure recomputed that a column of the project already holds |
+| `retired-column` | A column bound to a retired term |
+| `fan-out` | A sum, count or average over a join that repeats the rows it aggregates, from the keys, unique tests and relationships of the [ontology](ontology.md) |
+| `mixed-grain` | A measure of a coarser grain repeated on every row of a finer one |
+| `join-off-relationship` | Two related relations joined on columns their relationship does not use |
+| `unknown-join` | A join that no relationship or unique key vouches for |
+| `unknown-relation`, `unknown-column` | A relation or column the project does not have |
+| `unparsed`, `unchecked` | SQL that could not be parsed, or a statement that parses but could not be analysed |
+
+A finding is an `error` when the query breaks an approved definition or cannot be parsed, and otherwise a `warning` or an `info` note; a match by name alone is never an error. Each finding says how to fix it, with the evidence it rests on: the definitions, keys, tests and relationships. The check passes when every statement was analysed and no finding is an error, so a statement it could not analyse does not pass; `--strict` fails on a warning too.
+
+Where a fix changes the measure and no other column of the result, the result also carries the corrected SQL: a missing filter is added to the WHERE clause when only the measure reads the rows it removes, and otherwise to the measure's aggregate (as `FILTER (WHERE ...)`, or `IFF` or `IF` in a dialect without it); a join is put back on its relationship's columns; a retired column is swapped for its replacement under the same output name. No filter is added to a measure that ranks or limits rows (QUALIFY, ORDER BY with LIMIT, a window over it), since the rows kept would change too.
+
+`--format markdown` prints the result as a table for a pull request comment, and `--json` (or `--format json`) as data. To check what people already run, `konstruct check-sql --history` reads the warehouse's query history (see [Shadow Metrics](usage.md#shadow-metrics)).
 
 ## Before Opening a Pull Request
 

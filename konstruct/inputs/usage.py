@@ -47,7 +47,16 @@ from konstruct.inputs.warehouse import (
 if TYPE_CHECKING:
     from konstruct.engine.config import Config
 
-__all__ = ['ColumnUsage', 'HistoryQuery', 'MissingDriver', 'QueryHistory', 'UsageSettings', 'fetch']
+__all__ = [
+    'ColumnUsage',
+    'HistoryError',
+    'HistoryQuery',
+    'MissingDriver',
+    'NoHistory',
+    'QueryHistory',
+    'UsageSettings',
+    'fetch',
+]
 
 SUPPORTED = ('snowflake', 'bigquery', 'databricks')
 SNOWFLAKE_DOMAINS = ('Table', 'View', 'Materialized view', 'External table', 'Dynamic table', 'Iceberg table')
@@ -287,10 +296,45 @@ def _history(rows: Iterable[tuple[Any, Any, Any]], redacted: str | None = None) 
     return found
 
 
+class HistoryError(Exception):
+    """The warehouse refused to give its query history: a refused connection, missing access or a
+    failed query, with the driver's message."""
+
+
+def _driver_errors(module: Any) -> tuple[type[BaseException], ...]:
+    """The base class of a DB-API driver's errors (PEP 249's ``Error``), when it has one."""
+    error = getattr(module, 'Error', None)
+    return (error,) if isinstance(error, type) and issubclass(error, BaseException) else ()
+
+
+def _transport_errors() -> tuple[type[BaseException], ...]:
+    """What a connection that never reaches the warehouse raises below the driver: a socket's
+    ``OSError``, and urllib3's errors from the HTTP client Databricks' driver retries on."""
+    try:
+        from urllib3.exceptions import HTTPError
+    except ImportError:
+        return (OSError,)
+    return (OSError, HTTPError)
+
+
+def _google_errors() -> tuple[type[BaseException], ...]:
+    try:
+        from google.api_core.exceptions import GoogleAPIError
+        from google.auth.exceptions import GoogleAuthError
+    except ImportError:  # no BigQuery extra: the client cannot be made, and says so
+        return ()
+    return (GoogleAPIError, GoogleAuthError)
+
+
 def fetch_history(connector: Any, settings: UsageSettings) -> QueryHistory:
     """Distinct query texts with their user and runs over ``settings.days`` days, at most
     ``settings.max_queries`` of them, from a Snowflake, BigQuery or Databricks connector's query
-    history; empty for any other connector. Reads history metadata only."""
+    history; empty for any other connector. Reads history metadata only.
+
+    Raises:
+        MissingDriver: The warehouse's extra is not installed.
+        HistoryError: The warehouse refused the connection or the query.
+    """
     if isinstance(connector, (SnowflakeConnector, DatabricksConnector)):
         snowflake = isinstance(connector, SnowflakeConnector)
         module = (
@@ -299,23 +343,42 @@ def fetch_history(connector: Any, settings: UsageSettings) -> QueryHistory:
             else driver('databricks.sql', 'databricks')
         )
         sql = snowflake_history_sql(settings) if snowflake else databricks_history_sql(settings)
-        connection = module.connect(**connector.options)
         try:
-            rows = _cursor_rows(connection, sql)
-        finally:
-            connection.close()
+            connection = module.connect(**connector.options)
+            try:
+                rows = _cursor_rows(connection, sql)
+            finally:
+                connection.close()
+        except (*_driver_errors(module), *_transport_errors()) as error:
+            name = 'Snowflake' if snowflake else 'Databricks'
+            raise HistoryError(f'{name} refused the query history: {error}') from error
         return _history(rows, None if snowflake else DATABRICKS_REDACTED)
     if isinstance(connector, BigQueryConnector):
-        client = connector.client()
-        found = client.query(bigquery_sql(connector.project, connector.location or 'us', settings)).result()
-        return _history((r['query'], r['user_email'], r['runs']) for r in found)
+        try:
+            # Making the client reads the credentials, so a missing or broken key fails here.
+            client = connector.client()
+            found = client.query(
+                bigquery_sql(connector.project, connector.location or 'us', settings)
+            ).result()
+            rows = [(r['query'], r['user_email'], r['runs']) for r in found]
+        except _google_errors() as error:
+            raise HistoryError(f'BigQuery refused the query history: {error}') from error
+        return _history(rows)
     return QueryHistory()
+
+
+class NoHistory(Exception):
+    """The project configures no warehouse whose query history Konstruct reads."""
 
 
 def project_history(config: Config, *, days: int | None = None, max_queries: int = 5000) -> QueryHistory:
     """The query history of every Snowflake, BigQuery and Databricks warehouse the project
     configures, over ``days`` days (by default the ``[usage]`` setting), leaving out the users
-    ``[usage] exclude_users`` names."""
+    ``[usage] exclude_users`` names.
+
+    Raises:
+        NoHistory: The project configures none of those warehouses.
+    """
     from konstruct.engine.config import discover_warehouses
     from konstruct.inputs.dbt import find_projects
 
@@ -325,7 +388,11 @@ def project_history(config: Config, *, days: int | None = None, max_queries: int
         max_queries=max_queries,
     )
     found = QueryHistory()
-    for warehouse in discover_warehouses(config, find_projects(config.root)):
-        if warehouse.type in SUPPORTED:
-            found.extend(fetch_history(warehouse.connector(config.root), settings))
+    warehouses = [w for w in discover_warehouses(config, find_projects(config.root)) if w.type in SUPPORTED]
+    if not warehouses:
+        raise NoHistory(
+            'no Snowflake, BigQuery or Databricks warehouse is configured to read query history from'
+        )
+    for warehouse in warehouses:
+        found.extend(fetch_history(warehouse.connector(config.root), settings))
     return found

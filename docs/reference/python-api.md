@@ -136,6 +136,25 @@ print(ontology.measure('customer lifetime value').columns[0].formula)
 .. automethod:: konstruct.Project.ontology
 ```
 
+## Checking SQL
+
+```python
+result = project.check_sql(open('query.sql').read())
+if not result.passed:
+    for finding in result.findings:
+        print(finding.severity, finding.rule, finding.message, finding.fix)
+    print(result.corrected)  # the SQL with the safe fixes applied, or None
+
+history = project.check_history(days=30, pseudonymise=True)
+for metric in history.shadow:
+    print(metric.term, metric.detail, metric.queries, metric.users)
+```
+
+```{eval-rst}
+.. automethod:: konstruct.Project.check_sql
+.. automethod:: konstruct.Project.check_history
+```
+
 ## Reviewing Changes and Checking Lineage
 
 ```python
@@ -305,6 +324,25 @@ print(rows.value, [c.values for c in rows.contributions])
    :members:
 
 .. autoclass:: konstruct.analysis.gate.Finding
+   :members:
+```
+
+### SQL Checks
+
+```{eval-rst}
+.. autoclass:: konstruct.analysis.checksql.SqlCheck
+   :members:
+
+.. autoclass:: konstruct.analysis.checksql.Finding
+   :members:
+
+.. autoclass:: konstruct.analysis.checksql.HistoryCheck
+   :members:
+
+.. autoclass:: konstruct.analysis.checksql.ShadowMetric
+   :members:
+
+.. autoclass:: konstruct.analysis.checksql.Adoption
    :members:
 ```
 

@@ -384,6 +384,74 @@ def test_status_shows_what_the_last_build_read_from_the_warehouse(
     ]
 
 
+def test_check_sql(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import io
+
+    from tests.test_checksql import NET_REVENUE, make_shop
+
+    make_shop(tmp_path)
+    query = tmp_path / 'query.sql'
+    query.write_text(NET_REVENUE)
+    project = ['-C', str(tmp_path), 'check-sql']
+    code, out, _ = run(capsys, *project, str(query))
+    assert code == 1 and out.startswith('1 error, 0 warnings, 0 notes in 1 statement.\n')
+    assert '\nCorrected SQL\n' in out
+    code, out, _ = run(capsys, *project, str(query), '--format', 'markdown')
+    assert code == 1 and '| error | `missing-filter` |' in out and '```sql' in out
+    code, out, _ = run(capsys, *project, str(query), '--json')
+    data = json.loads(out)
+    assert code == 1 and data['format_version'] == 1 and data['findings'][0]['term'] == 'Net revenue'
+    # A warning fails the check only with --strict; SQL can come on standard input.
+    retired = 'select sum(gross_revenue) as revenue from mart.customer_revenue'
+    for strict, expected in (([], 0), (['--strict'], 1)):
+        monkeypatch.setattr(sys, 'stdin', io.StringIO(retired))
+        code, out, _ = run(capsys, *project, '-', *strict)
+        assert (code, out.splitlines()[0]) == (expected, '0 errors, 1 warning, 0 notes in 1 statement.')
+    query.write_text(
+        'select p.customer_id, p.returned from (pivot raw.orders on status using sum(amount) group by customer_id) p'
+    )
+    code, out, _ = run(capsys, *project, str(query))
+    assert code == 1 and 'unchecked' in out  # a statement never analysed does not pass
+    for args, message in (
+        ([], 'give a file of SQL, - for standard input, or --history'),
+        ([str(query), '--history'], 'give a file of SQL or --history, not both'),
+        (['--history', '--format', 'markdown'], '--format markdown is for a check of SQL'),
+    ):
+        code, _, err = run(capsys, *project, *args)
+        assert code == 2 and message in err
+    code, _, err = run(capsys, *project, str(tmp_path / 'missing.sql'))
+    assert code == 1 and 'cannot read' in err and 'missing.sql' in err
+    code, _, err = run(capsys, *project, '--history')
+    assert code == 1 and 'no Snowflake, BigQuery or Databricks warehouse is configured' in err
+    for option in ('--days', '--limit'):
+        for value in ('0', '-1'):
+            code, _, err = run(capsys, *project, '--history', option, value)
+            assert code == 2 and f'{option} must be at least 1' in err
+
+
+def test_check_sql_history_fails_with_strict_on_an_approved_measure_computed_differently(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from konstruct.inputs import usage
+    from tests.test_checksql import make_shop
+
+    make_shop(tmp_path)
+    texts = {
+        'approved': 'select c.region, sum(o.amount) as net_revenue from raw.orders o '
+        'join raw.customers c on c.customer_id = o.customer_id group by c.region',
+        'none': 'select region, sum(net_revenue) as net_revenue from mart.customer_revenue group by region',
+    }
+    project = ['-C', str(tmp_path), 'check-sql', '--history']
+    for name, expected in (('approved', 1), ('none', 0)):
+        found = usage.QueryHistory([usage.HistoryQuery(texts[name], 'ANA', 3)])
+        monkeypatch.setattr(usage, 'project_history', lambda config, found=found, **options: found)
+        code, out, _ = run(capsys, *project)
+        assert code == 0 and out.startswith('1 query checked (3 runs);')
+        assert run(capsys, *project, '--strict')[0] == expected, name
+
+
 def test_diff_and_gate_take_json_and_history_takes_n() -> None:
     from konstruct.interfaces.cli import parser
 

@@ -426,6 +426,30 @@ def unexplained(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return root
 
 
+CHECKED_QUERIES = {
+    'passes': 'select region, sum(net_revenue) as net_revenue from mart.customer_revenue group by region',
+    'breaks': 'select c.region, sum(o.amount) as net_revenue from raw.orders o '
+    'join raw.customers c on c.customer_id = o.customer_id group by c.region',
+    'warns': 'select sum(gross_revenue) as revenue from mart.customer_revenue',
+    'unchecked': 'select p.customer_id, p.returned '
+    'from (pivot raw.orders on status using sum(amount) group by customer_id) p',
+}
+
+
+@pytest.fixture(scope='module')
+def checked(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A shop with business terms and a query file for each outcome of check-sql: one that passes,
+    one that breaks an approved definition, one that only warns and one it cannot analyse."""
+    from tests.test_checksql import make_shop
+
+    root = tmp_path_factory.mktemp('interfaces') / 'checked'
+    root.mkdir()
+    make_shop(root)
+    for name, sql in CHECKED_QUERIES.items():
+        (root / f'{name}.sql').write_text(sql)
+    return root
+
+
 # Exit statuses
 
 
@@ -437,6 +461,7 @@ def test_exit_statuses(
     revenue: Path,
     misbound: Path,
     unexplained: Path,
+    checked: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
     dbt_on_path: None,
@@ -455,6 +480,11 @@ def test_exit_statuses(
             return main(['--no-color', '-q', *args])
         except SystemExit as stop:
             return int(stop.code or 0)
+
+    def recorded(*args: str) -> int:
+        with monkeypatch.context() as patch:
+            _recorded_history(patch)
+            return status('-C', str(checked), *args)
 
     def interrupted() -> int:
         with monkeypatch.context() as patch:
@@ -495,6 +525,26 @@ def test_exit_statuses(
         ),
         'gate fails': status('-C', str(changed_jaffle), 'gate', '--base', 'HEAD', '--no-update'),
         'gate passes': status('-C', str(small), 'gate', '--base', 'HEAD', '--no-update'),
+        'check-sql passes': status('-C', str(checked), 'check-sql', str(checked / 'passes.sql')),
+        'check-sql breaks an approved definition': status(
+            '-C', str(checked), 'check-sql', str(checked / 'breaks.sql')
+        ),
+        'check-sql with a warning': status('-C', str(checked), 'check-sql', str(checked / 'warns.sql')),
+        'check-sql --strict with a warning': status(
+            '-C', str(checked), 'check-sql', str(checked / 'warns.sql'), '--strict'
+        ),
+        'check-sql with a statement it cannot analyse': status(
+            '-C', str(checked), 'check-sql', str(checked / 'unchecked.sql')
+        ),
+        'check-sql with no SQL': status('-C', str(checked), 'check-sql'),
+        'check-sql --history with no warehouse to read': status('-C', str(checked), 'check-sql', '--history'),
+        'check-sql --history with --days below 1': status(
+            '-C', str(checked), 'check-sql', '--history', '--days', '0'
+        ),
+        'check-sql --history with a shadow metric of an approved term': recorded('check-sql', '--history'),
+        'check-sql --history --strict with a shadow metric of an approved term': recorded(
+            'check-sql', '--history', '--strict'
+        ),
     }
     capsys.readouterr()
     check('exit', outcomes)
@@ -510,7 +560,7 @@ def _type(value: Any) -> str:
 
 
 # Objects keyed by data (entity names, node kinds, input names) rather than by field names.
-MAPS = ('build .nodes', 'build .edges', 'graph.json .meta.inputs')
+MAPS = ('build .nodes', 'build .edges', 'graph.json .meta.inputs', 'check-sql --history .rules')
 
 
 def shape(document: str, value: Any) -> dict[str, str]:
@@ -633,6 +683,17 @@ def _json(capsys: pytest.CaptureFixture[str], *args: str) -> Any:
     return json.loads(captured.out)
 
 
+def _recorded_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Query history as Snowflake records it, read from the fixture rather than a warehouse, with
+    texts the warehouse withheld."""
+    from konstruct.inputs import usage
+    from tests.test_checksql import recorded
+
+    rows = [(text, user, runs) for text, user, runs in recorded('snowflake')]
+    history = usage._history([*rows, ('<REDACTED>', 'EVE', 2)], usage.DATABRICKS_REDACTED)
+    monkeypatch.setattr(usage, 'project_history', lambda config, **options: history)
+
+
 def test_json_documents(
     jaffle_built_graph: Path,
     small: Path,
@@ -642,6 +703,7 @@ def test_json_documents(
     unexplained: Path,
     inputs: Path,
     landed: Path,
+    checked: Path,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -694,6 +756,10 @@ def test_json_documents(
     add('diff', *git, 'diff', '--base', 'broken', '--format', 'json')  # a version that does not parse
     add('gate', *git, 'gate', '--base', 'HEAD', '--no-update', '--format', 'json')
     add('gate', '-C', str(small), 'gate', '--base', 'HEAD', '--format', 'json')
+    for name in CHECKED_QUERIES:
+        add('check-sql', '-C', str(checked), 'check-sql', str(checked / f'{name}.sql'), '--json')
+    _recorded_history(monkeypatch)
+    add('check-sql --history', '-C', str(checked), 'check-sql', '--history', '--json')
     entries: dict[str, Any] = {}
     for name, runs in documents.items():
         versions = {run.get('format_version') for run in runs}

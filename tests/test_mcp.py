@@ -43,6 +43,8 @@ async def _exercise(client: Client) -> None:
         'query',
         'diff',
         'gate',
+        'check_sql',
+        'check_history',
         'mutation_test',
         'why',
     }
@@ -56,7 +58,8 @@ async def _exercise(client: Client) -> None:
     # search saves its index and gate brings graph.json up to date; everything else writes nothing.
     assert {n for n, a in annotated.items() if not a.read_only_hint} == {'search', 'gate'}
     assert not any(a.destructive_hint for a in annotated.values())
-    assert {n for n, a in annotated.items() if a.open_world_hint} == {'mutation_test', 'why'}
+    # These reach the warehouse: running the models' SQL, or reading its query history.
+    assert {n for n, a in annotated.items() if a.open_world_hint} == {'mutation_test', 'why', 'check_history'}
     impact = structured(await client.call_tool('impact', {'ref': 'stg_payments.amount'}))
     assert impact['exposures'][0]['label'] == 'customer_dashboard'
     trace = structured(await client.call_tool('trace', {'ref': 'orders.amount', 'max_depth': 1}))
@@ -90,6 +93,14 @@ async def _exercise(client: Client) -> None:
     assert (await client.call_tool('ontology', {'name': 'nothing'})).is_error
     explained = structured(await client.call_tool('explain', {'ref': 'customer_ltv.lifetime_value'}))
     assert explained['composed'] == 'SUM(raw_payments.amount / 100)'
+    checked = structured(
+        await client.call_tool(
+            'check_sql', {'sql': 'select customer_id, customer_lifetime_value from customers'}
+        )
+    )
+    assert (checked['passed'], checked['checked'], checked['findings']) == (True, True, [])
+    wrong = structured(await client.call_tool('check_sql', {'sql': 'select nope from customers'}))
+    assert [f['rule'] for f in wrong['findings']] == ['unknown-column']
     path = structured(await client.call_tool('path', {'start': 'raw_orders', 'end': 'orders'}))
     assert path['found'] is True
     answer = structured(
@@ -182,6 +193,7 @@ def test_marks_repository_text_as_untrusted(jaffle_built_graph: Path) -> None:
         ('explain', {'ref': 'customer_ltv.lifetime_value'}),
         ('path', {'start': 'raw_orders', 'end': 'orders'}),
         ('query', {'question': 'what breaks if stg_payments.amount changes'}),
+        ('check_sql', {'sql': 'select customer_id from customers'}),
         ('mutation_test', {'models': ['orders'], 'max_mutants': 2}),
         ('why', {'column': 'customer_ltv.lifetime_value', 'where': {'customer_id': '3'}, 'limit': 5}),
     ]
@@ -275,6 +287,40 @@ def test_gate_updates_from_files_alone(tmp_path: Path, monkeypatch: pytest.Monke
 
     anyio.run(run)
     assert calls == [{'base': 'main', 'run_dbt': False, 'warehouses': False}]
+
+
+def test_check_history_never_names_people(jaffle_built_graph: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def run() -> None:
+        async with Client(build_server(jaffle_built_graph)) as client:
+            missing = await client.call_tool('check_history', {})
+            assert missing.is_error and 'no Snowflake, BigQuery or Databricks warehouse' in str(
+                missing.content
+            )
+            assert UNTRUSTED_CONTENT in str(missing.content)
+            for arguments, message in (
+                ({'limit': 5001}, 'from 1 to 5000'),
+                ({'limit': 0}, 'from 1 to 5000'),
+                ({'days': 0}, 'at least 1 day'),
+            ):
+                refused = await client.call_tool('check_history', arguments)
+                assert refused.is_error and message in str(refused.content), arguments
+
+            class Result:
+                def to_dict(self) -> dict[str, Any]:
+                    return {'queries': 0}
+
+            def history(self: Project, **options: Any) -> Result:
+                calls.append(options)
+                return Result()
+
+            monkeypatch.setattr(Project, 'check_history', history)
+            result = structured(await client.call_tool('check_history', {'days': 7}))
+            assert result['untrusted_content'] == UNTRUSTED_CONTENT
+
+    anyio.run(run)
+    assert calls == [{'days': 7, 'limit': 5000, 'pseudonymise': True}]
 
 
 def test_resources_say_when_there_is_no_graph_or_report(jaffle_built_graph: Path, tmp_path: Path) -> None:

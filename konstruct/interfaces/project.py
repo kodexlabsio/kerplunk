@@ -25,6 +25,7 @@ from konstruct.core.formats import document
 from konstruct.core.graph import Graph
 
 if TYPE_CHECKING:
+    from konstruct.analysis.checksql import HistoryCheck, SqlCheck
     from konstruct.analysis.conflicts import Conflicts
     from konstruct.analysis.diff import Diff
     from konstruct.analysis.explain import Explanation
@@ -419,6 +420,83 @@ class Project:
                 if page.is_file():
                     write_html(self.graph, page, data=shown)
         return result
+
+    def check_sql(self, sql: str) -> SqlCheck:
+        """Check SQL against the project's definitions, keys and relationships, without running it.
+
+        Each statement is read in the graph's dialect. Every output column that aggregates is a
+        measure: its formula is composed down to source columns, with the filters on the way, and
+        compared with the business term it is named for or the column of the project that already
+        holds it. The checks find a measure that leaves out a filter its definition requires or
+        computes it differently, a column of a retired term, a sum, count or average over a join
+        that repeats the rows it aggregates, a measure of a coarser grain repeated on the rows of a
+        finer one, a join off the columns of a relationship, and a relation or column the project
+        does not have. Each finding carries its fix, and ``corrected`` holds the SQL with every fix
+        that changes nothing else applied.
+
+        Args:
+            sql: One or more statements.
+
+        Returns:
+            The findings, errors first. ``passed`` is True when every statement was analysed
+            (``checked``) and nothing breaks an approved definition.
+
+        Example::
+
+            result = project.check_sql('select region, sum(amount) as revenue from orders group by 1')
+            result.passed
+            [(f.rule, f.fix) for f in result.findings]
+            result.corrected
+        """
+        from konstruct.analysis.checksql import check_sql
+
+        return check_sql(self.graph, sql)
+
+    def check_history(
+        self, *, days: int | None = None, limit: int = 5000, pseudonymise: bool = False
+    ) -> HistoryCheck:
+        """Run :meth:`check_sql` over the query history of the project's Snowflake, BigQuery and
+        Databricks warehouses, and gather the queries that compute a measure differently from its
+        definition (shadow metrics), with how many queries, runs and people each has.
+
+        Reads history metadata only, over the project's own connections, so the project must be
+        trusted (``konstruct trust``).
+
+        Args:
+            days: How far back to read, by default ``[usage] days`` in ``konstruct.toml``.
+            limit: The most distinct query texts to read and check, those run most often first.
+            pseudonymise: Count people without naming them, and leave the literals out of the
+                example queries.
+
+        Returns:
+            The shadow metrics, approved terms first, and how often each term is read through its
+            own columns.
+
+        Raises:
+            konstruct.QueryError: ``days`` or ``limit`` is below 1, no such warehouse is configured,
+                the project is not trusted, or the warehouse refuses the history.
+
+        Example::
+
+            history = project.check_history(days=30, pseudonymise=True)
+            [(s.term, s.detail, s.queries, s.users) for s in history.shadow]
+        """
+        from konstruct.analysis.checksql import check_history
+        from konstruct.engine.config import ConfigError
+        from konstruct.inputs.usage import HistoryError, MissingDriver, NoHistory, project_history
+
+        if limit < 1:
+            raise query.QueryError('the limit must be at least 1 query')
+        if days is not None and days < 1:
+            raise query.QueryError('the history must cover at least 1 day')
+        try:
+            history = project_history(self.config(), days=days, max_queries=limit)
+        except NoHistory as error:
+            raise query.QueryError(str(error)) from error
+        except (ConfigError, MissingDriver, HistoryError) as error:
+            # An untrusted project, a missing extra, or a connection or query the warehouse refused.
+            raise query.QueryError(f'cannot read query history: {error}') from error
+        return check_history(self.graph, history, pseudonymise=pseudonymise, limit=limit)
 
     def ontology(self) -> Ontology:
         """The ontology of the data stack, derived from the graph.

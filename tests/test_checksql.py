@@ -1591,7 +1591,8 @@ def test_the_result_renders_as_text_markdown_and_json(shop: Checker) -> None:
     result = shop.check(NET_REVENUE)
     text = str(result)
     assert text.startswith('1 error, 0 warnings, 0 notes in 1 statement.')
-    assert 'error   missing-filter  net_revenue:' in text and 'Corrected SQL' in text
+    assert '\nerror    missing-filter  net_revenue computes ' in text and '\nCorrected SQL\n  SELECT' in text
+    assert '\n         fix       Apply the filter: ' in text
     markdown = result.markdown()
     assert '| error | `missing-filter` |' in markdown and '```sql' in markdown
     data = json.loads(json.dumps(result.to_dict()))
@@ -1765,7 +1766,8 @@ def test_history_from_snowflake_counts_shadow_metrics_by_queries_runs_and_people
     text = str(result)
     assert text.startswith('5 queries checked (959 runs); 2 shadow metrics, 2 of an approved measure.')
     assert "2 queries by 2 people compute 'Net revenue' (approved) without" in text
-    assert "1 query by 1 person compute 'Net revenue' (approved) with orders.customer_id <> 1042" in text
+    assert "1 query by 1 person computes 'Net revenue' (approved) with orders.customer_id <> 1042" in text
+    assert '\n    people  ANA, BEN\n' in text and '\nRead through their own columns (2)\n' in text
     data = json.loads(json.dumps(result.to_dict()))
     assert data['shadow'][0]['queries'] == 2 and adopted.to_dict() in data['adoption']
 
@@ -1812,6 +1814,126 @@ def test_history_can_pseudonymise_people_and_limit_the_queries(shop: Checker) ->
     assert (shadow.users, shadow.people) == (1, [])
     assert '1042' not in shadow.example and 'returned' not in shadow.example and '<> ?' in shadow.example
     assert 'ann' not in json.dumps(result.to_dict())
+
+
+def test_the_project_checks_sql_and_the_history_of_its_warehouses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from konstruct import QueryError
+
+    make_shop(tmp_path)
+    project = Project(tmp_path)
+    assert project.check_sql(NET_REVENUE).to_dict() == check_sql(project.graph, NET_REVENUE).to_dict()
+    with pytest.raises(QueryError, match='no Snowflake, BigQuery or Databricks warehouse is configured'):
+        project.check_history()
+    (tmp_path / 'konstruct.toml').write_text(
+        '[[warehouse]]\ntype = "snowflake"\naccount = "x"\n\n[usage]\ndays = 14\n'
+    )
+    log = _stub(monkeypatch, 'snowflake.connector', recorded('snowflake'))
+    # The project's own connection is used only once it is trusted.
+    with pytest.raises(QueryError, match=r'cannot read query history: .* is not trusted'):
+        project.check_history()
+    monkeypatch.setenv('KONSTRUCT_TRUST_CONFIG', '1')
+    result = project.check_history(limit=3, pseudonymise=True)
+    assert 'dateadd(day, -14,' in log[-1] and 'limit 3' in log[-1]
+    assert result.queries == 3 and [s.people for s in result.shadow] == [[]]
+    assert project.check_history(days=7).shadow[0].people == ['ANA', 'BEN']
+    assert 'dateadd(day, -7,' in log[-1]
+    with pytest.raises(QueryError, match='at least 1 query'):
+        project.check_history(limit=0)
+    # A window of no days, or one in the future, is refused, not read as the default.
+    for days in (0, -3):
+        with pytest.raises(QueryError, match='at least 1 day'):
+            project.check_history(days=days)
+
+
+def test_the_project_reports_a_warehouse_that_refuses_its_history_and_nothing_else(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from konstruct import QueryError
+
+    make_shop(tmp_path)
+    project = Project(tmp_path)
+    (tmp_path / 'konstruct.toml').write_text('[[warehouse]]\ntype = "snowflake"\naccount = "x"\n')
+    monkeypatch.setenv('KONSTRUCT_TRUST_CONFIG', '1')
+
+    class Error(Exception):
+        """The driver's DB-API base error."""
+
+    def connect(failure: BaseException) -> Callable[..., Any]:
+        def refused(**options: Any) -> Any:
+            raise failure
+
+        return refused
+
+    module = types.ModuleType('snowflake.connector')
+    module.Error = Error  # type: ignore[attr-defined]
+    package = types.ModuleType('snowflake')
+    package.connector = module  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, 'snowflake', package)
+    monkeypatch.setitem(sys.modules, 'snowflake.connector', module)
+    module.connect = connect(Error('250001: could not connect'))  # type: ignore[attr-defined]
+    with pytest.raises(
+        QueryError, match='cannot read query history: Snowflake refused the query history: 250001'
+    ):
+        project.check_history()
+    # Any other error is a bug, and is not passed off as the warehouse's answer.
+    module.connect = connect(KeyError('account'))  # type: ignore[attr-defined]
+    with pytest.raises(KeyError):
+        project.check_history()
+    monkeypatch.delitem(sys.modules, 'snowflake.connector')
+    monkeypatch.setitem(sys.modules, 'snowflake', None)
+    with pytest.raises(QueryError, match='cannot read query history: install the snowflake extra'):
+        project.check_history()
+
+
+def test_a_databricks_connection_that_never_reaches_the_warehouse_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from urllib3.exceptions import MaxRetryError
+
+    from konstruct import QueryError
+
+    make_shop(tmp_path)
+    project = Project(tmp_path)
+    (tmp_path / 'konstruct.toml').write_text('[[warehouse]]\ntype = "databricks"\nserver_hostname = "x"\n')
+    monkeypatch.setenv('KONSTRUCT_TRUST_CONFIG', '1')
+    module = types.ModuleType('databricks.sql')
+    package = types.ModuleType('databricks')
+    package.sql = module  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, 'databricks', package)
+    monkeypatch.setitem(sys.modules, 'databricks.sql', module)
+    # The driver has no DB-API Error here, so only the transport's own errors are reported.
+    for failure in (
+        MaxRetryError(None, '/sql/1.0'),  # type: ignore[arg-type]
+        ConnectionRefusedError(111, 'refused'),
+    ):
+
+        def refused(failure: BaseException = failure, **options: Any) -> Any:
+            raise failure
+
+        module.connect = refused  # type: ignore[attr-defined]
+        with pytest.raises(
+            QueryError, match='cannot read query history: Databricks refused the query history'
+        ):
+            project.check_history()
+
+
+def test_bigquery_credentials_that_cannot_be_read_are_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from konstruct import QueryError
+    from konstruct.interfaces.cli import main
+
+    pytest.importorskip('google.cloud.bigquery')
+    make_shop(tmp_path)
+    (tmp_path / 'konstruct.toml').write_text('[[warehouse]]\ntype = "bigquery"\nproject = "acme"\n')
+    monkeypatch.setenv('KONSTRUCT_TRUST_CONFIG', '1')
+    monkeypatch.setenv('GOOGLE_APPLICATION_CREDENTIALS', '/nonexistent/creds.json')
+    with pytest.raises(QueryError, match='cannot read query history: BigQuery refused the query history'):
+        Project(tmp_path).check_history()
+    assert main(['--no-color', '-q', '-C', str(tmp_path), 'check-sql', '--history']) == 1
+    assert 'BigQuery refused the query history' in capsys.readouterr().err
 
 
 def test_pseudonyms_cannot_be_matched_across_reports() -> None:

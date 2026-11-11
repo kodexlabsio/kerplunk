@@ -37,6 +37,7 @@ from konstruct.interfaces.layout import (
 )
 
 if TYPE_CHECKING:
+    from konstruct.analysis.checksql import HistoryCheck, SqlCheck
     from konstruct.analysis.conflicts import Conflicts
     from konstruct.analysis.diff import Diff
     from konstruct.analysis.explain import Explanation
@@ -888,6 +889,66 @@ def conflicts_lines(result: Conflicts, style: Style) -> Lines:
                 # Values at which the two give different results, or the function they apply
                 # differently.
                 lines += paragraph(style, Text((str(difference.witness), 'dim')), indent=8)
+    return lines
+
+
+_SEVERITY_ROLES = {'error': 'error', 'warning': 'warn', 'info': 'dim'}
+
+
+def sql_check_lines(result: SqlCheck, style: Style) -> Lines:
+    role = 'bad' if not result.passed else 'ok' if not result.findings else ''
+    lines = _summary(style, Text((result.summary(), role)))
+    for finding in result.findings:
+        lead = Text(
+            (pad(finding.severity, 7), _SEVERITY_ROLES.get(finding.severity, '')),
+            '  ',
+            (finding.rule, 'strong'),
+            '  ',
+        )
+        # Most messages begin with the column they are about; the others are led by it.
+        named = finding.column and not finding.message.startswith(finding.column)
+        where = Text((f'{finding.column}: ', 'accent')) if named else Text()
+        lines += [blank(), *wrap(style, Text(where, finding.message), first=lead, hanging=9)]
+        facts: list[tuple[str, Cell]] = [('fix', finding.fix), ('term', finding.term or '')]
+        facts += [('evidence', item) for item in finding.evidence]
+        lines += pairs(style, facts, indent=9, width=8)
+    if result.corrected:
+        lines += [blank(), section('Corrected SQL')]
+        lines += [Text('  ', sql(line), whole=True) for line in result.corrected.splitlines()]
+    return lines
+
+
+def history_check_lines(result: HistoryCheck, style: Style) -> Lines:
+    from konstruct.analysis.checksql import shadow_text
+
+    lines = _summary(style, Text((result.summary(), 'ok' if not result.shadow else '')))
+    lines += [line for note in result.notes for line in _note(style, note, indent=0)]
+    if result.shadow:
+        lines += [blank(), section('Shadow metrics', len(result.shadow))]
+    for metric in result.shadow:
+        verb = 'computes' if metric.queries == 1 else 'compute'
+        body = Text(
+            f'{_plural(metric.queries, "query", "queries")} by {_plural(metric.users, "person", "people")} '
+            f'{verb} ',
+            (repr(metric.term), 'strong'),
+        )
+        if metric.status:
+            body.append(' (').append(_status(metric.status)).append(')')
+        body.append(f' {shadow_text(metric)}')
+        lines += [blank(), *wrap(style, body, indent=2, hanging=4)]
+        facts: list[tuple[str, Cell]] = [
+            ('rule', metric.rule),
+            ('fix', metric.fix),
+            ('people', ', '.join(metric.people)),
+            ('e.g.', sql(metric.example) if metric.example else ''),
+        ]
+        lines += pairs(style, facts, indent=4)
+    if result.adoption:
+        lines += [blank(), section('Read through their own columns', len(result.adoption))]
+        rows: list[list[Cell]] = [
+            [item.term, str(item.queries), str(item.runs), str(item.users)] for item in result.adoption
+        ]
+        lines += table(style, rows, right=[1, 2, 3], headers=['term', 'queries', 'runs', 'people'])
     return lines
 
 

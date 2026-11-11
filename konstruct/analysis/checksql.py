@@ -46,7 +46,7 @@ import secrets
 from collections import defaultdict
 from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import sqlglot
 from sqlglot import exp
@@ -70,6 +70,9 @@ from konstruct.core.sql import (
 )
 from konstruct.inputs.usage import HistoryQuery, QueryHistory
 from konstruct.semantics.ontology import Relationship, derivation, entity_name, id_like, name_matches
+
+if TYPE_CHECKING:
+    from konstruct.interfaces.layout import Style
 
 SEVERITIES = ('error', 'warning', 'info')
 
@@ -182,16 +185,15 @@ class SqlCheck:
         ]
         return f'{", ".join(parts)} in {_plural(self.statements, "statement")}.'
 
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import show, sql_check_lines
+
+        return show(sql_check_lines, self, style)
+
     def __str__(self) -> str:
-        lines = [self.summary()]
-        for finding in self.findings:
-            where = f'{finding.column}: ' if finding.column else ''
-            lines += ['', f'{finding.severity:<8}{finding.rule}  {where}{finding.message}']
-            lines.append(f'        fix: {finding.fix}')
-            lines += [f'        evidence: {e}' for e in finding.evidence]
-        if self.corrected:
-            lines += ['', 'Corrected SQL', *(f'  {line}' for line in self.corrected.splitlines())]
-        return '\n'.join(lines)
+        return self.text()
 
     def markdown(self) -> str:
         """The result as markdown, for a pull request comment or an agent's notes."""
@@ -2839,7 +2841,9 @@ class ShadowMetric:
     fix: str
     """What to do instead, from the first query found."""
     queries: int = 0
+    """Distinct query texts that compute it this way."""
     runs: int = 0
+    """Runs of those queries."""
     users: int = 0
     """Distinct people who ran them."""
     people: list[str] = field(default_factory=list)
@@ -2857,9 +2861,13 @@ class Adoption:
     """How many queries read a term through its own columns."""
 
     term: str
+    """The business term."""
     queries: int = 0
+    """Distinct query texts that read it."""
     runs: int = 0
+    """Runs of those queries."""
     users: int = 0
+    """Distinct people who ran them."""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -2886,33 +2894,28 @@ class HistoryCheck:
     notes: list[str] = field(default_factory=list)
     """What the warehouse withheld, and what would show it."""
 
+    @property
+    def approved_shadow(self) -> list[ShadowMetric]:
+        """The shadow metrics of approved terms: queries that compute an approved measure
+        differently from its definition."""
+        return [s for s in self.shadow if s.status == 'approved']
+
     def summary(self) -> str:
-        approved = sum(1 for s in self.shadow if s.status == 'approved')
+        approved = len(self.approved_shadow)
         return (
             f'{_plural(self.queries, "query")} checked ({_plural(self.runs, "run")}); '
             f'{_plural(len(self.shadow), "shadow metric")}, {approved} of an approved measure.'
         )
 
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import history_check_lines, show
+
+        return show(history_check_lines, self, style)
+
     def __str__(self) -> str:
-        lines = [self.summary(), *self.notes]
-        if self.shadow:
-            lines += ['', 'Shadow metrics']
-            for metric in self.shadow:
-                status = f' ({metric.status})' if metric.status else ''
-                lines.append(
-                    f'  {_plural(metric.queries, "query")} by {_plural(metric.users, "person")} compute '
-                    f'{metric.term!r}{status} {_shadow_text(metric)}'
-                )
-                lines.append(f'    fix: {metric.fix}')
-                if metric.example:
-                    lines.append(f'    e.g. {metric.example}')
-        if self.adoption:
-            lines += ['', 'Read through their own columns']
-            for item in self.adoption:
-                lines.append(
-                    f'  {item.term}: {_plural(item.queries, "query")}, {_plural(item.users, "person")}'
-                )
-        return '\n'.join(lines)
+        return self.text()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -2928,7 +2931,8 @@ class HistoryCheck:
         }
 
 
-def _shadow_text(item: ShadowMetric) -> str:
+def shadow_text(item: ShadowMetric) -> str:
+    """How a shadow metric computes its measure: without a filter, with one, or as a formula."""
     if item.rule == 'missing-filter' or item.detail.startswith('with '):
         return item.detail
     return f'as {item.detail}'
