@@ -417,7 +417,7 @@ def _column_lineage(
     guessed_stars: set[str] = set()
     unlisted: set[str] = set()
     if any(read not in known_columns for read in result.reads):
-        _name_unknown_columns(
+        result.errors += _name_unknown_columns(
             query,
             Dialect.get_or_raise(dialect),
             known_columns,
@@ -502,7 +502,7 @@ def _name_unknown_columns(
     named: dict[str, set[str]],
     guessed_stars: set[str],
     unlisted: set[str],
-) -> None:
+) -> list[str]:
     """Name, before qualify, the columns a query reads from relations whose columns are unknown.
 
     sqlglot leaves an unqualified column unqualified when its scope's one relation has unknown
@@ -513,12 +513,30 @@ def _name_unknown_columns(
     or subquery whose star passes on a column another scope reads also selects that column by name.
     ``listed`` are the relations the schema lists columns for, ``known`` those of them whose list is
     complete. Each column it names in a relation is added to ``named``, by the relation's key, and each
-    relation of those not complete that a star selects from to ``guessed_stars``.
+    relation of those not complete that a star selects from to ``guessed_stars``, and to ``unlisted``
+    those of them whose star must stay a star, as the column a query reads could be any's. Returns a warning
+    for the unqualified columns of subqueries that a relation of the outer query could also have.
     """
 
     def record(source: exp.Table | Scope, column: str) -> None:
         if isinstance(source, exp.Table):
             named.setdefault(table_key(source, default_catalog, default_db), set()).add(column.lower())
+
+    guessed: list[str] = []
+
+    def outer_may_have(scope: Scope, name: str) -> bool:
+        """Whether a relation of a query around ``scope``, a subquery that can name the outer query's
+        columns, has or may have the column ``name``: one with known columns that lists it, or one
+        whose columns are unknown or only guessed, a CTE or subquery's as it passes them on."""
+        if not (scope.is_subquery or scope.is_udtf or scope.can_be_correlated):
+            return False
+        around = scope.parent
+        while around is not None:
+            for _, source in around.selected_sources.values():
+                if source is not scope and ((found := columns(source)) is None or name in found):
+                    return True
+            around = around.parent
+        return False
 
     # What each scope is known to have does not change during the pass: a column passed on joins a
     # scope only while that scope may have columns it does not list. Without the memo every star
@@ -698,10 +716,15 @@ def _name_unknown_columns(
                     if isinstance(item, exp.Alias)
                     and not (isinstance(item.this, exp.Column) and item.this.name == item.alias)
                 }
+                # SQL looks a name up in the innermost scope first, so it is the subquery's relation's;
+                # it is reported where a relation of the outer query could have it too.
                 for column in own:
-                    if not column.table and column.name.lower() not in others:
-                        column.set('table', identifier.copy())
-                        record(source, column.name)
+                    if column.table or column.name.lower() in others:
+                        continue
+                    column.set('table', identifier.copy())
+                    record(source, column.name)
+                    if outer_may_have(scope, column.name.lower()):
+                        guessed.append(f'{identifier.name}.{column.name}')
         for column in own:
             # The relation a column names is this scope's, or for a correlated reference, that of a
             # query around it.
@@ -714,6 +737,12 @@ def _name_unknown_columns(
                 pass_on(read, column)
             elif isinstance(read, exp.Table):
                 record(read, column.name)
+    if not guessed:
+        return []
+    return [
+        "unqualified columns in a subquery taken to be its own relation's, though a relation of the outer "
+        f'query could also have them (a correlated subquery): {", ".join(dict.fromkeys(guessed))}'
+    ]
 
 
 def _own_columns(select: exp.Select) -> list[exp.Column]:

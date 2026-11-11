@@ -962,7 +962,7 @@ def test_a_subquery_filter_beside_a_join(
     where {condition}
     """
     result = one(sql, schema=schema)
-    assert result.errors == []
+    assert [e for e in result.errors if 'a correlated subquery' not in e] == []
     assert result.columns == {'id': [src(ORDERS, 'id')], 'first_name': [src(CUSTOMERS, 'first_name')]}
     assert set(result.references) == {
         (ORDERS, 'customer_id'),
@@ -996,6 +996,23 @@ def test_the_columns_of_a_join_using_are_references() -> None:
     assert set(result.references) == {(ORDERS, 'id'), (PAYMENTS, 'id')}
 
 
+def test_guessing_the_relation_of_a_column_in_a_subquery_is_reported() -> None:
+    sql = "select o.id from orders o where exists (select 1 from payments where order_id = o.id and status = 'x')"
+    warning = (
+        "unqualified columns in a subquery taken to be its own relation's, though a relation of the outer query "
+        'could also have them (a correlated subquery): '
+    )
+    # orders has unknown columns too, so it could have them.
+    assert one(sql, schema={}).errors == [f'{warning}payments.order_id, payments.status']
+    # Not when the subquery's relation has known columns, or no outer relation could have the name.
+    assert one(sql).errors == []
+    assert one('select id from orders where id in (select order_id from payments)', schema={}).errors == [
+        f'{warning}payments.order_id'
+    ]
+    known = {ORDERS: SCHEMA[ORDERS]}
+    assert one('select id from orders where id in (select order_id from payments)', schema=known).errors == []
+
+
 @pytest.mark.parametrize(
     ('sql', 'dialect'),
     [
@@ -1008,6 +1025,64 @@ def test_the_list_a_join_unnests_is_a_reference(sql: str, dialect: str) -> None:
     # An empty list joins no row: the list decides which rows there are.
     result = one(sql, dialect=dialect, schema={'db.main.arrs': {'id': 'int', 'arr': 'int[]'}})
     assert ('db.main.arrs', 'arr') in result.references
+
+
+@pytest.mark.parametrize(
+    ('sql', 'inner', 'condition'),
+    [
+        (
+            "select o.id from orders o where o.customer_id in (select id from customers where country = 'NL')",
+            'customers.id',
+            'IN (SELECT db.main.customers.id',
+        ),
+        (
+            'select o.id from orders o where o.amount > (select avg(amount) from payments)',
+            'payments.amount',
+            'AVG(db.main.payments.amount)',
+        ),
+        (
+            'select id from orders where exists (select 1 from order_lines where order_id = id)',
+            'order_lines.id',
+            'db.main.order_lines.order_id = db.main.order_lines.id',
+        ),
+        (
+            'with c as (select id, amount from orders) select c.id from c where c.amount > (select avg(amount) from payments)',
+            'payments.amount',
+            'AVG(db.main.payments.amount)',
+        ),
+    ],
+)
+def test_a_bare_name_in_a_subquery_is_its_own_relations_as_sql_reads_it(
+    sql: str, inner: str, condition: str
+) -> None:
+    # SQL looks the name up in the subquery first, and its relation, with unknown columns, may well
+    # have it. That a relation of the outer query has the name too is reported.
+    result = one(sql, schema={ORDERS: SCHEMA[ORDERS]})
+    assert (f'db.main.{inner.split(".")[0]}', inner.split('.')[1]) in result.references
+    assert any(condition in c for c in result.conditions)
+    assert result.errors == [
+        "unqualified columns in a subquery taken to be its own relation's, though a relation of the outer query "
+        f'could also have them (a correlated subquery): {inner}'
+    ]
+
+
+def test_a_lateral_aggregate_reads_its_own_relation() -> None:
+    result = one(
+        'select o.id, l.total from orders o cross join lateral '
+        '(select sum(amount) as total from refunds where order_id = o.id) l',
+        schema={ORDERS: SCHEMA[ORDERS]},
+    )
+    assert src(ORDERS, 'amount', 'transformed') not in result.columns['total']
+
+
+def test_a_relation_whose_columns_were_guessed_keeps_a_name_it_was_seen_to_have() -> None:
+    schema = {ORDERS: SCHEMA[ORDERS], PAYMENTS: {'amount': 'UNKNOWN', 'order_id': 'UNKNOWN'}}
+    result = one(
+        'select o.id from orders o where o.amount > (select avg(amount) from payments)',
+        schema=schema,
+        guessed={PAYMENTS},
+    )
+    assert (PAYMENTS, 'amount') in result.references
 
 
 def test_unqualified_columns_of_a_relation_with_unknown_columns_are_references() -> None:
