@@ -32,8 +32,9 @@ from konstruct.semantics.ontology import name_matches
 log = logging.getLogger(__name__)
 
 INSTRUCTIONS = """\
-Konstruct answers questions about this repository's data stack: dbt models, sources, tests and
-exposures; warehouse and Iceberg tables; Airflow DAGs and tasks; and column-level lineage.
+Konstruct answers questions about this repository's data stack and checks changes to it: the
+business entities, measures, definitions and relationships of its ontology; dbt models, sources,
+tests and exposures; warehouse and Iceberg tables; Airflow DAGs and tasks; and column-level lineage.
 Refer to tables as `name` or `schema.name` and to columns as `table.column`.
 Use `impact` before changing a model, table or column, `trace` to find where a value comes from,
 `define` for what a business term means and which columns hold it, `ontology` for the business

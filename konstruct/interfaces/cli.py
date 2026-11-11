@@ -772,7 +772,8 @@ class _Root(_Parser):
             Text(('Konstruct', 'title'), ' ', (__version__, 'dim')),
             *paragraph(
                 ui,
-                'Column-level lineage for dbt, SQL, Airflow and Dagster, for people and coding agents.',
+                'The ontology and column-level lineage of a data stack, checked against the data, for people '
+                'and coding agents.',
                 indent=0,
             ),
             Text(),
@@ -886,8 +887,9 @@ def parser() -> argparse.ArgumentParser:
     common = _common()
     root = _Root(
         prog='konstruct',
-        description='Turn a data stack (dbt, SQL, Airflow, warehouse and Iceberg metadata) into a '
-        'queryable graph with column-level lineage, for people and coding agents.',
+        description='Derive an ontology and column-level lineage from a data stack (dbt, SQL, Airflow, '
+        'Dagster, Looker, Power BI and the warehouse), check them against the data, and check each change, '
+        'for people and coding agents.',
         epilog=EPILOG,
         formatter_class=_Help,
         parents=[common],

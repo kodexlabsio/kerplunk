@@ -1,8 +1,10 @@
 # Konstruct
 
-Column-level lineage for dbt, SQL, Airflow and Dagster, by Kodex Labs, MIT licensed. Konstruct reads
-a data repository and its warehouse and builds a graph (`konstruct-out/graph.json`, `REPORT.md` and
-`graph.html`) that people and coding agents query from a CLI, a Python API, an MCP server, a GitHub
+An ontology of a business derived from its data stack (dbt, SQL, Airflow, Dagster, Spark, Looker and
+Power BI), with the column-level lineage beneath it checked against the warehouse and each change
+checked before it merges, by Kodex Labs, MIT licensed. Konstruct reads a data repository and its
+warehouse and builds a graph (`konstruct-out/graph.json`, `REPORT.md`, `graph.html` and
+`ontology.yml`) that people and coding agents query from a CLI, a Python API, an MCP server, a GitHub
 Action and a single offline HTML page.
 
 - `README.md` is the overview; the full documentation is in `docs/` (Sphinx, published to

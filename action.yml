@@ -1,5 +1,5 @@
 name: Konstruct lineage review
-description: Column-level review of dbt, SQL and DAG changes on pull requests, with breaking changes flagged.
+description: Review dbt, SQL and DAG changes on pull requests column by column, and fail those that remove a column still read downstream.
 author: Kodex Labs
 branding:
   icon: share-2

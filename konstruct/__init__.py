@@ -1,4 +1,4 @@
-"""konstruct: a queryable graph of a data stack, with column-level lineage.
+"""konstruct: an ontology of a data stack, with column-level lineage checked against the data.
 
 The main entry point is `Project`::
 

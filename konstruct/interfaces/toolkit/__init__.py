@@ -184,7 +184,8 @@ def plugin_files() -> dict[str, str]:
                 'displayName': 'Konstruct',
                 'version': __version__,
                 'description': (
-                    'Column-level lineage, business definitions and an ontology for dbt, SQL, Airflow and '
+                    'An ontology of your data stack (entities, measures, definitions and relationships) '
+                    'with column-level lineage checked against the warehouse, for dbt, SQL, Airflow and '
                     'Dagster: skills for safe changes, data reviews, reconciling numbers, writing correct '
                     'queries and semantic layer exports, slash commands, a data-reviewer subagent, the '
                     'Konstruct MCP server and a hook that runs konstruct gate after SQL and dbt YAML edits.'
@@ -193,7 +194,15 @@ def plugin_files() -> dict[str, str]:
                 'homepage': 'https://kodexlabsio.github.io/konstruct/guide/agents.html',
                 'repository': 'https://github.com/kodexlabsio/konstruct',
                 'license': 'MIT',
-                'keywords': ['dbt', 'sql', 'lineage', 'column-level lineage', 'data', 'ontology', 'mcp'],
+                'keywords': [
+                    'ontology',
+                    'dbt',
+                    'sql',
+                    'lineage',
+                    'column-level lineage',
+                    'semantic layer',
+                    'mcp',
+                ],
             }
         ),
         '.mcp.json': _json(

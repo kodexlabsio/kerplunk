@@ -1,13 +1,13 @@
 [project]
 name = "konstruct"
 version = "0.13.3"
-description = "Turn a data stack (dbt, SQL, Airflow, warehouse and Iceberg metadata) into a queryable graph with column-level lineage for coding agents."
+description = "An ontology of a business derived from its data stack (dbt, SQL, Airflow, Dagster, Looker and Power BI), with column-level lineage checked against the warehouse, served to AI agents over MCP."
 readme = "README.md"
 license = "MIT AND Apache-2.0 AND OFL-1.1"
 license-files = ["LICENSE", "licenses/*", "konstruct/semantics/ontologies/NOTICE"]
 authors = [{ name = "Kodex Labs Ltd." }]
 requires-python = ">=3.11"
-keywords = ["lineage", "column-level lineage", "dbt", "airflow", "iceberg", "mcp", "claude-code", "data-catalog"]
+keywords = ["ontology", "context layer", "semantic layer", "lineage", "column-level lineage", "data quality", "dbt", "airflow", "iceberg", "mcp", "claude-code", "data-catalog"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
