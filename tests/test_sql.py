@@ -1066,13 +1066,48 @@ def test_a_bare_name_in_a_subquery_is_its_own_relations_as_sql_reads_it(
     ]
 
 
-def test_a_lateral_aggregate_reads_its_own_relation() -> None:
+@pytest.mark.parametrize(
+    'schema', [SCHEMA, {}, {ORDERS: SCHEMA[ORDERS]}], ids=['known', 'unknown', 'outer known']
+)
+@pytest.mark.parametrize(
+    'lateral',
+    [
+        'cross join lateral (select sum(amount) as total from payments where order_id = o.id) l',
+        'left join lateral (select sum(p.amount) as total from payments p where p.order_id = o.id) l on true',
+        ', lateral (select sum(amount) as total from payments where order_id = o.id) l',
+    ],
+    ids=['cross join', 'left join', 'comma'],
+)
+def test_a_lateral_subquerys_columns_are_traced_through_its_select(
+    lateral: str, schema: dict[str, Any]
+) -> None:
+    """The outer column a lateral subquery is correlated on picks its rows; what it selects is
+    its own."""
+    result = one(f'select o.id, l.total from orders o {lateral}', schema=schema)
+    assert result.columns == {'id': [src(ORDERS, 'id')], 'total': [src(PAYMENTS, 'amount', 'transformed')]}
+    assert set(result.references) == {(PAYMENTS, 'order_id'), (ORDERS, 'id')}
+
+
+@pytest.mark.parametrize('schema', [SCHEMA, {}], ids=['known', 'unknown'])
+def test_a_lateral_subquery_can_select_the_outer_columns_it_is_correlated_on(schema: dict[str, Any]) -> None:
     result = one(
-        'select o.id, l.total from orders o cross join lateral '
-        '(select sum(amount) as total from refunds where order_id = o.id) l',
-        schema={ORDERS: SCHEMA[ORDERS]},
+        'select o.id, l.share from orders o cross join lateral '
+        '(select o.amount / sum(p.amount) as share from payments p where p.order_id = o.id) l',
+        schema=schema,
     )
-    assert src(ORDERS, 'amount', 'transformed') not in result.columns['total']
+    assert result.columns['share'] == [
+        src(ORDERS, 'amount', 'transformed'),
+        src(PAYMENTS, 'amount', 'transformed'),
+    ]
+
+
+def test_a_filter_on_a_lateral_subquerys_column_is_the_select_that_makes_it() -> None:
+    result = one(
+        'select o.id from orders o cross join lateral '
+        '(select sum(p.amount) as total from payments p where p.order_id = o.id) l where l.total > 10'
+    )
+    assert f'WHERE: (SUM({PAYMENTS}.amount)) > 10' in result.conditions
+    assert (PAYMENTS, 'amount') in result.references
 
 
 def test_a_relation_whose_columns_were_guessed_keeps_a_name_it_was_seen_to_have() -> None:

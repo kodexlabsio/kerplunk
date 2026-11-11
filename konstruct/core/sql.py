@@ -453,6 +453,7 @@ def _column_lineage(
         return
     for inner in scope.traverse():
         _spell_out_group_by_all(inner.expression)
+        _select_through_laterals(inner)
 
     # trim_selects only tidies node labels, at the cost of copying the query for every node.
     nodes = lineage(
@@ -1351,6 +1352,29 @@ def _named(query: exp.Query, term: exp.Expr) -> exp.Expr:
         return node
 
     return term.transform(replace)
+
+
+def _select_through_laterals(scope: Scope) -> None:
+    """Make a lateral subquery's columns those its SELECT makes. sqlglot gives a lateral a scope of
+    its own around the subquery's, and a column traced into it reads every column of the LATERAL,
+    the outer columns it is correlated on among them, rather than the select that makes it."""
+    for name, source in list(scope.sources.items()):
+        if not (
+            isinstance(source, Scope)
+            and isinstance(source.expression, exp.Lateral)
+            and isinstance(source.expression.this, exp.Subquery)
+            and len(source.subquery_scopes) == 1
+        ):
+            continue
+        inner = source.subquery_scopes[0]
+        if not isinstance(inner.expression, exp.Query):
+            continue
+        # The subquery's own scope lacks the outer relations the lateral's has. Only those its
+        # select list reads are added, so that a star in it still selects its own relations alone.
+        for column in (c for select in inner.expression.selects for c in select.find_all(exp.Column)):
+            if column.table not in inner.sources and column.table in source.sources:
+                inner.sources[column.table] = source.sources[column.table]
+        scope.sources[name] = inner
 
 
 def _spell_out_group_by_all(select: exp.Expr) -> None:
