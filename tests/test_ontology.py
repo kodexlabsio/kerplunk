@@ -102,7 +102,11 @@ def shop() -> Graph:
     orders.attrs['conditions'] = ['LEFT JOIN ON: db.main.orders.customer_id = db.main.customers.customer_id']
     g.nodes[f'{orders.id}#amount'].attrs['expression'] = 'SUM(db.main.raw_orders.amount)'
     g.add_edge(
-        f'{orders.id}#amount', f'{raw.id}#amount', 'derived_from', transform='transformed', verified='data'
+        f'{orders.id}#amount',
+        f'{raw.id}#amount',
+        'derived_from',
+        transform='transformed',
+        verified='confirmed',
     )
     _term(
         g,
@@ -151,6 +155,16 @@ def test_entities_measures_and_relationships_from_a_graph() -> None:
     assert ontology.violations == []
     assert ontology.entity('Customer') is ontology.entities[0]
     assert ontology.measure('revenue') is revenue
+
+
+def test_only_confirmed_edges_count_as_verified() -> None:
+    """verify marks an edge no perturbation moved as ``not exercised``: claimed, but not shown by
+    the data, so it is not counted as verified."""
+    g = shop()
+    raw = g.nodes['source.shop.raw_orders']
+    g.add_edge('model.shop.orders#amount', f'{raw.id}#id', 'derived_from', verified='not exercised')
+    [column] = derive(g).measures[0].columns
+    assert (column.verified, column.edges) == (1, 2)
 
 
 def test_a_measure_with_two_formulas_breaks_a_rule() -> None:

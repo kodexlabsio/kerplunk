@@ -770,14 +770,15 @@ def _computed(graph: Graph, column: Node) -> bool:
 
 
 def _verification(graph: Graph, column: Node) -> tuple[int, int]:
-    """Confirmed and total lineage edges from ``column`` back to source."""
+    """Confirmed and total lineage edges from ``column`` back to source; an edge verify marks
+    ``not exercised`` is claimed but not shown by the data, so it is not confirmed."""
     seen: set[str] = set()
     stack = [column.id]
     verified = total = 0
     while stack:
         for edge in graph.out_edges(stack.pop(), 'derived_from'):
             total += 1
-            verified += bool(edge.attrs.get('verified'))
+            verified += edge.attrs.get('verified') == 'confirmed'
             if edge.target not in seen:
                 seen.add(edge.target)
                 stack.append(edge.target)
