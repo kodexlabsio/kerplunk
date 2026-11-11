@@ -193,25 +193,36 @@ presence of the graph, the formulas and the definitions.
 \label{sec:eval-answers}
 
 The agent benchmark scores whole tasks; this harness scores single answers to business
-questions, and counts the wrong ones given without doubt. \cmd{.kodex/scripts/answer\_benchmark.py} asks an agent \answerQuestions{} business
-questions (version \answerSetVersion{} of its question set) about \answerCorpora{} dbt projects on
-DuckDB: \answerExampleQuestions{} on the bundled example and \answerJsQuestions{} on jaffle-shop
-at its pinned commit. Each question has a single numeric answer, computed by a reference query
-committed with it that reads only the tables the project's seeds load, so the gold answer does not
-depend on the models the agent queries; the tests run every reference on the built warehouse. Of
-the questions, \answerTrapQuestions{} carry a trap: an answer that depends on a business
-definition, a filter a definition requires, a join to a finer grain that repeats the rows summed,
-an average over the wrong rows, amounts stored in cents, or a column with a plausible name and
-another value. The agent answers each question in \answerArms{} arms, each with a tool that runs
-read-only SQL on the warehouse through the engine of \cref{sec:verify}: the schema alone; the
-schema with the project's definitions given as text, as a declared semantic layer serves them; and
-the schema with Konstruct's MCP server over the built graph. It submits a number, or none to
-abstain, with any doubt it has. The rubric is deterministic and committed with the questions: a
-number within the tolerance of the question's unit is correct, any other number is wrong, and a
-wrong number submitted with no stated doubt is confidently wrong. No model grades an answer. The
-run is one command, \cmd{uv run --with anthropic .kodex/scripts/answer\_benchmark.py}, which reads
-the model from \cmd{KONSTRUCT\_BENCH\_MODEL} and the API key from the environment. Its \cmd{--plan} and \cmd{--dry-run} modes call no API, and \cmd{paper/generate.py} runs it only
-when \cmd{KONSTRUCT\_PAPER\_ANSWER\_BENCHMARK} is set, so this paper reports no result of it.
+questions, and counts the wrong ones an agent says it is sure of.
+\cmd{.kodex/scripts/answer\_benchmark.py} asks an agent \answerQuestions{} business questions
+(version \answerSetVersion{} of its question set) about \answerCorpora{} dbt projects on DuckDB:
+\answerExampleQuestions{} on the bundled example and \answerJsQuestions{} on jaffle-shop at its
+pinned commit. Each question has a single numeric answer, computed by a reference query committed
+with it that reads only the tables the project's seeds load, so the gold answer does not depend on
+the models the agent queries; the tests run every reference on the built warehouse. Of the
+questions, \answerTrapQuestions{} carry a trap: an answer that depends on a business definition, a
+filter a definition requires, a join to a finer grain that repeats the rows summed, an average over
+the wrong rows, amounts stored in cents, or a column with a plausible name and another value. Each
+trap comes with a plausible query that falls into it, and the tests check that its result misses
+the answer by more than the tolerance; the other questions are controls.
+
+The agent answers each question in \answerArms{} arms, each with a tool that runs read-only SQL on
+the warehouse through the engine of \cref{sec:verify}: the schema alone; the schema with the
+project's definitions as text; the same with the dbt project's SQL and YAML as text too; and the
+schema with Konstruct's read-only MCP tools over the built graph. The arms differ in more than the
+definitions. Konstruct's tools also give the dbt SQL, the descriptions and the lineage, so the arm
+to compare them with is the one given the project as text, and the definitions the benchmark adds
+to each project were written for it: for jaffle-shop, from the metrics its MetricFlow files
+declare. The agent submits a number, or none to abstain, and says whether it is sure. The rubric is
+deterministic and committed with the questions: a number within the tolerance of the question's
+unit is correct, any other number is wrong, and a wrong number the agent said it was sure of is
+confidently wrong; a conversation that ends with no submission is counted apart from an
+abstention. No model grades an answer. The run is one command,
+\cmd{uv run --with anthropic .kodex/scripts/answer\_benchmark.py}, which reads the model from
+\cmd{KONSTRUCT\_BENCH\_MODEL} and the API key from the environment, and records the model's
+settings, a digest of the harness and of each graph, and intervals for each rate. Its \cmd{--plan}
+and \cmd{--dry-run} modes call no API, and \cmd{paper/generate.py} runs it only when
+\cmd{KONSTRUCT\_PAPER\_ANSWER\_BENCHMARK} is set, so this paper reports no result of it.
 
 \subsection{Keeping the Paper True}
 
