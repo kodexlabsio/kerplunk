@@ -808,7 +808,7 @@ class _Analysis:
         if len(parts) < 2:
             return True
         node = self.resolve(column)
-        return node is None or self.unique(node) or node.id in self.marks
+        return node is None or self.unique_somewhere(node) or node.id in self.marks
 
     def keyed(self, column: exp.Column) -> bool:
         """Whether a counted column identifies the people (or other objects) its rows are about,
@@ -845,9 +845,20 @@ class _Analysis:
         return None
 
     def unique(self, node: Node) -> bool:
+        """Whether a test shows the column unique on every row (not one with a ``where``)."""
+        from konstruct.semantics.ontology import unique_tested
+
         return any(
-            self.graph.nodes.get(e.source) is not None
-            and self.graph.nodes[e.source].attrs.get('test') == 'unique'
+            node in unique_tested(self.graph, test)
+            for e in self.graph.in_edges(node.id, 'tests')
+            if (test := self.graph.nodes.get(e.source)) is not None
+        )
+
+    def unique_somewhere(self, node: Node) -> bool:
+        """Whether a ``unique`` test, with a ``where`` or not, holds on the column: on the rows it
+        selects (``is_current``), a group of the column's value holds one person's rows."""
+        return any(
+            (test := self.graph.nodes.get(e.source)) is not None and test.attrs.get('test') == 'unique'
             for e in self.graph.in_edges(node.id, 'tests')
         )
 
@@ -1365,15 +1376,18 @@ def _from(path: str | None, untrusted: frozenset[str]) -> bool:
 
 def entity_keys(graph: Graph, untrusted: frozenset[str] = frozenset()) -> set[str]:
     """The columns that key an entity, by what says so outside the files in ``untrusted``: a
-    ``unique`` test, a single-column primary key or identifier field, an Ossie key, or a term of
-    kind ``entity`` bound to the column. A primary key or identifier field does not record the
+    ``unique`` test that holds on every row (:func:`konstruct.semantics.ontology.unique_tested`), a
+    single-column primary key or identifier field, an Ossie key, or a term of kind ``entity`` bound
+    to the column. A primary key or identifier field does not record the
     file that declares it, so while ``untrusted`` holds a YAML file or the relation's own file,
     none counts."""
+    from konstruct.semantics.ontology import unique_tested
+
     keys: set[str] = set()
     declared = not any(f.endswith(('.yml', '.yaml')) for f in untrusted)
     for node in graph.nodes.values():
-        if node.kind == 'test' and node.attrs.get('test') == 'unique' and not _from(node.path, untrusted):
-            keys |= {e.target for e in graph.out_edges(node.id, 'tests') if e.attrs.get('role') is None}
+        if node.kind == 'test' and not _from(node.path, untrusted):
+            keys |= {column.id for column in unique_tested(graph, node)}
         elif node.kind == 'column' and node.attrs.get('ossie_key'):
             if not _from(str(node.attrs['ossie_key']), untrusted):
                 keys.add(node.id)

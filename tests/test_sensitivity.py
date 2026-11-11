@@ -28,7 +28,7 @@ from konstruct.analysis.sensitivity import (
     sensitivity,
     settings_at,
 )
-from konstruct.core.graph import Graph
+from konstruct.core.graph import Graph, Node
 from konstruct.engine.config import ConfigError
 from konstruct.interfaces.cli import main
 
@@ -268,6 +268,30 @@ def test_a_large_group_stops_it(tmp_path: Path) -> None:
     project = build(tmp_path, {'models.sql': sql + LINK, 'definitions.yml': PAY})
     assert 'out.s' not in labels(project)
     assert [s.by for s in project.sensitivity().sanitised] == ['SUM over groups of at least 10 distinct keys']
+
+
+@pytest.mark.parametrize('where', [None, 'is_current'])
+def test_a_unique_test_on_some_rows_keys_no_entity_whose_distinct_values_count_people(
+    tmp_path: Path, where: str | None
+) -> None:
+    """users keeps a row per version, its id unique only where is_current: the id keys no entity,
+    so the payments' user_id is no foreign key to people, and its distinct values prove no group
+    of k people."""
+    sql = (
+        'create table m.out as select p.dept, sum(p.salary) as s from raw.pay p group by p.dept '
+        'having count(distinct p.user_id) >= 10;\n'
+    )
+    pay = PAY.split('  - name: User')[0]
+    graph = build(tmp_path, {'models.sql': sql + LINK, 'definitions.yml': pay}).graph
+    test = graph.add_node(Node('test.shop.unique_users_id', 'test', 'unique', attrs={'test': 'unique'}))
+    if where:
+        test.attrs['where'] = where
+    users = graph.node_for_relation('raw.users')
+    assert users is not None
+    graph.add_edge(test.id, f'{users.id}#id', 'tests')
+    assert (f'{users.id}#id' in entity_keys(graph)) is (where is None)
+    sensitive = {c.label for c in sensitivity(graph, Settings()).columns}
+    assert ('out.s' in sensitive) is (where is not None), sensitive
 
 
 def test_a_larger_k_keeps_an_aggregate_sensitive(shop: Project) -> None:
