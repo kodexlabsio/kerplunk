@@ -1,0 +1,456 @@
+{
+ "format_version": 1,
+ "kinds": [
+  "column"
+ ],
+ "items": [
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#customer_id",
+   "kind": "column",
+   "label": "customer_ltv.customer_id",
+   "name": "customer_id",
+   "relation_kind": "table",
+   "data_type": "INTEGER"
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#first_name",
+   "kind": "column",
+   "label": "customer_ltv.first_name",
+   "name": "first_name",
+   "relation_kind": "table",
+   "data_type": "VARCHAR"
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#lifetime_value",
+   "kind": "column",
+   "label": "customer_ltv.lifetime_value",
+   "name": "lifetime_value",
+   "relation_kind": "table",
+   "data_type": "DOUBLE"
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#number_of_orders",
+   "kind": "column",
+   "label": "customer_ltv.number_of_orders",
+   "name": "number_of_orders",
+   "relation_kind": "table",
+   "data_type": "BIGINT"
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#segment",
+   "kind": "column",
+   "label": "customer_ltv.segment",
+   "name": "segment",
+   "relation_kind": "table",
+   "data_type": "VARCHAR"
+  },
+  {
+   "id": "model.jaffle_shop.customers#customer_id",
+   "kind": "column",
+   "label": "customers.customer_id",
+   "name": "customer_id",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "INTEGER",
+   "description": "This is a unique identifier for a customer"
+  },
+  {
+   "id": "model.jaffle_shop.customers#customer_lifetime_value",
+   "kind": "column",
+   "label": "customers.customer_lifetime_value",
+   "name": "customer_lifetime_value",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "DOUBLE"
+  },
+  {
+   "id": "model.jaffle_shop.customers#first_name",
+   "kind": "column",
+   "label": "customers.first_name",
+   "name": "first_name",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "VARCHAR",
+   "description": "Customer's first name. PII."
+  },
+  {
+   "id": "model.jaffle_shop.customers#first_order",
+   "kind": "column",
+   "label": "customers.first_order",
+   "name": "first_order",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "DATE",
+   "description": "Date (UTC) of a customer's first order"
+  },
+  {
+   "id": "model.jaffle_shop.customers#last_name",
+   "kind": "column",
+   "label": "customers.last_name",
+   "name": "last_name",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "VARCHAR",
+   "description": "Customer's last name. PII."
+  },
+  {
+   "id": "model.jaffle_shop.customers#most_recent_order",
+   "kind": "column",
+   "label": "customers.most_recent_order",
+   "name": "most_recent_order",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "DATE",
+   "description": "Date (UTC) of a customer's most recent order"
+  },
+  {
+   "id": "model.jaffle_shop.customers#number_of_orders",
+   "kind": "column",
+   "label": "customers.number_of_orders",
+   "name": "number_of_orders",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "BIGINT",
+   "description": "Count of the number of orders a customer has placed"
+  },
+  {
+   "id": "model.jaffle_shop.customers#total_order_amount",
+   "kind": "column",
+   "label": "customers.total_order_amount",
+   "name": "total_order_amount",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "description": "Total value (AUD) of a customer's orders"
+  },
+  {
+   "id": "table.jaffle_shop.archive.daily_totals#order_date",
+   "kind": "column",
+   "label": "daily_totals.order_date",
+   "name": "order_date",
+   "relation_kind": "table"
+  },
+  {
+   "id": "table.jaffle_shop.archive.daily_totals#total",
+   "kind": "column",
+   "label": "daily_totals.total",
+   "name": "total",
+   "relation_kind": "table"
+  },
+  {
+   "id": "model.jaffle_shop.orders#amount",
+   "kind": "column",
+   "label": "orders.amount",
+   "name": "amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Total amount (AUD) of the order"
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders#amount",
+   "kind": "column",
+   "label": "orders.amount",
+   "name": "amount",
+   "relation_kind": "table"
+  },
+  {
+   "id": "model.jaffle_shop.orders#bank_transfer_amount",
+   "kind": "column",
+   "label": "orders.bank_transfer_amount",
+   "name": "bank_transfer_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by bank transfer"
+  },
+  {
+   "id": "model.jaffle_shop.orders#coupon_amount",
+   "kind": "column",
+   "label": "orders.coupon_amount",
+   "name": "coupon_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by coupon"
+  },
+  {
+   "id": "model.jaffle_shop.orders#credit_card_amount",
+   "kind": "column",
+   "label": "orders.credit_card_amount",
+   "name": "credit_card_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by credit card"
+  },
+  {
+   "id": "model.jaffle_shop.orders#customer_id",
+   "kind": "column",
+   "label": "orders.customer_id",
+   "name": "customer_id",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "INTEGER",
+   "description": "Foreign key to the customers table"
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders#customer_id",
+   "kind": "column",
+   "label": "orders.customer_id",
+   "name": "customer_id",
+   "relation_kind": "table"
+  },
+  {
+   "id": "model.jaffle_shop.orders#gift_card_amount",
+   "kind": "column",
+   "label": "orders.gift_card_amount",
+   "name": "gift_card_amount",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DOUBLE",
+   "description": "Amount of the order (AUD) paid for by gift card"
+  },
+  {
+   "id": "model.jaffle_shop.orders#order_date",
+   "kind": "column",
+   "label": "orders.order_date",
+   "name": "order_date",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DATE",
+   "description": "Date (UTC) that the order was placed"
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders#order_date",
+   "kind": "column",
+   "label": "orders.order_date",
+   "name": "order_date",
+   "relation_kind": "table"
+  },
+  {
+   "id": "model.jaffle_shop.orders#order_id",
+   "kind": "column",
+   "label": "orders.order_id",
+   "name": "order_id",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "INTEGER",
+   "description": "This is a unique identifier for an order"
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders#order_id",
+   "kind": "column",
+   "label": "orders.order_id",
+   "name": "order_id",
+   "relation_kind": "table"
+  },
+  {
+   "id": "model.jaffle_shop.orders#status",
+   "kind": "column",
+   "label": "orders.status",
+   "name": "status",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "VARCHAR",
+   "description": "Orders can be one of the following statuses:\n\n| status         | description                                                                                                            |\n|----------------|------------------------------------------------------------------------------------------------------------------------|\n| placed         | The order has been placed but has not yet left the warehouse                                                           |\n| shipped        | The order has ben shipped to the customer and is currently in transit                                                  |\n| completed      | The order has been received by the customer                                                                            |\n| return_pending | The customer has indicated that they would like to return the order, but it has not yet been received at the warehouse |\n| returned       | The order has been returned by the customer and received at the warehouse                                              |"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_customers#first_name",
+   "kind": "column",
+   "label": "raw_customers.first_name",
+   "name": "first_name",
+   "relation_kind": "seed",
+   "path": "seeds/raw_customers.csv",
+   "data_type": "VARCHAR"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_customers#id",
+   "kind": "column",
+   "label": "raw_customers.id",
+   "name": "id",
+   "relation_kind": "seed",
+   "path": "seeds/raw_customers.csv",
+   "data_type": "INTEGER"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_customers#last_name",
+   "kind": "column",
+   "label": "raw_customers.last_name",
+   "name": "last_name",
+   "relation_kind": "seed",
+   "path": "seeds/raw_customers.csv",
+   "data_type": "VARCHAR"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders#id",
+   "kind": "column",
+   "label": "raw_orders.id",
+   "name": "id",
+   "relation_kind": "seed",
+   "path": "seeds/raw_orders.csv",
+   "data_type": "INTEGER"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders#order_date",
+   "kind": "column",
+   "label": "raw_orders.order_date",
+   "name": "order_date",
+   "relation_kind": "seed",
+   "path": "seeds/raw_orders.csv",
+   "data_type": "DATE"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders#status",
+   "kind": "column",
+   "label": "raw_orders.status",
+   "name": "status",
+   "relation_kind": "seed",
+   "path": "seeds/raw_orders.csv",
+   "data_type": "VARCHAR"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders#user_id",
+   "kind": "column",
+   "label": "raw_orders.user_id",
+   "name": "user_id",
+   "relation_kind": "seed",
+   "path": "seeds/raw_orders.csv",
+   "data_type": "INTEGER"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#amount",
+   "kind": "column",
+   "label": "raw_payments.amount",
+   "name": "amount",
+   "relation_kind": "seed",
+   "path": "seeds/raw_payments.csv",
+   "data_type": "INTEGER"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#id",
+   "kind": "column",
+   "label": "raw_payments.id",
+   "name": "id",
+   "relation_kind": "seed",
+   "path": "seeds/raw_payments.csv",
+   "data_type": "INTEGER"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#order_id",
+   "kind": "column",
+   "label": "raw_payments.order_id",
+   "name": "order_id",
+   "relation_kind": "seed",
+   "path": "seeds/raw_payments.csv",
+   "data_type": "INTEGER"
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#payment_method",
+   "kind": "column",
+   "label": "raw_payments.payment_method",
+   "name": "payment_method",
+   "relation_kind": "seed",
+   "path": "seeds/raw_payments.csv",
+   "data_type": "VARCHAR"
+  },
+  {
+   "id": "model.jaffle_shop.stg_customers#customer_id",
+   "kind": "column",
+   "label": "stg_customers.customer_id",
+   "name": "customer_id",
+   "relation_kind": "model",
+   "path": "models/staging/stg_customers.sql",
+   "data_type": "INTEGER"
+  },
+  {
+   "id": "model.jaffle_shop.stg_customers#first_name",
+   "kind": "column",
+   "label": "stg_customers.first_name",
+   "name": "first_name",
+   "relation_kind": "model",
+   "path": "models/staging/stg_customers.sql",
+   "data_type": "VARCHAR"
+  },
+  {
+   "id": "model.jaffle_shop.stg_customers#last_name",
+   "kind": "column",
+   "label": "stg_customers.last_name",
+   "name": "last_name",
+   "relation_kind": "model",
+   "path": "models/staging/stg_customers.sql",
+   "data_type": "VARCHAR"
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders#customer_id",
+   "kind": "column",
+   "label": "stg_orders.customer_id",
+   "name": "customer_id",
+   "relation_kind": "model",
+   "path": "models/staging/stg_orders.sql",
+   "data_type": "INTEGER"
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders#order_date",
+   "kind": "column",
+   "label": "stg_orders.order_date",
+   "name": "order_date",
+   "relation_kind": "model",
+   "path": "models/staging/stg_orders.sql",
+   "data_type": "DATE"
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "column",
+   "label": "stg_orders.order_id",
+   "name": "order_id",
+   "relation_kind": "model",
+   "path": "models/staging/stg_orders.sql",
+   "data_type": "INTEGER"
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders#status",
+   "kind": "column",
+   "label": "stg_orders.status",
+   "name": "status",
+   "relation_kind": "model",
+   "path": "models/staging/stg_orders.sql",
+   "data_type": "VARCHAR"
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#amount",
+   "kind": "column",
+   "label": "stg_payments.amount",
+   "name": "amount",
+   "relation_kind": "model",
+   "path": "models/staging/stg_payments.sql",
+   "data_type": "DOUBLE"
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#order_id",
+   "kind": "column",
+   "label": "stg_payments.order_id",
+   "name": "order_id",
+   "relation_kind": "model",
+   "path": "models/staging/stg_payments.sql",
+   "data_type": "INTEGER"
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#payment_id",
+   "kind": "column",
+   "label": "stg_payments.payment_id",
+   "name": "payment_id",
+   "relation_kind": "model",
+   "path": "models/staging/stg_payments.sql",
+   "data_type": "INTEGER"
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "column",
+   "label": "stg_payments.payment_method",
+   "name": "payment_method",
+   "relation_kind": "model",
+   "path": "models/staging/stg_payments.sql",
+   "data_type": "VARCHAR"
+  }
+ ]
+}
