@@ -27,7 +27,21 @@ On the 2,000-model project, after the graph is loaded:
 | `describe` of a model | 0.7 ms |
 | `conflicts` over every candidate column | 3.2 s |
 
-The first question after Konstruct loads a graph also builds the index it needs: about 50 ms for walks and paths on 2,000 models, and the search index for `search` and `query`. Loading `graph.json` itself takes about 1.3 s at that size, so a single CLI command spends most of its time reading the graph; the MCP server, the Python API and `konstruct diff` and `conflicts`, which ask many questions of one graph, gain the most.
+The index walks and paths use comes with the graph as Konstruct reads it, so the first `impact` or `path` is as fast as the next; the first `search` or `query` builds the search index, about 70 ms on 2,000 models. Reading `graph.json` takes about 0.36 s at that size (see [Reading the Graph](#reading-the-graph)), so a single CLI command still spends much of its time reading the graph; the MCP server, the Python API and `konstruct diff` and `conflicts`, which ask many questions of one graph, gain the most.
+
+## Reading the Graph
+
+Every command reads `graph.json` first. Konstruct reads it in two passes: the first finds where every token of the file starts, 64 bytes at a time with the processor's vector instructions, and the second checks the JSON over those positions and builds the index that walks and paths use straight from the file. The nodes become Python objects at once; an edge becomes one only when something reads it, so a command that asks one question makes only the edges its answer reaches. On the 2,000-model project, whose `graph.json` is 29.7 MB (`uv run .kodex/scripts/benchmark.py 2000`):
+
+| Step | Time |
+|---|---:|
+| Reading `graph.json` (`Graph.read`) | 0.36 s |
+| The first impact after reading it | 0.7 ms |
+| `konstruct impact m010.c01` in a fresh process | 440 ms of CPU time |
+| `konstruct status` in a fresh process | 624 ms of CPU time |
+| `konstruct search revenue` in a fresh process | 532 ms of CPU time |
+
+Making every edge a Python object, when a caller asks for all of them (`Graph.edges`, `to_dict`) or changes the graph, takes about 0.2 s more. `cargo bench --bench core` times the two passes without Python on a 45.5 MB `graph.json` of the same shape: finding the tokens takes 35 ms, finding them and checking the JSON 70 ms, and the graph's shape and index from those another 65 ms.
 
 ## Search by Meaning
 

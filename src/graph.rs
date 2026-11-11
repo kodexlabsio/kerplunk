@@ -229,19 +229,28 @@ pub struct GraphIndexBuilder {
 }
 
 impl GraphIndexBuilder {
-    /// Add the node `id`, of kind `kind`.
+    /// Add the node `id`, of kind `kind`; returns whether it is new (a node added twice keeps
+    /// its first kind and ordinal).
     ///
     /// # Panics
     ///
     /// When an edge has been added already: ordinals below the node count must be the nodes.
-    pub fn node(&mut self, id: &str, kind: NodeKind) {
+    pub fn node(&mut self, id: &str, kind: NodeKind) -> bool {
         assert!(
             self.nodes.is_none(),
             "every node is added before the first edge"
         );
-        if self.interner.intern(id) as usize == self.kinds.len() {
+        let new = self.interner.intern(id) as usize == self.kinds.len();
+        if new {
             self.kinds.push(kind);
         }
+        new
+    }
+
+    /// The ordinal of the edge endpoint `id`, numbered after the nodes when it is not one.
+    pub fn endpoint(&mut self, id: &str) -> u32 {
+        self.nodes.get_or_insert(self.interner.ids.len());
+        self.interner.intern(id)
     }
 
     /// Record that the column with ordinal `node` belongs to the relation `parent`. A parent no
@@ -273,9 +282,13 @@ impl GraphIndexBuilder {
 
     /// Add an edge from `source` to `target`; `reference` when it joins, filters or groups.
     pub fn edge(&mut self, source: &str, target: &str, kind: EdgeKind, reference: bool) {
-        self.nodes.get_or_insert(self.interner.ids.len());
-        let source = self.interner.intern(source);
-        let target = self.interner.intern(target);
+        let source = self.endpoint(source);
+        let target = self.endpoint(target);
+        self.edge_between(source, target, kind, reference);
+    }
+
+    /// Add an edge between the endpoints with ordinals `source` and `target` ([`Self::endpoint`]).
+    pub fn edge_between(&mut self, source: u32, target: u32, kind: EdgeKind, reference: bool) {
         self.edges.push(Edge {
             source,
             target,
@@ -362,6 +375,31 @@ impl GraphIndex {
     /// The edge with ordinal `edge`.
     pub fn edge(&self, edge: u32) -> &Edge {
         &self.edges[edge as usize]
+    }
+
+    /// The number of nodes and edge endpoints, the ordinals there are.
+    pub fn endpoint_count(&self) -> usize {
+        self.ids.len()
+    }
+
+    /// The number of edges.
+    pub fn edge_count(&self) -> usize {
+        self.edges.len()
+    }
+
+    /// The ordinal of the node or edge endpoint `id`.
+    pub fn ordinal(&self, id: &str) -> Option<u32> {
+        self.ordinals.get(id).copied()
+    }
+
+    /// The ordinals of the edges leaving the node or endpoint `ordinal`, in insertion order.
+    pub fn outgoing(&self, ordinal: u32) -> &[u32] {
+        self.outgoing.of(ordinal)
+    }
+
+    /// The ordinals of the edges arriving at the node or endpoint `ordinal`, in insertion order.
+    pub fn incoming(&self, ordinal: u32) -> &[u32] {
+        self.incoming.of(ordinal)
     }
 
     /// Every node reachable from `starts` along `flow` (`Downstream` or `Upstream`), breadth
@@ -626,9 +664,9 @@ mod tests {
 
     fn index(nodes: &[&str], edges: &[(&str, &str, &str)]) -> GraphIndex {
         let mut builder = GraphIndex::builder();
-        nodes
-            .iter()
-            .for_each(|id| builder.node(id, NodeKind::Other));
+        nodes.iter().for_each(|id| {
+            builder.node(id, NodeKind::Other);
+        });
         for &(source, target, kind) in edges {
             builder.edge(source, target, EdgeKind::parse(kind), false);
         }
@@ -782,9 +820,9 @@ mod tests {
     #[test]
     fn reference_edges_stop_the_walk_when_asked() {
         let mut builder = GraphIndex::builder();
-        ["a", "b", "c"]
-            .iter()
-            .for_each(|id| builder.node(id, NodeKind::Other));
+        ["a", "b", "c"].iter().for_each(|id| {
+            builder.node(id, NodeKind::Other);
+        });
         builder.edge("a", "b", EdgeKind::Feeds, true);
         builder.edge("b", "c", EdgeKind::Feeds, false);
         let graph = builder.build();

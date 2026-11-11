@@ -20,6 +20,7 @@
 - Hevo, Datastream, Openflow, Matillion, Rivery, Polytomic, PeerDB, Segment, RudderStack, Snowplow, Census and Hightouch tables are recognised in the warehouse with a sync task, but get no source system or column lineage. In the warehouse, DMS is recognised only by its control tables, and Lakeflow Connect, Portable, Supermetrics, Windsor.ai and Azure Data Factory only when a dbt source names them as its `loader:`; DMS and Lakeflow Connect tables are also read from their configuration files.
 - `history` renders old versions of a dbt model with today's macros and the current manifest, so a change made only in a macro is not listed, and a ref to a since-renamed model is noted as a formula it could not work out. The SQL inside a DAG task (not a SQL file it runs) has no history.
 - `diff` reads dbt YAML for tests, descriptions, sources and exposures, but not for other configuration (materialisation, contracts, meta).
+- `graph.json` is read only up to 2 GiB; a larger file is refused with an error that says so. A 2,000-model project's is about 30 MB.
 
 ## Not Yet (v1)
 

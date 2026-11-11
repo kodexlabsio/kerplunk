@@ -144,7 +144,7 @@ Poor data quality is expensive, by the industry's own surveys, most of them by v
 
 **Agents get context instead of guessing.** In data.world's benchmark of 43 insurance questions, GPT-4 answered 16.7% correctly over the raw SQL schema and 54.2% over a knowledge graph of the business ([data.world, 2023](https://arxiv.org/abs/2311.07509)). In dbt Labs' 2026 benchmark, text-to-SQL scored 64.5% on the raw schema and 84.1% to 90.0% on the modelled project, and queries through the dbt Semantic Layer 98.2% to 100% ([dbt Labs, 2026](https://docs.getdbt.com/blog/semantic-layer-vs-text-to-sql-2026)). Konstruct gives agents the same kind of context, derived from the code you already have: the entities, keys, measures, relationships and approved definitions, served over MCP.
 
-**Reading every model downstream becomes a query.** "What breaks if I change this column?" takes about 9 ms on a generated 2,000-model project once the graph is loaded, as the MCP server and the Python API keep it, and a few seconds from the command line. With the GitHub Action it is asked again on every pull request, before anything ships.
+**Reading every model downstream becomes a query.** "What breaks if I change this column?" takes about 9 ms on a generated 2,000-model project once the graph is loaded, as the MCP server and the Python API keep it, and about half a second of CPU time from the command line. With the GitHub Action it is asked again on every pull request, before anything ships.
 
 **Claims become evidence.** On the bundled example, every one of its 36 claimed column edges is confirmed against the data, and 300 generated queries on generated data leave nothing unexplained. A lineage graph you can prove is one an auditor, a regulator or an agent can rely on.
 

@@ -23,8 +23,8 @@ models through CTEs, with a manifest, a catalog and Airflow DAGs. For each size 
   time (it uses several threads), the size of the vectors.bin it saves, and the median time of a
   search by meaning after it.
 
-It also measures start-up: the CPU time of ``konstruct --help`` and of ``konstruct status`` on
-the largest project, each in a fresh process, and in the same way ``konstruct search`` with and
+It also measures start-up: the CPU time of ``konstruct --help``, of ``konstruct status`` and of
+``konstruct impact`` on a column on the largest project, each in a fresh process, and in the same way ``konstruct search`` with and
 without ``--meaning``, which reads the saved vectors.bin.
 
 Usage:
@@ -178,7 +178,7 @@ def measure(models: int) -> dict[str, Any]:
             **startup,
             'graph_json_mb': round((project.out_dir / 'graph.json').stat().st_size / 1e6, 1),
             'graph_html_mb': round((project.out_dir / 'graph.html').stat().st_size / 1e6, 1),
-            'load_s': round(load, 2),
+            'load_s': round(load, 3),
             'first_impact_ms': round(1000 * first_impact, 1),
             'first_search_ms': round(1000 * first_search, 1),
             'search_ms': round(1000 * median_time(project.search, 'm010 c01'), 1),
@@ -221,7 +221,11 @@ def cpu_ms(args: list[str], cwd: Path, repeat: int = 7) -> float:
 
 
 def measure_startup(root: Path) -> dict[str, float]:
-    return {'help_cpu_ms': cpu_ms(['--help'], root), 'status_cpu_ms': cpu_ms(['status'], root)}
+    return {
+        'help_cpu_ms': cpu_ms(['--help'], root),
+        'status_cpu_ms': cpu_ms(['status'], root),
+        'impact_cpu_ms': cpu_ms(['impact', 'm010.c01'], root),
+    }
 
 
 def hook_latency(root: Path, middle: Path) -> tuple[float, float]:
@@ -295,7 +299,8 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         lines += [
             '',
             f'Start-up (CPU time, {startup["models"]:,} models): `konstruct --help` {startup["help_cpu_ms"]} ms, '
-            f'`konstruct status` {startup["status_cpu_ms"]} ms.',
+            f'`konstruct status` {startup["status_cpu_ms"]} ms, `konstruct impact m010.c01` '
+            f'{startup["impact_cpu_ms"]} ms.',
         ]
     lines += [
         '',

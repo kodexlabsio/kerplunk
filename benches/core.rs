@@ -10,7 +10,9 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use _core::graph::{EdgeKind, GraphIndex, NodeKind};
+use _core::json::{self, tape::Tape};
 use _core::keys;
+use _core::load::Shape;
 use _core::names::{Relation, RelationNames};
 use _core::search::{Document, SearchIndex, Standing};
 use _core::vector::VectorIndex;
@@ -197,6 +199,94 @@ fn documents(nodes: &[Node]) -> impl Iterator<Item = Document<'_>> {
     })
 }
 
+/// `text` as a JSON string, quotes included.
+fn quoted(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// The project as graph.json holds it, indented by two spaces as Konstruct writes it: each
+/// column with its type and the expression that computes it, and the edges of [`graph`] with
+/// their attributes.
+fn graph_json(nodes: &[Node]) -> String {
+    let mut out = String::from(
+        "{\n  \"format_version\": 1,\n  \"meta\": {\n    \"dialect\": \"duckdb\"\n  },\n  \"nodes\": [\n",
+    );
+    for (ordinal, node) in nodes.iter().enumerate() {
+        out.push_str("    {\n");
+        out.push_str(&format!(
+            "      \"id\": {},\n      \"kind\": \"{}\",\n      \"name\": {},\n",
+            quoted(&node.id),
+            node.kind,
+            quoted(&node.name)
+        ));
+        if let Some(parent) = node.parent {
+            out.push_str(&format!(
+                "      \"parent\": {},\n      \"data_type\": \"INTEGER\",\n",
+                quoted(&nodes[parent].id)
+            ));
+        }
+        if let Some(relation) = &node.relation {
+            out.push_str(&format!("      \"relation\": {},\n", quoted(relation)));
+        }
+        if !node.description.is_empty() {
+            out.push_str(&format!(
+                "      \"description\": {},\n",
+                quoted(&node.description)
+            ));
+        }
+        out.push_str("      \"origins\": [\n        \"dbt\"\n      ],\n      \"attrs\": {\n");
+        let expression = match node.parent {
+            Some(parent) => format!(
+                "sum(\"{}\".\"{}\") * {ordinal}",
+                nodes[parent].name, node.name
+            ),
+            None => format!("select * from {}", node.name),
+        };
+        out.push_str(&format!(
+            "        \"expression\": {}\n      }}\n    }},\n",
+            quoted(&expression)
+        ));
+    }
+    out.truncate(out.len() - 2);
+    out.push_str("\n  ],\n  \"edges\": [\n");
+    let index = graph(nodes);
+    for edge in 0..index.edge_count() {
+        let edge = index.edge(edge as u32);
+        let kind = match edge.kind {
+            EdgeKind::Contains => "contains",
+            EdgeKind::Feeds => "feeds",
+            _ => "derived_from",
+        };
+        out.push_str(&format!(
+            "    {{\n      \"source\": {},\n      \"target\": {},\n      \"kind\": \"{kind}\"",
+            quoted(index.id(edge.source)),
+            quoted(index.id(edge.target))
+        ));
+        if kind == "derived_from" {
+            let role = if edge.reference {
+                "        \"role\": \"reference\",\n"
+            } else {
+                ""
+            };
+            out.push_str(&format!(",\n      \"attrs\": {{\n{role}        \"transform\": \"direct\",\n        \"origin\": \"dbt\"\n      }}"));
+        }
+        out.push_str("\n    },\n");
+    }
+    out.truncate(out.len() - 2);
+    out.push_str("\n  ],\n  \"warnings\": []\n}\n");
+    out
+}
+
 /// The project's lineage, as tests/test_scale.py lays it out: each model reads two earlier
 /// ones, and each column derives from the same column of both.
 fn graph(nodes: &[Node]) -> GraphIndex {
@@ -374,6 +464,19 @@ fn main() {
 
     bench(filter, "graph index", || {
         black_box(graph(&nodes));
+    });
+    let document = graph_json(&nodes);
+    let bytes = document.as_bytes();
+    println!("graph.json of the project: {} bytes", bytes.len());
+    bench(filter, "scan of graph.json", || {
+        black_box(json::index(bytes));
+    });
+    bench(filter, "parse of graph.json (scan and tape)", || {
+        black_box(Tape::parse(bytes).unwrap());
+    });
+    let tape = Tape::parse(bytes).unwrap();
+    bench(filter, "shape and graph index from the tape", || {
+        black_box(Shape::read(tape.doc(bytes)).unwrap());
     });
     let lineage = graph(&nodes);
     let column = |model: usize| lineage.node(&nodes[model * (COLUMNS + 1) + 2].id).unwrap();

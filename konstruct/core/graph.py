@@ -22,14 +22,21 @@ Walks, shortest paths and name resolution run in the native core (``konstruct._c
 index of the graph, made on first use and again after the graph changes through ``add_node``,
 ``add_edge`` or ``remove_edge``. Code that edits a node's or an edge's fields in place calls
 ``changed()``.
+
+``Graph.read`` parses ``graph.json`` in the native core, which also makes the index walks use
+from the file. The nodes become Python objects at once; each edge only when something reads it
+(``out_edges``, a walk's steps), and all of them when the graph changes or every edge is asked
+for (``edges``, ``to_dict``).
 """
 
 from __future__ import annotations
 
+import json
+import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, TypeVar, cast
+from typing import Any, Literal, Protocol, TypeVar, cast
 
 from konstruct import _core
 from konstruct.core import formats, jsonio
@@ -47,6 +54,8 @@ RELATION_PRIORITY: dict[str, int] = {'source': 0, 'model': 1, 'snapshot': 2, 'se
 GRAPH_FORMAT_VERSION = 1
 
 _Index = TypeVar('_Index')
+# Held while a read graph's edges are made Python objects (``Graph._edge_map``).
+_MAKING_EDGES = threading.Lock()
 IndexBasis = Literal['graph', 'nodes', 'relations']
 """What an index is made from, so what makes it stale (see ``Graph.indexed``)."""
 
@@ -153,6 +162,11 @@ class Step:
 
 
 class Graph:
+    # A graph read from graph.json whose edges are still in the file: until they are made Python
+    # objects (``_edge_map``), ``_edges``, ``_out`` and ``_in`` are empty. Set on the class too,
+    # so a graph pickled before graphs had it unpickles as one with every edge made.
+    _file: _core.GraphFile | None = None
+
     def __init__(self) -> None:
         self.nodes: dict[str, Node] = {}
         self._edges: dict[tuple[str, str, str], Edge] = {}
@@ -165,6 +179,7 @@ class Graph:
         # changes; each cached index records the version it was made from.
         self._versions: dict[IndexBasis, int] = {'graph': 0, 'nodes': 0, 'relations': 0}
         self._indexes: dict[str, tuple[int, Any]] = {}
+        self._file = None
 
     # Construction
 
@@ -227,6 +242,7 @@ class Graph:
         """Add an edge, or merge ``attrs`` into an existing one of the same kind between the same nodes. Self-loops are ignored and return None."""
         if source == target:
             return None
+        self._edge_map()
         self._versions['graph'] += 1
         key = (source, target, kind)
         existing = self._edges.get(key)
@@ -241,7 +257,7 @@ class Graph:
         return edge
 
     def remove_edge(self, edge: Edge) -> None:
-        if self._edges.pop(edge.key, None) is not None:
+        if self._edge_map().pop(edge.key, None) is not None:
             self._versions['graph'] += 1
             self._out[edge.source].remove(edge)
             self._in[edge.target].remove(edge)
@@ -263,6 +279,12 @@ class Graph:
             self._indexes[name] = cached
         return cast(_Index, cached[1])
 
+    def __getstate__(self) -> dict[str, Any]:
+        """What ``copy`` and ``pickle`` keep: every edge as a Python object, and no index, as
+        each is made again when a query needs it."""
+        self._edge_map()
+        return {**vars(self), '_indexes': {}}
+
     def warn(self, message: str) -> None:
         if message not in self.warnings:
             self.warnings.append(message)
@@ -271,14 +293,41 @@ class Graph:
 
     @property
     def edges(self) -> list[Edge]:
-        return list(self._edges.values())
+        return list(self._edge_map().values())
+
+    def _edge_map(self) -> dict[tuple[str, str, str], Edge]:
+        """Every edge by its key, made Python objects first if they are still in the file.
+
+        The MCP server and the HTTP API answer from threads, so the edges are made under a lock
+        into new dictionaries, which replace the empty ones before the file is let go: a reader
+        sees the file or every edge, never part of them."""
+        if self._file is not None:
+            with _MAKING_EDGES:
+                file = self._file
+                if file is not None:
+                    edges: dict[tuple[str, str, str], Edge] = {}
+                    out: dict[str, list[Edge]] = {}
+                    into: dict[str, list[Edge]] = {}
+                    for edge in cast(list[Edge], file.edges()):
+                        edges[edge.key] = edge
+                        out.setdefault(edge.source, []).append(edge)
+                        into.setdefault(edge.target, []).append(edge)
+                    self._edges, self._out, self._in = edges, out, into
+                    self._file = None
+        return self._edges
 
     def out_edges(self, node_id: str, kind: str | None = None) -> list[Edge]:
         """Edges leaving ``node_id``, optionally only of one kind."""
+        file = self._file
+        if file is not None:
+            return cast(list[Edge], file.out_edges(node_id, kind))
         return [e for e in self._out.get(node_id, []) if kind is None or e.kind == kind]
 
     def in_edges(self, node_id: str, kind: str | None = None) -> list[Edge]:
         """Edges arriving at ``node_id``, optionally only of one kind."""
+        file = self._file
+        if file is not None:
+            return cast(list[Edge], file.in_edges(node_id, kind))
         return [e for e in self._in.get(node_id, []) if kind is None or e.kind == kind]
 
     def node_for_relation(self, key: str) -> Node | None:
@@ -400,7 +449,7 @@ class Graph:
         return self._neighbours(node_id, downstream=False)
 
     def _neighbours(self, node_id: str, *, downstream: bool) -> Iterator[tuple[Edge, str]]:
-        traversal = self.indexed('traversal', _Traversal)
+        traversal = self.indexed('traversal', _Traversal.of)
         for ordinal in traversal.core.neighbours(node_id, downstream):
             edge = traversal.edges[ordinal]
             yield edge, edge.target if edge.source == node_id else edge.source
@@ -421,7 +470,7 @@ class Graph:
         whose SQL an edge on the way came from (an Airflow SQL task, a Dagster asset). Tests and
         the tasks that run a node are reported, not walked through.
         """
-        traversal = self.indexed('traversal', _Traversal)
+        traversal = self.indexed('traversal', _Traversal.of)
         return traversal.steps(
             traversal.core.impact(self.expand(node), _native_depth(max_depth), node.kind == 'column')
         )
@@ -429,7 +478,7 @@ class Graph:
     def trace(self, node: Node, max_depth: int | None = None) -> list[Step]:
         """Everything upstream of ``node``. For a column, the tasks that build each relation on the
         way (including the column's own) are reported too."""
-        traversal = self.indexed('traversal', _Traversal)
+        traversal = self.indexed('traversal', _Traversal.of)
         return traversal.steps(
             traversal.core.trace(self.expand(node), _native_depth(max_depth), node.kind == 'column')
         )
@@ -438,14 +487,14 @@ class Graph:
         """Whether ``consumer`` (a Looker view, say) records which of ``relation``'s columns it
         reads, so a column reaches it only through its own edge, and walks do not pass it every
         column of ``relation``."""
-        return self.indexed('traversal', _Traversal).core.fed_by_columns_of(consumer, relation)
+        return self.indexed('traversal', _Traversal.of).core.fed_by_columns_of(consumer, relation)
 
     def path(self, start: Node, end: Node) -> list[Step]:
         """Shortest path from ``start`` to ``end``, following data flow in either direction: downstream
         if there is a path that way, else upstream, else either way through ``contains`` and
         ``precedes`` too. Of several paths of the same length, each step takes the neighbour whose
         id sorts first, so the same path is found whatever order the build added the edges in."""
-        traversal = self.indexed('traversal', _Traversal)
+        traversal = self.indexed('traversal', _Traversal.of)
         return traversal.steps(traversal.core.path(start.id, end.id))
 
     # Serialisation
@@ -457,7 +506,7 @@ class Graph:
             'meta': self.meta,
             'nodes': [n.to_dict() for n in sorted(self.nodes.values(), key=lambda n: n.id)],
             # Insertion order, which a build makes deterministic, keeps columns in table order.
-            'edges': [e.to_dict() for e in self._edges.values()],
+            'edges': [e.to_dict() for e in self._edge_map().values()],
             'warnings': self.warnings,
         }
 
@@ -485,14 +534,67 @@ class Graph:
 
     @classmethod
     def read(cls, path: Path) -> Graph:
-        """Load a graph from a ``graph.json`` file."""
-        return cls.from_dict(jsonio.loads(path.read_bytes()), str(path))
+        """Load a graph from a ``graph.json`` file, written by this or any earlier Konstruct.
+
+        Raises:
+            json.JSONDecodeError: The file is not JSON; the message says where and why.
+            konstruct.FormatError: A newer Konstruct wrote it, it is not a graph, or it is larger
+                than 2 GiB.
+        """
+        return cls.from_json(path.read_bytes(), str(path))
+
+    @classmethod
+    def from_json(cls, data: bytes, source: str = 'the graph') -> Graph:
+        """The graph in ``data``, the bytes of a ``graph.json``, as ``read`` reads a file.
+
+        Raises:
+            json.JSONDecodeError: ``data`` is not JSON; the message says where and why.
+            konstruct.FormatError: A newer Konstruct wrote it, it is not a graph, or it is larger
+                than 2 GiB (``source`` names it).
+        """
+        try:
+            file = _core.GraphFile(data)
+        except OverflowError as error:
+            raise formats.FormatError(f'{source} cannot be read: {error}') from None
+        except ValueError as error:
+            message, offset = error.args
+            # The position is in characters, as the standard library's decoder counts it.
+            text = data.decode('utf-8', 'replace')
+            position = len(data[:offset].decode('utf-8', 'replace'))
+            raise json.JSONDecodeError(f'{source} is not valid JSON: {message}', text, position) from None
+        header = file.header()
+        formats.check(header, GRAPH_FORMAT_VERSION, source)
+        try:
+            nodes, later = file.load(Node, Edge)
+        except ValueError:
+            # Not a graph as Konstruct writes one (a node id that is a number, say): from_dict
+            # gives it the meaning it has always had, errors included.
+            return cls.from_dict(file.document(), source)
+        graph = cls()
+        graph.meta = dict(header.get('meta', {}))
+        graph.nodes = cast(dict[str, Node], nodes)
+        values = list(graph.nodes.values())
+        # The index of a file's edges is made with it, for as long as the graph is as read.
+        graph._indexes['traversal'] = (0, _Traversal(values, file, file.index()))
+        # Relations are indexed, and a node whose id came before merged, in the file's order,
+        # as add_node does them.
+        indexed = 0
+        for before, node in [*cast(list[tuple[int, Node]], later), (len(values), None)]:
+            for relation in values[indexed:before]:
+                if relation.relation and relation.kind in RELATION_KINDS:
+                    graph._index_relation(relation)
+            indexed = before
+            if node is not None:
+                graph.add_node(node)
+        graph._file = file
+        graph.warnings = list(header.get('warnings', []))
+        return graph
 
     def stats(self) -> dict[str, int]:
         counts: dict[str, int] = {}
         for node in self.nodes.values():
             counts[node.kind] = counts.get(node.kind, 0) + 1
-        for edge in self._edges.values():
+        for edge in self._edge_map().values():
             counts[f'edge:{edge.kind}'] = counts.get(f'edge:{edge.kind}', 0) + 1
         return counts
 
@@ -503,33 +605,47 @@ def _native_depth(max_depth: int | None) -> int | None:
     return None if max_depth is None else min(max(max_depth, 0), 2**63 - 1)
 
 
+class _Edges(Protocol):
+    """Edges by ordinal: a list of them, or the file a graph was read from."""
+
+    def __getitem__(self, ordinal: int, /) -> Edge: ...
+
+
 class _Traversal:
     """The graph's edges in the native index, with the nodes and edges its ordinals number."""
 
-    def __init__(self, graph: Graph) -> None:
-        self.nodes = list(graph.nodes.values())
+    def __init__(self, nodes: list[Node], edges: _Edges, core: _core.GraphIndex) -> None:
+        self.nodes = nodes
+        self.edges = edges
+        self.core = core
+
+    @classmethod
+    def of(cls, graph: Graph) -> _Traversal:
+        nodes = list(graph.nodes.values())
         # Insertion order, which is the order of each node's adjacency lists.
-        self.edges = list(graph._edges.values())
+        edges = graph.edges
         references: list[bool] = []
         # The tasks whose SQL each edge came from, as (edge, task) in edge order.
         through: list[tuple[int, str]] = []
-        for ordinal, edge in enumerate(self.edges):
+        for ordinal, edge in enumerate(edges):
             attrs = edge.attrs
             references.append(attrs.get('role') == 'reference')
             if 'via' in attrs or 'also_via' in attrs:
-                for task in [attrs.get('via'), *attrs.get('also_via', [])]:
+                also = attrs.get('also_via')
+                for task in [attrs.get('via'), *(also if isinstance(also, list) else [])]:
                     if isinstance(task, str):
                         through.append((ordinal, task))
-        self.core = _core.GraphIndex(
+        core = _core.GraphIndex(
             list(graph.nodes),
-            [n.kind for n in self.nodes],
-            [n.parent or None for n in self.nodes],
-            [e.source for e in self.edges],
-            [e.target for e in self.edges],
-            [e.kind for e in self.edges],
+            [n.kind for n in nodes],
+            [n.parent or None for n in nodes],
+            [e.source for e in edges],
+            [e.target for e in edges],
+            [e.kind for e in edges],
             references,
             through,
         )
+        return cls(nodes, edges, core)
 
     def steps(self, visits: list[tuple[int, int, int | None, int | None]]) -> list[Step]:
         nodes, edges, count = self.nodes, self.edges, len(self.nodes)

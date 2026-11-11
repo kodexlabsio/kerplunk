@@ -28,6 +28,7 @@ pub mod graph;
 pub mod identity;
 pub mod json;
 pub mod keys;
+pub mod load;
 pub mod names;
 pub mod route;
 pub mod search;

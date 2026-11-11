@@ -51,10 +51,9 @@ fn build(graph: &Generated) -> (GraphIndex, Vec<String>, Vec<String>) {
     let sources: Vec<String> = graph.edges.iter().map(|e| id(graph, e.0)).collect();
     let targets: Vec<String> = graph.edges.iter().map(|e| id(graph, e.1)).collect();
     let mut builder = GraphIndex::builder();
-    graph
-        .nodes
-        .iter()
-        .for_each(|id| builder.node(id, NodeKind::Other));
+    graph.nodes.iter().for_each(|id| {
+        builder.node(id, NodeKind::Other);
+    });
     for (i, e) in graph.edges.iter().enumerate() {
         builder.edge(&sources[i], &targets[i], EdgeKind::parse(KINDS[e.2]), e.3);
     }

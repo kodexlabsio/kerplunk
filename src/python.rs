@@ -68,7 +68,7 @@ pub(crate) fn key<'a>(text: &'a Bound<'_, PyString>) -> PyResult<std::borrow::Co
 }
 
 /// The Python string the key `key` stands for.
-fn string<'py>(py: Python<'py>, key: &str) -> PyResult<Bound<'py, PyString>> {
+pub(crate) fn string<'py>(py: Python<'py>, key: &str) -> PyResult<Bound<'py, PyString>> {
     match keys::to_generalized_utf8(key) {
         std::borrow::Cow::Borrowed(_) => Ok(PyString::new(py, key)),
         std::borrow::Cow::Owned(bytes) => Ok(pyo3::types::PyBytes::new(py, &bytes)
@@ -118,11 +118,16 @@ impl FromPyObject<'_, '_> for Key {
 /// The edges of a graph, indexed for walks and shortest paths. Nodes and edges are numbered in
 /// the order they were given.
 #[pyclass(frozen, module = "konstruct._core")]
-struct GraphIndex {
-    inner: graph::GraphIndex,
+pub(crate) struct GraphIndex {
+    inner: Arc<graph::GraphIndex>,
 }
 
 impl GraphIndex {
+    /// The index `inner`, shared with whatever else holds it (a loaded `GraphFile`).
+    pub(crate) fn shared(inner: Arc<graph::GraphIndex>) -> Self {
+        Self { inner }
+    }
+
     fn ordinals(&self, ids: &[Key]) -> Vec<u32> {
         ids.iter().filter_map(|id| self.inner.node(id)).collect()
     }
@@ -181,7 +186,7 @@ impl GraphIndex {
             builder.through(*edge, task);
         }
         Ok(Self {
-            inner: builder.build(),
+            inner: Arc::new(builder.build()),
         })
     }
 
@@ -541,6 +546,8 @@ mod core_module {
     use super::{GraphIndex, RelationNames, Router, SearchIndex, Server, graph_version, openapi};
     #[pymodule_export]
     use crate::identity::python::FormulaSet;
+    #[pymodule_export]
+    use crate::load::python::GraphFile;
     #[pymodule_export]
     use crate::vector::python::{VectorIndex, concept, terms};
 

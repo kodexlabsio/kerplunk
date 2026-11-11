@@ -42,6 +42,35 @@ class GraphIndex:
         """The edges a walk follows from ``node``."""
 
 @final
+class GraphFile:
+    """A parsed ``graph.json``: its nodes are made Python objects by ``load``, its edges one at a
+    time, when first asked for."""
+
+    def __init__(self, data: bytes) -> None:
+        """Raises ``ValueError(message, offset)`` when ``data`` is not JSON, and ``OverflowError``
+        when it is larger than 2 GiB."""
+    def document(self) -> Any:
+        """The whole document as Python values, for one that ``load`` refuses."""
+    def header(self) -> Any:
+        """The document's members other than ``nodes`` and ``edges``, or the document itself when
+        it is not an object."""
+    def load(self, node_type: type, edge_type: type) -> tuple[dict[str, Any], list[tuple[int, Any]]]:
+        """The first node of each id, by id, and the later ones with an id that came before, each
+        with the number of first nodes before it. Raises ``ValueError(message)`` when the
+        document is not a graph as Konstruct writes one."""
+    def index(self) -> GraphIndex:
+        """The index of the edges, numbered as this file numbers them."""
+    def __len__(self) -> int: ...
+    def __getitem__(self, ordinal: int, /) -> Any:
+        """The edge with this ordinal."""
+    def edges(self) -> list[Any]:
+        """Every edge, in order."""
+    def out_edges(self, node: str, kind: str | None = None) -> list[Any]:
+        """The edges leaving ``node``, of kind ``kind`` if given."""
+    def in_edges(self, node: str, kind: str | None = None) -> list[Any]:
+        """The edges arriving at ``node``, of kind ``kind`` if given."""
+
+@final
 class RelationNames:
     """Relations by every name they answer to."""
 
