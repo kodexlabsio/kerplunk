@@ -32,7 +32,7 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 | `konstruct.inputs` | `dbt`, `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `ingestion`, `hcl`, `warehouse`, `usage` |
 | `konstruct.engine` | `build`, `config`, `worker` |
 | `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `ossie`, `registry` |
-| `konstruct.analysis` | `query`, `semantic`, `explain`, `conflicts`, `diff`, `gate`, `verify`, `mutation`, `why`, `laws`, `history`, `receipts` |
+| `konstruct.analysis` | `query`, `semantic`, `explain`, `english`, `conflicts`, `diff`, `gate`, `verify`, `mutation`, `why`, `laws`, `history`, `receipts` |
 | `konstruct.outputs` | `report`, `html`, `export` |
 | `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
 | `konstruct.plugins` | `api` (the plugin API: protocols and types), `registry` (finding, enabling and loading plugins) |
@@ -112,6 +112,8 @@ project.query('what breaks if stg_payments.amount changes').impact
 explanation = project.explain('orders.credit_card_amount')
 print(explanation.composed)
 # SUM(CASE WHEN raw_payments.payment_method = 'credit_card' THEN raw_payments.amount / 100 ELSE 0 END)
+print(project.english('orders.credit_card_amount').english)
+# the sum of ([amount] divided by 100 if [payment method] is 'credit_card', else 0)
 
 term = project.define('lifetime value').terms[0]
 print(term.definition, term.owner, [column.label for column in term.columns])
@@ -130,6 +132,7 @@ print(ontology.measure('customer lifetime value').columns[0].formula)
 
 ```{eval-rst}
 .. automethod:: konstruct.Project.explain
+.. automethod:: konstruct.Project.english
 .. automethod:: konstruct.Project.history
 .. automethod:: konstruct.Project.define
 .. automethod:: konstruct.Project.conflicts
@@ -232,6 +235,18 @@ print([(r.id, r.status) for r in project.check_receipts().receipts])
    :members:
 
 .. autoclass:: konstruct.analysis.explain.Step
+   :members:
+
+.. autoclass:: konstruct.analysis.english.English
+   :members:
+
+.. autoclass:: konstruct.analysis.english.Rows
+   :members:
+
+.. autoclass:: konstruct.analysis.english.Term
+   :members:
+
+.. autoclass:: konstruct.analysis.english.Name
    :members:
 ```
 

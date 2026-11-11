@@ -112,6 +112,20 @@ conditions beside the formula, and a test evaluates composed formulas of chains 
 filters or aggregation directly on the source tables and requires them to give the final model's
 values row for row.
 
+\paragraph{Formulas in plain English}
+With \cmd{--english}, \cmd{explain} also words $\varphi(c)$ and the conditions of each step by a
+fixed grammar over the expression tree. Each node type has one wording and \cmd{NULL} is
+\emph{no value}; a test holds only where it is true, so a negated test names what it needs
+(\emph{x has a value other than 'a'}), and a \cmd{NOT} the grammar cannot word that way is
+quoted. Columns are named in square brackets, an operand that is itself an operation is bracketed
+unless it continues a chain of the same operator, and what a dialect leaves implicit and changes
+the result, such as where an ordering puts missing values or whether division of whole numbers
+is whole, is stated, so formulas that compute different things never share a sentence. A node
+with no wording is quoted as SQL rather than paraphrased. Tests check each wording against its
+SQL, evaluate the negated tests on rows with and without values, check that no sentence names a
+literal or a column absent from its formula, and print random formulas in several dialects, parse
+them back and check that formulas which differ never share a sentence.
+
 \paragraph{Composition as text with operand-sensitive contexts}
 The viewer shows every column's composed formula, so a build composes all of them. Building each
 $\varphi(c)$ as a tree copies and prints ever larger trees. Konstruct instead prints each column's

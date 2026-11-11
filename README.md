@@ -318,7 +318,7 @@ Try the [live demo](https://kodexlabsio.github.io/konstruct/demo/): the viewer f
 
 - `konstruct impact` and `konstruct trace`: everything downstream or upstream of a table or column, through dbt models, SQL files, warehouse views, Airflow and Dagster tasks, PySpark jobs, loaders and dashboards, with the transform at each step.
 - `konstruct path`: how two tables or columns are connected.
-- `konstruct explain`: a column's formula composed through every model upstream, down to source columns, with the joins and filters on the way.
+- `konstruct explain`: a column's formula composed through every model upstream, down to source columns, with the joins and filters on the way; `--english` words it, its conditions, grain and terms in plain English by a fixed grammar, so the sentence says only what the SQL says ([in plain English](https://kodexlabsio.github.io/konstruct/guide/explain.html#in-plain-english)).
 - `konstruct build --update`: an incremental rebuild that reanalyses only what changed.
 - `konstruct search`, `konstruct describe`, `konstruct list` and `konstruct query`: find anything in the graph by name, inspect one node, list a kind, or ask in plain words.
 - One graph across repositories that share a warehouse, and across warehouses.

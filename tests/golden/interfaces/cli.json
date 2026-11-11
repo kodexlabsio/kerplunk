@@ -175,6 +175,7 @@
  "konstruct diff -q": "flag",
  "konstruct diff -v": "flag",
  "konstruct explain": "command",
+ "konstruct explain --english": "flag",
  "konstruct explain --graph": "option str",
  "konstruct explain --graph default": "None",
  "konstruct explain --help": "flag",

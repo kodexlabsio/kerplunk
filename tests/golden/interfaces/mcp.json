@@ -14,6 +14,7 @@
  "mcp diff base": "null|string = None",
  "mcp diff head": "null|string = None",
  "mcp explain": "tool",
+ "mcp explain english": "boolean = False",
  "mcp explain ref": "string, required",
  "mcp gate": "tool",
  "mcp gate base": "null|string = None",

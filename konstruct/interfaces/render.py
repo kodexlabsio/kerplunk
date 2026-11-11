@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.checksql import HistoryCheck, SqlCheck
     from konstruct.analysis.conflicts import Conflicts
     from konstruct.analysis.diff import Diff
+    from konstruct.analysis.english import English
     from konstruct.analysis.explain import Explanation
     from konstruct.analysis.gate import Gate
     from konstruct.analysis.history import History
@@ -530,6 +531,51 @@ def explanation_lines(result: Explanation, style: Style) -> Lines:
                 body.append('  ').append(('verified', 'ok'))
             lines += wrap(style, body, first=lead, hanging=6)
             lines += _conditions(style, step.conditions, indent=6)
+    return lines
+
+
+def english_lines(result: English, style: Style) -> Lines:
+    lines = [header('In plain English', result.label)]
+    if result.formula:
+        lines += formula(style, result.formula)
+    return [*lines, *_english(result, style)]
+
+
+def english_section(result: English, style: Style) -> Lines:
+    """The English under an explanation, as ``explain --english`` prints it."""
+    return [section('In plain English'), *_english(result, style)]
+
+
+def _english(result: English, style: Style) -> Lines:
+    """The sentence, the rows each relation keeps, the grain, the terms and the names."""
+    if result.sentence:
+        lines = paragraph(style, result.sentence)
+    elif result.english:
+        lines = paragraph(style, f'{result.label} is {result.english}.')
+    else:
+        lines = paragraph(style, f'{result.label} is read from a source: it has no formula.')
+    if not result.complete:
+        lines.append(Text(('  partial: some columns on the way have no recorded expression', 'warn')))
+    for rows in result.rows:
+        lines += [blank(), Text('  ', ('In ', 'dim'), (rows.relation, 'strong'))]
+        for text in rows.english:
+            lines += wrap(style, Text(text), first=Text('    - '), hanging=6)
+    if result.grain:
+        lines += [blank(), *pairs(style, [('grain', result.grain)])]
+    for term in result.terms:
+        facts = [term.status or '', f'owner {term.owner}' if term.owner else '']
+        if term.unit:
+            facts.append(f'unit {term.unit}' + (f' ({term.currency})' if term.currency else ''))
+        lead = Text('  ', ('term ', 'dim'), (repr(term.name), 'strong'))
+        lines += [blank(), lead.append(('  ' + ', '.join(f for f in facts if f), 'dim'))]
+        for text in term.english:
+            lines += wrap(style, Text(('requires ', 'dim'), text), first=Text('    - '), hanging=6)
+    if result.names:
+        lines += [blank(), section('Names', len(result.names))]
+        lines += table(style, [[n.wording, Text((n.column, 'dim'))] for n in result.names])
+    if result.verbatim:
+        lines += [blank(), section('Quoted as SQL', len(result.verbatim))]
+        lines += _note(style, 'These parts have no wording in the grammar, so they are given as SQL.')
     return lines
 
 

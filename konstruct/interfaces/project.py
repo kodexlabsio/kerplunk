@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.checksql import HistoryCheck, SqlCheck
     from konstruct.analysis.conflicts import Conflicts
     from konstruct.analysis.diff import Diff
+    from konstruct.analysis.english import English
     from konstruct.analysis.explain import Explanation
     from konstruct.analysis.gate import Gate
     from konstruct.analysis.history import History
@@ -615,6 +616,42 @@ class Project:
                 f'{ref!r} is a {node.kind}; explain takes a column such as {self.graph.label(node)}.<column>'
             )
         return explain(self.graph, node)
+
+    def english(self, ref: str) -> English:
+        """A column's formula in plain English, worded from the formula by a fixed grammar.
+
+        The formula is composed down to source columns, as :meth:`explain` gives it, and each kind
+        of expression has one wording, with brackets where the SQL's grouping matters, so the
+        sentence says what the SQL says and nothing more. A part with no wording is quoted as SQL
+        and listed in ``verbatim``. The joins, filters and grouping of every relation on the way,
+        the grain of the column's relation and the required filters of each bound business term
+        are worded the same way.
+
+        Args:
+            ref: A column, such as ``orders.credit_card_amount``.
+
+        Returns:
+            The sentence, the conditions of each relation in English, the grain, the bound terms and
+            the column each wording names.
+
+        Raises:
+            konstruct.QueryError: ``ref`` is not a column, or matches nothing or several things.
+
+        Example::
+
+            result = project.english('orders.credit_card_amount')
+            result.english
+            # "the sum of ([amount] divided by 100 if [payment method] is 'credit_card', else 0)"
+            [(n.wording, n.column) for n in result.names]  # [('[amount]', 'raw_payments.amount'), ...]
+        """
+        from konstruct.analysis.english import english
+
+        node = query.resolve_one(self.graph, ref)
+        if node.kind != 'column':
+            raise query.QueryError(
+                f'{ref!r} is a {node.kind}; explain takes a column such as {self.graph.label(node)}.<column>'
+            )
+        return english(self.graph, node, ontology=self.ontology())
 
     def receipt(
         self,

@@ -666,6 +666,9 @@ QUESTIONS: dict[str, list[list[str]]] = {
         ['explain', 'customers.customer_lifetime_value'],
         ['explain', 'customer_ltv.lifetime_value'],
         ['explain', 'customers.customer_id'],
+        ['explain', 'customer_ltv.lifetime_value', '--english'],
+        ['explain', 'orders.credit_card_amount', '--english'],
+        ['explain', 'stg_payments.payment_id', '--english'],
     ],
     'conflicts': [['conflicts', '--no-write']],
     'status': [['status']],
@@ -675,6 +678,8 @@ QUESTIONS: dict[str, list[list[str]]] = {
 _DOWNSTREAM = 'only a downstream walk (impact) reaches tests, exposures and relations that join or filter'
 _UPSTREAM = "only a trace lists the columns that filter or join the traced column's relation"
 EMPTY: dict[str, str] = {
+    'json explain .english.verbatim': 'the grammar words every formula in the example; the parts it '
+    'quotes are listed as strings (tests/test_english.py)',
     'json trace .tests': _DOWNSTREAM,
     'json trace .exposures': _DOWNSTREAM,
     'json trace .joins_and_filters': _DOWNSTREAM,

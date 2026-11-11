@@ -306,7 +306,17 @@ def cmd_history(args: argparse.Namespace, console: Console) -> int:
 
 def cmd_explain(args: argparse.Namespace, console: Console) -> int:
     project = _ready(_project(args), args, console)
-    _emit(console, project.explain(args.ref), args.json)
+    result = project.explain(args.ref)
+    if not args.english:
+        _emit(console, result, args.json)
+        return 0
+    english = project.english(args.ref)
+    if args.json:
+        console.print(json.dumps({**document(result), 'english': english.to_dict()}, indent=2))
+    else:
+        from konstruct.interfaces.render import english_section, show
+
+        console.print(result.text(console.ui) + '\n\n' + show(english_section, english, console.ui))
     return 0
 
 
@@ -665,7 +675,10 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ('konstruct ontology --format yaml', 'the ontology.yml the build writes'),
         ('konstruct ontology --strict', 'exit 1 on a rule violation'),
     ),
-    'explain': (('konstruct explain customers.lifetime_value', 'its formula, down to source columns'),),
+    'explain': (
+        ('konstruct explain customers.lifetime_value', 'its formula, down to source columns'),
+        ('konstruct explain orders.credit_card_amount --english', 'the same formula in plain English'),
+    ),
     'history': (
         ('konstruct history customers.lifetime_value', 'formula changes and approvals'),
         ('konstruct history orders.amount -n 200', 'read further back'),
@@ -1145,6 +1158,11 @@ def parser() -> argparse.ArgumentParser:
 
     explaining = add('explain', "a column's formula, composed down to its source columns")
     explaining.add_argument('ref', metavar='COLUMN', help='e.g. orders.amount')
+    explaining.add_argument(
+        '--english',
+        action='store_true',
+        help='also word the formula, its joins, filters and grouping, and its terms in plain English',
+    )
     _query_options(explaining)
     explaining.set_defaults(func=cmd_explain)
 

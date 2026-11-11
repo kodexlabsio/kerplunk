@@ -292,12 +292,19 @@ def build_server(root: Path, *, plugins: bool = True, prompts: bool = True) -> M
         return run(lambda: project.check_history(days=days, limit=limit, pseudonymise=True))
 
     @server.tool(annotations=READS)
-    def explain(ref: str) -> dict[str, Any]:
+    def explain(ref: str, english: bool = False) -> dict[str, Any]:
         """What a column is, as SQL: its expression with CTEs and aliases inlined, the same formula
         composed down to source columns, and step by step the expression of each column on the
         way with the joins, filters and grouping that shape its rows. Use to answer "how is this
-        number calculated?" or before changing a calculation."""
-        return run(project.explain, ref)
+        number calculated?" or before changing a calculation. With `english`, also `english`: the
+        formula, the joins, filters and grouping and the bound terms worded in plain English by a
+        fixed grammar (nothing a model writes), with the column each wording names; quote it to a
+        person who does not read SQL."""
+        result = run(project.explain, ref)
+        if english:
+            # The column resolved for the explanation, so wording it raises nothing new.
+            result['english'] = project.english(ref).to_dict()
+        return result
 
     @server.tool(annotations=READS)
     def history(ref: str, limit: int = 50) -> dict[str, Any]:

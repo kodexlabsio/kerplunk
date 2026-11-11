@@ -98,7 +98,12 @@ async def _exercise(client: Client) -> None:
     assert measure['measures'][0]['columns'][0]['formula'] == 'SUM(raw_payments.amount / 100)'
     assert (await client.call_tool('ontology', {'name': 'nothing'})).is_error
     explained = structured(await client.call_tool('explain', {'ref': 'customer_ltv.lifetime_value'}))
-    assert explained['composed'] == 'SUM(raw_payments.amount / 100)'
+    assert explained['composed'] == 'SUM(raw_payments.amount / 100)' and 'english' not in explained
+    worded = structured(
+        await client.call_tool('explain', {'ref': 'customer_ltv.lifetime_value', 'english': True})
+    )
+    assert worded['english']['english'] == 'the sum of ([amount] divided by 100)'
+    assert worded['untrusted_content'] == UNTRUSTED_CONTENT
     checked = structured(
         await client.call_tool(
             'check_sql', {'sql': 'select customer_id, customer_lifetime_value from customers'}
