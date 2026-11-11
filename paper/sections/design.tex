@@ -340,6 +340,13 @@ verification state) and later reports the answers whose basis has changed;
 \cmd{konstruct ontology}, \cmd{konstruct entity}, \cmd{konstruct metric}, \cmd{konstruct relate}
 and \cmd{konstruct conflicts} answer what things mean, and
 \cmd{konstruct check-sql} checks a query against them without running it;
+\cmd{konstruct sensitivity} follows columns that a business term, an ontology pack or a warehouse
+tag or masking policy marks sensitive through the column lineage, hashes included, until every
+read of them is a configured sanitiser or an aggregate over groups the SQL requires to hold at
+least $k$ distinct values of a foreign key to the people it is about (a count of rows, or of the
+input's own key, bounds rows, not people), and
+\cmd{konstruct erasure} lists the relations that hold one person's rows by following a key
+through copies, hashed copies, foreign keys and joins;
 \cmd{konstruct export} writes OpenLineage events (\cmd{openlineage}), Mermaid (\cmd{mermaid}),
 Graphviz (\cmd{dot}), CSV (\cmd{csv}), Apache Ossie (\cmd{ossie}), and the ontology as OWL in
 Turtle (\cmd{owl}), a Snowflake semantic view (\cmd{semantic-view}) and Databricks metric views
@@ -359,7 +366,7 @@ with the question.
 \paragraph{Grounding agents} \cmd{konstruct mcp} runs a Model Context Protocol server with
 \mcpTools{} tools: \cmd{impact}, \cmd{trace}, \cmd{path}, \cmd{search}, \cmd{describe},
 \cmd{query}, \cmd{explain}, \cmd{history}, \cmd{define}, \cmd{conflicts}, \cmd{ontology},
-\cmd{entity}, \cmd{metric}, \cmd{relate}, \cmd{diff}, \cmd{gate}, \cmd{check\_sql}, \cmd{check\_history}, \cmd{release\_notes},
+\cmd{entity}, \cmd{metric}, \cmd{relate}, \cmd{sensitivity}, \cmd{erasure}, \cmd{diff}, \cmd{gate}, \cmd{check\_sql}, \cmd{check\_history}, \cmd{release\_notes},
 \cmd{mutation\_test}, \cmd{why}, \cmd{definition\_effect}, \cmd{receipt}, \cmd{laws} and \cmd{lock\_check}. Answers are the same structured results the Python API returns, so an
 agent learns a column's formula, its sources, which of its edges the data confirmed, the approved
 definition of the business term it holds, its owner and the entities it touches, before it writes
@@ -387,8 +394,10 @@ changes what an approved term means, by changing its wording, columns, filters o
 canonical expression or row conditions of a column it names or of any column upstream of one;
 (c) adds a column that computes the same business idea as an existing one in a different way, as
 \cmd{conflicts} finds, unless the two are bound to different terms; (d) breaks a data law that held
-on all the data, so that a model's SQL no longer keeps a total it kept; or (e) alters a column that
-another repository pins in its lockfile. Each finding says what to do,
+on all the data, so that a model's SQL no longer keeps a total it kept; (e) alters a column that
+another repository pins in its lockfile; or (f) moves sensitive data into a model or exposure that
+nothing marks to hold it, where neither a setting the base lacks nor a mark the change itself adds
+counts, copies a masked column into a table in clear, or removes a sensitivity mark. Each finding says what to do,
 so an agent can fix the change and run the gate again. \cmd{konstruct hook} runs the gate as a
 Claude Code hook after an agent edits SQL or dbt YAML, from files alone, so the findings arrive
 next to the edit. The GitHub Action runs the same check on a

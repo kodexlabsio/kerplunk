@@ -49,6 +49,8 @@ def check(name: str, text: str) -> None:
         ('list.txt', ['list']),
         ('search_lifetime_value.txt', ['search', 'lifetime', 'value', '-n', '5']),
         ('query_payment_method.txt', ['query', 'what breaks if I change payment_method']),
+        ('sensitivity.txt', ['sensitivity']),
+        ('erasure_customer.txt', ['erasure', 'customer']),
     ],
 )
 def test_command_output(

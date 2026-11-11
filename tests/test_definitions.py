@@ -156,7 +156,8 @@ def test_the_example_definitions_build_cleanly(project: Project) -> None:
     graph = project.graph
     assert not [w for w in graph.warnings if w.startswith('definitions')]
     terms = {n.name: n for n in graph.nodes.values() if n.kind == 'term'}
-    assert len(terms) == 5
+    assert len(terms) == 6
+    assert terms['Customer name'].attrs['sensitivity'] == 'personal'
     ltv = terms['Customer lifetime value']
     assert {graph.label(graph.nodes[e.target]) for e in graph.out_edges(ltv.id, 'defines')} == {
         'customers.customer_lifetime_value',
@@ -166,8 +167,8 @@ def test_the_example_definitions_build_cleanly(project: Project) -> None:
         'Order amount',
         'Customer',
     }
-    assert graph.meta['inputs']['definitions'] == 5
-    assert any(s['input'] == 'definitions' and s['detail'] == '5 terms' for s in graph.meta['sources'])
+    assert graph.meta['inputs']['definitions'] == 6
+    assert any(s['input'] == 'definitions' and s['detail'] == '6 terms' for s in graph.meta['sources'])
 
 
 @pytest.mark.dbt
@@ -381,3 +382,64 @@ def test_diff_reports_definitions_files(tmp_path: Path) -> None:
     assert 'Order amount: status agreed -> retired' in str(result)
     assert '**Business definitions** (definitions.yml)' in result.markdown()
     assert result.to_dict()['definitions'][0]['changed'] == ['Order amount: status agreed -> retired']
+
+
+def test_the_definitions_field() -> None:
+    parsed = parse('version: 1\nterms:\n  - name: A\n    definition: a.\n    sensitivity: [x]\n', 'd.yml')
+    assert parsed.terms[0].sensitivity is None
+    assert 'must be a word such as personal' in parsed.errors[0]
+    parsed = parse(
+        'version: 1\nterms:\n  - name: A\n    definition: a.\n    sensitivity: " Special  Category "\n',
+        'd.yml',
+    )
+    assert parsed.terms[0].sensitivity == 'special category'
+
+
+def test_a_definitions_change_records_marks() -> None:
+    before = textwrap.dedent(
+        """\
+        version: 1
+        terms:
+          - name: A
+            definition: a.
+            sensitivity: personal
+            columns: [t.a, t.b]
+          - name: B
+            definition: b.
+            sensitivity: personal
+            columns: [t.c]
+          - name: C
+            definition: c.
+            sensitivity: personal
+            columns: [t.d]
+          - name: D
+            definition: d.
+            columns: [t.e]
+        """
+    )
+    after = textwrap.dedent(
+        """\
+        version: 1
+        terms:
+          - name: A
+            definition: a.
+            sensitivity: personal
+            columns: [t.a, t.f]
+          - name: C
+            definition: c.
+            sensitivity: health
+            columns: [t.d]
+          - name: D
+            definition: d.
+            sensitivity: personal
+            columns: [t.e]
+        """
+    )
+    change = compare_definitions('d.yml', before, after)
+    assert change.marked == ['t.f', 't.d', 't.e']
+    assert change.unmarked == [
+        'A: t.b is no longer marked personal',
+        'B: sensitive term (personal) removed',
+        'C: sensitivity personal -> health',
+    ]
+    assert 'D: sensitivity none -> personal' in change.changed

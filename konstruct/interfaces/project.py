@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.conflicts import Conflicts
     from konstruct.analysis.diff import Diff
     from konstruct.analysis.english import English
+    from konstruct.analysis.erasure import ErasureMap
     from konstruct.analysis.explain import Explanation
     from konstruct.analysis.gate import Gate
     from konstruct.analysis.history import History
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.mutation import MutationTesting
     from konstruct.analysis.receipts import Receipt, ReceiptCheck
     from konstruct.analysis.release_notes import ReleaseNotes
+    from konstruct.analysis.sensitivity import Sensitivity, Settings
     from konstruct.analysis.verify import Engine, Verification
     from konstruct.analysis.why import Why
     from konstruct.engine.build import BuildResult
@@ -631,6 +633,73 @@ class Project:
 
         return relate(self.graph, start, end, self._world())
 
+    def sensitivity(self, ref: str | None = None) -> Sensitivity:
+        """Where sensitive data is, where the column lineage takes it and where a transform stops it.
+
+        A column is marked sensitive by a business term with a ``sensitivity`` (in
+        ``definitions.yml`` or an ontology pack) that binds it, or by a warehouse tag or masking
+        policy on it. Every column computed from a sensitive column is sensitive too, a hashed one
+        as pseudonymised, unless every read of it is inside a function ``[sensitivity] sanitisers``
+        names or an aggregate over groups the SQL requires to hold at least ``[sensitivity] k``
+        rows. Built relations and exposures that receive it are checked against
+        ``[sensitivity] holders``.
+
+        Args:
+            ref: A table, model or column to report on alone. By default, the whole graph.
+
+        Returns:
+            The sensitive columns with their marks, sources and paths, the reads a sanitiser stops,
+            the exposures that show the data, the columns that only join or filter, the unmasked
+            copies of masked columns, and the relations whose lineage is not known.
+
+        Raises:
+            konstruct.QueryError: ``ref`` matches nothing, or several things.
+            konstruct.engine.config.ConfigError: ``[sensitivity]`` in konstruct.toml is invalid.
+
+        Example::
+
+            result = project.sensitivity()
+            [(c.label, c.sensitivity, c.held) for c in result.unheld]
+        """
+        from konstruct.analysis.sensitivity import sensitivity
+
+        return sensitivity(self.graph, self._sensitivity_settings(), ref)
+
+    def erasure(self, ref: str, *, levels: int = 3) -> ErasureMap:
+        """Where one person's data ends up: every relation holding their rows, for an erasure request.
+
+        Follows the key up and down the column lineage (copies, transformed copies and hashed
+        copies), across every key column of its entity, through the foreign keys that refer to it,
+        and on to the rows the person owns (an order's payments), as the ontology derives them.
+
+        Args:
+            ref: A key column (``customers.customer_id``), an entity (``customer``) or a relation,
+                for the key of its entity.
+            levels: How many steps of owned rows to follow.
+
+        Returns:
+            Each relation with the columns holding the key and how, its sensitive columns, and
+            the action it needs (``delete``, ``rebuild``, ``full refresh`` or ``none`` for a view),
+            and the exposures that show the data.
+
+        Raises:
+            konstruct.QueryError: ``ref`` matches nothing, several things, or a relation with no key.
+
+        Example::
+
+            for holding in project.erasure('customer').holdings:
+                print(holding.relation, holding.action, [k.column for k in holding.keys])
+        """
+        from konstruct.analysis.erasure import erasure
+
+        return erasure(self.graph, ref, self._sensitivity_settings(), levels=levels)
+
+    def _sensitivity_settings(self) -> Settings:
+        """``[sensitivity]`` in the project's configuration."""
+        from konstruct.analysis.sensitivity import Settings
+
+        return Settings.read(self.config().sections.get('sensitivity'))
+
     def define(self, ref: str) -> query.Definitions:
         """The business definition of a term, or the terms that define a column.
 
@@ -1066,6 +1135,7 @@ class Project:
             operators=chosen,
             only=list(models) if models else None,
             suggest=suggest,
+            settings=self._sensitivity_settings(),
         )
         result.warehouse = self._shown(target, result.warehouse)
         if write:
@@ -1099,7 +1169,9 @@ class Project:
             max_rows: The most rows copied from any source.
 
         Returns:
-            The value, its contributing rows with their shares, and the rows left out.
+            The value, its contributing rows with their shares, and the rows left out. Values of
+            sensitive columns (see :meth:`sensitivity`) are masked, and so is every share when any
+            column the value is computed from is sensitive; ``masked`` names what was masked.
 
         Raises:
             konstruct.QueryError: The column is not built by SQL that verify can rerun, the key does
@@ -1114,7 +1186,16 @@ class Project:
         from konstruct.analysis.why import why
 
         target = self._target(warehouse)
-        result = why(self.graph, self.root, target, column, dict(where), limit=limit, max_rows=max_rows)
+        result = why(
+            self.graph,
+            self.root,
+            target,
+            column,
+            dict(where),
+            limit=limit,
+            max_rows=max_rows,
+            settings=self._sensitivity_settings(),
+        )
         result.warehouse = self._shown(target, result.warehouse)
         return result
 
@@ -1490,6 +1571,10 @@ class Project:
         another (as :meth:`conflicts` finds), a data law in ``laws.json`` that held on all the
         data and that the changed SQL no longer gives (see :meth:`laws`), a column the change alters
         that a repository in ``repositories`` pins in its ``konstruct.lock`` (see :meth:`lock`),
+        sensitive data the change moves into a model or exposure not marked to hold it, a masked
+        column it copies in clear and a sensitivity mark it takes away (as :meth:`sensitivity`
+        finds, with the stricter of the base's and the working tree's ``[sensitivity]`` settings,
+        and no mark the change itself adds counting as marking what it alters to hold the data),
         and the findings of the gate checks of the plugins the project enables. The plugins enabled at ``base`` run as well as those enabled now,
         in the update and in the checks, so a change cannot turn off a plugin that judges it.
         Each finding says what to do about it.
@@ -1518,6 +1603,7 @@ class Project:
         head = config.plugins
         config.plugins = list(dict.fromkeys([*head, *plugins_at(self.root, base)]))
         if update:
+            # A build from files alone keeps the warehouse tags the last build read.
             self.build(update=True, run_dbt=run_dbt, warehouses=warehouses, config=config)
         checks = self.plugins() if config.plugins == head else Plugins.for_config(config)
         laws, laws_from = recorded(self.root, self._laws_dir(), base)

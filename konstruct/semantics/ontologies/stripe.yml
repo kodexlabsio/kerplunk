@@ -35,3 +35,10 @@ terms:
     kind: measure
     definition: The part of a charge refunded, in the currency's smallest unit.
     columns: [charge.amount_refunded]
+  - name: Stripe customer contact details
+    kind: term
+    definition: >-
+      A customer's name, email address, phone number and shipping name and phone, which identify
+      a person: personal data.
+    sensitivity: personal
+    columns: [customer.name, customer.email, customer.phone, customer.shipping_name, customer.shipping_phone]

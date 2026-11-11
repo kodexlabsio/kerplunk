@@ -84,7 +84,17 @@ On a repository of SQL tables with the same five measures, each table reading it
 | 100 | 24,750 | 0.8 s | 0.09 s |
 | 400 | 399,000 | 9.55 s | 0.34 s |
 
-On the 2,000-model project of the first table, `conflicts` over every candidate column takes 0.85 s of wall time after the graph is loaded (`uv run .kodex/scripts/benchmark.py 2000`). These measurements are on a four-core Intel Xeon cloud machine at 2.3 GHz with Python 3.12.
+On the 2,000-model project of the first table, `conflicts` over every candidate column takes 0.85 s of wall time after the graph is loaded (`uv run .kodex/scripts/benchmark.py 2000`).
+
+When a sensitive term binds nothing, as a term bound to a column only the warehouse knows does in a build from files alone, the gate builds the graph of the base to compare marks (see [Sensitive Data and Erasure](guide/sensitivity.md#the-gate)), and keeps it in the user's cache directory (`$XDG_CACHE_HOME/konstruct/base`, otherwise `~/.cache/konstruct/base`, `~/Library/Caches/konstruct/base` or `%LOCALAPPDATA%\konstruct\base`), by repository, commit and project, for the gates that follow on the same machine. In CI (`CI` or `GITHUB_ACTIONS` set) the gate keeps nothing and builds the base each time it needs it. On the 2,000-model project with such a term, from files alone and with no change (`uv run .kodex/scripts/gate_base_benchmark.py`):
+
+| Step | Time |
+|---|---:|
+| Building the graph of the base | 15.2 s |
+| The first gate on a base, which builds it | 23.4 s |
+| Each gate after it on the same base, which reads the kept graph | 5.5 s |
+
+These measurements are on a four-core Intel Xeon cloud machine at 2.3 GHz with Python 3.12.
 
 ## Search by Meaning
 

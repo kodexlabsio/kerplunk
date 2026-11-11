@@ -285,7 +285,10 @@ def changed_jaffle(jaffle_built_graph: Path, tmp_path_factory: pytest.TempPathFa
     terms = definitions.read_text()
     last = terms.index('  - name: Payment method')
     definitions.write_text(
-        terms[:last] + '  - name: Refund\n    definition: Money returned to a customer.\n    status: draft\n'
+        terms[:last]
+        + '  - name: Refund\n    definition: Money returned to a customer.\n    status: draft\n'
+        + '  - name: Order date\n    definition: When a customer ordered.\n    sensitivity: personal\n'
+        + '    columns: [stg_orders.order_date]\n'
     )
     _edit(payments, 'payment_method,', 'payment_method as method,')
     _edit(root / 'dags' / 'jaffle_shop_daily.py', "schedule='@daily'", "schedule='@hourly'")
@@ -485,6 +488,19 @@ def misbound(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp('interfaces') / 'misbound'
     root.mkdir()
     Project(_sql_project(root)).build(dialect='duckdb', warehouses=False, run_dbt=False)
+    return root
+
+
+@pytest.fixture(scope='module')
+def sensitive(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Personal data marked in definitions.yml, held, hashed, tokenised, counted, aggregated over
+    large enough groups, filtered on and read through SQL whose columns are not known, with every
+    [sensitivity] setting."""
+    from tests.test_sensitivity import SENSITIVE_PROJECT, write_project
+
+    root = tmp_path_factory.mktemp('interfaces') / 'sensitive'
+    write_project(root, SENSITIVE_PROJECT)
+    Project(root).build(dialect='duckdb', warehouses=False, run_dbt=False)
     return root
 
 
@@ -822,6 +838,8 @@ QUESTIONS: dict[str, list[list[str]]] = {
         ['explain', 'stg_payments.payment_id', '--english'],
     ],
     'conflicts': [['conflicts', '--no-write']],
+    'sensitivity': [['sensitivity'], ['sensitivity', 'customers.first_name']],
+    'erasure': [['erasure', 'customer'], ['erasure', 'orders.customer_id']],
     'status': [['status']],
 }
 
@@ -853,6 +871,7 @@ EMPTY: dict[str, str] = {
     'json status .trust.variables': "the projects' konstruct.toml and profiles.yml read no environment variable",
     'json status .ingestion_files': 'the projects have no loader configuration files',
     'json status .repositories[].inputs.ingestion_files': 'the projects have no loader configuration files',
+    'json sensitivity .unmasked': 'only a warehouse that reads masking policies (Snowflake, Databricks, BigQuery) fills it',
 }
 # Fields the projects only ever fill with null, each with why; every other field must show the
 # type it holds, or a change to that type would pass.
@@ -861,6 +880,9 @@ UNFILLED: dict[str, str] = {
     'json release-notes .warehouse': 'release-notes runs no SQL; verify --effect fills it',
     'json lock --check .consumer': (
         "only the gate checks a consumer's lockfile from its producer; `lock --check` checks the project's own"
+    ),
+    'json sensitivity .columns[].masking_policy': (
+        'only a warehouse that reads masking policies (Snowflake, Databricks, BigQuery) fills it'
     ),
 }
 
@@ -906,6 +928,7 @@ def test_json_documents(
     changed_jaffle: Path,
     revenue: Path,
     misbound: Path,
+    sensitive: Path,
     unexplained: Path,
     inputs: Path,
     landed: Path,
@@ -929,6 +952,7 @@ def test_json_documents(
             add(name, '-C', str(jaffle_built_graph), *args, '--json')
     add('conflicts', '-C', str(revenue), 'conflicts', '--no-write', '--json')
     add('ontology', '-C', str(misbound), 'ontology', '--json')
+    add('sensitivity', '-C', str(sensitive), 'sensitivity', '--json')
     add('status', '-C', str(small), 'status', '--json')
     add('status', '-C', str(inputs), 'status', '--json')
     add('status', '-C', str(landed), 'status', '--json')
@@ -1267,4 +1291,9 @@ def test_configuration_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         with contextlib.suppress(Exception):
             config.WarehouseConfig(kind, Recorder(f'warehouse.{kind}.', seen)).connector(tmp_path)
     seen |= {'warehouse', 'warehouse.type'}
+    # [sensitivity] is read where the analysis runs, by Project and the gate, not by the build.
+    from konstruct.analysis.sensitivity import Settings
+
+    Settings.read(Recorder('sensitivity.', seen))
+    seen.add('sensitivity')
     check('config', dict.fromkeys(sorted(seen), 'key'))

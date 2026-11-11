@@ -1,0 +1,15 @@
+Erasure map for customers.customer_id (customer)
+9 relations hold the rows of a customer (3 delete, 3 none, 3 rebuild); 1 exposure shows it.
+
+  relation       action   key                                        personal data
+  customer_ltv   rebuild  customer_id (copy)                         first_name
+  customers      rebuild  customer_id (key)                          first_name, last_name
+  orders         rebuild  customer_id (foreign key); order_id (key)
+  raw_customers  delete   id (copy)                                  first_name, last_name
+  raw_orders     delete   user_id (copy); id (copy)
+  stg_customers  none     customer_id (key)                          first_name, last_name
+  stg_orders     none     customer_id (foreign key); order_id (key)
+  raw_payments   delete   order_id (copy); id (copy)
+  stg_payments   none     order_id (foreign key); payment_id (key)
+
+Shown in: customer_dashboard

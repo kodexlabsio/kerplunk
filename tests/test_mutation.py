@@ -934,7 +934,11 @@ def test_jaffle_shop(jaffle_built_graph: Path) -> None:
     defaults = [m for m in orders.mutants if m.mutant.description == 'drop the CASE default `ELSE 0`']
     assert defaults and all(m.status == 'killed' for m in defaults)
     customers = by_label['customers']
-    assert customers.count('survived') > 0 and all(s.suggestions for s in customers.survivors[:3])
+    assert customers.count('survived') > 0
+    # customers reads the customer's name, which the example marks personal: no suggested test
+    # quotes its values or copies its input rows.
+    assert not any(s.suggestions for s in customers.survivors)
+    assert any(s.suggestions for m in result.models if m.label != 'customers' for s in m.survivors)
     assert result.totals()['killed'] > 0 and 0 < cast(float, result.score) < 1
 
 

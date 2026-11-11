@@ -37,7 +37,10 @@ konstruct gate --base <ref>
 `approved-definition-changed` (an approved term's meaning changes, so its owner must re-approve
 it), `conflicting-definition` (a changed column computes a business idea differently from an
 existing one), `data-law-broken` (a total that held on all the data no longer follows from the
-SQL) and `consumer-pin-changed` (another repository pins a changed column in its lockfile). Each finding names its `file` and gives a `fix`. Exit status 1 means the change should not
+SQL), `consumer-pin-changed` (another repository pins a changed column in its lockfile),
+`sensitive-flow` (sensitive data reaches a model or exposure not marked to hold it),
+`unmasked-copy` (a table copies a masked column in clear) and `sensitivity-removed` (a
+sensitivity mark is taken away). Each finding names its `file` and gives a `fix`. Exit status 1 means the change should not
 merge as it is.
 
 ## 3. Impact

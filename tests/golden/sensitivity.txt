@@ -1,0 +1,14 @@
+Sensitive data in the graph
+7 sensitive columns in 4 relations (2 marked, 5 through lineage); 5 in built relations not marked to hold the data; 1 exposure showing it, 1 not marked to.
+
+Columns (7)
+  customer_ltv.first_name   personal  direct from raw_customers.first_name  not marked to hold it
+  customers.first_name      personal  direct from raw_customers.first_name  not marked to hold it
+  customers.last_name       personal  direct from raw_customers.last_name   not marked to hold it
+  raw_customers.first_name  personal  marked by term 'Customer name'        held: marked
+  raw_customers.last_name   personal  marked by term 'Customer name'        held: marked
+  stg_customers.first_name  personal  direct from raw_customers.first_name  not marked to hold it
+  stg_customers.last_name   personal  direct from raw_customers.last_name   not marked to hold it
+
+Exposures (1)
+  customer_dashboard  personal  reads customers.first_name, customers.last_name  not marked to hold it

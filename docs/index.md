@@ -54,6 +54,7 @@ guide/ontology
 guide/ontology-packs
 guide/ossie
 guide/conflicts
+guide/sensitivity
 guide/usage
 guide/exporting
 guide/agents

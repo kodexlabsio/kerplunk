@@ -17,6 +17,13 @@ terms:
     kind: entity
     definition: A customer record in a Shopify shop, with or without an account.
     columns: [customer.id]
+  - name: Shopify customer contact details
+    kind: term
+    definition: >-
+      A customer's first and last name, email address and phone number, which identify a person:
+      personal data.
+    sensitivity: personal
+    columns: [customer.first_name, customer.last_name, customer.email, customer.phone]
   - name: Shopify product
     kind: entity
     definition: An item a Shopify shop sells, with one or more variants.

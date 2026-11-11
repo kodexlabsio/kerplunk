@@ -360,6 +360,10 @@ def _gate(root: Path, out_dir: Path, path: Path, shown: str) -> dict[str, Any]:
                 shutil.copy2(out_dir / 'cache.json', scratch / 'cache.json')
             config.override(run_dbt=False, warehouses=False)
             config.html = False
+            # The copy reads no warehouse: it keeps the tags and masking policies the project's
+            # own graph holds, as the last full build read them, and none it has since dropped.
+            config.governance_from = out_dir / 'graph.json'
+
             # As in `konstruct gate`, the plugins main enables run too, so an edit that takes one
             # out of konstruct.toml is still judged by it.
             config.plugins = list(dict.fromkeys([*config.plugins, *plugins_at(root, None)]))

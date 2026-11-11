@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.conflicts import Conflicts
     from konstruct.analysis.diff import Diff
     from konstruct.analysis.english import English
+    from konstruct.analysis.erasure import ErasureMap
     from konstruct.analysis.explain import Explanation
     from konstruct.analysis.gate import Gate
     from konstruct.analysis.history import History
@@ -63,6 +64,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.receipts import Receipt, ReceiptCheck
     from konstruct.analysis.release_notes import ReleaseNotes
     from konstruct.analysis.semantic import SimilarResult
+    from konstruct.analysis.sensitivity import Sensitivity
     from konstruct.analysis.verify import Verification
     from konstruct.analysis.why import Why
     from konstruct.engine.trust import Trust
@@ -1007,6 +1009,108 @@ def lock_check_lines(result: LockCheck, style: Style) -> Lines:
             lines += paragraph(style, Text(('note:', 'dim'), ' ', _commands(note)), indent=0, hanging=6)
     if len(result.changes) > 1:
         lines += [blank(), Text('Accept every change: ', ('konstruct lock --update', 'accent'))]
+    return lines
+
+
+def sensitivity_lines(result: Sensitivity, style: Style) -> Lines:
+    lines = [header('Sensitive data', result.subject or 'in the graph')]
+    lines += _summary(style, result.summary())
+    arrow = style.glyph('arrow')
+    if result.columns:
+        lines += [blank(), section('Columns', len(result.columns))]
+        rows: list[list[Cell]] = []
+        for column in result.columns:
+            if column.marks:
+                origin = Text(('marked by ', 'dim'), '; '.join(m.by for m in column.marks))
+            else:
+                origin = Text((f'{column.transform} from ', 'dim'), ', '.join(column.sources[:3]))
+            if column.held:
+                held = Text(('held: ', 'dim'), column.held)
+            elif column.built:
+                held = Text(('not marked to hold it', 'warn'))
+            else:
+                held = Text()
+            rows.append([column.label, Text((', '.join(column.sensitivity), 'accent')), origin, held])
+        lines += table(style, rows, flex=2)
+        if result.subject and len(result.columns) == 1 and len(result.columns[0].path) > 1:
+            path = Text(('path ', 'dim'), f' {arrow} '.join(result.columns[0].path))
+            lines += paragraph(style, path, indent=2, hanging=4)
+    if result.exposures:
+        lines += [blank(), section('Exposures', len(result.exposures))]
+        exposure_rows: list[list[Cell]] = [
+            [
+                e.exposure,
+                Text((', '.join(e.sensitivity), 'accent')),
+                Text(('reads ', 'dim'), ', '.join(e.columns[:4]) + (' ...' if len(e.columns) > 4 else '')),
+                Text(('held: ', 'dim'), e.held) if e.held else Text(('not marked to hold it', 'warn')),
+            ]
+            for e in result.exposures
+        ]
+        lines += table(style, exposure_rows, flex=2)
+    if result.sanitised:
+        lines += [blank(), section('Stopped by a sanitiser', len(result.sanitised))]
+        lines += table(
+            style,
+            [[s.column, Text((f'{arrow} ', 'dim'), s.source), Text((s.by, 'ok'))] for s in result.sanitised],
+            flex=1,
+        )
+    if result.unmasked:
+        lines += [blank(), section('Unmasked copies of masked columns', len(result.unmasked))]
+        lines += table(
+            style,
+            [
+                [u.column, Text((f'{arrow} ', 'dim'), u.source), Text((f'masked by {u.policy}', 'warn'))]
+                for u in result.unmasked
+            ],
+            flex=1,
+        )
+    if result.references:
+        lines += [blank(), section('Only joining, filtering or grouping', len(result.references))]
+        lines += table(
+            style, [[r.column, Text(('shapes the rows of ', 'dim'), r.relation)] for r in result.references]
+        )
+    if result.uncertain:
+        lines += [blank(), section('Lineage not known', len(result.uncertain))]
+        lines += table(
+            style,
+            [
+                [
+                    u.relation,
+                    Text(('may hold ', 'dim'), ', '.join(u.sensitivity), (' data from ', 'dim'), u.source),
+                ]
+                for u in result.uncertain
+            ],
+        )
+    return lines
+
+
+def erasure_lines(result: ErasureMap, style: Style) -> Lines:
+    lines = [header('Erasure map for', result.key, result.entity)]
+    lines += _summary(style, result.summary())
+    roles = {'delete': 'warn', 'full refresh': 'accent', 'rebuild': '', 'none': 'dim'}
+    if result.holdings:
+        rows: list[list[Cell]] = []
+        for holding in result.holdings:
+            keys = '; '.join(f'{k.column.rsplit(".", 1)[-1]} ({k.how})' for k in holding.keys[:3]) + (
+                ' ...' if len(holding.keys) > 3 else ''
+            )
+            rows.append(
+                [
+                    holding.relation,
+                    Text((holding.action, roles.get(holding.action, ''))),
+                    keys,
+                    Text((', '.join(holding.personal), 'accent')) if holding.personal else None,
+                ]
+            )
+        lines += [
+            blank(),
+            *table(style, rows, headers=['relation', 'action', 'key', 'personal data'], flex=2),
+        ]
+    if result.exposures:
+        lines += [
+            blank(),
+            *paragraph(style, Text(('Shown in: ', 'dim'), ', '.join(result.exposures)), indent=0),
+        ]
     return lines
 
 

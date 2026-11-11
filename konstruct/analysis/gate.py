@@ -19,6 +19,10 @@ the same check with ``gate: true``. It compares the working tree with the base a
   a SUM become an AVG), as :func:`konstruct.analysis.laws.violations` finds;
 * **changes what a consumer pinned:** a column a repository listed in ``repositories`` pins in its
   ``konstruct.lock`` is altered by the change, as ``konstruct lock --check`` would find there.
+* **moves sensitive data where it is not marked to go:** a column or an exposure the change
+  alters receives sensitive data and nothing marks its model or exposure to hold it, a table
+  the change alters copies a masked column in clear, or the change takes a sensitivity mark away
+  (see :mod:`konstruct.analysis.sensitivity`).
 
 Each finding says what to do about it, so an agent can fix the change and run the gate again.
 
@@ -34,6 +38,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from konstruct.analysis import sensitivity
 from konstruct.analysis.conflicts import Conflicts, find_conflicts
 from konstruct.analysis.diff import Diff, RelationChange
 from konstruct.core.graph import Graph, column_id
@@ -486,11 +491,26 @@ CONSUMER_PIN_CHANGED = BuiltinCheck(
     _consumer_pin_changed,
 )
 
+
+def _sensitive_flow(context: CheckContext) -> list[Finding]:
+    return sensitivity.gate_findings(context)
+
+
+SENSITIVE_FLOW = BuiltinCheck(
+    'sensitive data moved into a model or exposure not marked to hold it, a masked column copied in '
+    'clear, or a sensitivity mark taken away',
+    sensitivity.FLOW_FIX,
+    _sensitive_flow,
+)
+
 RULES = {
     'breaking': BREAKING.fix,
     'approved-definition-changed': APPROVED_DEFINITION_CHANGED.fix,
     'conflicting-definition': CONFLICTING_DEFINITION.fix,
     'data-law-broken': DATA_LAW_BROKEN.fix,
     'consumer-pin-changed': CONSUMER_PIN_CHANGED.fix,
+    'sensitive-flow': sensitivity.FLOW_FIX,
+    'unmasked-copy': sensitivity.UNMASKED_FIX,
+    'sensitivity-removed': sensitivity.REMOVED_FIX,
 }
 """Each of Konstruct's own rules with its fix."""

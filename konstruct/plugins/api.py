@@ -73,14 +73,14 @@ _KONSTRUCT_ATTRS = frozenset(
         'conditions', 'connection', 'currency', 'dag', 'dbt_name', 'declared_loader', 'definition', 'documented_only',
         'entities', 'exceptions', 'expression', 'fields', 'filters', 'formula', 'formula_dialect', 'fqn', 'grain',
         'identifier_fields', 'in_warehouse', 'incremental_strategy', 'inferred', 'iri', 'kind', 'label',
-        'line', 'lineage', 'loaded', 'loaded_by', 'loader', 'loader_role', 'materialized', 'maturity', 'measure_filters', 'measures', 'model',
+        'line', 'lineage', 'loaded', 'loaded_by', 'loader', 'loader_role', 'masking_policy', 'materialized', 'materialized_view', 'maturity', 'measure_filters', 'measures', 'model',
         'nested', 'nullable', 'operator', 'orchestrator', 'ossie_authored', 'ossie_columns',
         'ossie_dataset', 'ossie_expression', 'ossie_key', 'ossie_metric', 'ossie_reads',
         'outside_warehouse', 'owner', 'package', 'partitioned_by', 'parts', 'pipeline', 'primary_key',
         'primary_key_enforced', 'read_before', 'registry', 'related', 'repository', 'role',
-        'same_relation', 'schedule', 'sensors', 'severity', 'source_name', 'sql_path', 'star_reads',
-        'status', 'synonyms', 'table_type', 'tags', 'test', 'transform', 'type', 'unique_key', 'unit',
-        'url', 'usage', 'verified', 'via', 'view_sql', 'where',
+        'same_relation', 'schedule', 'sensitivity', 'sensors', 'severity', 'source_name', 'sql_path',
+        'star_reads', 'status', 'synonyms', 'table_type', 'tags', 'test', 'transform', 'type', 'unique_key',
+        'unit', 'url', 'usage', 'verified', 'via', 'view_sql', 'warehouse_tags', 'where',
     }
 )  # fmt: skip
 

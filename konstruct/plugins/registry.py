@@ -55,6 +55,7 @@ BUILTINS: dict[str, tuple[tuple[str, str], ...]] = {
         ('conflicting-definition', 'konstruct.analysis.gate:CONFLICTING_DEFINITION'),
         ('data-law-broken', 'konstruct.analysis.gate:DATA_LAW_BROKEN'),
         ('consumer-pin-changed', 'konstruct.analysis.gate:CONSUMER_PIN_CHANGED'),
+        ('sensitive-flow', 'konstruct.analysis.gate:SENSITIVE_FLOW'),
     ),
     'packs': (('konstruct', 'konstruct.semantics.ontologies'),),
     'mcp_tools': (),
@@ -69,8 +70,8 @@ RESERVED = frozenset(
     {
         'airbyte', 'airflow', 'analysis', 'column', 'dag', 'dagster', 'dbt', 'definitions', 'exposure',
         'fivetran', 'looker', 'metric', 'model', 'ontologies', 'operation', 'ossie', 'plugins',
-        'powerbi', 'repositories', 'saved_query', 'seed', 'semantic_model', 'snapshot', 'source',
-        'spark', 'sql', 'table', 'task', 'term', 'test', 'usage', 'vocabularies', 'vocabulary',
+        'powerbi', 'repositories', 'saved_query', 'seed', 'semantic_model', 'sensitivity', 'snapshot',
+        'source', 'spark', 'sql', 'table', 'task', 'term', 'test', 'usage', 'vocabularies', 'vocabulary',
         'warehouse',
     }
 )  # fmt: skip

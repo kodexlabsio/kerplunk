@@ -221,7 +221,7 @@ Every ontology pack Konstruct ships, with the entities, measures, other terms an
 | `servicenow` | ServiceNow | 0 | 15 | 0 | 0 | Fivetran, Singer |
 | `shipbob` | ShipBob | 6 | 0 | 0 | 0 | Singer |
 | `shiphero` | ShipHero | 7 | 2 | 0 | 4 | Singer |
-| `shopify` | Shopify | 32 | 90 | 0 | 54 | hand-written, Fivetran, dlt |
+| `shopify` | Shopify | 32 | 90 | 1 | 54 | hand-written, Fivetran, dlt |
 | `shortcut` | Shortcut (formerly Clubhouse) | 12 | 1 | 0 | 8 | Singer |
 | `sigma` | Sigma | 12 | 0 | 0 | 10 | Singer |
 | `simplesat` | Simplesat | 4 | 0 | 0 | 1 | Singer |
@@ -234,7 +234,7 @@ Every ontology pack Konstruct ships, with the entities, measures, other terms an
 | `stackerhq` | Stacker | 0 | 2 | 0 | 0 | Singer |
 | `stackexchange` | StackExchange | 2 | 12 | 0 | 1 | Singer |
 | `strava` | Strava | 2 | 6 | 0 | 2 | Singer |
-| `stripe` | Stripe | 27 | 47 | 0 | 64 | hand-written, Fivetran, Singer |
+| `stripe` | Stripe | 27 | 47 | 1 | 64 | hand-written, Fivetran, Singer |
 | `substack` | Substack | 3 | 7 | 0 | 2 | Singer |
 | `suger` | Suger | 6 | 0 | 0 | 6 | Singer |
 | `sunwave` | Sunwave | 5 | 0 | 0 | 1 | Singer |

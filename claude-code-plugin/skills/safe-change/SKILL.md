@@ -65,6 +65,15 @@ and a `fix` line:
 - `consumer-pin-changed`: another repository pins the changed column in its `konstruct.lock`.
   Keep what the column means, or tell that repository's owners, who accept it with the command
   the finding gives.
+- `sensitive-flow`: the change moves personal or other sensitive data into a model or exposure
+  not marked to hold it. Leave the column out, or aggregate it over groups of at least k
+  distinct people (`HAVING COUNT(DISTINCT customer_id) >= k`; a hash does not count); marking
+  the model in `[sensitivity] holders` is for the data's owner to approve, not for you to add.
+- `unmasked-copy`: a table the change alters copies a column the warehouse masks, in clear. Hash
+  it, or ask for a masking policy on the copy.
+- `sensitivity-removed`: the change takes a `sensitivity` mark out of `definitions.yml`, or leaves
+  a column a sensitive term binds unbound (often a model whose column lineage now fails; the
+  build warnings say why). Keep the mark unless the data's owner agrees.
 
 Add `--no-dbt` when dbt is not installed, and `--no-warehouse` to build from files alone. The
 MCP `gate` tool checks a copy of the graph instead, from files alone, and leaves `graph.json` as

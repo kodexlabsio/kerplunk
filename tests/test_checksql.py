@@ -1682,7 +1682,8 @@ def test_an_ontology_pack_gives_keys_and_terms_to_a_project_without_definitions(
         'invoice.customer_id refers to stripe_customer (invoice.customer_id = customer.id), as the stripe '
         'pack gives it, so many invoice rows can match one charge row'
     ]
-    assert result.terms == ['Stripe charge amount']
+    # The query reads the customer's email, which the pack marks personal.
+    assert result.terms == ['Stripe charge amount', 'Stripe customer contact details']
 
 
 # The example project

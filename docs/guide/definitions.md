@@ -20,6 +20,7 @@ terms:
     related: [Order amount]
     broader: [Lifetime metric]    # the wider concepts it is a kind of
     exceptions: Refunds are not netted off.
+    sensitivity: personal         # only for a term whose columns hold sensitive data
 ```
 
 The build attaches each term to the columns it names, so the definition travels with the lineage:
@@ -44,9 +45,10 @@ Customer lifetime value  [approved, Priya Shah (Head of Finance), approved 2026-
 - **Definitions cannot drift silently.** The build warns, and fails under `--strict`, when a bound column or a column in a required filter no longer exists (naming the likely rename), when an approved term has no owner or approval date, when an agreed or approved term is bound to nothing, when two terms share a name or synonym, when a related or broader term is not defined, and when broader terms form a cycle. `REPORT.md` lists every term with its status, owner and columns.
 - **Pull requests review them.** `konstruct diff` reports terms added, removed and changed field by field, and flags an approved term whose definition, grain, columns or filters changed while it stayed approved with the same date.
 
+- **They mark sensitive data.** A term with a `sensitivity` marks the columns it binds as holding that kind of data, and the column lineage carries the mark to every column computed from them; `konstruct gate` fails a change that moves it into a model not marked to hold it, and `diff` reports a mark added or taken away. [Sensitive Data and Erasure](sensitivity.md)
 - **They feed the ontology.** A term of kind `entity` names a business object, and a term of kind `measure` (or one bound to a computed column) is a measure, with each column's formula and verification in `ontology.yml`. The build warns when a measure's columns compute it differently. [The Ontology](ontology.md)
 
-Konstruct reads every `definitions.yml` (or `.yaml`) in the repository; `[definitions] paths` in `konstruct.toml` pins the files. The example project has five terms in [`examples/jaffle_shop/definitions.yml`](https://github.com/kodexlabsio/konstruct/tree/main/examples/jaffle_shop/definitions.yml).
+Konstruct reads every `definitions.yml` (or `.yaml`) in the repository; `[definitions] paths` in `konstruct.toml` pins the files. The example project has six terms in [`examples/jaffle_shop/definitions.yml`](https://github.com/kodexlabsio/konstruct/tree/main/examples/jaffle_shop/definitions.yml).
 
 ## Vocabularies
 

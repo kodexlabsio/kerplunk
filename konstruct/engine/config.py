@@ -296,6 +296,9 @@ class Config:
     its own settings by its name."""
     html: bool = True
     """Write graph.html. A build only another tool reads, such as the coding agent hook's, skips it."""
+    governance_from: Path | None = None
+    """The graph.json whose warehouse tags and masking policies a build from files alone keeps:
+    by default the one it replaces; for a copy of the graph, such as the gate's, the project's."""
     options: dict[str, Any] = field(default_factory=dict)
     """Build options given on the command line or to :meth:`konstruct.Project.build`, which apply
     to every repository built into the graph, not only this one."""

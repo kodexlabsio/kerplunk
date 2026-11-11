@@ -314,9 +314,15 @@ def test_the_build_binds_a_matching_pack(tmp_path: Path) -> None:
     assert not graph.warnings
     # A pack's key is not tested, so the join gives no cardinality.
     assert all(r.cardinality is None for r in ontology.relationships)
-    assert {'input': 'ontology pack', 'name': 'stripe', 'detail': 'warehouse.stripe: 5 terms'} in graph.meta[
+    assert {'input': 'ontology pack', 'name': 'stripe', 'detail': 'warehouse.stripe: 6 terms'} in graph.meta[
         'sources'
     ]
+    # The pack marks a customer's contact details personal, in the columns the schema has.
+    contact = graph.nodes['term.stripe_customer_contact_details']
+    assert contact.attrs['sensitivity'] == 'personal'
+    marked = {graph.label(graph.nodes[e.target]) for e in graph.out_edges(contact.id, 'defines')}
+    assert marked and marked <= {'customer.name', 'customer.email', 'customer.phone'}
+    assert {c.label for c in project.sensitivity().marked} == marked
 
 
 def test_an_applications_own_tables_match_nothing(tmp_path: Path) -> None:
@@ -394,7 +400,10 @@ def test_repositories_that_share_a_warehouse_share_its_pack_terms(tmp_path: Path
         'repositories = ["../marketing"]\n' + (main / 'konstruct.toml').read_text()
     )
     graph = Project(main).build(run_dbt=False).graph
-    assert [n for n in graph.nodes if n.startswith('term.stripe_customer')] == ['term.stripe_customer']
+    assert [n for n in graph.nodes if n.startswith('term.stripe_customer')] == [
+        'term.stripe_customer',
+        'term.stripe_customer_contact_details',
+    ]
     assert not [w for w in graph.warnings if 'more than one repository' in w]
 
 

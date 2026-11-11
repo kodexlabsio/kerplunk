@@ -235,6 +235,12 @@ class DefinitionsChange:
     """One line per changed field, such as ``Order amount: status agreed -> approved``."""
     approved_changed: list[str] = field(default_factory=list)
     """Approved terms whose meaning changed (definition, columns or filters) but stayed approved."""
+    marked: list[str] = field(default_factory=list)
+    """The columns, as the file names them, that the change marks sensitive: those of a term that
+    gains a ``sensitivity`` or a new one, and those added to a sensitive term."""
+    unmarked: list[str] = field(default_factory=list)
+    """One line per sensitivity mark the change takes away: a sensitive term removed, its
+    ``sensitivity`` removed or changed, or a column taken out of it."""
 
     @property
     def changed_any(self) -> bool:
@@ -267,6 +273,7 @@ _TERM_FIELDS = (
     'related',
     'exceptions',
     'broader',
+    'sensitivity',
 )
 _MEANING = ('definition', 'columns', 'filters', 'grain')
 
@@ -303,6 +310,25 @@ def compare_definitions(path: str, before: str | None, after: str | None) -> Def
         meaning = any(getattr(a, k) != getattr(b, k) for k in _MEANING)
         if meaning and a.status == 'approved' and b.status == 'approved' and a.approved == b.approved:
             result.approved_changed.append(name)
+    for name in sorted(set(old) | set(new)):
+        before_term, after_term = old.get(name), new.get(name)
+        if after_term is not None and after_term.sensitivity:
+            same = before_term is not None and before_term.sensitivity == after_term.sensitivity
+            kept = before_term.columns if same and before_term is not None else []
+            result.marked += [c for c in after_term.columns if c not in kept]
+        if before_term is None or not before_term.sensitivity:
+            continue
+        was = before_term.sensitivity
+        if after_term is None:
+            result.unmarked.append(f'{name}: sensitive term ({was}) removed')
+        elif after_term.sensitivity != was:
+            result.unmarked.append(f'{name}: sensitivity {was} -> {after_term.sensitivity or "none"}')
+        else:
+            result.unmarked += [
+                f'{name}: {c} is no longer marked {was}'
+                for c in before_term.columns
+                if c not in after_term.columns
+            ]
     return result
 
 

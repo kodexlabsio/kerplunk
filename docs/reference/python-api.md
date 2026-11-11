@@ -32,7 +32,7 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 | `konstruct.inputs` | `dbt`, `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `ingestion`, `hcl`, `warehouse`, `usage` |
 | `konstruct.engine` | `build`, `config`, `worker` |
 | `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `world`, `ossie`, `rows` (whether a composed formula counts its column's rows), `registry` |
-| `konstruct.analysis` | `query`, `semantic`, `explain`, `english`, `conflicts`, `diff`, `gate`, `verify`, `integrity`, `mutation`, `why`, `release_notes`, `effect`, `laws`, `history`, `receipts`, `lock` |
+| `konstruct.analysis` | `query`, `semantic`, `explain`, `english`, `conflicts`, `diff`, `gate`, `verify`, `integrity`, `mutation`, `why`, `release_notes`, `effect`, `laws`, `history`, `receipts`, `lock`, `sensitivity`, `erasure` |
 | `konstruct.outputs` | `report`, `html`, `export`, `compiled` (the ontology as tables, relationships and metrics for the platform exports), `owl`, `semantic_view`, `metric_view` |
 | `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
 | `konstruct.plugins` | `api` (the plugin API: protocols and types), `registry` (finding, enabling and loading plugins) |
@@ -140,6 +140,8 @@ print(ontology.measure('customer lifetime value').columns[0].formula)
 .. automethod:: konstruct.Project.entity
 .. automethod:: konstruct.Project.metric
 .. automethod:: konstruct.Project.relate
+.. automethod:: konstruct.Project.sensitivity
+.. automethod:: konstruct.Project.erasure
 ```
 
 ## Checking SQL
@@ -335,6 +337,46 @@ for pinned in pins.changes:
    :members:
 
 .. autoclass:: konstruct.semantics.ontology.Rule
+   :members:
+```
+
+### Sensitive Data
+
+```{eval-rst}
+.. autoclass:: konstruct.analysis.sensitivity.Sensitivity
+   :members:
+
+.. autoclass:: konstruct.analysis.sensitivity.SensitiveColumn
+   :members:
+
+.. autoclass:: konstruct.analysis.sensitivity.Mark
+   :members:
+
+.. autoclass:: konstruct.analysis.sensitivity.Sanitised
+   :members:
+
+.. autoclass:: konstruct.analysis.sensitivity.ExposureFlow
+   :members:
+
+.. autoclass:: konstruct.analysis.sensitivity.Reference
+   :members:
+
+.. autoclass:: konstruct.analysis.sensitivity.UnmaskedCopy
+   :members:
+
+.. autoclass:: konstruct.analysis.sensitivity.Uncertain
+   :members:
+
+.. autoclass:: konstruct.analysis.sensitivity.Settings
+   :members:
+
+.. autoclass:: konstruct.analysis.erasure.ErasureMap
+   :members:
+
+.. autoclass:: konstruct.analysis.erasure.Holding
+   :members:
+
+.. autoclass:: konstruct.analysis.erasure.ErasureKey
    :members:
 ```
 

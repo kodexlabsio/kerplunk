@@ -58,6 +58,7 @@ from sqlglot.optimizer.qualify import qualify
 
 from konstruct.analysis.explain import Explainer
 from konstruct.analysis.query import QueryError, resolve_one
+from konstruct.analysis.sensitivity import Settings, mask, sensitive_columns
 from konstruct.analysis.verify import Candidate, Engine, candidates, engine_for, rewrite
 from konstruct.core.graph import Graph, Node
 from konstruct.semantics.ontology import id_like
@@ -216,6 +217,9 @@ class Why:
     """Limits of this explanation: sampled inputs, untraced exclusions, approximate shares."""
     seconds: float = 0.0
     """Time taken."""
+    masked: list[str] = field(default_factory=list)
+    """The sensitive columns whose values are shown masked, by short name (see
+    :mod:`konstruct.analysis.sensitivity`)."""
 
     @property
     def capped(self) -> bool:
@@ -272,6 +276,11 @@ class Why:
             )
         if self.exclusions:
             lines.append(f'{_plural(self.exclusions, "related row")} left out, each with its reason.')
+        if self.masked:
+            lines.append(
+                f'The values of {_plural(len(self.masked), "sensitive column")} are masked: '
+                f'{", ".join(self.masked)}.'
+            )
         return lines + self.notes
 
     def _model(self) -> str:
@@ -298,6 +307,7 @@ class Why:
             'limit': self.limit,
             'capped': self.capped,
             'explanation': self.explanation(),
+            'masked': self.masked,
             'seconds': round(self.seconds, 3),
         }
 
@@ -1279,10 +1289,13 @@ def why(
     *,
     limit: int = 50,
     max_rows: int = 1_000_000,
+    settings: Settings | None = None,
 ) -> Why:
     """The source rows behind one value of ``column``: the row of its model that ``where`` picks.
 
-    Runs read-only in verify's sandbox (see the module docstring). Raises
+    Runs read-only in verify's sandbox (see the module docstring). The value of a sensitive
+    column, as ``settings`` (``[sensitivity]``) and the graph's marks make it, is shown masked:
+    in each source row, and the value and its shares when ``column`` is sensitive itself. Raises
     :class:`~konstruct.analysis.query.QueryError` when the column is not built by SQL that verify
     can rerun, the key does not lead to the rows that compute it, or the SQL is of a shape whose
     rows cannot be traced (a UNION, a RIGHT JOIN in the computing step, a recursive CTE)."""
@@ -1317,8 +1330,9 @@ def why(
         composed=explanation.composed,
         limit=limit,
     )
+    sensitive = sensitive_columns(graph, settings)
     try:
-        _Run(engine, graph, found, formula, result, max_rows).run(candidate, node.name)
+        _Run(engine, graph, found, formula, result, max_rows, sensitive).run(candidate, node.name)
     except _Unsupported as error:
         raise QueryError(f'the rows behind {result.label} cannot be traced: the SQL uses {error}') from error
     except SqlglotError as error:
@@ -1327,6 +1341,21 @@ def why(
         ) from error
     finally:
         engine.close()
+    # A share is one source row's own value: masked when any column the value is computed from is
+    # sensitive, even where the value itself, an aggregate over large groups, is not.
+    upstream = [s.node.id for s in graph.trace(node) if s.node.kind == 'column' and s.node.id in sensitive]
+    kinds = sorted({k for i in [node.id, *upstream] if i in sensitive for k in sensitive[i]})
+    if kinds:
+        hidden = mask(kinds)
+        for contribution in result.contributions:
+            contribution.values = [hidden if v is not None else None for v in contribution.values]
+        for aggregate in result.aggregates:
+            aggregate.total = hidden if aggregate.total is not None else None
+            aggregate.addends = hidden if aggregate.addends is not None else None
+        result.masked.insert(0, f"{result.label} (each row's share)")
+    if node.id in sensitive:
+        result.value = mask(sensitive[node.id]) if result.value is not None else None
+        result.masked.insert(0, result.label)
     result.seconds = time.perf_counter() - started
     return result
 
@@ -1340,8 +1369,10 @@ class _Run:
         formula: dict[str, set[str]],
         result: Why,
         max_rows: int,
+        sensitive: Mapping[str, list[str]],
     ) -> None:
         self.engine = engine
+        self.sensitive = sensitive
         self.graph = graph
         self.found = found
         self.formula = formula
@@ -1584,10 +1615,29 @@ class _Run:
                 )
                 names, rows = self.engine.run(query.sql(dialect=self.dialect))
                 shown = _shown_columns(self.graph, key, names[1:], self.formula)
+                hidden = self._hidden(key, names[1:])
                 for row in rows:
                     values = dict(zip(names[1:], row[1:], strict=True))
+                    for name, kinds in hidden.items():
+                        if values.get(name) is not None:
+                            values[name] = mask(kinds)
                     found[(key, row[0])] = SourceRow(label, str(row[0]), values, shown)
         return found
+
+    def _hidden(self, key: str, names: Sequence[str]) -> dict[str, list[str]]:
+        """The sensitive columns of a source, by the name the sandbox gives them, with their kinds."""
+        relation = self.graph.node_for_relation(key)
+        if relation is None:
+            return {}
+        hidden: dict[str, list[str]] = {}
+        for name in names:
+            column = self.graph.column(relation.id, name)
+            if column is not None and column.id in self.sensitive:
+                hidden[name] = self.sensitive[column.id]
+                label = self.graph.label(column)
+                if label not in self.result.masked:
+                    self.result.masked.append(label)
+        return hidden
 
     def _report(
         self,

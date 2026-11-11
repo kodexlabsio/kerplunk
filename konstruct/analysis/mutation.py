@@ -41,12 +41,14 @@ import re
 import time
 import uuid
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from sqlglot import exp
 
+from konstruct.analysis.sensitivity import Settings, sensitive_columns
 from konstruct.analysis.verify import (
     Candidate,
     Engine,
@@ -800,6 +802,7 @@ def mutate(
     operators: tuple[str, ...] = OPERATORS,
     only: list[str] | None = None,
     suggest: bool = True,
+    settings: Settings | None = None,
 ) -> MutationTesting:
     """Mutation test the dbt models of the project at ``root``, read-only, in verify's engines.
 
@@ -812,6 +815,7 @@ def mutate(
     result = MutationTesting(engine.label, seed, max_rows, max_mutants, tuple(operators))
     tests = _tests(root)
     shared = _Shared(graph)
+    shared.sensitive = sensitive_columns(graph, settings)
     try:
         for candidate in candidates(graph, root):
             node = candidate.node
@@ -972,6 +976,7 @@ def _mutate_one(
             outputs[survivor.mutant.id],
             survivor.mutant,
             rank < _UNIT_TESTS,
+            shared.sensitive,
         )
         survivor.suggestions = [_once(s, written) for s in found]
 
@@ -1064,6 +1069,9 @@ class _Shared:
         self.graph = graph
         self._relationships: list[Relationship] | None = None
         self._reach: dict[tuple[str, str], int] = {}
+        self.sensitive: dict[str, list[str]] | None = None
+        """The sensitive columns, as the project's settings make them, whose values no
+        suggestion may quote."""
 
     def relationships(self) -> list[Relationship]:
         if self._relationships is None:
@@ -1123,6 +1131,22 @@ def _comparable(a: Any, b: Any) -> bool:
     return False
 
 
+def _sensitive(
+    graph: Graph, relation: Node | None, name: str | None = None, sensitive: Mapping[str, Any] | None = None
+) -> bool:
+    """Whether a relation's column (any of its columns, without ``name``) holds sensitive data,
+    whose values a suggested test must not quote: by ``sensitive``, the columns the project's
+    settings make sensitive, or else those the graph's marks alone do."""
+    if relation is None:
+        return False
+    if sensitive is None:
+        sensitive = graph.indexed('sensitive columns', sensitive_columns)
+    if name is not None:
+        column = graph.column(relation.id, name)
+        return column is not None and column.id in sensitive
+    return any(c.id in sensitive for c in graph.columns_of(relation.id))
+
+
 def _suggest(
     run: _Run,
     graph: Graph,
@@ -1132,9 +1156,11 @@ def _suggest(
     rows: list[tuple[Any, ...]],
     mutant: Mutant,
     unit_test: bool,
+    sensitive: Mapping[str, Any] | None = None,
 ) -> list[Suggestion]:
     """Tests that pass on the original output and fail on the mutant's: generic tests where one
-    does, else (when ``unit_test``) a unit test."""
+    does, else (when ``unit_test``) a unit test; none that quotes a value of a column in
+    ``sensitive`` (see :func:`_sensitive`)."""
     node = candidate.node
     model = str(node.attrs.get('dbt_name') or node.name)
     found: list[Suggestion] = []
@@ -1163,6 +1189,10 @@ def _suggest(
                     *_column_yaml(model, name, 'unique'),
                 )
             )
+        if _sensitive(graph, node, name, sensitive):
+            # A test that lists, or names, a value of a sensitive column would copy it into the
+            # project: only the tests that quote no value are suggested.
+            continue
         values = sorted({v for v in present_before if isinstance(v, str)})
         categorical = all(isinstance(v, str) for v in present_before) and len(values) <= _CATEGORIES
         if values and categorical and len(present_before) >= 2 * len(values):
@@ -1179,9 +1209,13 @@ def _suggest(
                 )
         found += _relationship(run, graph, node, model, name, present_before, present_after)
         found += _non_negative(model, name, present_before, present_after)
-    found += _orderings(model, names, baseline, rows)
+    if not any(_sensitive(graph, node, name, sensitive) for name in names):
+        found += _orderings(model, names, baseline, rows)
     if found or not unit_test:
         return found[:3]
+    if any(_sensitive(graph, graph.node_for_relation(key), None, sensitive) for key in run.inputs):
+        # A unit test's rows are copied from the inputs.
+        return []
     unit = _unit_test(run, graph, candidate, names, mutant)
     return [unit] if unit is not None else []
 

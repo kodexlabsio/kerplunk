@@ -50,3 +50,12 @@ terms:
     definition: How a payment was made, as recorded by the payment provider.
     status: draft
     columns: [stg_payments.payment_method]
+
+  - name: Customer name
+    definition: >
+      A customer's first name and the initial of their last name, which identify a person, so the
+      columns that hold them hold personal data.
+    owner: {name: Tom Okafor, role: Operations Manager}
+    status: agreed
+    sensitivity: personal
+    columns: [raw_customers.first_name, raw_customers.last_name]

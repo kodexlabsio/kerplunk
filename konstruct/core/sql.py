@@ -338,6 +338,9 @@ def _analyse_statement(
         expression = statement.expression
         query = expression if isinstance(expression, exp.Query) else None
         kind = f'create_{(statement.args.get("kind") or "table").lower()}'
+        if kind == 'create_view' and statement.find(exp.MaterializedProperty) is not None:
+            # A materialised view holds rows of its own, as a table does.
+            kind = 'create_materialized_view'
         if query is None and not isinstance(write, exp.Table):
             return None
     elif isinstance(statement, exp.Insert):

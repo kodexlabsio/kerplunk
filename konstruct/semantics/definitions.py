@@ -18,6 +18,7 @@ A definitions file records what the business means by a term and which columns h
         currency: AUD
         related: [Order amount]
         exceptions: Gift card payments made before 2024 are excluded.
+        sensitivity: personal       # marks the bound columns as holding sensitive data
 
 ``columns`` and the columns in ``filters`` use the names the rest of Konstruct accepts
 (``table.column``, ``schema.table.column``, a dbt source). The build attaches each term to the
@@ -55,6 +56,7 @@ FIELDS = frozenset(
         'related',
         'broader',
         'exceptions',
+        'sensitivity',
     }
 )
 _CURRENCY = re.compile(r'^[A-Z]{3}$')
@@ -92,6 +94,10 @@ class Term:
     """``entity``, ``measure`` or ``term``; unset, the ontology infers it from the bound columns."""
     iri: str | None = None
     """For a term from a SKOS or OWL vocabulary, the concept's IRI."""
+    sensitivity: str | None = None
+    """What kind of sensitive data the term's columns hold, such as ``personal``: each bound
+    column is marked sensitive, and so is every column computed from it, and a relation the term
+    is bound to is marked to hold such data (see :mod:`konstruct.analysis.sensitivity`)."""
 
     @property
     def where(self) -> str:
@@ -282,6 +288,10 @@ def _term(entry: dict[str, Any], path: str, problem: Any) -> Term | None:
     currency = _text(entry.get('currency'))
     if currency and not _CURRENCY.match(currency):
         problem(line, f'{label}: currency {currency!r} should be an ISO 4217 code such as GBP')
+    sensitivity = entry.get('sensitivity')
+    if sensitivity is not None and not (isinstance(sensitivity, str) and sensitivity.strip()):
+        problem(line, f'{label}: `sensitivity` must be a word such as personal')
+        sensitivity = None
     return Term(
         name=name,
         definition=definition,
@@ -300,6 +310,7 @@ def _term(entry: dict[str, Any], path: str, problem: Any) -> Term | None:
         broader=lists['broader'],
         exceptions=_text(entry.get('exceptions')),
         kind=kind,
+        sensitivity=' '.join(sensitivity.lower().split()) if isinstance(sensitivity, str) else None,
     )
 
 

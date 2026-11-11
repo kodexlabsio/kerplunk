@@ -20,8 +20,10 @@ EXAMPLE = REPO / 'examples' / 'jaffle_shop'
 
 @pytest.fixture(autouse=True, scope='session')
 def _private_trust(tmp_path_factory: pytest.TempPathFactory) -> None:
-    """Trust records go to a private directory, and no test inherits KONSTRUCT_TRUST_CONFIG."""
+    """Trust records and the gate's graphs of base commits go to private directories, and no test
+    inherits KONSTRUCT_TRUST_CONFIG."""
     os.environ['XDG_CONFIG_HOME'] = str(tmp_path_factory.mktemp('config'))
+    os.environ['XDG_CACHE_HOME'] = str(tmp_path_factory.mktemp('cache'))
     os.environ.pop('KONSTRUCT_TRUST_CONFIG', None)
 
 

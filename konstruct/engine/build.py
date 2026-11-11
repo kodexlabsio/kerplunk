@@ -318,6 +318,12 @@ class Builder:
         for read in statement.reads:
             source = self.relation(read, origin)
             record(self.graph.add_edge(source.id, target.id, 'feeds', **attrs))
+        if statement.kind in ('create_view', 'create_materialized_view'):
+            # A view holds no rows of its own: an erasure leaves it be, and a warehouse masks
+            # what it reads as it reads it. A materialised view holds its rows, as a table does.
+            target.attrs.setdefault('table_type', 'view')
+            if statement.kind == 'create_materialized_view':
+                target.attrs['materialized_view'] = True
         if statement.conditions:
             # Joins, filters and grouping, in terms of physical columns: what shapes the rows.
             target.attrs['conditions'] = statement.conditions
@@ -1990,6 +1996,7 @@ class Builder:
                             'related': term.related,
                             'broader': term.broader,
                             'exceptions': term.exceptions,
+                            'sensitivity': term.sensitivity,
                             'line': term.line or None,
                             'iri': term.iri,
                         }.items()
@@ -2841,6 +2848,16 @@ def build(config: Config, *, update: bool = False) -> BuildResult:
     graph.meta['dialect'] = builder.dialect or dialect_for(None)
     config.out_dir.mkdir(parents=True, exist_ok=True)
     graph_path = config.out_dir / 'graph.json'
+    governed = config.governance_from or graph_path
+    if config.options.get('warehouses') is False and governed.is_file():
+        # A build from files alone reads no warehouse: the tags and masking policies the last
+        # build read are kept, so the next gate from files alone still sees what they mark.
+        from konstruct.analysis.sensitivity import carry_governance
+
+        try:
+            carry_governance(graph, Graph.read(governed))
+        except Exception:  # a graph.json from a newer Konstruct, or one that does not read
+            graph.warn('graph.json: the last build cannot be read, so its warehouse tags are not kept')
     # The ontology's own rules are build warnings, so they reach graph.json and REPORT.md and
     # `--strict` fails on them; the rules it carries over from definitions.yml already are.
     ontology = derive_ontology(graph)

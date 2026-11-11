@@ -58,6 +58,8 @@ async def _exercise(client: Client) -> None:
         'definition_effect',
         'laws',
         'lock_check',
+        'sensitivity',
+        'erasure',
     }
     assert all(t.description and t.input_schema for t in tools.tools)
     # Every tool states all four hints as booleans, as hosts and directories require.
@@ -79,6 +81,10 @@ async def _exercise(client: Client) -> None:
         'definition_effect',
         'laws',
     }
+    exposed = structured(await client.call_tool('sensitivity', {}))
+    assert 'customers.first_name' in exposed['unheld']
+    erased = structured(await client.call_tool('erasure', {'ref': 'customer'}))
+    assert erased['entity'] == 'customer' and erased['holdings']
     impact = structured(await client.call_tool('impact', {'ref': 'stg_payments.amount'}))
     assert impact['exposures'][0]['label'] == 'customer_dashboard'
     trace = structured(await client.call_tool('trace', {'ref': 'orders.amount', 'max_depth': 1}))
@@ -241,6 +247,9 @@ def test_marks_repository_text_as_untrusted(jaffle_built_graph: Path) -> None:
         ('mutation_test', {'models': ['orders'], 'max_mutants': 2}),
         ('why', {'column': 'customer_ltv.lifetime_value', 'where': {'customer_id': '3'}, 'limit': 5}),
         ('laws', {}),
+        ('sensitivity', {}),
+        ('sensitivity', {'ref': 'customers.first_name'}),
+        ('erasure', {'ref': 'customer', 'levels': 1}),
     ]
 
     async def main() -> None:

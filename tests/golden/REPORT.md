@@ -13,7 +13,7 @@ Built <time> from `<root>` by Konstruct <version> in <seconds>s. SQL dialect: du
 | dagster assets | 0 |
 | dagster ops | 0 |
 | sql files | 0 |
-| definitions | 5 |
+| definitions | 6 |
 
 | Node kind | Count |
 |-----------|-------|
@@ -24,13 +24,13 @@ Built <time> from `<root>` by Konstruct <version> in <seconds>s. SQL dialect: du
 | seed | 3 |
 | table | 1 |
 | task | 6 |
-| term | 5 |
+| term | 6 |
 | test | 24 |
 
 | Edge kind | Count |
 |-----------|-------|
 | contains | 44 |
-| defines | 6 |
+| defines | 8 |
 | derived_from | 36 |
 | feeds | 21 |
 | precedes | 5 |
@@ -66,6 +66,7 @@ From definitions.yml. Problems with them are listed under Warnings.
 | Completed order | agreed | Tom Okafor (Operations Manager) | `orders.status` |
 | Customer | approved | Tom Okafor (Operations Manager) | `customers.customer_id` |
 | Customer lifetime value | approved | Priya Shah (Head of Finance) | `customer_ltv.lifetime_value`, `customers.customer_lifetime_value` |
+| Customer name | agreed | Tom Okafor (Operations Manager) | `raw_customers.first_name`, `raw_customers.last_name` |
 | Order amount | approved | Priya Shah (Head of Finance) | `orders.amount` |
 | Payment method | draft | none | `stg_payments.payment_method` |
 

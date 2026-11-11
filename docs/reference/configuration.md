@@ -54,6 +54,12 @@ lineage = false                   # read the Platform Connector's lineage tables
 [dlt]
 lineage = false                   # read the schemas in each dataset's _dlt_version; default true
 
+[sensitivity]                     # see Sensitive Data and Erasure
+holders = ["customers", "crm_*"]  # models and exposures marked to hold sensitive data
+sanitisers = ["tokenise"]         # functions that remove sensitivity; a hash does not
+tags = ["restricted"]             # warehouse tags that mark a column sensitive, beside the built-in ones
+k = 10                            # distinct keys each group of an aggregate must hold (default 10)
+
 [usage]                           # column usage from query history; off by default
 enabled = true
 days = 90

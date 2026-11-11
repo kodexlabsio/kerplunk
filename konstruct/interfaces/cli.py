@@ -340,6 +340,19 @@ def cmd_relate(args: argparse.Namespace, console: Console) -> int:
     return 0 if result.found else 3
 
 
+def cmd_sensitivity(args: argparse.Namespace, console: Console) -> int:
+    project = _ready(_project(args), args, console)
+    result = project.sensitivity(args.ref)
+    _emit(console, result, args.json)
+    return 1 if args.strict and (result.unheld or result.unheld_exposures or result.unmasked) else 0
+
+
+def cmd_erasure(args: argparse.Namespace, console: Console) -> int:
+    project = _ready(_project(args), args, console)
+    _emit(console, project.erasure(args.ref, levels=args.levels), args.json)
+    return 0
+
+
 def cmd_history(args: argparse.Namespace, console: Console) -> int:
     project = _ready(_project(args), args, console)
     _emit(console, project.history(args.ref, limit=args.limit), args.json)
@@ -752,6 +765,7 @@ GROUPS = (
     ('Lineage', ('impact', 'trace', 'path', 'explain', 'history')),
     ('Explore', ('search', 'describe', 'list', 'query', 'export')),
     ('Business meaning', ('define', 'ontology', 'entity', 'metric', 'relate', 'conflicts', 'check-sql')),
+    ('Sensitive data', ('sensitivity', 'erasure')),
     ('Changes', ('diff', 'gate', 'release-notes', 'verify', 'lock')),
     ('Agents', ('install', 'mcp', 'receipts', 'hook')),
     ('Plugins', ('plugins',)),
@@ -838,6 +852,21 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
     'relate': (
         ('konstruct relate customer payment', 'the relationships between them and the joins'),
         ('konstruct relate order customer --json', 'the same as JSON'),
+    ),
+    'sensitivity': (
+        ('konstruct sensitivity', 'sensitive columns, where the lineage takes them and what stops it'),
+        ('konstruct sensitivity customers.email', 'why one column is sensitive, or what stopped it'),
+        (
+            'konstruct sensitivity --strict',
+            'exit 1 when sensitive data reaches a model not marked to hold it',
+        ),
+    ),
+    'erasure': (
+        (
+            'konstruct erasure customer',
+            "every relation holding one customer's rows, and what to do with each",
+        ),
+        ('konstruct erasure customers.customer_id --json', 'the same from a key column, as JSON'),
     ),
     'explain': (
         ('konstruct explain customers.lifetime_value', 'its formula, down to source columns'),
@@ -1355,6 +1384,35 @@ def parser() -> argparse.ArgumentParser:
     relating.add_argument('end', metavar='TO', help='another entity, such as payment')
     _query_options(relating)
     relating.set_defaults(func=cmd_relate)
+
+    sensitive = add(
+        'sensitivity', 'where sensitive data is, where the lineage takes it and which transforms stop it'
+    )
+    sensitive.add_argument('ref', nargs='?', metavar='NAME', help='only this table, model or column')
+    sensitive.add_argument(
+        '--strict',
+        action='store_true',
+        help='exit with status 1 if sensitive data reaches a model or exposure not marked to hold it, '
+        'or a table copies a masked column in clear',
+    )
+    _query_options(sensitive)
+    sensitive.set_defaults(func=cmd_sensitivity)
+
+    erasing = add(
+        'erasure', "every relation that holds one person's rows, found by a key, for an erasure request"
+    )
+    erasing.add_argument(
+        'ref', metavar='KEY', help='a key column (customers.customer_id), an entity (customer) or a table'
+    )
+    erasing.add_argument(
+        '--levels',
+        type=int,
+        default=3,
+        metavar='N',
+        help="how many steps of rows the person owns to follow, such as an order's payments (default 3)",
+    )
+    _query_options(erasing)
+    erasing.set_defaults(func=cmd_erasure)
 
     explaining = add('explain', "a column's formula, composed down to its source columns")
     explaining.add_argument('ref', metavar='COLUMN', help='e.g. orders.amount')

@@ -27,8 +27,8 @@
 # Changing a question, a reference, an answer, the rubric or a definitions file changes the set:
 # raise `version` and set `fingerprint` to what `uv run .kodex/scripts/answer_benchmark.py --plan`
 # prints.
-version: 3
-fingerprint: f4ecda11aa56dde765b26af38ec68b332ed5564687a98f863c176ec06641a051
+version: 4
+fingerprint: 4acd2d9f1bc53138ed218dbd1f9658946b93829abdc771a7834faca0e8c15e11
 
 # The tolerance of each unit: a value is correct when it is within the tolerance of the answer.
 # The questions ask for money to the cent, percentages to one decimal place and exact counts.
