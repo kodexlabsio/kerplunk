@@ -186,6 +186,9 @@ def test_the_readme_lists_every_command_and_format() -> None:
         'dot': 'Graphviz DOT',
         'csv': 'CSV',
         'ossie': 'Ossie',
+        'owl': 'OWL',
+        'semantic-view': 'Snowflake semantic view',
+        'metric-view': 'Databricks metric views',
     }
     exports = _bullet(features, 'Other tools')
     missing += [f'export {f}' for f in FORMATS if f not in names or names[f] not in exports]

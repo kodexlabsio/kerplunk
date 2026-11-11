@@ -878,19 +878,23 @@ class Project:
 
         Args:
             fmt: ``openlineage`` (JSON lines of static ``JobEvent`` objects with schema and column
-                lineage facets), ``mermaid``, ``dot``, ``csv`` (one row per column edge), ``ossie``
-                (the ontology as an Apache Ossie semantic model), or a format a plugin the project
-                enables adds.
-            select: Only the lineage, both directions, of this table or column.
+                lineage facets), ``mermaid``, ``dot``, ``csv`` (one row per column edge), or the
+                ontology as ``ossie`` (an Apache Ossie semantic model), ``owl`` (OWL 2 in Turtle),
+                ``semantic-view`` (a Snowflake ``CREATE SEMANTIC VIEW`` statement) or
+                ``metric-view`` (Databricks metric views), or a format a plugin the project enables
+                adds.
+            select: Only the lineage, both directions, of this table or column (not for the
+                ontology formats).
             columns: For ``mermaid`` and ``dot``, draw columns and column lineage.
-            namespace: For ``openlineage``, the dataset namespace (default ``<dialect>://konstruct``).
+            namespace: For ``openlineage``, the dataset namespace (default ``<dialect>://konstruct``);
+                for ``owl``, the ontology's IRI (default ``urn:konstruct:<project>``).
 
         Returns:
             The export as text.
 
         Raises:
             konstruct.outputs.export.ExportError: ``fmt`` is not one of the formats, ``select`` is given
-                with ``ossie``, the ontology has no entities or measures to export as Ossie, or a
+                with an ontology format, the ontology has no entities or measures to export, or a
                 plugin's format failed. It is a ``ValueError``.
             konstruct.QueryError: ``select`` matches nothing or several things.
 
@@ -898,6 +902,7 @@ class Project:
 
             Path('lineage.jsonl').write_text(project.export('openlineage', namespace='duckdb://shop'))
             print(project.export('mermaid', select='orders.amount', columns=True))
+            Path('shop.ttl').write_text(project.export('owl', namespace='https://example.com/shop'))
         """
         from konstruct.outputs.export import export
 

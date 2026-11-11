@@ -375,7 +375,10 @@ def test_the_plugins_command_lists_each_plugin(
         assert f'  {group:<10} {"pipelines":<24} API {OURS}' in out
     assert f'  {"packs":<10} {"pipelines":<24} API {PACKS}' in out
     assert 'konstruct-absent: enabled in konstruct.toml, but not installed' in out
-    assert 'Built in: inputs looker; exports openlineage, mermaid, dot, csv, ossie;' in out
+    assert (
+        'Built in: inputs looker; exports openlineage, mermaid, dot, csv, ossie, owl, semantic-view, metric-view;'
+        in out
+    )
     assert main(['plugins', '-C', str(root), '--json']) == 0
     data = json.loads(capsys.readouterr().out)
     assert data['api_version'] == OURS
@@ -660,7 +663,7 @@ def test_export_formats_from_plugins(
     assert 'raised RuntimeError: no export today' in capsys.readouterr().err
     with pytest.raises(
         ExportError,
-        match="unknown export format 'nope'; choose from openlineage, mermaid, dot, csv, ossie, bytes, fails, nodes",
+        match="unknown export format 'nope'; choose from openlineage, mermaid, dot, csv, ossie, owl, semantic-view, metric-view, bytes, fails, nodes",
     ):
         Project(root).export('nope')
     # A format no installed distribution provides is a usage error, as before.
@@ -2313,7 +2316,19 @@ def test_konstruct_reads_no_attribute_it_does_not_reserve(
         ['search', 'amount'],
         ['path', 'stg_payments', 'customers'],
         ['list'],
-        *(['export', name] for name in ('openlineage', 'mermaid', 'dot', 'csv', 'ossie')),
+        *(
+            ['export', name]
+            for name in (
+                'openlineage',
+                'mermaid',
+                'dot',
+                'csv',
+                'ossie',
+                'owl',
+                'semantic-view',
+                'metric-view',
+            )
+        ),
         ['status'],
     ):
         assert main([*command, '-C', root]) in (0, 3), command

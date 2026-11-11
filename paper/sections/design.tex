@@ -341,7 +341,9 @@ verification state) and later reports the answers whose basis has changed;
 and \cmd{konstruct conflicts} answer what things mean, and
 \cmd{konstruct check-sql} checks a query against them without running it;
 \cmd{konstruct export} writes OpenLineage events (\cmd{openlineage}), Mermaid (\cmd{mermaid}),
-Graphviz (\cmd{dot}), CSV (\cmd{csv}) and Apache Ossie (\cmd{ossie}); \cmd{konstruct plugins}
+Graphviz (\cmd{dot}), CSV (\cmd{csv}), Apache Ossie (\cmd{ossie}), and the ontology as OWL in
+Turtle (\cmd{owl}), a Snowflake semantic view (\cmd{semantic-view}) and Databricks metric views
+(\cmd{metric-view}); \cmd{konstruct plugins}
 lists the installed plugins, which add inputs, export formats, gate checks, ontology packs and
 MCP tools, and whether each runs; and \cmd{konstruct install}, \cmd{konstruct mcp} and
 \cmd{konstruct hook} connect coding agents. The Python API, \cmd{konstruct.Project}, returns

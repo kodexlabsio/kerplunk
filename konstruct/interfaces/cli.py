@@ -859,6 +859,7 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ('konstruct export mermaid -s orders --columns', 'a Mermaid diagram of one model'),
         ('konstruct export openlineage -o lineage.json', 'OpenLineage events for a catalogue'),
         ('konstruct export ossie -o model.yml', 'the ontology as an Apache Ossie model'),
+        ('konstruct export semantic-view -o semantic_view.sql', 'the ontology as a Snowflake semantic view'),
     ),
     'diff': (
         ('konstruct diff', 'this branch against its merge base with main'),
@@ -1393,7 +1394,8 @@ def parser() -> argparse.ArgumentParser:
 
     exporting = add(
         'export',
-        'the graph as OpenLineage, Mermaid, Graphviz DOT or CSV, or the ontology as an Apache Ossie model',
+        'the graph as OpenLineage, Mermaid, Graphviz DOT or CSV, or the ontology as Apache Ossie, OWL, '
+        'a Snowflake semantic view or Databricks metric views',
     )
     exporting.add_argument(
         'format',
@@ -1408,13 +1410,15 @@ def parser() -> argparse.ArgumentParser:
         '-s',
         '--select',
         metavar='NAME',
-        help='only the lineage of this table or column, both directions (not for ossie)',
+        help='only the lineage of this table or column, both directions (not for the ontology formats)',
     )
     exporting.add_argument(
         '--columns', action='store_true', help='mermaid and dot: draw columns and column lineage'
     )
     exporting.add_argument(
-        '--namespace', metavar='NS', help='openlineage: dataset namespace (default: <dialect>://konstruct)'
+        '--namespace',
+        metavar='NS',
+        help='openlineage: dataset namespace (default: <dialect>://konstruct); owl: the ontology IRI',
     )
     _query_options(exporting)
     exporting.set_defaults(func=cmd_export)

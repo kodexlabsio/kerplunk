@@ -82,7 +82,7 @@ Relationships (2)
   payment -> order   many-to-one  stg_payments.order_id = stg_orders.order_id
 ```
 
-Every build writes it to `ontology.yml`, `konstruct export ossie` writes it as an Apache Ossie model, and `konstruct search --meaning` finds a column by what it means, so a search for "revenue" finds `net_sales_amt`.
+Every build writes it to `ontology.yml`, `konstruct export` writes it as an Apache Ossie model, OWL, a Snowflake semantic view or Databricks metric views, and `konstruct search --meaning` finds a column by what it means, so a search for "revenue" finds `net_sales_amt`.
 
 ## Proven, Not Just Retrieved
 
@@ -334,7 +334,7 @@ Try the [live demo](https://kodexlabsio.github.io/konstruct/demo/): the viewer f
 - Python: `konstruct.Project`, with [typed results](https://kodexlabsio.github.io/konstruct/reference/python-api.html) for every question.
 - A browser: `graph.html`, [one offline documentation site](https://kodexlabsio.github.io/konstruct/guide/viewer.html) with a page for every model, column, task and business term (its SQL, tests and formulas), a lineage graph that takes dbt selectors down to columns, a map of the whole project at once, search, and an overview of coverage and conflicts, in 14 languages and checked against WCAG 2.2 AA with axe-core; `REPORT.md` and `ontology.yml` sit beside it for reading in a repository.
 - A local server: `konstruct serve` serves the viewer with live reload and a read-only, versioned JSON API with an OpenAPI document ([the HTTP API](https://kodexlabsio.github.io/konstruct/reference/http-api.html)).
-- Other tools: `konstruct export` writes OpenLineage events, Mermaid, Graphviz DOT, CSV and Apache Ossie ([exporting](https://kodexlabsio.github.io/konstruct/guide/exporting.html)).
+- Other tools: `konstruct export` writes OpenLineage events, Mermaid, Graphviz DOT, CSV and Apache Ossie, and the ontology as OWL in Turtle, a Snowflake semantic view and Databricks metric views, each saying what it leaves out ([exporting](https://kodexlabsio.github.io/konstruct/guide/exporting.html)).
 - Plugins: installed Python packages add inputs, export formats, gate checks, ontology packs and MCP tools through entry points, each run only when a project enables it in `konstruct.toml`; `konstruct plugins` lists them ([writing a plugin](https://kodexlabsio.github.io/konstruct/guide/plugins.html)).
 
 ## Documentation

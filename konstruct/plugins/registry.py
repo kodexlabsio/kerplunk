@@ -45,6 +45,9 @@ BUILTINS: dict[str, tuple[tuple[str, str], ...]] = {
         ('dot', 'konstruct.outputs.export:DOT'),
         ('csv', 'konstruct.outputs.export:CSV'),
         ('ossie', 'konstruct.outputs.export:OSSIE'),
+        ('owl', 'konstruct.outputs.export:OWL'),
+        ('semantic-view', 'konstruct.outputs.export:SEMANTIC_VIEW'),
+        ('metric-view', 'konstruct.outputs.export:METRIC_VIEW'),
     ),
     'checks': (
         ('breaking', 'konstruct.analysis.gate:BREAKING'),

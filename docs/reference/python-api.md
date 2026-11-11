@@ -33,7 +33,7 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 | `konstruct.engine` | `build`, `config`, `worker` |
 | `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `world`, `ossie`, `rows` (whether a composed formula counts its column's rows), `registry` |
 | `konstruct.analysis` | `query`, `semantic`, `explain`, `english`, `conflicts`, `diff`, `gate`, `verify`, `integrity`, `mutation`, `why`, `release_notes`, `effect`, `laws`, `history`, `receipts`, `lock` |
-| `konstruct.outputs` | `report`, `html`, `export` |
+| `konstruct.outputs` | `report`, `html`, `export`, `compiled` (the ontology as tables, relationships and metrics for the platform exports), `owl`, `semantic_view`, `metric_view` |
 | `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
 | `konstruct.plugins` | `api` (the plugin API: protocols and types), `registry` (finding, enabling and loading plugins) |
 

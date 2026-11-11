@@ -1,4 +1,6 @@
-"""Export the graph for other tools: OpenLineage, Mermaid, Graphviz DOT, CSV and Apache Ossie.
+"""Export the graph for other tools: OpenLineage, Mermaid, Graphviz DOT and CSV, and the ontology
+for semantic platforms: Apache Ossie, OWL in Turtle, Snowflake semantic views and Databricks metric
+views.
 
 * ``openlineage``: one OpenLineage ``JobEvent`` per relation that something builds (a dbt model,
   a SQL file, an Airflow or Dagster task's SQL), as JSON lines. Each lists its input datasets and
@@ -12,8 +14,14 @@
   ``columns=True``) for documentation and pull requests.
 * ``csv``: one row per column lineage edge, for spreadsheets and warehouses.
 * ``ossie``: the ontology as an Apache Ossie semantic model (see :mod:`konstruct.semantics.ossie`).
+* ``owl``: the ontology as OWL 2 in Turtle (see :mod:`konstruct.outputs.owl`); ``namespace`` is its
+  IRI.
+* ``semantic-view``: the ontology as a Snowflake semantic view (see
+  :mod:`konstruct.outputs.semantic_view`).
+* ``metric-view``: the ontology as Databricks metric views (see :mod:`konstruct.outputs.metric_view`).
 
-``select`` restricts any format but ``ossie`` to the lineage of one node, upstream and downstream.
+``select`` restricts the graph formats to the lineage of one node, upstream and downstream; the
+ontology formats are always the whole ontology.
 
 Each format is in the plugin registry (:mod:`konstruct.plugins.registry`), as an installed plugin's
 format is, and :func:`export` runs whichever the registry names.
@@ -51,8 +59,8 @@ FORMATS: tuple[str, ...] = tuple(name for name, _ in BUILTINS['exports'])
 
 
 class ExportError(ValueError):
-    """An export that cannot be written as asked: an unknown format, a selection with the Ossie
-    export, or an ontology with nothing to export."""
+    """An export that cannot be written as asked: an unknown format, a selection with an ontology
+    format, or an ontology with nothing to export."""
 
 
 PRODUCER = f'https://github.com/kodexlabsio/konstruct/tree/v{__version__}'
@@ -127,14 +135,29 @@ class BuiltinFormat:
         return self.write(graph, request)
 
 
-def _ossie(graph: Graph, request: ExportRequest) -> str:
-    from konstruct.semantics.ontology import derive
-    from konstruct.semantics.ossie import export as ossie_export
+def _ontology_format(fmt: str) -> Callable[[Graph, ExportRequest], str]:
+    """The writer of an ontology format: the whole ontology, named after the project."""
 
-    if request.select is not None:
-        raise ExportError('the ossie export is the whole ontology; it does not take a selection')
-    root = graph.meta.get('root')
-    return ossie_export(graph, derive(graph), name=Path(str(root)).name if root else None)
+    def write(graph: Graph, request: ExportRequest) -> str:
+        from konstruct.outputs import metric_view, owl, semantic_view
+        from konstruct.semantics import ossie
+        from konstruct.semantics.ontology import derive
+
+        if request.select is not None:
+            raise ExportError(f'the {fmt} export is the whole ontology; it does not take a selection')
+        root = graph.meta.get('root')
+        name = Path(str(root)).name if root else None
+        ontology = derive(graph)
+        if fmt == 'owl':
+            return owl.export(graph, ontology, name=name, iri=request.namespace)
+        writers = {
+            'ossie': ossie.export,
+            'semantic-view': semantic_view.export,
+            'metric-view': metric_view.export,
+        }
+        return writers[fmt](graph, ontology, name)
+
+    return write
 
 
 # Each calls its writer by name when it runs, so the writer can be replaced (in a test) after import.
@@ -157,7 +180,10 @@ DOT = BuiltinFormat(
 CSV = BuiltinFormat(
     'one CSV row per column lineage edge', lambda graph, request: column_csv(graph, request.keep)
 )
-OSSIE = BuiltinFormat('the ontology as an Apache Ossie semantic model', _ossie)
+OSSIE = BuiltinFormat('the ontology as an Apache Ossie semantic model', _ontology_format('ossie'))
+OWL = BuiltinFormat('the ontology as OWL 2 in Turtle', _ontology_format('owl'))
+SEMANTIC_VIEW = BuiltinFormat('the ontology as a Snowflake semantic view', _ontology_format('semantic-view'))
+METRIC_VIEW = BuiltinFormat('the ontology as Databricks metric views', _ontology_format('metric-view'))
 
 
 def _selection(graph: Graph, node: Node) -> set[str]:
