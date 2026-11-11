@@ -782,6 +782,48 @@ a.badge:hover {
 .badge.term {
     margin: 2px;
 }
+/* Trust: verified, declared, inferred, a failed check, or no rating. Each also has its own shape
+   (TrustMark), so the level never rests on colour alone. */
+.t-verified {
+    --trust: var(--ok);
+}
+.t-declared {
+    --trust: var(--accent);
+}
+.t-inferred,
+.t-unrated {
+    --trust: var(--edge);
+}
+.t-failed {
+    --trust: var(--warning);
+}
+.trust-mark {
+    flex: none;
+    overflow: visible;
+}
+.trust-mark .fill {
+    fill: var(--trust);
+}
+.trust-mark .cut {
+    fill: none;
+    stroke: var(--ground);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.trust-mark .ring {
+    fill: none;
+    stroke: var(--trust);
+    stroke-width: 2;
+}
+.t-inferred .ring,
+.trust-mark.t-inferred .ring {
+    stroke-dasharray: 3 2.4;
+}
+.t-unrated .ring,
+.trust-mark.t-unrated .ring {
+    stroke-width: 1.2;
+}
 .chip {
     display: inline-flex;
     align-items: center;

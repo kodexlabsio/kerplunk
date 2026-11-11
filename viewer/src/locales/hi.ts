@@ -488,6 +488,61 @@ const messages: Catalogue = {
     'map.dropped': 'लेबल से गायब अक्षर: {count, number}, क्योंकि ग्लिफ़ एटलस भर गया है।',
     'map.tooLarge':
         '{needed, number} बाइट का बफ़र इस ग्राफ़िक्स डिवाइस की सीमा ({limit, number} बाइट) से बड़ा है।',
+
+    'page.world': 'वर्ल्ड',
+    'world.lead':
+        '{entities, number} एंटिटी, {metrics, number} मेट्रिक और {relationships, number} संबंध। रंग और आकार बताते हैं कि हर एक पर कितना भरोसा किया जा सकता है।',
+    'world.open': 'वर्ल्ड मैप खोलें',
+    'world.empty':
+        'अभी कोई एंटिटी या मेट्रिक नहीं: किसी पहचान कॉलम पर unique टेस्ट या प्राइमरी की होने से एंटिटी बनती है।',
+    'world.label': 'व्यवसाय का मैप, {count, number} एंटिटी',
+    'world.help':
+        'हर वृत्त एक एंटिटी है, जिसका आकार उसके मेट्रिक से तय होता है। तीर कुंजियाँ एंटिटी के बीच जाती हैं, Enter एक को मैप के बगल में दिखाता है, Escape उसे हटाता है, प्लस और माइनस ज़ूम करते हैं और F मैप को फ़िट करता है। खिसकाने के लिए खींचें और ज़ूम के लिए स्क्रॉल करें।',
+    'world.node': '{name}: {trust}, {count, number} मेट्रिक',
+    'world.legend': 'भरोसा',
+    'trust.verified': 'सत्यापित',
+    'trust.declared': 'घोषित',
+    'trust.inferred': 'अनुमानित',
+    'trust.failed': 'जाँच विफल',
+    'trust.unrated': 'मूल्यांकन नहीं',
+    'trust.verifiedHelp': 'konstruct verify ने इसे डेटा वेयरहाउस में जाँचा।',
+    'trust.declaredHelp': 'किसी व्यक्ति ने इसे टेस्ट, की या परिभाषा में बताया।',
+    'trust.inferredHelp': 'Konstruct ने इसे केवल कोड से पढ़ा।',
+    'trust.failedHelp': 'konstruct verify ने इसे डेटा वेयरहाउस में गलत पाया।',
+    'trust.unratedHelp':
+        'ऐसे Konstruct से लिखा गया जो भरोसा दर्ज नहीं करता था; मूल्यांकन के लिए फिर से बिल्ड करें।',
+    'world.find': 'एंटिटी या मेट्रिक खोजें',
+    'world.findPlaceholder': 'एंटिटी या मेट्रिक का नाम',
+    'world.entities': 'एंटिटी',
+    'world.metrics': 'मेट्रिक',
+    'world.loose': 'बिना एंटिटी वाले मेट्रिक',
+    'world.more': '{total, number} में से पहले {shown, number}; बाकी खोजने के लिए नाम लिखें।',
+    'world.noMatch': 'कुछ मेल नहीं खाता।',
+    'world.metricCount': '{count, number} मेट्रिक',
+    'world.all': 'सभी एंटिटी',
+    'world.back': '{name} पर वापस',
+    'world.openEntity': 'एंटिटी का पेज खोलें',
+    'world.proposed': 'प्रस्तावित',
+    'world.proposedNote':
+        'Konstruct यह मेट्रिक कोड से प्रस्तावित करता है। किसी ने इसे परिभाषित या स्वीकृत नहीं किया है।',
+    'world.owner': 'स्वामी',
+    'world.approved': 'स्वीकृति की तारीख',
+    'world.grain': 'ग्रेन',
+    'world.definedIn': 'यहाँ परिभाषित',
+    'world.sources': 'स्रोत कॉलम',
+    'world.fromAggregate': 'कोड से पढ़ा गया: {columns} में एक एग्रीगेट, {aggregation}।',
+    'world.fromColumn':
+        'कोड से पढ़ा गया: {columns} में माप के नाम वाला संख्यात्मक कॉलम, हर पंक्ति में एक मान।',
+    'world.fromCount': 'हर {entity} की गिनती, उसकी की के अनुसार।',
+    'world.grainRead': 'इसका ग्रेन, हर {entity} पर एक पंक्ति, उस रिलेशन से पढ़ा गया है जिसमें यह है।',
+    'world.notSummed': 'कीमत या बैलेंस: पंक्तियों पर इसका जोड़ कुल नहीं है।',
+    'world.legacy':
+        'यह पेज पहले के ऐसे Konstruct से लिखा गया था जो प्रस्तावित मेट्रिक दर्ज नहीं करता था, इसलिए केवल परिभाषित मेट्रिक दिखाए गए हैं। प्रस्ताव देखने के लिए फिर से बिल्ड करें।',
+    'help.world': 'वर्ल्ड मैप पर',
+    'help.worldMove': 'उस दिशा में सबसे पास की एंटिटी पर जाएँ',
+    'help.worldShow': 'एंटिटी को मैप के बगल में दिखाएँ',
+    'help.worldClear': 'चयन हटाएँ',
+    'world.loners': 'बिना संबंध वाली {count, number} एंटिटी',
 };
 
 export default messages;

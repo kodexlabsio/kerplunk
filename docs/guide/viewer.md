@@ -9,7 +9,7 @@ The viewer is a documentation site for the data stack, built from the graph: a p
 ## The Layout
 
 - **The top bar** has the project name, where you are, search (`Ctrl K`), the full lineage graph, the language, the theme and the keyboard shortcuts.
-- **The navigation** on the left lists the pages (overview, lineage, map, browse, glossary, ontology, conflicts, tests, usage and warnings) and four trees: the **project** by dbt package and folder with sources and exposures, the **database** by schema, the **pipelines** by DAG and task, and the **business** vocabulary of terms and entities. Type in the filter box to narrow a tree.
+- **The navigation** on the left lists the pages (overview, world, lineage, map, browse, glossary, ontology, conflicts, tests, usage and warnings) and four trees: the **project** by dbt package and folder with sources and exposures, the **database** by schema, the **pipelines** by DAG and task, and the **business** vocabulary of terms and entities. Type in the filter box to narrow a tree.
 - **The page** in the middle describes what you opened.
 - **The lineage graph** is docked beneath pages about one thing, showing its lineage; drag the bar between them to resize it, press `L` to hide it, or open it full screen.
 
@@ -17,11 +17,12 @@ Every page and view has its own address, such as `graph.html#/node/model.shop.or
 
 ## Pages
 
+- **World**: the business's entities, relationships and metrics as a map, each marked with how far it is trusted (see [The World Map](#the-world-map)).
 - **Overview**: counts of models, sources, seeds, tables, tasks, tests, terms and columns; coverage of column lineage, verification on data, descriptions and tests; conflicting definitions, build warnings grouped by input, the inputs the build read, and what most depends on.
 - **Models, sources, seeds, snapshots and tables**: description, warehouse name, materialisation, package, tags, entities, origins and verification; the columns with their type, description, tests (`U` unique, `N` not null, `A` accepted values, `R` relationships), business terms, the kind of transform and the formula in terms of source columns, each linked to the column's explanation; what it depends on and what references it; the joins and filters that shape its rows; the SQL as written and as dbt compiled it; its tests, column usage and details; and commands to ask Konstruct next.
 - **Columns**: the formula with CTEs and aliases inlined and the same formula in terms of source columns (see [Explaining a Column](explain.md)), every step upstream and downstream with its transform, formula and verification, the relations that join, filter or group on it, its tests and the terms that define it.
 - **Business terms**: the definition, status, owner, grain, unit, synonyms and required filters, the bound columns with their formulas and verification, conflicts, and broader, narrower and related terms (see [Business Definitions](definitions.md)). The **glossary** lists every term from A to Z.
-- **Ontology and entities**: entities with their keys and the relations that hold them, measures with their formulas, relationships with cardinality, and the ontology's rules (see [The Ontology](ontology.md)).
+- **Ontology and entities**: entities with their keys and the relations that hold them, measures with their formulas, relationships with cardinality, each with its trust, and the ontology's rules (see [The Ontology](ontology.md)).
 - **DAGs and tasks**: schedule, tasks in run order, what each runs, its command or SQL, and what runs before and after it.
 - **Browse**: every table, model, task and exposure in a sortable table, filtered by kind, package, tag and text.
 - **Conflicts**: columns that compute the same idea differently, side by side, with what differs, as `konstruct conflicts` last found them in the same graph (see [Conflicting Definitions](conflicts.md)).
@@ -60,6 +61,19 @@ With **Columns** on, the graph is a column-level map of the selection:
 
 ![The lineage graph full screen with every table expanded to its columns, column edges coloured by transform](../images/graph-columns.png)
 
+## The World Map
+
+The **World** page draws the ontology as a map of the business: each entity is a circle, sized by how many metrics it has and numbered with them, and each relationship is a line labelled at its ends with its cardinality, `N` at the many end and `1` at the one end. It is drawn as SVG, so it needs no WebGPU, and the layout is the same each time for the same ontology.
+
+![The world map of jaffle_shop after konstruct verify: customer, order and payment as verified entities joined many-to-one, with order selected and its metrics listed beside the map, the approved Order amount first and the proposals after it](../images/graph-world.png)
+
+- **Trust.** Every entity, relationship and metric shows how far it can be trusted, by colour and by shape: **verified** (a tick: `konstruct verify` checked it against the warehouse), **declared** (a solid ring: a test, a key or a definition states it) or **inferred** (a dashed ring: read from the code alone). An entity or relationship that `konstruct verify` found false is marked **check failed** (a warning triangle); metrics have no such check. The key above the map lists the levels of the entities and relationships it draws; each metric in the list beside it names its own. The Ontology page and each entity's page show the same marks.
+- **Selecting.** Clicking an entity, or choosing it in the list beside the map, shows its key, the relations that hold it, its evidence, its relationships and its metrics, and steps the rest of the map back. Choosing a metric shows its formula, the columns that hold it and the source columns they reach, its evidence, and, where a definition gives them, its owner, status, approval date and grain. Each selection has its own address, such as `graph.html#/world?focus=entity:order`.
+- **Proposed metrics.** A metric that Konstruct proposes from the code (an aggregate, a numeric column named as a measure, or the count of an entity) is marked **proposed** and **inferred**, with what it was read from; nothing has defined or approved it, so it never shows a status.
+- **Moving around.** Drag to pan, scroll to zoom, and **Fit** shows everything. Entities in no relationship are gathered beneath the rest, under a heading that counts them. On a large ontology, names, counts and cardinalities appear as they become large enough to read, and the list shows the first hundred entities and metrics, with a box to find the rest by name. Metrics with no entity, such as a BI measure over several tables, have no place on the map and are listed under their own heading. Metrics that share a name for one entity, such as a count in each of two Looker views, each have their own row and an address that keeps opening the same metric, and their rows name what tells them apart: the column that holds each, or the view and file that define it. When the ontology has no entities, the map says so and its metrics are listed beside it.
+
+Pages written by earlier versions of Konstruct still open. A page from before Konstruct recorded trust (0.13.8 and earlier) shows its entities and relationships as **not rated**, with a thin ring and a dotted line. A page from before the world model's metrics were added to it (0.13.13 and earlier) lists only the defined metrics, with no proposals, and says so. Building the project again gives both.
+
 ## The Map
 
 The **Map** page draws the whole project at once: every source, seed, snapshot, table, model, task and exposure as a card listing its columns, with the edges between them, in the same left-to-right layers and order as the lineage graph. Far out, the column names give way to a bar per column. The layout is the same each time for the same graph.
@@ -93,9 +107,11 @@ The map needs a browser with WebGPU, which browsers run on Metal, Vulkan or Dire
 | `F`, `C`, `+`, `-` | In the graph, fit, show every column, zoom; on the map, `F`, `+` and `-` fit and zoom |
 | `Home`, `0` | On the map, go to the first node, or fit the whole map |
 
+On the world map, the arrow keys move to the nearest entity in that direction, `Enter` shows it beside the map, `Esc` clears the selection, and `F`, `+` and `-` fit and zoom.
+
 ## Accessibility
 
-The viewer's tests check it against axe-core's rules for WCAG 2.2 levels A and AA, in both themes and at 200% zoom, and drive it from the keyboard. It has landmarks and headings for each page, works entirely from the keyboard with a visible focus, labels its controls for screen readers, and keeps text at a contrast of at least 4.5:1. The lineage graph can be operated with the arrow keys, announces each node it moves to, and has a text alternative listing what is upstream and downstream of the current node. The map has a name and a description of its keys, announces each node the arrow keys move to with the number of nodes upstream and downstream of it, and lists the nodes it shows as text beside it. Edge kinds differ in line pattern as well as colour, animation stops when the system asks for reduced motion, and the layout works at 200% zoom and on narrow screens.
+The viewer's tests check it against axe-core's rules for WCAG 2.2 levels A and AA, in both themes and at 200% zoom, and drive it from the keyboard. It has landmarks and headings for each page, works entirely from the keyboard with a visible focus, labels its controls for screen readers, and keeps text at a contrast of at least 4.5:1. The lineage graph can be operated with the arrow keys, announces each node it moves to, and has a text alternative listing what is upstream and downstream of the current node. The map has a name and a description of its keys, announces each node the arrow keys move to with the number of nodes upstream and downstream of it, and lists the nodes it shows as text beside it. The world map is one stop for `Tab`, names each entity with its trust and number of metrics, and lists every entity and metric as links beside it; trust is shown by shape as well as colour. Edge kinds differ in line pattern as well as colour, animation stops when the system asks for reduced motion, and the layout works at 200% zoom and on narrow screens.
 
 ## Language
 
@@ -120,6 +136,6 @@ Without `explain.json` the page shows the graph, its descriptions and tests, but
 
 ## Size and Performance
 
-The page itself is about 715 kB (240 kB compressed), of which about 290 kB is the translations; the graph and its SQL are added to that. On the generated projects of [Performance](../performance.md), a 1,000-model page shows its overview in about a second and draws its full lineage graph in about 2.5 seconds. Themes are dark and light, following the system setting, switchable from the top bar.
+The page itself is about 810 kB (266 kB compressed), of which about 335 kB is the translations; the graph and its SQL are added to that. On the generated projects of [Performance](../performance.md), a 1,000-model page shows its overview in about a second and draws its full lineage graph in about 2.5 seconds. Themes are dark and light, following the system setting, switchable from the top bar.
 
 The viewer's source is in `viewer/`; see [Development](../development.md) for how it is built and tested.

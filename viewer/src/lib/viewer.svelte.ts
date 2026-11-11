@@ -18,6 +18,7 @@ import type {
     GraphNode,
     OntologyData,
     Point,
+    WorldData,
 } from './types';
 
 export const ANIMATE_LIMIT = 400;
@@ -51,6 +52,7 @@ export class Viewer {
     readonly conditions: Record<string, string[]>;
     readonly sql: Record<string, Code>;
     readonly ontology: OntologyData;
+    readonly world: WorldData;
     readonly conflicts: ConflictsData;
     readonly buildLocale: string | undefined;
     private indexCache: Entry[] | null = null;
@@ -86,6 +88,7 @@ export class Viewer {
         this.conditions = explanations.conditions ?? {};
         this.sql = explanations.sql ?? {};
         this.ontology = explanations.ontology ?? {};
+        this.world = explanations.world ?? {};
         this.conflicts = explanations.conflicts ?? {};
         this.buildLocale = explanations.locale;
         this.dockOpen = stored('konstruct-dock') !== 'closed';

@@ -498,6 +498,64 @@ const messages: Catalogue = {
         '{count, plural, one {# Zeichen fehlt} other {# Zeichen fehlen}} in den Beschriftungen: Der Glyphenatlas ist voll.',
     'map.tooLarge':
         'Ein Puffer von {needed, number} Byte ist größer, als dieses Grafikgerät erlaubt ({limit, number} Byte).',
+
+    'page.world': 'Welt',
+    'world.lead':
+        '{entities, plural, one {# Entität} other {# Entitäten}}, {metrics, plural, one {# Metrik} other {# Metriken}} und {relationships, plural, one {# Beziehung} other {# Beziehungen}}. Farbe und Form zeigen, wie weit jedem zu trauen ist.',
+    'world.open': 'Weltkarte öffnen',
+    'world.empty':
+        'Noch keine Entitäten oder Metriken: Ein Unique-Test oder ein Primärschlüssel auf einer Kennungsspalte ergibt eine Entität.',
+    'world.label': 'Karte des Geschäfts, {count, plural, one {# Entität} other {# Entitäten}}',
+    'world.help':
+        'Jeder Kreis ist eine Entität, nach ihren Metriken bemessen. Die Pfeiltasten wechseln zwischen Entitäten, Enter zeigt eine neben der Karte, Escape hebt die Auswahl auf, Plus und Minus zoomen und F passt die Karte ein. Ziehen verschiebt sie, Scrollen zoomt.',
+    'world.node': '{name}: {trust}, {count, plural, =0 {keine Metriken} one {# Metrik} other {# Metriken}}',
+    'world.legend': 'Vertrauen',
+    'trust.verified': 'Verifiziert',
+    'trust.declared': 'Deklariert',
+    'trust.inferred': 'Abgeleitet',
+    'trust.failed': 'Prüfung fehlgeschlagen',
+    'trust.unrated': 'Nicht bewertet',
+    'trust.verifiedHelp': 'konstruct verify hat es im Warehouse geprüft.',
+    'trust.declaredHelp':
+        'Eine Person hat es angegeben, in einem Test, einem Schlüssel oder einer Definition.',
+    'trust.inferredHelp': 'Konstruct hat es allein aus dem Code gelesen.',
+    'trust.failedHelp': 'konstruct verify hat es im Warehouse als falsch befunden.',
+    'trust.unratedHelp':
+        'Von einem Konstruct geschrieben, das kein Vertrauen erfasste; neu bauen, um es zu bewerten.',
+    'world.find': 'Entität oder Metrik suchen',
+    'world.findPlaceholder': 'Name einer Entität oder Metrik',
+    'world.entities': 'Entitäten',
+    'world.metrics': 'Metriken',
+    'world.loose': 'Metriken ohne Entität',
+    'world.more':
+        'Die ersten {shown, number} von {total, number}; einen Namen eingeben, um die übrigen zu finden.',
+    'world.noMatch': 'Keine Treffer.',
+    'world.metricCount': '{count, plural, =0 {Keine Metriken} one {# Metrik} other {# Metriken}}',
+    'world.all': 'Alle Entitäten',
+    'world.back': 'Zurück zu {name}',
+    'world.openEntity': 'Seite der Entität öffnen',
+    'world.proposed': 'Vorgeschlagen',
+    'world.proposedNote':
+        'Konstruct schlägt diese Metrik aus dem Code vor. Niemand hat sie definiert oder freigegeben.',
+    'world.owner': 'Verantwortlich',
+    'world.approved': 'Freigegeben am',
+    'world.grain': 'Granularität',
+    'world.definedIn': 'Definiert in',
+    'world.sources': 'Quellspalten',
+    'world.fromAggregate': 'Aus dem Code gelesen: eine Aggregation, {aggregation}, in {columns}.',
+    'world.fromColumn':
+        'Aus dem Code gelesen: eine numerische Spalte mit dem Namen einer Kennzahl, ein Wert je Zeile, in {columns}.',
+    'world.fromCount': 'Die Anzahl der Instanzen von {entity}, nach ihrem Schlüssel.',
+    'world.grainRead':
+        'Ihre Granularität, eine Zeile je {entity}, ist aus der Relation gelesen, die sie enthält.',
+    'world.notSummed': 'Ein Preis oder ein Saldo: Seine Summe über Zeilen ist kein Gesamtwert.',
+    'world.legacy':
+        'Diese Seite wurde von einem früheren Konstruct geschrieben, das die vorgeschlagenen Metriken nicht erfasste; daher sind nur die definierten Metriken aufgeführt. Neu bauen, um die Vorschläge zu sehen.',
+    'help.world': 'Auf der Weltkarte',
+    'help.worldMove': 'Zur nächsten Entität in dieser Richtung',
+    'help.worldShow': 'Die Entität neben der Karte zeigen',
+    'help.worldClear': 'Auswahl aufheben',
+    'world.loners': '{count, plural, one {# Entität ohne Beziehung} other {# Entitäten ohne Beziehung}}',
 };
 
 export default messages;

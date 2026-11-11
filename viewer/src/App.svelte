@@ -42,10 +42,11 @@
     });
 
     // Moving to another page moves focus to its heading, as a screen reader expects of a new page.
+    // A derived string, so a change to the rest of the address (a selection on the same page) does not.
+    const where = $derived(`${viewer.route.page}/${viewer.route.id ?? ''}`);
     let first = true;
     $effect(() => {
-        void viewer.route.page;
-        void viewer.route.id;
+        void where;
         if (first) {
             first = false;
             return;

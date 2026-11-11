@@ -26,6 +26,7 @@ the grain, and ``grain_confidence`` says which.
 from __future__ import annotations
 
 import copy
+import functools
 import heapq
 import re
 from collections.abc import Callable, Sequence
@@ -54,7 +55,6 @@ from konstruct.semantics.ontology import (
 )
 
 if TYPE_CHECKING:
-    from konstruct.analysis.explain import Explainer
     from konstruct.analysis.query import QueryError
     from konstruct.interfaces.layout import Style
 
@@ -166,6 +166,10 @@ class Metric:
     """Where it comes from and what checked it."""
     path: str | None = None
     """The file that defines it, with the line where known."""
+    exposure: str | None = None
+    """For a measure of a BI view or semantic model (Looker, Power BI or a plugin's input), the
+    graph id of the exposure that defines it: one file can hold several views, each with a
+    measure of the same name."""
 
     def to_dict(self) -> dict[str, Any]:
         data = {k: v for k, v in asdict(self).items() if k != 'columns'}
@@ -386,12 +390,15 @@ def all_metrics(
     entity: str | None = None,
     name: str | None = None,
     named: bool = False,
+    compose: bool = True,
 ) -> list[Metric]:
     """The ontology's measures, the metrics people define in dbt's semantic layer, Looker and
     Power BI, and Konstruct's proposals for what nothing defines: with ``entity`` only those whose
     grain is that entity, and with ``name`` only those it names (see :func:`metrics`). Each
     metric's formula is composed only once it is kept; ``named`` keeps every metric but composes
-    none, for the names alone."""
+    none, for the names alone. With ``compose`` false, the columns that hold a proposal or that a
+    semantic-layer or BI metric reads are listed by label and graph id but no formula is
+    composed, for a reader that has every column's formula already, such as graph.html."""
     from konstruct.analysis.explain import Explainer
 
     wanted = name.strip().lower() if name is not None else ''
@@ -405,12 +412,16 @@ def all_metrics(
             return True
         return any(named_as(n) for n in (title, *synonyms)) or wanted in (c.lower() for c in columns)
 
-    explainer = Explainer(graph)
     holders = _holders(graph, ontology)
     defined = [_from_measure(graph, m) for m in ontology.measures]
     defined = [m for m in defined if keep(m.name, m.synonyms, [c.column for c in m.columns], m.entity)]
-    defined += _semantic_layer(graph, explainer, holders, keep, named)
-    defined += _bi_measures(graph, explainer, holders, keep, named)
+    column_of: Callable[[Node], MeasureColumn] = (
+        functools.partial(measure_column, graph, Explainer(graph))
+        if compose
+        else functools.partial(_bare, graph)
+    )
+    defined += _semantic_layer(graph, holders, keep, named, column_of)
+    defined += _bi_measures(graph, holders, keep, named, column_of)
     # Columns a definition already holds a metric in are not proposed again: a term's, a dbt
     # metric's, and the columns a BI measure reads.
     taken = {e.target for e in graph.edges if e.kind == 'defines'}
@@ -425,7 +436,7 @@ def all_metrics(
         column = graph.column(model.id, str(item.get('expr') or '')) if model is not None else None
         if column is not None:
             taken.add(column.id)
-    proposed = _proposals(graph, ontology, explainer, holders, taken, keep, named)
+    proposed = _proposals(graph, ontology, holders, taken, keep, named, column_of)
     order = {c: i for i, c in enumerate(CONFIDENCES)}
     defined.sort(key=lambda m: (m.name.lower(), order.get(m.confidence, 9)))
     proposed.sort(key=lambda m: (m.name.lower(), m.entity or ''))
@@ -589,11 +600,11 @@ class _Candidate:
 def _proposals(
     graph: Graph,
     ontology: Ontology,
-    explainer: Explainer,
     holders: dict[str, str],
     taken: set[str],
     keep: Callable[[str | None, list[str], list[str], str | None], bool],
     named: bool,
+    column_of: Callable[[Node], MeasureColumn],
 ) -> list[Metric]:
     entities = {e.name for e in ontology.entities}
     keys = {k for e in ontology.entities for k in e.key_ids}
@@ -706,11 +717,15 @@ def _proposals(
         ]
         if named:
             continue
-        metric.columns = sorted(
-            (measure_column(graph, explainer, c) for c in candidate.columns), key=lambda c: c.column
-        )
+        metric.columns = sorted((column_of(c) for c in candidate.columns), key=lambda c: c.column)
         metric.formula = metric.columns[0].formula
     return result
+
+
+def _bare(graph: Graph, column: Node) -> MeasureColumn:
+    """``column`` as a column holding a measure, by label and graph id only: no formula is
+    composed, so none is claimed complete."""
+    return MeasureColumn(column=graph.label(column), formula=None, complete=False, id=column.id)
 
 
 def _named_as_measure(column: Node) -> bool:
@@ -730,10 +745,10 @@ def _proposed_name(column: str, grain: str | None) -> str:
 
 def _semantic_layer(
     graph: Graph,
-    explainer: Explainer,
     holders: dict[str, str],
     keep: Callable[[str | None, list[str], list[str], str | None], bool],
     named: bool,
+    column_of: Callable[[Node], MeasureColumn],
 ) -> list[Metric]:
     """The metrics dbt's semantic layer defines, each over the model its semantic model reads."""
     entities = set(holders.values())
@@ -775,9 +790,7 @@ def _semantic_layer(
                 formula=formula,
                 aggregation=aggregation,
                 additive=additive,
-                columns=[measure_column(graph, explainer, column)]
-                if column is not None and not named
-                else [],
+                columns=[column_of(column)] if column is not None and not named else [],
                 evidence=evidence,
                 path=item.get('path'),
             )
@@ -787,10 +800,10 @@ def _semantic_layer(
 
 def _bi_measures(
     graph: Graph,
-    explainer: Explainer,
     holders: dict[str, str],
     keep: Callable[[str | None, list[str], list[str], str | None], bool],
     named: bool,
+    column_of: Callable[[Node], MeasureColumn],
 ) -> list[Metric]:
     """The measures of BI views and models, each with the warehouse columns it reads. Those of
     Konstruct's own Looker and Power BI inputs are declared, as people wrote them in the tool;
@@ -832,9 +845,10 @@ def _bi_measures(
                     formula=str(formula) or None,
                     aggregation=aggregation,
                     additive=additive,
-                    columns=[] if named else [measure_column(graph, explainer, c) for c in columns],
+                    columns=[] if named else [column_of(c) for c in columns],
                     evidence=evidence,
                     path=node.path,
+                    exposure=node.id,
                 )
             )
     return result

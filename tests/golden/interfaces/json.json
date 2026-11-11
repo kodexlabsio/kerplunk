@@ -1155,6 +1155,7 @@
  "json metric .metrics[].entity": "str",
  "json metric .metrics[].evidence": "list",
  "json metric .metrics[].evidence[]": "str",
+ "json metric .metrics[].exposure": "str",
  "json metric .metrics[].filters": "list",
  "json metric .metrics[].filters[]": "str",
  "json metric .metrics[].formula": "str",

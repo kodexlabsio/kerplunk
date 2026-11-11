@@ -4,6 +4,7 @@
 
 export const PAGES = [
     'overview',
+    'world',
     'node',
     'lineage',
     'browse',

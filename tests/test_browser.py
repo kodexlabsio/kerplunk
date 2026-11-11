@@ -571,3 +571,249 @@ def test_an_empty_graph(tmp_path: Path, browser: Any) -> None:
     assert page.locator('#empty').inner_text().strip()
     assert errors == []
     page.close()
+
+
+FIRST_FRAME = '() => Number(document.querySelector("#world-stage")?.dataset.firstFrameMs) > 0'
+
+
+def world_focus(page: Any) -> str:
+    """The aria-label of the map's node that has focus, or '' when focus is elsewhere."""
+    label: str = page.evaluate(
+        '() => document.activeElement?.closest("#world") ? document.activeElement.getAttribute("aria-label") : ""'
+    )
+    return label
+
+
+@pytest.mark.dbt
+def test_the_world_map(jaffle_built_graph: Path, open_page: Any) -> None:
+    graph = jaffle_built_graph / 'konstruct-out' / 'graph.html'
+    page = open_page(graph)
+    page.click('#nav a[href="#/world"]')
+    page.wait_for_function(FIRST_FRAME)
+    assert page.title() == 'World · jaffle_shop · Konstruct'
+    assert page.get_attribute('#world-stage', 'data-entities') == '3'
+    labels = page.eval_on_selector_all(
+        '#world [data-node]', 'es => es.map(e => e.getAttribute("aria-label"))'
+    )
+    assert sorted(label.split(':')[0] for label in labels) == ['customer', 'order', 'payment']
+    order = next(label for label in labels if label.startswith('order:'))
+    assert order.startswith('order: Declared, ') and order.endswith(' metrics')
+    # The relationships carry their cardinality at each end: many orders to one customer.
+    ends = page.eval_on_selector_all('#world .end text', 'es => es.map(e => e.textContent)')
+    assert sorted(ends) == ['1', '1', 'N', 'N']
+
+    # The keyboard: one tab stop on the map, the arrow keys between entities, Enter to show one.
+    page.focus('#page h1')
+    for _ in range(10):
+        page.keyboard.press('Tab')
+        if world_focus(page):
+            break
+    first = world_focus(page)
+    assert first
+    page.keyboard.press('ArrowRight')
+    page.wait_for_function('first => document.activeElement.getAttribute("aria-label") !== first', arg=first)
+    page.keyboard.press('Enter')
+    name = world_focus(page).split(':')[0]
+    page.wait_for_selector(f'#world-panel-title:text-is("{name}")')
+    assert f'focus=entity:{name}' in page.evaluate('location.hash') and world_focus(page)
+    page.keyboard.press('Escape')
+    page.wait_for_function('() => location.hash === "#/world"')
+
+    # A proposal is proposed and inferred, and never approved; a definition keeps its status and owner.
+    page.goto(graph.as_uri() + '#/world?focus=metric:order/order count')
+    page.wait_for_selector('#world-panel-title:text-is("order count")')
+    panel = page.inner_text('.world-panel')
+    assert 'Proposed' in panel and 'Inferred' in panel and 'Approved' not in panel
+    assert 'COUNT(DISTINCT orders.order_id)' in panel
+    assert 'The count of each order, by its key.' in panel
+    page.click('.world-panel a.back')
+    page.wait_for_selector('#world-panel-title:text-is("order")')
+    page.click('.world-panel a.row-link:text-is("Order amount")')
+    page.wait_for_selector('#world-panel-title:text-is("Order amount")')
+    panel = page.inner_text('.world-panel')
+    assert 'Approved' in panel and 'Priya Shah' in panel and 'Proposed' not in panel
+    assert page.evaluate('document.activeElement.id') == 'world-panel-title'
+
+    for scheme in ('dark', 'light'):
+        for fragment in ('#/world', '#/world?focus=entity:order', '#/world?focus=metric:order/order count'):
+            checked = open_page(graph, fragment, color_scheme=scheme, bypass_csp=True)
+            checked.wait_for_function(FIRST_FRAME)
+            assert axe_violations(checked) == [], (scheme, fragment)
+
+
+def test_the_world_map_marks_a_failed_check_and_reads_an_older_page(tmp_path: Path, open_page: Any) -> None:
+    from konstruct.outputs.html import viewer_data
+
+    from .test_world import _shop
+
+    graph = _shop()
+    key = 'model.shop.customers#customer_id'
+    graph.meta['integrity'] = {
+        'keys': {key: {'state': 'failed', 'detail': 'customers.customer_id has 2 nulls'}}
+    }
+    page = open_page(write_html(graph, tmp_path / 'graph.html'), '#/world')
+    page.wait_for_function(FIRST_FRAME)
+    customer = page.locator('#world .node.t-failed')
+    assert customer.get_attribute('aria-label').startswith('customer: Check failed, ')
+    # Not by colour alone: the node carries the warning triangle, and the key names it.
+    assert customer.locator('.mark').count() == 1
+    assert 'Check failed' in page.inner_text('.world-legend')
+    page.click('.world-panel a.row-link:has-text("customer")')
+    page.wait_for_selector('#world-panel-title:text-is("customer")')
+    assert 'customers.customer_id has 2 nulls' in page.inner_text('.world-panel')
+
+    # A page written before Konstruct recorded trust has no world model and no confidence.
+    data = viewer_data(graph, tmp_path)
+    del data['world']
+    for kind in ('entities', 'measures', 'relationships'):
+        for item in data['ontology'][kind]:
+            item.pop('confidence', None)
+            item.pop('check', None)
+    older = open_page(write_html(graph, tmp_path / 'older.html', data=data), '#/world')
+    older.wait_for_function(FIRST_FRAME)
+    assert older.locator('.world-legend li').all_inner_texts()[0].startswith('Not rated')
+    assert older.locator('.world-legend li').count() == 1
+    # Not rated is drawn apart from inferred: its own edge style, as its own ring.
+    assert older.locator('#world .edge.t-unrated').count() >= 1
+    assert older.locator('#world .edge.t-inferred').count() == 0
+    assert 'written by an earlier Konstruct' in older.inner_text('.world-panel')
+    assert older.locator('#world [data-node]').count() == page.locator('#world [data-node]').count()
+
+
+def test_a_large_world_draws_names_only_once_they_can_be_read(tmp_path: Path, open_page: Any) -> None:
+    graph = Graph()
+    for i in range(400):
+        node = graph.add_node(Node(f'model.p.m{i}', 'model', f'm{i}', relation=f'db.s.m{i}'))
+        node.attrs['primary_key'] = ['c0']
+        graph.add_column(node, 'c0')
+    page = open_page(write_html(graph, tmp_path / 'graph.html'), '#/world')
+    page.wait_for_function(FIRST_FRAME)
+    assert page.get_attribute('#world-stage', 'data-entities') == '400'
+    assert page.locator('#world .label').count() < 400
+    # They are in no relationship, so they are one block under a heading that counts them.
+    assert page.locator('#world .loners text').text_content() == '400 entities in no relationship'
+    # The panel lists the first hundred and finds the rest by name.
+    assert page.locator('.world-panel li').count() <= 200
+    page.fill('#world-find', 'm399')
+    page.click('.world-panel a.row-link:text-is("m399")')
+    page.wait_for_selector('#world-panel-title:text-is("m399")')
+    page.wait_for_selector('#world .node.selected .label:text-is("m399")')
+
+
+def _two_lifetimes() -> Graph:
+    """The ontology tests' shop with a second relation of customer grain whose lifetime is also a sum:
+    two proposals named 'customer lifetime' for the entity customer."""
+    from .test_ontology import _relation
+    from .test_world import _shop
+
+    graph = _shop()
+    summary = _relation(graph, 'customer_summary', ['customer_id', 'lifetime'])
+    summary.attrs['conditions'] = ['GROUP BY: db.main.customer_summary.customer_id']
+    lifetime = graph.nodes[f'{summary.id}#lifetime']
+    lifetime.attrs['expression'] = 'SUM(db.main.payments.amount)'
+    graph.add_edge(lifetime.id, 'model.shop.payments#amount', 'derived_from', transform='transformed')
+    return graph
+
+
+def test_world_metrics_of_one_name_and_entity_each_have_a_place(tmp_path: Path, open_page: Any) -> None:
+    page = open_page(write_html(_two_lifetimes(), tmp_path / 'graph.html'), '#/world')
+    page.wait_for_function(FIRST_FRAME)
+    links = page.locator('.world-panel a.row-link:text-is("customer lifetime")')
+    assert links.count() == 2
+    hrefs = [links.nth(i).get_attribute('href') for i in range(2)]
+    assert len(set(hrefs)) == 2
+    shown = []
+    for href in hrefs:
+        page.goto(page.url.split('#')[0] + href)
+        page.wait_for_selector('#world-panel-title:text-is("customer lifetime")')
+        shown.append(page.inner_text('.world-panel .links'))
+    assert sorted(shown) == ['customer_summary.lifetime', 'customers.lifetime']
+
+
+def test_world_measures_of_one_name_in_two_views_each_have_a_place(tmp_path: Path, open_page: Any) -> None:
+    from .test_world import _shop
+
+    graph = _shop()
+    for view in ('orders', 'refunds'):
+        graph.add_node(
+            Node(
+                f'exposure.looker.{view}',
+                'exposure',
+                view,
+                path=f'views/{view}.view.lkml',
+                origins=['looker'],
+                attrs={'type': 'view', 'measures': {'count': 'COUNT(*)', 'total': 'SUM(amount)'}},
+            )
+        )
+    page = open_page(write_html(graph, tmp_path / 'graph.html'), '#/world')
+    page.wait_for_function(FIRST_FRAME)
+    # Measures with no entity have no place on the map, so the panel lists them under their own heading.
+    assert page.locator('.world-panel h3:has-text("Metrics with no entity")').count() == 1
+    for name in ('count', 'total'):
+        page.goto(page.url.split('#')[0] + '#/world')
+        page.wait_for_selector('#world-find')
+        links = page.locator(f'.world-panel a.row-link:text-is("{name}")')
+        assert links.count() == 2
+        hrefs = {links.nth(i).get_attribute('href') for i in range(2)}
+        assert len(hrefs) == 2
+        paths = []
+        for href in sorted(hrefs):
+            page.goto(page.url.split('#')[0] + href)
+            page.wait_for_selector(f'#world-panel-title:text-is("{name}")')
+            paths.append(page.inner_text('.world-panel .details'))
+        assert any('views/orders.view.lkml' in p for p in paths)
+        assert any('views/refunds.view.lkml' in p for p in paths)
+
+
+def _views_in_one_file(*views: str) -> Graph:
+    """The ontology tests' shop with Looker views, all in one file, each with a measure count."""
+    from .test_world import _shop
+
+    graph = _shop()
+    for view in views:
+        graph.add_node(
+            Node(
+                f'exposure.looker.{view}',
+                'exposure',
+                view,
+                path='views/all.view.lkml',
+                origins=['looker'],
+                attrs={'type': 'view', 'measures': {'count': 'COUNT(*)'}},
+            )
+        )
+    return graph
+
+
+def test_a_world_metrics_address_stays_with_it_when_a_view_is_added(tmp_path: Path, open_page: Any) -> None:
+    page = open_page(write_html(_views_in_one_file('orders', 'refunds'), tmp_path / 'two.html'), '#/world')
+    page.wait_for_function(FIRST_FRAME)
+    rows = page.locator('.world-panel li:has(a.row-link:text-is("count"))')
+    assert rows.count() == 2
+    # Each row names the view that defines its count.
+    hints = sorted(rows.nth(i).locator('.hint').inner_text() for i in range(2))
+    assert hints == ['orders · views/all.view.lkml', 'refunds · views/all.view.lkml']
+    refunds = rows.filter(has_text='refunds').locator('a.row-link').get_attribute('href')
+    # A view added to the top of the same file leaves the address opening the same view's count.
+    later = write_html(_views_in_one_file('accounts', 'orders', 'refunds'), tmp_path / 'three.html')
+    page.goto(later.as_uri() + refunds)
+    page.wait_for_selector('#world-panel-title:text-is("count")')
+    assert 'Looker view refunds' in page.inner_text('.world-panel')
+
+
+def test_a_world_with_no_entities_says_so(tmp_path: Path, open_page: Any) -> None:
+    graph = Graph()
+    graph.add_node(
+        Node(
+            'exposure.looker.orders',
+            'exposure',
+            'orders',
+            path='views/orders.view.lkml',
+            origins=['looker'],
+            attrs={'type': 'view', 'measures': {'count': 'COUNT(*)'}},
+        )
+    )
+    page = open_page(write_html(graph, tmp_path / 'graph.html'), '#/world')
+    page.wait_for_function(FIRST_FRAME)
+    assert 'No entities found' in page.inner_text('#world-stage')
+    assert page.locator('.world-legend').count() == 0
+    assert page.locator('.world-panel a.row-link:text-is("count")').count() == 1

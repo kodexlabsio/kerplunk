@@ -38,6 +38,16 @@
             ],
         ],
         [
+            'help.world',
+            [
+                ['←  →  ↑  ↓', 'help.worldMove'],
+                ['Enter', 'help.worldShow'],
+                ['Esc', 'help.worldClear'],
+                ['F', 'help.graphFit'],
+                ['+  -', 'help.graphZoom'],
+            ],
+        ],
+        [
             'help.lists',
             [
                 ['↑  ↓', 'help.listMove'],

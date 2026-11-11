@@ -497,6 +497,60 @@ const messages: Catalogue = {
         '{count, plural, one {Manca # carattere} other {Mancano # caratteri}} nelle etichette: l’atlante dei glifi è pieno.',
     'map.tooLarge':
         'un buffer di {needed, number} byte supera quanto consente questo dispositivo grafico ({limit, number} byte).',
+
+    'page.world': 'Mondo',
+    'world.lead':
+        '{entities, plural, one {# entità} other {# entità}}, {metrics, plural, one {# metrica} other {# metriche}} e {relationships, plural, one {# relazione} other {# relazioni}}. Colore e forma indicano quanto ci si può fidare di ciascuna.',
+    'world.open': 'Apri la mappa del mondo',
+    'world.empty':
+        'Ancora nessuna entità o metrica: un test unique o una chiave primaria su una colonna identificativa crea un’entità.',
+    'world.label': 'Mappa del business, {count, plural, one {# entità} other {# entità}}',
+    'world.help':
+        'Ogni cerchio è un’entità, dimensionata in base alle sue metriche. Le frecce passano da un’entità all’altra, Invio ne mostra una accanto alla mappa, Esc la toglie, più e meno fanno zoom e F adatta la mappa. Trascina per spostarla e scorri per lo zoom.',
+    'world.node': '{name}: {trust}, {count, plural, =0 {nessuna metrica} one {# metrica} other {# metriche}}',
+    'world.legend': 'Affidabilità',
+    'trust.verified': 'Verificato',
+    'trust.declared': 'Dichiarato',
+    'trust.inferred': 'Dedotto',
+    'trust.failed': 'Controllo fallito',
+    'trust.unrated': 'Non valutato',
+    'trust.verifiedHelp': 'konstruct verify lo ha controllato nel data warehouse.',
+    'trust.declaredHelp': 'Una persona lo ha dichiarato, in un test, una chiave o una definizione.',
+    'trust.inferredHelp': 'Konstruct lo ha letto dal solo codice.',
+    'trust.failedHelp': 'konstruct verify lo ha trovato falso nel data warehouse.',
+    'trust.unratedHelp':
+        'Scritto da un Konstruct che non registrava l’affidabilità; ricostruisci per valutarlo.',
+    'world.find': 'Trova un’entità o una metrica',
+    'world.findPlaceholder': 'Nome di un’entità o di una metrica',
+    'world.entities': 'Entità',
+    'world.metrics': 'Metriche',
+    'world.loose': 'Metriche senza entità',
+    'world.more': 'Le prime {shown, number} di {total, number}; digita un nome per trovare le altre.',
+    'world.noMatch': 'Nessun risultato.',
+    'world.metricCount': '{count, plural, =0 {Nessuna metrica} one {# metrica} other {# metriche}}',
+    'world.all': 'Tutte le entità',
+    'world.back': 'Torna a {name}',
+    'world.openEntity': 'Apri la pagina dell’entità',
+    'world.proposed': 'Proposta',
+    'world.proposedNote': 'Konstruct propone questa metrica dal codice. Nessuno l’ha definita o approvata.',
+    'world.owner': 'Responsabile',
+    'world.approved': 'Approvata il',
+    'world.grain': 'Granularità',
+    'world.definedIn': 'Definita in',
+    'world.sources': 'Colonne di origine',
+    'world.fromAggregate': 'Letta dal codice: un’aggregazione, {aggregation}, in {columns}.',
+    'world.fromColumn':
+        'Letta dal codice: una colonna numerica con nome da misura, un valore per riga, in {columns}.',
+    'world.fromCount': 'Il conteggio di ogni {entity}, per la sua chiave.',
+    'world.grainRead': 'La sua granularità, una riga per {entity}, è letta dalla relazione che la contiene.',
+    'world.notSummed': 'Un prezzo o un saldo: la sua somma sulle righe non è un totale.',
+    'world.legacy':
+        'Questa pagina è stata scritta da un Konstruct precedente, che non registrava le metriche che propone, quindi sono elencate solo le metriche definite. Ricostruisci per vedere le proposte.',
+    'help.world': 'Sulla mappa del mondo',
+    'help.worldMove': 'Vai all’entità più vicina in quella direzione',
+    'help.worldShow': 'Mostra l’entità accanto alla mappa',
+    'help.worldClear': 'Togli la selezione',
+    'world.loners': '{count, plural, one {# entità senza relazioni} other {# entità senza relazioni}}',
 };
 
 export default messages;

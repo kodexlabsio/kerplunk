@@ -17,7 +17,7 @@ from konstruct.core.graph import Graph, Node
 from konstruct.inputs.dbt import semantic_metrics
 from konstruct.interfaces.cli import main
 from konstruct.semantics.ontology import Ontology, Relationship, derive
-from konstruct.semantics.world import _compose, _shortest, entity, metrics, relate
+from konstruct.semantics.world import _compose, _shortest, all_metrics, entity, metrics, relate
 
 from .test_ontology import _relation, _term, _unique, shop
 
@@ -259,6 +259,24 @@ def test_proposals_are_inferred_have_no_status_and_leave_out_extremes_rates_and_
     text = str(metrics(_shop()))
     assert 'Metrics: 1 defined metric and 5 proposals, inferred from the code and approved by no one.' in text
     assert 'customer lifetime  proposed  inferred' in text
+
+
+def test_metrics_without_composing_list_their_columns_by_id() -> None:
+    graph = _shop()
+    ontology = derive(graph)
+    composed = all_metrics(graph, ontology)
+    bare = all_metrics(graph, ontology, compose=False)
+    # The same metrics, in the same order and with the same trust; only the formulas are not composed.
+    assert [(m.name, m.proposed, m.confidence) for m in bare] == [
+        (m.name, m.proposed, m.confidence) for m in composed
+    ]
+    assert any(m.proposed and m.formula for m in composed if m.source == 'aggregate')
+    for plain, full in zip(bare, composed, strict=True):
+        assert [c.id for c in plain.columns] == [c.id for c in full.columns]
+        assert all(c.id in graph.nodes for c in plain.columns)
+        if plain.proposed and plain.source != 'entity count':
+            assert plain.formula is None
+            assert all(c.formula is None and not c.complete for c in plain.columns)
 
 
 def test_a_grain_from_grouping_and_a_column_only_in_yaml() -> None:

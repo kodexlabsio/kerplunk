@@ -280,6 +280,29 @@ def test_the_ontology_and_conflicts_are_embedded(jaffle_built_graph: Path, tmp_p
     assert data['conflicts']['candidates'] > 0 and 'conflicts' in data['conflicts']
 
 
+def test_the_world_models_metrics_are_embedded(tmp_path: Path) -> None:
+    from .test_world import _shop
+
+    graph = _shop()
+    data = explain_json(write_html(graph, tmp_path / 'graph.html').read_text(encoding='utf-8'))
+    found = {m['name']: m for m in data['world']['metrics']}
+    revenue = found['Revenue']
+    assert (revenue['proposed'], revenue['source']) == (False, 'definitions')
+    assert revenue['evidence'] and revenue['confidence'] in ('verified', 'declared')
+    lifetime = found['customer lifetime']
+    # A proposal is inferred and never has a status; the page writes its evidence and grain itself.
+    assert (lifetime['proposed'], lifetime['confidence'], lifetime['source']) == (
+        True,
+        'inferred',
+        'aggregate',
+    )
+    assert not {'status', 'evidence', 'grain', 'grain_confidence', 'formula'} & set(lifetime)
+    assert lifetime['columns'] == ['model.shop.customers#lifetime']
+    assert lifetime['columns'][0] in data['columns']
+    assert found['customer count']['formula'] == 'COUNT(DISTINCT customers.customer_id)'
+    assert all(c in graph.nodes for m in found.values() for c in m.get('columns', []))
+
+
 def test_konstruct_locale_sets_the_page_language(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv('KONSTRUCT_LOCALE', 'pt-BR')
     page = write_html(sample_graph(), tmp_path / 'graph.html').read_text(encoding='utf-8')
@@ -392,12 +415,12 @@ def test_explain_json_is_what_graph_html_embeds(tmp_path: Path) -> None:
         'ontology.yml',
         'explain.json',
     ]
-    # The whole object the page embeds, as a served page loads it: formulas, SQL, the ontology
-    # and conflicts.
+    # The whole object the page embeds, as a served page loads it: formulas, SQL, the ontology,
+    # the world model's metrics and conflicts.
     explain = json.loads((out / 'explain.json').read_text(encoding='utf-8'))
     assert explain == _embedded(out / 'graph.html', 'konstruct-explain')
     assert explain == json.loads(json.dumps(viewer_data(Graph.read(out / 'graph.json'), out)))
-    assert explain['columns'] and {'sql', 'ontology', 'conflicts'} <= set(explain)
+    assert explain['columns'] and {'sql', 'ontology', 'world', 'conflicts'} <= set(explain)
     # A build that writes no graph.html writes no explain.json either.
     shutil.rmtree(out)
     config.html = False

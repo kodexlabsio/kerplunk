@@ -497,6 +497,61 @@ const messages: Catalogue = {
     'map.dropped': 'Brakujące znaki w etykietach: {count, number}. Atlas glifów jest pełny.',
     'map.tooLarge':
         'bufor o rozmiarze {needed, number} B przekracza limit tego urządzenia graficznego ({limit, number} B).',
+
+    'page.world': 'Świat',
+    'world.lead':
+        'Encje: {entities, number}, metryki: {metrics, number}, relacje: {relationships, number}. Kolor i kształt pokazują, na ile można ufać każdemu z nich.',
+    'world.open': 'Otwórz mapę świata',
+    'world.empty':
+        'Brak encji i metryk: test unique lub klucz główny na kolumnie identyfikatora tworzy encję.',
+    'world.label': 'Mapa biznesu, encje: {count, number}',
+    'world.help':
+        'Każde koło to encja, o rozmiarze zależnym od jej metryk. Strzałki przechodzą między encjami, Enter pokazuje jedną obok mapy, Escape ją czyści, plus i minus powiększają, a F dopasowuje mapę. Przeciągnij, aby ją przesunąć, i przewiń, aby powiększyć.',
+    'world.node': '{name}: {trust}, metryki: {count, number}',
+    'world.legend': 'Zaufanie',
+    'trust.verified': 'Zweryfikowane',
+    'trust.declared': 'Zadeklarowane',
+    'trust.inferred': 'Wywnioskowane',
+    'trust.failed': 'Kontrola nieudana',
+    'trust.unrated': 'Bez oceny',
+    'trust.verifiedHelp': 'konstruct verify sprawdził to w hurtowni danych.',
+    'trust.declaredHelp': 'Ktoś to zadeklarował: w teście, kluczu lub definicji.',
+    'trust.inferredHelp': 'Konstruct odczytał to wyłącznie z kodu.',
+    'trust.failedHelp': 'konstruct verify stwierdził w hurtowni danych, że to nieprawda.',
+    'trust.unratedHelp':
+        'Zapisane przez wersję Konstruct, która nie zapisywała zaufania; zbuduj ponownie, aby je ocenić.',
+    'world.find': 'Znajdź encję lub metrykę',
+    'world.findPlaceholder': 'Nazwa encji lub metryki',
+    'world.entities': 'Encje',
+    'world.metrics': 'Metryki',
+    'world.loose': 'Metryki bez encji',
+    'world.more': 'Pierwsze {shown, number} z {total, number}; wpisz nazwę, aby znaleźć pozostałe.',
+    'world.noMatch': 'Brak wyników.',
+    'world.metricCount': 'Metryki: {count, number}',
+    'world.all': 'Wszystkie encje',
+    'world.back': 'Wróć do {name}',
+    'world.openEntity': 'Otwórz stronę encji',
+    'world.proposed': 'Proponowana',
+    'world.proposedNote':
+        'Konstruct proponuje tę metrykę na podstawie kodu. Nikt jej nie zdefiniował ani nie zatwierdził.',
+    'world.owner': 'Właściciel',
+    'world.approved': 'Zatwierdzono',
+    'world.grain': 'Ziarnistość',
+    'world.definedIn': 'Zdefiniowano w',
+    'world.sources': 'Kolumny źródłowe',
+    'world.fromAggregate': 'Odczytano z kodu: agregacja {aggregation} w {columns}.',
+    'world.fromColumn':
+        'Odczytano z kodu: kolumna liczbowa nazwana jak miara, jedna wartość na wiersz, w {columns}.',
+    'world.fromCount': 'Liczba wystąpień encji {entity}, według jej klucza.',
+    'world.grainRead': 'Jej ziarnistość, jeden wiersz na {entity}, odczytano z relacji, która ją zawiera.',
+    'world.notSummed': 'Cena lub saldo: suma po wierszach nie jest sumą całkowitą.',
+    'world.legacy':
+        'Tę stronę zapisała wcześniejsza wersja Konstruct, która nie zapisywała proponowanych metryk, więc wymienione są tylko zdefiniowane metryki. Zbuduj ponownie, aby zobaczyć propozycje.',
+    'help.world': 'Na mapie świata',
+    'help.worldMove': 'Przejdź do najbliższej encji w tym kierunku',
+    'help.worldShow': 'Pokaż encję obok mapy',
+    'help.worldClear': 'Wyczyść wybór',
+    'world.loners': 'Encje bez relacji: {count, number}',
 };
 
 export default messages;

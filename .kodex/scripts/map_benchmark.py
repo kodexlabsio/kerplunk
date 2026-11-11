@@ -13,10 +13,17 @@ CPU numbers), and records:
 * picking: the pointer-move handler, which picks with the map's CPU grid, against the least a GPU
   ID buffer costs per pick, one 1x1 copy and read back.
 
+With ``--world`` it measures the world page instead, once each model has an entity and a measure
+(as .kodex/scripts/benchmark.py gives them): the time to write graph.html with the world model's
+metrics, the size they add to the page, the layout of the entities and the time to the first frame,
+from opening the page and from loading the file, as medians of five loads. The world page is SVG
+and needs no WebGPU.
+
 Usage:
     uv run .kodex/scripts/map_benchmark.py
     uv run .kodex/scripts/map_benchmark.py --models 500 --frames 30 --json map.json
     uv run .kodex/scripts/map_benchmark.py --gpu        # the machine's GPU instead of SwiftShader
+    uv run .kodex/scripts/map_benchmark.py --world      # the world page
 """
 
 from __future__ import annotations
@@ -37,7 +44,7 @@ sys.path.insert(0, str(ROOT))
 
 from konstruct import Project, __version__  # noqa: E402
 from tests.test_map import WEBGPU  # noqa: E402
-from tests.test_scale import make_project  # noqa: E402
+from tests.test_scale import give_entities, make_project  # noqa: E402
 
 READBACK = """async () => {
     const adapter = await navigator.gpu.requestAdapter();
@@ -169,6 +176,60 @@ def measure(graph: Path, models: int, count: int, gpu: bool) -> dict[str, Any]:
     }
 
 
+def world(root: Path, loads: int = 5) -> dict[str, Any]:
+    """The world page of the project built at ``root``, once each model has an entity."""
+    from playwright.sync_api import sync_playwright
+
+    from konstruct.core import jsonio
+    from konstruct.core.graph import Graph
+    from konstruct.outputs.html import world_data, write_html
+    from konstruct.semantics.ontology import derive
+
+    graph = Graph.read(root / 'konstruct-out' / 'graph.json')
+    give_entities(graph)
+    ontology = derive(graph)
+    started = time.perf_counter()
+    metrics = world_data(graph, ontology)
+    metrics_s = time.perf_counter() - started
+    page_path = root / 'konstruct-out' / 'world.html'
+    started = time.perf_counter()
+    write_html(graph, page_path, ontology=ontology)
+    written = time.perf_counter() - started
+    found = []
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            channel=os.environ.get('KONSTRUCT_BROWSER_CHANNEL') or None,
+            executable_path=os.environ.get('KONSTRUCT_BROWSER_EXECUTABLE') or None,
+        )
+        for _ in range(loads):
+            page = browser.new_page(viewport={'width': 1600, 'height': 1000}, reduced_motion='reduce')
+            page.goto(page_path.as_uri() + '#/world')
+            page.wait_for_function(
+                '() => Number(document.querySelector("#world-stage")?.dataset.firstFrameMs) > 0',
+                timeout=600_000,
+            )
+            found.append(page.eval_on_selector('#world-stage', 'e => ({...e.dataset})'))
+            page.close()
+        browser.close()
+
+    def median(key: str) -> int:
+        return int(statistics.median(int(item[key]) for item in found))
+
+    return {
+        'entities': int(found[0]['entities']),
+        'relationships': len(ontology.relationships),
+        'metrics': int(found[0]['metrics']),
+        'world_metrics_s': round(metrics_s, 2),
+        'world_metrics_mib': round(len(jsonio.dumps(metrics)) / 2**20, 2),
+        'write_html_s': round(written, 1),
+        'graph_html_mib': round(page_path.stat().st_size / 2**20, 1),
+        'layout_ms': median('layoutMs'),
+        'first_frame_from_page_ms': median('firstFrameMs'),
+        'first_frame_from_load_ms': median('firstFrameAt'),
+        'layout_hash': found[0]['layoutHash'],
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -177,6 +238,7 @@ def main() -> None:
     parser.add_argument('--columns', type=int, default=25)
     parser.add_argument('--frames', type=int, default=40, help='frames to time in each view')
     parser.add_argument('--gpu', action='store_true', help="use the machine's GPU, not SwiftShader")
+    parser.add_argument('--world', action='store_true', help='measure the world page instead')
     parser.add_argument('--json', type=Path, help='also write the results here')
     options = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='konstruct-map-') as directory:
@@ -192,9 +254,12 @@ def main() -> None:
             'models': options.models,
             'columns': options.models * options.columns,
             'build_s': round(built, 1),
-            'graph_html_mib': round(graph.stat().st_size / 2**20, 1),
-            **measure(graph, options.models, options.frames, options.gpu),
         }
+        if options.world:
+            result.update(world(root))
+        else:
+            result['graph_html_mib'] = round(graph.stat().st_size / 2**20, 1)
+            result.update(measure(graph, options.models, options.frames, options.gpu))
     width = max(len(k) for k in result)
     for key, value in result.items():
         print(f'{key:<{width}}  {value}')

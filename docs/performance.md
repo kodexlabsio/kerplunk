@@ -73,6 +73,20 @@ The times of `metric`, `entity` and `relate` do not include deriving the ontolog
 
 `uv run .kodex/scripts/benchmark.py 2000` measures them with the rest, and `tests/test_scale.py` checks them on 300 models.
 
+## The World Page
+
+graph.html carries every metric of the world model, defined and proposed, for its [World page](guide/viewer.md#the-world-map): each metric's columns by their ids, since the page has every column's formula already. On the map benchmark's 2,000-model project, of 25 columns a model, with an entity and a measure per model as above, the page draws 2,000 entities, 2,652 relationships and 4,000 metrics:
+
+| | |
+|---|---:|
+| Listing the metrics for the page, during the build | 1.01 s |
+| Size the metrics add to graph.html | 0.66 MiB |
+| Laying out the entities | 132 ms |
+| First frame, from opening the World page | 480 ms |
+| First frame, from loading graph.html | 1.55 s |
+
+The first frames are medians of five loads in headless Chromium, at 1600 by 1000. `uv run .kodex/scripts/map_benchmark.py --world` measures them on your machine, and `--models` sets the size.
+
 ## Conflicts and the Gate
 
 `konstruct conflicts` compares every two columns that appear to be one idea. What it compares of each column (its formula composed down to source, the keys of the filters and joins on its route, what depends on it downstream and the aggregate it applies last) is worked out once per column, so each pair costs one comparison of two formulas. The gate's own rule reports only conflicts of a column the change alters, so `konstruct gate`, the MCP `gate` tool and the coding agent hook compare only the pairs with such a column, and their cost grows with the change rather than with the number of pairs. When a plugin's gate check runs, the gate finds every conflict, as the check is given them all.

@@ -21,6 +21,7 @@ export const ICONS: Record<string, string> = {
     lineage:
         'M5 7a2 2 0 1 0 0-.01M5 17a2 2 0 1 0 0-.01M19 12a2 2 0 1 0 0-.01M7 7h3a3 3 0 0 1 3 3v0a2 2 0 0 0 2 2h2M7 17h3a3 3 0 0 0 3-3v0a2 2 0 0 1 2-2',
     map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14',
+    world: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3.6 9h16.8M3.6 15h16.8M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18',
     overview: 'M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z',
     conflicts: 'M12 3l9 16H3zM12 10v4M12 17v.01',
     usage: 'M3 12h4l3-8 4 16 3-8h4',

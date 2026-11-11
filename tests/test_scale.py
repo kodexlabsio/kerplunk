@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from konstruct import Project
+from konstruct.core.graph import Graph
 
 from .test_gate import git
 
@@ -95,6 +96,19 @@ def make_project(root: Path, models: int = MODELS, columns_per_model: int = COLU
             f"    test = BashOperator(task_id='test', bash_command='dbt test -s tag:group{group}')\n"
             '    run >> test\n'
         )
+
+
+def give_entities(graph: Graph) -> None:
+    """Give each model of a project from :func:`make_project` an entity, with a primary key on
+    ``c00``, and a measure, a ``SUM`` around ``c02``: the generated projects have neither. Used by
+    .kodex/scripts/benchmark.py and map_benchmark.py."""
+    for node in graph.nodes.values():
+        if node.kind == 'model':
+            node.attrs['primary_key'] = ['c00']
+            column = graph.column(node.id, 'c02')
+            if column is not None and isinstance(column.attrs.get('expression'), str):
+                column.attrs['expression'] = f'SUM({column.attrs["expression"]})'
+    graph.changed()
 
 
 def test_large_project(tmp_path: Path) -> None:

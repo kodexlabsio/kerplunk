@@ -80,6 +80,10 @@ export interface OntologyEntity {
     term?: string;
     description?: string;
     key_ids?: string[];
+    /** verified, declared or inferred; left out by Konstruct before 0.13.9. */
+    confidence?: string;
+    /** confirmed or failed, where konstruct verify checked its keys. */
+    check?: string;
 }
 
 export interface MeasureColumn {
@@ -107,6 +111,8 @@ export interface OntologyMeasure {
     path?: string;
     expression?: string;
     columns?: MeasureColumn[];
+    confidence?: string;
+    evidence?: string[];
 }
 
 export interface OntologyRelationship {
@@ -117,6 +123,8 @@ export interface OntologyRelationship {
     tested?: boolean;
     evidence?: string[];
     columns?: [string, string];
+    confidence?: string;
+    check?: string;
 }
 
 export interface OntologyData {
@@ -125,6 +133,41 @@ export interface OntologyData {
     relationships?: OntologyRelationship[];
     concepts?: { name: string; broader?: string[]; narrower?: string[] }[];
     rules?: { name: string; description?: string; violations?: string[] }[];
+}
+
+/** A metric of the world model, defined or proposed (konstruct.semantics.world.Metric). */
+export interface WorldMetric {
+    name: string;
+    /** definitions, vocabulary, dbt semantic layer, looker, ...; for a proposal aggregate,
+     * measure column or entity count. */
+    source: string;
+    confidence?: string;
+    /** Konstruct read it from the code; nothing defines or approves it. */
+    proposed?: boolean;
+    synonyms?: string[];
+    definition?: string;
+    status?: string;
+    owner?: string;
+    approved?: string;
+    entity?: string;
+    grain?: string;
+    grain_confidence?: string;
+    unit?: string;
+    currency?: string;
+    filters?: string[];
+    formula?: string;
+    aggregation?: string;
+    additive?: boolean;
+    evidence?: string[];
+    path?: string;
+    /** For a measure of a BI view or semantic model, the graph id of the exposure that defines it. */
+    exposure?: string;
+    /** The graph ids of the columns that hold it or that it reads. */
+    columns?: string[];
+}
+
+export interface WorldData {
+    metrics?: WorldMetric[];
 }
 
 export interface ConflictSide {
@@ -165,6 +208,8 @@ export interface Explanations {
     conditions?: Record<string, string[]>;
     sql?: Record<string, Code>;
     ontology?: OntologyData;
+    /** The world model's metrics; a page written by an earlier Konstruct has none. */
+    world?: WorldData;
     conflicts?: ConflictsData;
     /** A locale the build chose (KONSTRUCT_LOCALE). */
     locale?: string;

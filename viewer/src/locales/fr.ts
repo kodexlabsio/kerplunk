@@ -500,6 +500,63 @@ const messages: Catalogue = {
         '{count, plural, one {# caractère manque} other {# caractères manquent}} dans les libellés : l’atlas de glyphes est plein.',
     'map.tooLarge':
         'un tampon de {needed, number} octets dépasse ce que permet ce périphérique graphique ({limit, number} octets).',
+
+    'page.world': 'Monde',
+    'world.lead':
+        '{entities, plural, one {# entité} other {# entités}}, {metrics, plural, one {# métrique} other {# métriques}} et {relationships, plural, one {# relation} other {# relations}}. La couleur et la forme indiquent la confiance que mérite chacune.',
+    'world.open': 'Ouvrir la carte du monde',
+    'world.empty':
+        'Pas encore d’entités ni de métriques : un test unique ou une clé primaire sur une colonne d’identifiant crée une entité.',
+    'world.label': 'Carte de l’activité, {count, plural, one {# entité} other {# entités}}',
+    'world.help':
+        'Chaque cercle est une entité, dimensionnée selon ses métriques. Les flèches passent d’une entité à l’autre, Entrée en affiche une à côté de la carte, Échap l’efface, plus et moins zooment et F ajuste la carte. Faites glisser pour la déplacer et défilez pour zoomer.',
+    'world.node':
+        '{name} : {trust}, {count, plural, =0 {aucune métrique} one {# métrique} other {# métriques}}',
+    'world.legend': 'Confiance',
+    'trust.verified': 'Vérifié',
+    'trust.declared': 'Déclaré',
+    'trust.inferred': 'Déduit',
+    'trust.failed': 'Vérification échouée',
+    'trust.unrated': 'Non évalué',
+    'trust.verifiedHelp': 'konstruct verify l’a vérifié dans l’entrepôt de données.',
+    'trust.declaredHelp': 'Une personne l’a déclaré, dans un test, une clé ou une définition.',
+    'trust.inferredHelp': 'Konstruct l’a lu dans le code seul.',
+    'trust.failedHelp': 'konstruct verify l’a trouvé faux dans l’entrepôt de données.',
+    'trust.unratedHelp':
+        'Écrit par un Konstruct qui n’enregistrait pas la confiance ; reconstruisez pour l’évaluer.',
+    'world.find': 'Trouver une entité ou une métrique',
+    'world.findPlaceholder': 'Nom d’une entité ou d’une métrique',
+    'world.entities': 'Entités',
+    'world.metrics': 'Métriques',
+    'world.loose': 'Métriques sans entité',
+    'world.more':
+        'Les {shown, number} premières sur {total, number} ; saisissez un nom pour trouver les autres.',
+    'world.noMatch': 'Aucun résultat.',
+    'world.metricCount': '{count, plural, =0 {Aucune métrique} one {# métrique} other {# métriques}}',
+    'world.all': 'Toutes les entités',
+    'world.back': 'Retour à {name}',
+    'world.openEntity': 'Ouvrir la page de l’entité',
+    'world.proposed': 'Proposée',
+    'world.proposedNote':
+        'Konstruct propose cette métrique à partir du code. Personne ne l’a définie ni approuvée.',
+    'world.owner': 'Responsable',
+    'world.approved': 'Approuvée le',
+    'world.grain': 'Granularité',
+    'world.definedIn': 'Définie dans',
+    'world.sources': 'Colonnes sources',
+    'world.fromAggregate': 'Lue dans le code : un agrégat, {aggregation}, dans {columns}.',
+    'world.fromColumn':
+        'Lue dans le code : une colonne numérique nommée comme une mesure, une valeur par ligne, dans {columns}.',
+    'world.fromCount': 'Le nombre de chaque {entity}, par sa clé.',
+    'world.grainRead': 'Sa granularité, une ligne par {entity}, est lue dans la relation qui la contient.',
+    'world.notSummed': 'Un prix ou un solde : sa somme sur les lignes n’est pas un total.',
+    'world.legacy':
+        'Cette page a été écrite par un Konstruct antérieur, qui n’enregistrait pas les métriques qu’il propose : seules les métriques définies sont listées. Reconstruisez pour voir les propositions.',
+    'help.world': 'Sur la carte du monde',
+    'help.worldMove': 'Aller à l’entité la plus proche dans ce sens',
+    'help.worldShow': 'Afficher l’entité à côté de la carte',
+    'help.worldClear': 'Effacer la sélection',
+    'world.loners': '{count, plural, one {# entité sans relation} other {# entités sans relation}}',
 };
 
 export default messages;

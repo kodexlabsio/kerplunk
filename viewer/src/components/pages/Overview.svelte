@@ -23,6 +23,9 @@
     const conflicts = viewer.conflicts.conflicts ?? [];
     // svelte-ignore state_referenced_locally
     const ontology = viewer.ontology;
+    const world =
+        (ontology.entities?.length ?? 0) + (viewer.world.metrics?.length ?? ontology.measures?.length ?? 0) >
+        0;
     const verification = meta.verification as Record<string, number> | undefined;
     const sources =
         (meta.sources as
@@ -65,6 +68,11 @@
             <a class="button primary" href={viewer.href({ page: 'lineage' })}
                 ><Icon kind="lineage" />{t('lineage.open')}</a
             >
+            {#if world}
+                <a class="button" href={viewer.href({ page: 'world' })}
+                    ><Icon kind="world" />{t('world.open')}</a
+                >
+            {/if}
             <button type="button" class="button" onclick={() => (viewer.paletteOpen = true)}
                 ><Icon kind="search" />{t('search.button')}</button
             >

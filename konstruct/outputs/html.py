@@ -7,7 +7,8 @@ Manrope and JetBrains Mono fonts (SIL Open Font License; the licences are ``lice
 ``Graph.to_dict()`` and with what the viewer shows beside the graph: each column's formula and each
 relation's conditions from :mod:`konstruct.analysis.explain`, the SQL files that define models and
 tasks (and dbt's compiled SQL when ``target/compiled`` has it), the ontology from
-:mod:`konstruct.semantics.ontology` and the conflicts from :mod:`konstruct.analysis.conflicts`.
+:mod:`konstruct.semantics.ontology`, the metrics of :mod:`konstruct.semantics.world` and the
+conflicts from :mod:`konstruct.analysis.conflicts`.
 The page loads nothing from the network.
 
 ``konstruct serve`` sends the same page unchanged but for one element in its head, which makes it
@@ -242,6 +243,29 @@ def ontology_data(graph: Graph, ontology: Ontology | None = None) -> dict[str, A
     }
 
 
+def world_data(graph: Graph, ontology: Ontology | None = None) -> dict[str, Any]:
+    """The world model's metrics as the viewer reads them: every metric defined and proposed, as
+    :func:`konstruct.semantics.world.all_metrics` finds them, with the graph ids of its columns in
+    place of their formulas, which the page has already. A proposal leaves out what the page
+    writes for itself from its source and columns: its evidence, and its grain, one row per its
+    entity."""
+    from konstruct.semantics.ontology import derive
+    from konstruct.semantics.world import all_metrics
+
+    found = ontology if ontology is not None else derive(graph)
+    metrics = []
+    for metric in all_metrics(graph, found, compose=False):
+        entry = {k: v for k, v in metric.to_dict().items() if k != 'columns'}
+        if metric.proposed:
+            for key in ('evidence', 'grain', 'grain_confidence'):
+                entry.pop(key, None)
+        ids = [c.id for c in metric.columns if c.id]
+        if ids:
+            entry['columns'] = ids
+        metrics.append(entry)
+    return {'metrics': metrics}
+
+
 def graph_fingerprint(graph: Graph, data: dict[str, Any] | None = None) -> str:
     """A hash of the graph's nodes and edges, not its meta (which records when the build ran), so
     a result computed from one graph can be recognised as still true of the next. ``data`` is
@@ -279,9 +303,13 @@ def viewer_data(
     """Everything the page shows beside ``Graph.to_dict()`` (``graph_data``, when it is made
     already), in its second placeholder; ``directory`` is where the page is written, beside
     graph.json and conflicts.json."""
+    from konstruct.semantics.ontology import derive
+
     data = explanations(graph, cache)
     data['sql'] = code(graph, cache)
-    data['ontology'] = ontology_data(graph, ontology)
+    found = ontology if ontology is not None else derive(graph)
+    data['ontology'] = ontology_data(graph, found)
+    data['world'] = world_data(graph, found)
     data['conflicts'] = conflicts_data(graph, directory, graph_data)
     # The page's language follows the reader's browser; KONSTRUCT_LOCALE (such as de or pt-BR)
     # sets the one to use when the reader has not chosen one.

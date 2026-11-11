@@ -13,6 +13,7 @@
     import Tests from './pages/Tests.svelte';
     import Usage from './pages/Usage.svelte';
     import Warnings from './pages/Warnings.svelte';
+    import World from './pages/World.svelte';
 
     // The viewer is made once and never replaced.
     const props: { viewer: Viewer } = $props();
@@ -22,6 +23,8 @@
 
 {#if r.page === 'overview'}
     <Overview {viewer} />
+{:else if r.page === 'world'}
+    <World {viewer} />
 {:else if r.page === 'node'}
     {#if r.id && viewer.model.node(r.id)}
         {#key r.id}<NodePage {viewer} id={r.id} />{/key}

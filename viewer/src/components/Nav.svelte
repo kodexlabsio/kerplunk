@@ -21,9 +21,11 @@
     const terms = model.of('term').length;
     const usage = !!viewer.data.meta?.usage;
     const ontology = (viewer.ontology.entities?.length ?? 0) + (viewer.ontology.measures?.length ?? 0) > 0;
+    const world = ontology || (viewer.world.metrics?.length ?? 0) > 0;
 
     const pages: { page: string; key: MessageKey; icon: string; count?: number; show: boolean }[] = [
         { page: 'overview', key: 'page.overview', icon: 'overview', show: true },
+        { page: 'world', key: 'page.world', icon: 'world', show: world },
         { page: 'lineage', key: 'page.lineage', icon: 'lineage', show: true },
         { page: 'map', key: 'page.map', icon: 'map', show: true },
         { page: 'browse', key: 'page.browse', icon: 'list', show: true },

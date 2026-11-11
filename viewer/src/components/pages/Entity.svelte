@@ -3,7 +3,9 @@
     import { i18n, t } from '../../lib/i18n.svelte';
     import type { Viewer } from '../../lib/viewer.svelte';
     import Icon from '../Icon.svelte';
+    import { trustOf } from '../../lib/world';
     import NodeLink from '../NodeLink.svelte';
+    import Trust from '../Trust.svelte';
     import NotFound from './NotFound.svelte';
 
     let { viewer, name }: { viewer: Viewer; name: string } = $props();
@@ -24,6 +26,7 @@
             <p class="eyebrow"><Icon kind="entity" size={16} />{t('kind.entity')}</p>
             <h1 tabindex="-1">{e.name}</h1>
             <p class="relation mono">{t('ontology.keyIs', { key: e.key })}</p>
+            <p class="badges"><Trust trust={trustOf(e.confidence, e.check)} /></p>
             {#if e.description}<div class="description"><Markdown source={e.description} /></div>{/if}
             <div class="actions">
                 <button

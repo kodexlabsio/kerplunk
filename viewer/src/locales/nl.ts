@@ -497,6 +497,61 @@ const messages: Catalogue = {
         '{count, plural, one {# teken ontbreekt} other {# tekens ontbreken}} in de labels: de glyph-atlas is vol.',
     'map.tooLarge':
         'een buffer van {needed, number} bytes is groter dan dit grafische apparaat toestaat ({limit, number} bytes).',
+
+    'page.world': 'Wereld',
+    'world.lead':
+        '{entities, plural, one {# entiteit} other {# entiteiten}}, {metrics, plural, one {# metriek} other {# metrieken}} en {relationships, plural, one {# relatie} other {# relaties}}. Kleur en vorm tonen hoeveel elk te vertrouwen is.',
+    'world.open': 'Wereldkaart openen',
+    'world.empty':
+        'Nog geen entiteiten of metrieken: een unique-test of een primaire sleutel op een identificatiekolom maakt een entiteit.',
+    'world.label': 'Kaart van het bedrijf, {count, plural, one {# entiteit} other {# entiteiten}}',
+    'world.help':
+        'Elke cirkel is een entiteit, zo groot als haar metrieken. De pijltjestoetsen gaan van entiteit naar entiteit, Enter toont er een naast de kaart, Escape wist die, plus en min zoomen en F past de kaart in. Sleep om haar te verplaatsen en scrol om te zoomen.',
+    'world.node': '{name}: {trust}, {count, plural, =0 {geen metrieken} one {# metriek} other {# metrieken}}',
+    'world.legend': 'Vertrouwen',
+    'trust.verified': 'Geverifieerd',
+    'trust.declared': 'Verklaard',
+    'trust.inferred': 'Afgeleid',
+    'trust.failed': 'Controle mislukt',
+    'trust.unrated': 'Niet beoordeeld',
+    'trust.verifiedHelp': 'konstruct verify heeft het in het datawarehouse gecontroleerd.',
+    'trust.declaredHelp': 'Een persoon heeft het vastgelegd, in een test, een sleutel of een definitie.',
+    'trust.inferredHelp': 'Konstruct heeft het alleen uit de code gelezen.',
+    'trust.failedHelp': 'konstruct verify vond het onjuist in het datawarehouse.',
+    'trust.unratedHelp':
+        'Geschreven door een Konstruct die geen vertrouwen vastlegde; bouw opnieuw om het te beoordelen.',
+    'world.find': 'Een entiteit of metriek zoeken',
+    'world.findPlaceholder': 'Naam van een entiteit of metriek',
+    'world.entities': 'Entiteiten',
+    'world.metrics': 'Metrieken',
+    'world.loose': 'Metrieken zonder entiteit',
+    'world.more': 'De eerste {shown, number} van {total, number}; typ een naam om de rest te vinden.',
+    'world.noMatch': 'Geen resultaten.',
+    'world.metricCount': '{count, plural, =0 {Geen metrieken} one {# metriek} other {# metrieken}}',
+    'world.all': 'Alle entiteiten',
+    'world.back': 'Terug naar {name}',
+    'world.openEntity': 'Pagina van de entiteit openen',
+    'world.proposed': 'Voorgesteld',
+    'world.proposedNote':
+        'Konstruct stelt deze metriek voor op basis van de code. Niemand heeft haar gedefinieerd of goedgekeurd.',
+    'world.owner': 'Eigenaar',
+    'world.approved': 'Goedgekeurd op',
+    'world.grain': 'Granulariteit',
+    'world.definedIn': 'Gedefinieerd in',
+    'world.sources': 'Bronkolommen',
+    'world.fromAggregate': 'Gelezen uit de code: een aggregatie, {aggregation}, in {columns}.',
+    'world.fromColumn':
+        'Gelezen uit de code: een numerieke kolom met de naam van een maatstaf, één waarde per rij, in {columns}.',
+    'world.fromCount': 'Het aantal van elke {entity}, op de sleutel.',
+    'world.grainRead': 'De granulariteit, één rij per {entity}, is gelezen uit de relatie die haar bevat.',
+    'world.notSummed': 'Een prijs of een saldo: de som ervan over rijen is geen totaal.',
+    'world.legacy':
+        'Deze pagina is geschreven door een eerdere Konstruct, die de voorgestelde metrieken niet vastlegde, dus alleen de gedefinieerde metrieken staan erin. Bouw opnieuw om de voorstellen te zien.',
+    'help.world': 'Op de wereldkaart',
+    'help.worldMove': 'Naar de dichtstbijzijnde entiteit in die richting',
+    'help.worldShow': 'De entiteit naast de kaart tonen',
+    'help.worldClear': 'De selectie wissen',
+    'world.loners': '{count, plural, one {# entiteit zonder relatie} other {# entiteiten zonder relatie}}',
 };
 
 export default messages;

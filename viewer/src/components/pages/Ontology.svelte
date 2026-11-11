@@ -2,7 +2,9 @@
     import { untrack } from 'svelte';
     import { i18n, t } from '../../lib/i18n.svelte';
     import type { Viewer } from '../../lib/viewer.svelte';
+    import { trustOf } from '../../lib/world';
     import NodeLink from '../NodeLink.svelte';
+    import Trust from '../Trust.svelte';
 
     // The viewer is made once and never replaced.
     const props: { viewer: Viewer } = $props();
@@ -41,7 +43,7 @@
                             ><th scope="col">{t('kind.entity')}</th><th scope="col">{t('ontology.key')}</th
                             ><th scope="col">{t('ontology.relations')}</th><th scope="col"
                                 >{t('kind.term')}</th
-                            ></tr
+                            ><th scope="col">{t('world.legend')}</th></tr
                         ></thead
                     >
                     <tbody>
@@ -64,6 +66,7 @@
                                             id={termId(e.term)!}
                                         />{/if}</td
                                 >
+                                <td><Trust trust={trustOf(e.confidence, e.check)} /></td>
                             </tr>
                         {/each}
                     </tbody>
@@ -83,7 +86,8 @@
                             ><th scope="col">{t('ontology.measure')}</th><th scope="col"
                                 >{t('ontology.status')}</th
                             ><th scope="col">{t('kind.entity')}</th><th scope="col">{t('term.columns')}</th
-                            ><th scope="col">{t('table.formula')}</th></tr
+                            ><th scope="col">{t('table.formula')}</th><th scope="col">{t('world.legend')}</th
+                            ></tr
                         ></thead
                     >
                     <tbody>
@@ -115,6 +119,7 @@
                                     ><code dir="ltr">{m.expression ?? m.columns?.[0]?.formula ?? ''}</code
                                     ></td
                                 >
+                                <td><Trust trust={trustOf(m.confidence)} /></td>
                             </tr>
                         {/each}
                     </tbody>
@@ -134,7 +139,9 @@
                             ><th scope="col">{t('ontology.from')}</th><th scope="col">{t('ontology.to')}</th
                             ><th scope="col">{t('ontology.cardinality')}</th><th scope="col"
                                 >{t('ontology.via')}</th
-                            ><th scope="col">{t('ontology.tested')}</th></tr
+                            ><th scope="col">{t('ontology.tested')}</th><th scope="col"
+                                >{t('world.legend')}</th
+                            ></tr
                         ></thead
                     >
                     <tbody>
@@ -151,6 +158,7 @@
                                 <td>{rel.cardinality ?? t('ontology.unknown')}</td>
                                 <td class="mono">{rel.via}</td>
                                 <td>{rel.tested ? t('ontology.yes') : t('ontology.no')}</td>
+                                <td><Trust trust={trustOf(rel.confidence, rel.check)} /></td>
                             </tr>
                         {/each}
                     </tbody>

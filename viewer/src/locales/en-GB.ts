@@ -493,6 +493,60 @@ const messages = {
         '{count, plural, one {# character is} other {# characters are}} missing from the labels: the glyph atlas is full.',
     'map.tooLarge':
         'a buffer of {needed, number} bytes is more than this graphics device allows ({limit, number} bytes).',
+
+    'page.world': 'World',
+    'world.lead':
+        '{entities, plural, one {# entity} other {# entities}}, {metrics, plural, one {# metric} other {# metrics}} and {relationships, plural, one {# relationship} other {# relationships}}. Colour and shape show how far each is trusted.',
+    'world.open': 'Open the world map',
+    'world.empty':
+        'No entities or metrics yet: a unique test or a primary key on an identifier column makes an entity.',
+    'world.label': 'Map of the business, {count, plural, one {# entity} other {# entities}}',
+    'world.help':
+        'Each circle is an entity, sized by its metrics. The arrow keys move between entities, Enter shows one beside the map, Escape clears it, plus and minus zoom and F fits the map. Drag to move it and scroll to zoom.',
+    'world.node': '{name}: {trust}, {count, plural, =0 {no metrics} one {# metric} other {# metrics}}',
+    'world.legend': 'Trust',
+    'trust.verified': 'Verified',
+    'trust.declared': 'Declared',
+    'trust.inferred': 'Inferred',
+    'trust.failed': 'Check failed',
+    'trust.unrated': 'Not rated',
+    'trust.verifiedHelp': 'konstruct verify checked it against the warehouse.',
+    'trust.declaredHelp': 'A person stated it, in a test, a key or a definition.',
+    'trust.inferredHelp': 'Konstruct read it from the code alone.',
+    'trust.failedHelp': 'konstruct verify found it false in the warehouse.',
+    'trust.unratedHelp': 'Written by a Konstruct that did not record trust; build again to rate it.',
+    'world.find': 'Find an entity or metric',
+    'world.findPlaceholder': 'Name of an entity or metric',
+    'world.entities': 'Entities',
+    'world.metrics': 'Metrics',
+    'world.loose': 'Metrics with no entity',
+    'world.more': 'The first {shown, number} of {total, number}; type a name to find the others.',
+    'world.noMatch': 'Nothing matches.',
+    'world.metricCount': '{count, plural, =0 {No metrics} one {# metric} other {# metrics}}',
+    'world.all': 'All entities',
+    'world.back': 'Back to {name}',
+    'world.openEntity': 'Open the entity page',
+    'world.proposed': 'Proposed',
+    'world.proposedNote': 'Konstruct proposes this metric from the code. Nobody has defined or approved it.',
+    'world.owner': 'Owner',
+    'world.approved': 'Approved on',
+    'world.grain': 'Grain',
+    'world.definedIn': 'Defined in',
+    'world.sources': 'Source columns',
+    'world.fromAggregate': 'Read from the code: an aggregate, {aggregation}, in {columns}.',
+    'world.fromColumn':
+        'Read from the code: a numeric column named as a measure, one value per row, in {columns}.',
+    'world.fromCount': 'The count of each {entity}, by its key.',
+    'world.grainRead': 'Its grain, one row per {entity}, is read from the relation that holds it.',
+    'world.notSummed': 'A price or a balance: a sum of it over rows is not a total.',
+    'world.legacy':
+        'This page was written by an earlier Konstruct, which put no proposed metrics in it, so only the defined metrics are listed. Build again to see the proposals.',
+    'help.world': 'On the world map',
+    'help.worldMove': 'Move to the nearest entity that way',
+    'help.worldShow': 'Show the entity beside the map',
+    'help.worldClear': 'Clear the selection',
+    'world.loners':
+        '{count, plural, one {# entity in no relationship} other {# entities in no relationship}}',
 };
 
 export type MessageKey = keyof typeof messages;

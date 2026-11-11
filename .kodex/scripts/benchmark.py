@@ -70,7 +70,7 @@ from konstruct.analysis.query import search  # noqa: E402
 from konstruct.core.graph import Graph  # noqa: E402
 from konstruct.interfaces import hook  # noqa: E402
 from tests.test_gate import git  # noqa: E402
-from tests.test_scale import make_measures, make_project  # noqa: E402
+from tests.test_scale import give_entities, make_measures, make_project  # noqa: E402
 
 COLUMNS = 20
 REPEAT = 5
@@ -116,12 +116,7 @@ def world_model(graph: Graph, models: int) -> dict[str, float]:
     from konstruct.semantics import world
     from konstruct.semantics.ontology import derive
 
-    for node in graph.nodes.values():
-        if node.kind == 'model':
-            node.attrs['primary_key'] = ['c00']
-            column = graph.column(node.id, 'c02')
-            if column is not None and isinstance(column.attrs.get('expression'), str):
-                column.attrs['expression'] = f'SUM({column.attrs["expression"]})'
+    give_entities(graph)
     ontology_s, ontology = timed(derive, graph)
     last, eleventh = f'm{(models - 1) // 2:03}', f'm{min(10, models - 1):03}'
     metrics_s, found = timed(world.metrics, graph, None, ontology)
