@@ -348,7 +348,14 @@ def _gate(root: Path, out_dir: Path, path: Path, shown: str) -> dict[str, Any]:
             stamp = fingerprint(root, [out_dir / LAWS_FILE, *locks])
             last = _last(scratch)
             if stamp is not None and last.get('fingerprint') == stamp and (scratch / 'graph.json').is_file():
-                return _answer(path, shown, bool(last['passed']), str(last['result']), last.get('notes', {}))
+                return _answer(
+                    path,
+                    shown,
+                    bool(last['passed']),
+                    str(last['result']),
+                    last.get('notes', {}),
+                    last.get('unlawful'),
+                )
             if (out_dir / 'cache.json').is_file() and not (scratch / 'cache.json').is_file():
                 shutil.copy2(out_dir / 'cache.json', scratch / 'cache.json')
             config.override(run_dbt=False, warehouses=False)
@@ -362,6 +369,7 @@ def _gate(root: Path, out_dir: Path, path: Path, shown: str) -> dict[str, Any]:
                 checker.build(update=True, config=config)
                 diff = checker.diff()
                 laws, laws_from = recorded(root, out_dir)
+                unlawful = laws_from if laws is None else None
                 result = gate(
                     checker.graph, diff, plugins=Plugins.for_config(config), laws=laws, laws_from=laws_from
                 )
@@ -374,6 +382,7 @@ def _gate(root: Path, out_dir: Path, path: Path, shown: str) -> dict[str, Any]:
                 'passed': result.passed,
                 'result': str(result),
                 'notes': notes,
+                'unlawful': unlawful,
                 'seconds': round(time.monotonic() - started, 1),
             }
             write_text(scratch / 'last.json', json.dumps(record))
@@ -384,14 +393,23 @@ def _gate(root: Path, out_dir: Path, path: Path, shown: str) -> dict[str, Any]:
                 'before proposing the change.'
             )
         )
-    return _answer(path, shown, result.passed, str(result), notes)
+    return _answer(path, shown, result.passed, str(result), notes, unlawful)
 
 
-def _answer(path: Path, shown: str, passed: bool, result: str, notes: dict[str, list[str]]) -> dict[str, Any]:
-    """The hook's answer for the edited file, from a gate result and the diff's notes."""
+def _answer(
+    path: Path,
+    shown: str,
+    passed: bool,
+    result: str,
+    notes: dict[str, list[str]],
+    unlawful: str | None = None,
+) -> dict[str, Any]:
+    """The hook's answer for the edited file, from a gate result and the diff's notes.
+    ``unlawful`` says why no data law was checked, when none was, so a pass says so."""
     unread = _unreadable(path, list(notes.get(shown, [])))
     if passed and not unread:
-        return _marked(_context(f'Konstruct gate passed after the edit to {shown}.'))
+        laws = f' Data laws: {unlawful}.' if unlawful else ''
+        return _marked(_context(f'Konstruct gate passed after the edit to {shown}.{laws}'))
     lines = [f'Konstruct gate {"passed" if passed else "failed"} after the edit to {shown}.']
     if not passed:
         lines += ['', result]

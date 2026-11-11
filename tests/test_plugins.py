@@ -166,6 +166,16 @@ class CheckNotFindings:
         return ['a finding']
 
 
+class CheckSeesLaws:
+    api_version = API_VERSION
+    description = 'reports the data laws it was given'
+
+    def check(self, context):
+        laws = context.laws
+        held = sorted(law.id for law in laws.laws if law.always_held) if laws is not None else None
+        return [Finding('laws', json.dumps(held), fix='Nothing to fix.')]
+
+
 class ToolsRaise:
     api_version = API_VERSION
 
@@ -226,6 +236,7 @@ EXPORT_RAISES = ExportRaises()
 EXPORT_NOT_TEXT = ExportNotText()
 CHECK_RAISES = CheckRaises()
 CHECK_NOT_FINDINGS = CheckNotFindings()
+CHECK_SEES_LAWS = CheckSeesLaws()
 TOOLS_RAISE = ToolsRaise()
 BAD_TOOLS = BadTools()
 """
@@ -689,6 +700,27 @@ def test_a_gate_check_that_fails_fails_the_gate(misbehaving: Path, tmp_path: Pat
         ),
     ]
     assert all(f.fix.startswith('Fix or upgrade the plugin') for f in result.findings)
+
+
+def test_a_gate_check_sees_the_data_laws_recorded_at_the_base(misbehaving: Path, tmp_path: Path) -> None:
+    """Since plugin API 1.2, a check's context carries the laws the change is judged against."""
+    root = misbehaving_project(
+        misbehaving, tmp_path, {'konstruct.checks': {'lawful': 'misbehaving:CHECK_SEES_LAWS'}}
+    )
+    (root / '.gitignore').write_text('konstruct-out/*\n!konstruct-out/laws.json\n')
+    git(root, 'init', '-q', '-b', 'main')
+    git(root, 'add', '.')
+    git(root, 'commit', '-q', '-m', 'Start')
+    [finding] = Project(root).gate(base='HEAD', warehouses=False, run_dbt=False).findings
+    assert (finding.rule, finding.message) == ('lawful.laws', 'null')
+    law = {'id': 'count:table.analytics.orders', 'kind': 'count', 'relation': 'table.analytics.orders'}
+    held = {**law, 'status': 'holds', 'held': 3, 'checked': 3}
+    laws = root / 'konstruct-out' / 'laws.json'
+    laws.write_text(json.dumps({'format_version': 1, 'format': 1, 'laws': [held]}))
+    git(root, 'add', '.')
+    git(root, 'commit', '-q', '-m', 'Record the laws')
+    [finding] = Project(root).gate(base='HEAD', warehouses=False, run_dbt=False).findings
+    assert (finding.rule, finding.message) == ('lawful.laws', '["count:table.analytics.orders"]')
 
 
 def test_tools_that_fail_are_left_out(

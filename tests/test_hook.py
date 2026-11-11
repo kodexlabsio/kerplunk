@@ -178,7 +178,8 @@ def test_runs_the_gate_after_an_edit(
         'hookSpecificOutput': {
             'hookEventName': 'PostToolUse',
             'additionalContext': (
-                f'Konstruct gate passed after the edit to models/staging/stg_payments.sql. ({UNTRUSTED_CONTENT})'
+                'Konstruct gate passed after the edit to models/staging/stg_payments.sql. Data laws: no '
+                f'konstruct-out/laws.json at the merge base with main, so no data law was checked. ({UNTRUSTED_CONTENT})'
             ),
         }
     }
@@ -331,6 +332,19 @@ def test_new_laws_or_a_consumers_new_lockfile_are_checked_again(
     stamp = real(repo, seen[-1])
     (repo / 'konstruct-out' / 'laws.json').write_text('{"format_version": 1, "laws": []}')
     assert real(repo, seen[-1]) != stamp
+
+
+def test_a_pass_says_when_no_data_law_was_checked(tmp_path: Path) -> None:
+    model = tmp_path / 'a.sql'
+    model.write_text('select 1 as x')
+    checked = hook._answer(model, 'a.sql', True, '', {})
+    assert checked['hookSpecificOutput']['additionalContext'].startswith(
+        'Konstruct gate passed after the edit to a.sql. ('
+    )
+    unchecked = hook._answer(model, 'a.sql', True, '', {}, 'no data laws recorded, so none was checked')
+    assert unchecked['hookSpecificOutput']['additionalContext'].startswith(
+        'Konstruct gate passed after the edit to a.sql. Data laws: no data laws recorded, so none was checked. ('
+    )
 
 
 def test_the_lock_wait_leaves_time_to_build(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
