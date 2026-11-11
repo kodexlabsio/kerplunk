@@ -403,15 +403,21 @@ class Project:
 
         result = find_conflicts(self.graph, limit)
         if write:
-            from konstruct.outputs.html import graph_fingerprint, write_html
+            from konstruct.outputs.html import graph_fingerprint, viewer_data, write_html, write_viewer_data
 
             jsonio.write_text(self.out_dir / 'CONFLICTS.md', result.markdown())
             # The fingerprint says which graph these are true of, so graph.html shows them only
             # while the graph is unchanged.
             data = {**document(result), 'graph': graph_fingerprint(self.graph)}
             jsonio.write_text(self.out_dir / 'conflicts.json', json.dumps(data, indent=1) + '\n')
-            if (self.out_dir / 'graph.html').is_file():
-                write_html(self.graph, self.out_dir / 'graph.html')
+            page, explain = self.out_dir / 'graph.html', self.out_dir / 'explain.json'
+            if page.is_file() or explain.is_file():
+                # explain.json too: `konstruct serve` reloads it when it changes.
+                shown = viewer_data(self.graph, self.out_dir)
+                if explain.is_file():
+                    write_viewer_data(shown, explain)
+                if page.is_file():
+                    write_html(self.graph, page, data=shown)
         return result
 
     def ontology(self) -> Ontology:
@@ -610,7 +616,7 @@ class Project:
             max_rows: The most rows sampled from any input.
             models: Only these models or tables.
             write: Write ``VERIFY.md`` and ``verify.json``, and mark verified edges in
-                ``graph.json``, ``graph.html`` and ``ontology.yml``.
+                ``graph.json``, ``graph.html``, ``explain.json`` and ``ontology.yml``.
 
         Returns:
             One result per model, with ``totals()`` across them.
@@ -624,7 +630,7 @@ class Project:
             result.totals()  # {'claimed': 36, 'confirmed': 36, 'unexplained': 0, ...}
         """
         from konstruct.analysis.verify import annotate, verify
-        from konstruct.outputs.html import write_html
+        from konstruct.outputs.html import viewer_data, write_html, write_viewer_data
         from konstruct.semantics.ontology import derive as derive_ontology
 
         graph = self.graph
@@ -635,12 +641,20 @@ class Project:
         result.warehouse = self._shown(target, result.warehouse)
         if write:
             annotate(graph, result)
+            page, explain = self.out_dir / 'graph.html', self.out_dir / 'explain.json'
+            shown = page.is_file() or explain.is_file()
+            ontology = derive_ontology(graph) if shown or (self.out_dir / 'ontology.yml').is_file() else None
+            data = viewer_data(graph, self.out_dir, ontology=ontology) if shown else None
+            if data is not None:
+                # Before graph.json, as the build writes it: `konstruct serve` reloads explain.json
+                # when graph.json changes.
+                write_viewer_data(data, explain)
             graph.write(self.graph_path)
             self._stamp = self._file_stamp()
-            if (self.out_dir / 'graph.html').is_file():
-                write_html(graph, self.out_dir / 'graph.html')
-            if (self.out_dir / 'ontology.yml').is_file():
-                derive_ontology(graph).write(self.out_dir / 'ontology.yml')
+            if data is not None and page.is_file():
+                write_html(graph, page, data=data)
+            if ontology is not None and (self.out_dir / 'ontology.yml').is_file():
+                ontology.write(self.out_dir / 'ontology.yml')
             jsonio.write_text(self.out_dir / 'VERIFY.md', result.markdown())
             jsonio.write_text(self.out_dir / 'verify.json', json.dumps(document(result), indent=1) + '\n')
         return result

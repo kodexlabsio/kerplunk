@@ -363,3 +363,43 @@ def test_the_page_carries_a_strict_content_security_policy(tmp_path: Path) -> No
     styles = re.findall(r'<style[^>]*>(.*?)</style>', page.replace(script, ''), re.S)
     assert policy['style-src'].split() == [digest(style) for style in styles]
     assert not re.search(r'<[^>]+\son[a-z]+\s*=', page.replace(script, ''))
+
+
+def _embedded(page: Path, element: str) -> Any:
+    found = re.search(
+        f'<script[^>]*id="{element}"[^>]*>(.*?)</script>', page.read_text(encoding='utf-8'), re.S
+    )
+    assert found, element
+    return json.loads(found.group(1))
+
+
+def test_explain_json_is_what_graph_html_embeds(tmp_path: Path) -> None:
+    from konstruct.engine.build import build
+    from konstruct.engine.config import load_config
+    from konstruct.outputs.html import viewer_data
+
+    (tmp_path / 'jobs').mkdir()
+    (tmp_path / 'jobs' / 'users.sql').write_text(
+        'create table main.people as select id, upper(name) as name from raw.users\n'
+    )
+    config = load_config(tmp_path)
+    result = build(config)
+    out = config.out_dir
+    assert [path.name for path in result.outputs] == [
+        'graph.json',
+        'REPORT.md',
+        'graph.html',
+        'ontology.yml',
+        'explain.json',
+    ]
+    # The whole object the page embeds, as a served page loads it: formulas, SQL, the ontology
+    # and conflicts.
+    explain = json.loads((out / 'explain.json').read_text(encoding='utf-8'))
+    assert explain == _embedded(out / 'graph.html', 'konstruct-explain')
+    assert explain == json.loads(json.dumps(viewer_data(Graph.read(out / 'graph.json'), out)))
+    assert explain['columns'] and {'sql', 'ontology', 'conflicts'} <= set(explain)
+    # A build that writes no graph.html writes no explain.json either.
+    shutil.rmtree(out)
+    config.html = False
+    assert [path.name for path in build(config).outputs] == ['graph.json', 'REPORT.md', 'ontology.yml']
+    assert not (out / 'explain.json').exists()

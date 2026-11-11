@@ -9,6 +9,9 @@ relation's conditions from :mod:`konstruct.analysis.explain`, the SQL files that
 tasks (and dbt's compiled SQL when ``target/compiled`` has it), the ontology from
 :mod:`konstruct.semantics.ontology` and the conflicts from :mod:`konstruct.analysis.conflicts`.
 The page loads nothing from the network.
+
+The build also writes the second placeholder's object (:func:`viewer_data`) as ``explain.json``
+beside ``graph.json``, for a page that loads both from a server rather than from itself.
 """
 
 from __future__ import annotations
@@ -287,17 +290,33 @@ def viewer_data(
     return data
 
 
-def write_html(graph: Graph, path: Path, cache: Any = None, ontology: Ontology | None = None) -> Path:
+def write_html(
+    graph: Graph,
+    path: Path,
+    cache: Any = None,
+    ontology: Ontology | None = None,
+    data: dict[str, Any] | None = None,
+    graph_data: dict[str, Any] | None = None,
+) -> Path:
     """Write the interactive viewer for ``graph`` to ``path`` and return ``path``. ``ontology`` is
-    the build's, when it has already derived one."""
+    the build's, when it has already derived one; ``data`` is what :func:`viewer_data` returns and
+    ``graph_data`` is ``graph.to_dict()``, when they have been made already."""
     # Made once: the page embeds it, and the conflicts' fingerprint is a hash of it.
-    graph_data = graph.to_dict()
-    shown = viewer_data(graph, path.parent, cache, ontology, graph_data)
+    if graph_data is None:
+        graph_data = graph.to_dict()
+    if data is None:
+        data = viewer_data(graph, path.parent, cache, ontology, graph_data)
     page = (
         template()
-        .replace(_EXPLAIN_PLACEHOLDER, _embed_json(shown), 1)
+        .replace(_EXPLAIN_PLACEHOLDER, _embed_json(data), 1)
         .replace(_DATA_PLACEHOLDER, _embed_json(graph_data), 1)
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
     jsonio.write_text(path, page)
+    return path
+
+
+def write_viewer_data(data: dict[str, Any], path: Path) -> Path:
+    """Write :func:`viewer_data` to ``path`` (``explain.json``), which a served viewer loads, and
+    return ``path``."""
+    jsonio.write_text(path, jsonio.dumps(data))
     return path

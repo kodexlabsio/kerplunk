@@ -41,7 +41,7 @@ def test_build_prints_what_it_found(
     assert '  lineage      32 of 32 columns of models and built tables (100%)' in lines
     assert '  warnings     none' in lines
     assert any(
-        line.startswith('  wrote        graph.json, REPORT.md, graph.html, ontology.yml to ')
+        line.startswith('  wrote        graph.json, REPORT.md, graph.html, ontology.yml, explain.json to ')
         for line in lines
     )
 

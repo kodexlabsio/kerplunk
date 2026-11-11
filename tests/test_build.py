@@ -35,6 +35,7 @@ def test_example_builds_every_output(jaffle_built_graph: Path, jaffle_graph: Gra
         'graph.json',
         'REPORT.md',
         'graph.html',
+        'explain.json',
         'ontology.yml',
         'cache.json',
     }

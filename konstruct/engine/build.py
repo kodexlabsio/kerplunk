@@ -2522,8 +2522,8 @@ _FILTER_MISSING = re.compile(r": required filter .+ reads '(.+?)', which does no
 
 
 def build(config: Config, *, update: bool = False) -> BuildResult:
-    """Build the graph for ``config`` and write ``graph.json``, ``REPORT.md``, ``graph.html`` and ``ontology.yml``; :meth:`konstruct.Project.build` is the usual way in."""
-    from konstruct.outputs.html import write_html
+    """Build the graph for ``config`` and write ``graph.json``, ``REPORT.md``, ``graph.html``, ``ontology.yml`` and ``explain.json``; :meth:`konstruct.Project.build` is the usual way in."""
+    from konstruct.outputs.html import viewer_data, write_html, write_viewer_data
     from konstruct.outputs.report import write_report
     from konstruct.semantics.ontology import derive as derive_ontology
 
@@ -2564,15 +2564,19 @@ def build(config: Config, *, update: bool = False) -> BuildResult:
         if rule.name not in ('bound-columns-exist', 'approved-terms-are-owned'):
             for violation in rule.violations:
                 graph.warn(f'ontology: {violation}')
+    # The viewer's data, for graph.html and for explain.json, which `konstruct serve` sends the
+    # page; written before graph.json, since the server reloads both when graph.json changes.
+    data = viewer_data(graph, config.out_dir, builder.cache.quiet(), ontology) if config.html else None
+    explain_path = write_viewer_data(data, config.out_dir / 'explain.json') if data is not None else None
     graph.meta['build_seconds'] = round(time.perf_counter() - started, 2)
-    log.info('writing graph.json, REPORT.md, graph.html and ontology.yml')
+    log.info('writing graph.json, REPORT.md, graph.html, ontology.yml and explain.json')
     graph.write(graph_path)
     outputs = [graph_path, write_report(graph, config.out_dir / 'REPORT.md')]
-    if config.html:
-        outputs.append(
-            write_html(graph, config.out_dir / 'graph.html', cache=builder.cache.quiet(), ontology=ontology)
-        )
+    if data is not None:
+        outputs.append(write_html(graph, config.out_dir / 'graph.html', data=data))
     outputs.append(ontology.write(config.out_dir / 'ontology.yml'))
+    if explain_path is not None:
+        outputs.append(explain_path)
     builder.cache.save()
     return BuildResult(
         graph=graph,

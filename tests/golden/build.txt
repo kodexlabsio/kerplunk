@@ -9,4 +9,4 @@ Built <root>
   lineage      32 of 32 columns of models and built tables (100%)
   reused       7 of 7 cached analyses
   warnings     none
-  wrote        graph.json, REPORT.md, graph.html, ontology.yml to <root>/konstruct-out in <seconds>s
+  wrote        graph.json, REPORT.md, graph.html, ontology.yml, explain.json to <root>/konstruct-out in <seconds>s

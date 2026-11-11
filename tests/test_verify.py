@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -31,6 +33,7 @@ from konstruct.analysis.verify import (
 )
 from konstruct.core.graph import Graph, column_id
 from konstruct.inputs import warehouse
+from konstruct.outputs.html import viewer_data
 
 REPORT_SQL = """
 create table main.report as
@@ -251,6 +254,19 @@ def test_project_verify_writes_its_results_into_the_outputs(project: Project) ->
     page = (out / 'graph.html').read_text()
     assert '"verified":"confirmed"' in page
     assert '"verification":' in page
+
+
+def test_project_verify_rewrites_explain_json_with_graph_html(project: Project) -> None:
+    # konstruct serve reloads explain.json with graph.json, so the two must be of one graph.
+    explain = project.out_dir / 'explain.json'
+    explain.write_text('{"stale": true}', encoding='utf-8')
+    project.verify(warehouse=project.root / 'shop.duckdb')
+    written = json.loads(explain.read_text(encoding='utf-8'))
+    assert 'stale' not in written
+    assert written == json.loads(json.dumps(viewer_data(Graph.read(project.graph_path), project.out_dir)))
+    page = (project.out_dir / 'graph.html').read_text(encoding='utf-8')
+    embedded = re.search(r'<script[^>]*id="konstruct-explain"[^>]*>(.*?)</script>', page, re.S)
+    assert embedded and json.loads(embedded.group(1)) == written
 
 
 def test_claims_ignore_relations_without_names(project: Project) -> None:
