@@ -2,14 +2,18 @@
 
 `konstruct diff` answers "what does this branch do to the data?" For each dbt model, SQL file and DAG file that changed, it analyses the base and current versions and compares each output column's canonical expression: the expression with every CTE, subquery and alias inlined down to physical columns. Reformatting, renaming a CTE or reordering columns is therefore not a change, and a real change is shown in full. Join, filter and grouping conditions are compared the same way. A removed column is breaking when a downstream model's current SQL still reads it, so a change that also updates its consumers is not flagged.
 
-A relation's conditions are its joins, filters and grouping, its `DISTINCT`, `LIMIT` and `OFFSET`, the `ORDER BY` a `LIMIT` or `DISTINCT ON` picks rows by, a `UNION`, `INTERSECT` or `EXCEPT` that removes duplicates (`UNION ALL` does not), and the rows a query makes itself from a table function such as `range(2)` or a `VALUES` list (`ROWS FROM`). `GROUP BY ALL` is listed as the keys it groups by: the select items without an aggregate, a window function or a function sqlglot does not know, which may aggregate. Each is labelled with where it applies, so moving it to where it decides other rows is a change:
+A relation's conditions are the clauses that decide which rows it has. Each is listed with a label that says where it applies, so moving it to where it decides other rows is a change:
 
 | Label | Where the condition applies |
 |-------|-----------------------------|
-| `WHERE`, `JOIN ON`, `GROUP BY`, `HAVING` | The rows of the query, wherever in its CTEs and subqueries it is written |
-| `LEFT JOIN ON` | Which rows the `LEFT JOIN` joins. A CTE or subquery that the join reads and that only selects and filters has its `WHERE` here, as the same condition in the `ON` would |
+| `WHERE`, `JOIN ON`, `GROUP BY`, `HAVING`, `QUALIFY` | The rows of the query, wherever in its CTEs and subqueries it is written. A join is labelled with its kind, as written (`INNER JOIN ON`, `SEMI JOIN ON`). `GROUP BY ALL` is listed as the keys it groups by: the select items without an aggregate, a window function or a function sqlglot does not know, which may aggregate |
+| `LEFT JOIN ON`, `RIGHT JOIN ON`, `FULL JOIN ON` | Which rows an outer join joins. A CTE or subquery that the join reads and that only selects and filters has its `WHERE` here, as the same condition in the `ON` would |
 | `LEFT JOIN WHERE`, `RIGHT JOIN WHERE`, `FULL JOIN WHERE` | Any other filter on the side of an outer join that may find no row: it decides which rows join, where the same filter outside the join removes rows |
-| `... BEFORE WINDOW`, `... BEFORE LIMIT` | A condition applied before a window function or `QUALIFY`, or before a `LIMIT` or `OFFSET`, which see the rows it leaves |
+| `DISTINCT`, `DISTINCT ON` | The rows a `SELECT DISTINCT` keeps, by the columns it selects, or the one row for each key a `DISTINCT ON` keeps |
+| `LIMIT`, `OFFSET`, `ORDER BY` | How many rows a query keeps or skips, and the order it picks them in. An `ORDER BY` is listed only where a `LIMIT`, an `OFFSET` or a `DISTINCT ON` picks rows by it |
+| `UNION`, `INTERSECT`, `EXCEPT` | A set operation that removes duplicates or matches rows, as `UNION: DISTINCT` or `INTERSECT: ALL`. A `UNION ALL` keeps every row of each branch and has no label |
+| `ROWS FROM` | The rows a query makes itself, from a table function such as `range(2)` or a `VALUES` list, which no column of a relation describes |
+| `... BEFORE WINDOW`, `... BEFORE LIMIT` | A condition applied before a window function or `QUALIFY`, or before a `LIMIT` or `OFFSET`, which see the rows it leaves; the steps are listed nearest first, as `WHERE BEFORE WINDOW, LIMIT` |
 
 In an [OpenLineage export](exporting.md), a filter of the side of a `LEFT JOIN` that is listed under the join's `LEFT JOIN ON` has the subtype `JOIN`; one listed as a `LEFT JOIN WHERE` keeps the subtype `FILTER`.
 
@@ -73,3 +77,32 @@ change.
 ```
 
 The summary says whether a bound term was approved after the latest formula change, so a formula that changed after its approval stands out. Commits are ordered by ancestry, not by date, so a change rebased onto a branch after an approval comes after it. A term is approved by a commit that makes its status `approved`, or that moves its `approved` date while it stays approved; a term that first appears already approved, such as a renamed one, is not an approval. Where the history is incomplete (a shallow clone, or more commits than `--limit`, default 50), or a version's SQL cannot be analysed, a note says so. `--json` gives the same result for scripts and agents, which can also ask through the `history` MCP tool.
+
+## Pinning What You Read
+
+A repository that reads another team's data, a dashboard repository, a downstream dbt project or a feature pipeline, pins exactly what it relies on with `konstruct lock`. For each upstream column the project reads (one it does not build: from a repository listed in `repositories`, or a table in a shared warehouse), `konstruct.lock` records a fingerprint of the column's formula composed down to source columns, the row conditions of every relation on the way (with the labels above, including those of the relations it is joined to, filtered or grouped by), the source columns it reaches, its type, the business terms bound to it with a version of their meaning, and its verification state. Commit the file. Names limit the lock to those columns, relations, exposures or terms: `konstruct lock weekly_dashboard` pins what that exposure reads.
+
+`konstruct lock --check` fails with exit status 1 when a pinned column's formula, row conditions, sources or type, or an approved term bound to it, is not what was locked, or when the column is no longer built. Run it in the consumer's CI. Each change shows the locked and current formula side by side, who changed it from git history, which of the project's own columns read it, and the command to accept it, or the commit to revert to keep the locked meaning:
+
+```text
+$ konstruct lock --check
+konstruct.lock: 1 of 2 pinned upstream columns changed since it was locked.
+
+main.ltv.total  (ltv.total, built by finance, ../finance/ltv.sql)
+  formula changed
+    locked  SUM(orders.amount)
+    now     SUM(orders.amount) * 2
+    change  added * 2
+  changed by         Ana in 327233e on 2026-11-11: Double lifetime value
+                     ltv.total: was SUM(orders.amount)
+                                now SUM(orders.amount) * 2
+  your columns       report.doubled
+  accept it          konstruct lock --update main.ltv.total
+  or keep the old    ask finance to revert 327233e (by Ana)
+```
+
+Fingerprints are built from canonical expressions, so reformatting, renamed CTEs, reordered columns, passthrough models, a mirrored comparison (`10 <= a` is `a >= 10`), conjuncts in another order and a filter moved into a model upstream are not changes. A relation reached through the side of an outer join that may find no row, or before a window function or `LIMIT`, is pinned as such (`LEFT JOIN main.customers BEFORE WINDOW`), so moving a filter across the join or the window is a change; the lockfile writes a `RIGHT JOIN` as the `LEFT JOIN` of its sides the other way round, and drops `OUTER` and `INNER`. A seed is pinned by a checksum of its file, and a column with no formula (a Python model) by a checksum of the file that builds it.
+
+A pinned column keeps its pin, as a package lockfile keeps its versions: `konstruct lock` adds what the project newly reads and drops what it no longer does, brings up to date what fails no check (an approval date, a verification), and keeps the rest as locked. `konstruct lock --update` accepts every change after review, and `konstruct lock --update main.ltv.total` the change to one column. The file records the canonical form it was printed in; a Konstruct that prints formulas differently fails the check once, asking to re-lock after review, rather than pin by pin. `--format markdown` gives the check for a pull request comment, naming no commit or author, and `--json` the result for scripts; the `lock_check` MCP tool gives the same to an agent.
+
+A producer that lists its consumers in `repositories` learns what a change does to them before they do: `konstruct gate` fails with `consumer-pin-changed` when the change alters a column a consumer pins in its `konstruct.lock`, naming the consumer, what changed and the command the consumer runs to accept it. Only the pins on columns the change alters are checked, so a consumer that has not re-locked since an earlier change does not fail every change after it; a consumer lockfile that cannot be read fails only a change to a column that repository reads.

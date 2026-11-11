@@ -535,6 +535,33 @@ def _laws(project: Project, args: argparse.Namespace, console: Console) -> int:
     return 1 if args.strict and result.totals()['broken'] else 0
 
 
+def cmd_lock(args: argparse.Namespace, console: Console) -> int:
+    if args.check and (args.reads or args.update is not None or args.no_write):
+        console.error(
+            '--check compares the lockfile with the build; it takes no names, --update or --no-write'
+        )
+        return 2
+    if not args.check and (args.format == 'markdown' or args.no_history):
+        console.error(
+            f'{"--format markdown" if args.format == "markdown" else "--no-history"} is for --check'
+        )
+        return 2
+    project = _ready(_project(args), args, console)
+    if args.check:
+        with console.progress('Checking the pinned upstream columns'):
+            result = project.check_lock(history=not args.no_history)
+        if args.format == 'markdown':
+            console.print(result.markdown().rstrip())
+        else:
+            _emit(console, result, args.json or args.format == 'json')
+        return 0 if result.passed else 1
+    update: bool | list[str] = (args.update or True) if args.update is not None else False
+    with console.progress('Pinning the upstream columns'):
+        written = project.lock(args.reads or None, update=update, write=not args.no_write)
+    _emit(console, written, args.json or args.format == 'json')
+    return 0
+
+
 def cmd_gate(args: argparse.Namespace, console: Console) -> int:
     from konstruct.analysis.diff import DiffError
 
@@ -725,7 +752,7 @@ GROUPS = (
     ('Lineage', ('impact', 'trace', 'path', 'explain', 'history')),
     ('Explore', ('search', 'describe', 'list', 'query', 'export')),
     ('Business meaning', ('define', 'ontology', 'entity', 'metric', 'relate', 'conflicts', 'check-sql')),
-    ('Changes', ('diff', 'gate', 'release-notes', 'verify')),
+    ('Changes', ('diff', 'gate', 'release-notes', 'verify', 'lock')),
     ('Agents', ('install', 'mcp', 'receipts', 'hook')),
     ('Plugins', ('plugins',)),
 )
@@ -861,6 +888,12 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ),
         ('konstruct verify --laws', 'the totals the lineage says must agree, checked per day'),
         ('konstruct verify --laws --propose', 'the laws alone, reading no warehouse'),
+    ),
+    'lock': (
+        ('konstruct lock', 'pin what each upstream column this project reads means'),
+        ('konstruct lock --check', 'exit 1 when a pinned column means something else, and say what'),
+        ('konstruct lock --update main.ltv.total', 'accept a reviewed change to one pinned column'),
+        ('konstruct lock --check --format markdown', 'the check for a pull request comment'),
     ),
     'open': (
         ('konstruct open', 'graph.html in the default browser'),
@@ -1575,6 +1608,41 @@ def parser() -> argparse.ArgumentParser:
     )
     _query_options(verify)
     verify.set_defaults(func=cmd_verify)
+
+    locking = add('lock', 'pin what each upstream column this project reads means, in konstruct.lock')
+    locking.add_argument(
+        'reads',
+        nargs='*',
+        metavar='NAME',
+        help='what to pin: columns, relations, exposures or terms (default: what konstruct.lock names, or '
+        'every upstream column the project reads)',
+    )
+    locking.add_argument(
+        '--check',
+        action='store_true',
+        help='compare konstruct.lock with the build instead, and exit 1 when a pinned column changed',
+    )
+    locking.add_argument(
+        '--update',
+        nargs='*',
+        metavar='COLUMN',
+        help='accept every change to the pinned columns, or the changes to these',
+    )
+    locking.add_argument(
+        '--no-write', action='store_true', help='show what would be written, writing nothing'
+    )
+    locking.add_argument(
+        '--no-history', action='store_true', help='with --check, do not read git history for who changed what'
+    )
+    locking.add_argument(
+        '--format',
+        choices=['text', 'markdown', 'json'],
+        default='text',
+        metavar='FORMAT',
+        help='text, markdown (with --check, for a pull request comment) or json',
+    )
+    _query_options(locking)
+    locking.set_defaults(func=cmd_lock)
 
     open_ = add('open', 'open graph.html in a browser')
     open_.add_argument('--print-only', action='store_true', help='print the file URL without opening it')

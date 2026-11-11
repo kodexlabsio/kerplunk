@@ -918,6 +918,7 @@ def test_distinct_set_operations_and_group_by_all_are_conditions() -> None:
     assert one(union.format('')).conditions == ['UNION: DISTINCT']
     assert one(union.format('all')).conditions == []
     assert one(union.replace('union {}', 'except')).conditions == ['EXCEPT: DISTINCT']
+    assert one(union.replace('union {}', 'intersect all')).conditions == ['INTERSECT: ALL']
     grouped = one('select customer_id, status, sum(amount) as total from db.main.orders group by all')
     assert grouped.conditions == ['GROUP BY: db.main.orders.customer_id, db.main.orders.status']
     assert ('db.main.orders', 'status') in grouped.references
@@ -1263,6 +1264,14 @@ def test_an_expression_a_set_operation_orders_by_names_the_items_of_every_branch
     assert (
         'ORDER BY: UNION(db.main.t1.a, db.main.t2.c) + UNION(db.main.t1.b, db.main.t2.d)' in result.conditions
     )
+
+
+def test_a_join_is_labelled_with_its_kind_as_written() -> None:
+    """The labels of the reviewing-changes guide: a join's kind is part of its condition."""
+    semi = one('select o.id from db.main.orders o semi join db.main.payments p on p.order_id = o.id')
+    assert semi.conditions == ['SEMI JOIN ON: db.main.payments.order_id = db.main.orders.id']
+    inner = one('select o.id from db.main.orders o inner join db.main.payments p on p.order_id = o.id')
+    assert inner.conditions == ['INNER JOIN ON: db.main.payments.order_id = db.main.orders.id']
 
 
 def test_the_relations_a_star_it_could_not_expand_reads() -> None:

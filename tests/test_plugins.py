@@ -1826,6 +1826,7 @@ def test_tool_listings_a_plugin_gets_wrong_leave_the_rest_served(
         'release_notes',
         'mutation_test',
         'definition_effect',
+        'lock_check',
         'a_b_c',
         'list_terms',
         'list_x',

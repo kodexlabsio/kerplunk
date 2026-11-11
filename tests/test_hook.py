@@ -301,6 +301,38 @@ def test_an_unchanged_tree_reuses_the_last_answer(repo: Path, monkeypatch: pytes
     assert builds
 
 
+def test_new_laws_or_a_consumers_new_lockfile_are_checked_again(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gate reads laws.json and each consumer's konstruct.lock, which git does not show
+    changing (konstruct-out is ignored, a consumer is another repository), so each is in the
+    fingerprint."""
+    monkeypatch.delenv('CLAUDE_PROJECT_DIR', raising=False)
+    consumer = repo / 'dash'
+    consumer.mkdir()
+    (consumer / 'report.sql').write_text('create table main.report as select order_id from main.orders')
+    (repo / 'konstruct.toml').write_text('repositories = ["dash"]\n')
+    staging = repo / 'models' / 'staging' / 'stg_payments.sql'
+    staging.write_text(staging.read_text().replace('amount / 100 as amount', 'amount / 100 as amount_aud'))
+    seen: list[list[Path]] = []
+    real = hook.fingerprint
+
+    def recording(root: Path, also: Any = ()) -> str | None:
+        seen.append(list(also))
+        return real(root, also)
+
+    monkeypatch.setattr(hook, 'fingerprint', recording)
+    first = hook.post_edit(event(repo, staging))
+    assert first is not None
+    assert seen[-1] == [repo / 'konstruct-out' / 'laws.json', consumer.resolve() / 'konstruct.lock']
+    stamp = real(repo, seen[-1])
+    (consumer / 'konstruct.lock').write_text('format = 1\n')
+    assert real(repo, seen[-1]) != stamp
+    stamp = real(repo, seen[-1])
+    (repo / 'konstruct-out' / 'laws.json').write_text('{"format_version": 1, "laws": []}')
+    assert real(repo, seen[-1]) != stamp
+
+
 def test_the_lock_wait_leaves_time_to_build(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     scratch = tmp_path / 'konstruct-out' / '.hook'
     scratch.mkdir(parents=True)

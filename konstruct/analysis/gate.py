@@ -16,7 +16,9 @@ the same check with ``gate: true``. It compares the working tree with the base a
   different business terms in ``definitions.yml``;
 * **breaks a data law:** a law that ``konstruct verify --laws`` found to hold on every day no
   longer follows from a model's SQL (a join on a key no test covers, a new filter, another factor,
-  a SUM become an AVG), as :func:`konstruct.analysis.laws.violations` finds.
+  a SUM become an AVG), as :func:`konstruct.analysis.laws.violations` finds;
+* **changes what a consumer pinned:** a column a repository listed in ``repositories`` pins in its
+  ``konstruct.lock`` is altered by the change, as ``konstruct lock --check`` would find there.
 
 Each finding says what to do about it, so an agent can fix the change and run the gate again.
 
@@ -393,6 +395,68 @@ def _data_law_broken(context: CheckContext) -> list[Finding]:
     ]
 
 
+def _consumer_pin_changed(context: CheckContext) -> list[Finding]:
+    from konstruct.analysis.lock import FILE_NAME, LockError, check, consumer_lockfiles, upstream_reads
+
+    graph, diff = context.graph, context.diff
+    if not graph.meta.get('repositories'):
+        return []
+    # A pin judges the change only where the change alters its column, so a consumer that has not
+    # re-locked since an earlier change fails its own check, not every change after it.
+    altered = set(_changed_columns(graph, diff))
+    altered |= {column_id(r.node_id, c.column) for r in diff.relations if r.node_id for c in r.columns}
+    # A reworded approved term can change any pin bound to it, whichever column it names.
+    reworded = any(d.approved_changed for d in diff.definitions)
+    if not altered and not reworded:
+        return []
+    root = Path(str(graph.meta.get('root', '.')))
+    found: list[Finding] = []
+    for consumer, path in consumer_lockfiles(graph, root):
+        try:
+            result = check(
+                graph, root, path=path, consumer=consumer, history=False, only=None if reworded else altered
+            )
+        except LockError as error:
+            # Only a change to what the consumer reads needs its lockfile to be judged.
+            if altered & {n.id for n in upstream_reads(graph, consumer)}:
+                found.append(
+                    Finding('consumer-pin-changed', f'the lockfile of {consumer} cannot be checked: {error}')
+                )
+            continue
+        for change in result.changes:
+            if (
+                reworded
+                and 'definition' not in change.reasons
+                and not _pinned_in(graph, change.column, altered)
+            ):
+                continue
+            what = ', '.join(change.reasons)
+            shown = (
+                f' (locked {change.formula_before}; now {change.formula_after})'
+                if 'formula' in change.reasons
+                else ''
+            )
+            found.append(
+                Finding(
+                    'consumer-pin-changed',
+                    f'{consumer} pins {change.column} in its {FILE_NAME}, and the change alters '
+                    f'its {what}{shown}',
+                    change.path,
+                    f'Keep what {change.column} means, or agree the change with {consumer}, who '
+                    f'accept it with `{change.accept}`.',
+                )
+            )
+    return found
+
+
+def _pinned_in(graph: Graph, column: str, altered: set[str]) -> bool:
+    """Whether the pinned ``column`` (``relation.column``) is one of the ``altered`` columns."""
+    from konstruct.analysis.lock import find
+
+    node = find(graph, column)
+    return node is None or node.id in altered
+
+
 BREAKING = BuiltinCheck(
     'a removed column that something downstream still reads',
     'Keep the column, or change the models that read it in the same change.',
@@ -415,11 +479,18 @@ DATA_LAW_BROKEN = BuiltinCheck(
     'or, if the change is meant, run `konstruct verify --laws` once it is merged.',
     _data_law_broken,
 )
+CONSUMER_PIN_CHANGED = BuiltinCheck(
+    'a change to a column that a consuming repository pins in its konstruct.lock',
+    'Keep what the column means, or agree the change with the consumer, who accept it with '
+    '`konstruct lock --update`.',
+    _consumer_pin_changed,
+)
 
 RULES = {
     'breaking': BREAKING.fix,
     'approved-definition-changed': APPROVED_DEFINITION_CHANGED.fix,
     'conflicting-definition': CONFLICTING_DEFINITION.fix,
     'data-law-broken': DATA_LAW_BROKEN.fix,
+    'consumer-pin-changed': CONSUMER_PIN_CHANGED.fix,
 }
 """Each of Konstruct's own rules with its fix."""

@@ -57,6 +57,7 @@ async def _exercise(client: Client) -> None:
         'release_notes',
         'definition_effect',
         'laws',
+        'lock_check',
     }
     assert all(t.description and t.input_schema for t in tools.tools)
     # Every tool states all four hints as booleans, as hosts and directories require.

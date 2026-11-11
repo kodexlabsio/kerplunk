@@ -319,6 +319,7 @@ def _gate(root: Path, out_dir: Path, path: Path, shown: str) -> dict[str, Any]:
     from konstruct.analysis.gate import gate, plugins_at
     from konstruct.analysis.laws import FILE_NAME as LAWS_FILE
     from konstruct.analysis.laws import recorded
+    from konstruct.analysis.lock import FILE_NAME as LOCK_FILE
     from konstruct.analysis.query import QueryError
     from konstruct.core.jsonio import write_text
     from konstruct.engine.config import ConfigError, load_config
@@ -340,14 +341,16 @@ def _gate(root: Path, out_dir: Path, path: Path, shown: str) -> dict[str, Any]:
                     )
                 )
             started = time.monotonic()
+            config = load_config(root, scratch)
             # Taken before the build, so an edit made while it runs is never mistaken for checked.
-            stamp = fingerprint(root, [out_dir / LAWS_FILE])
+            # The recorded laws and the consumers' lockfiles are read by the gate too.
+            locks = [repository / LOCK_FILE for repository in config.repositories]
+            stamp = fingerprint(root, [out_dir / LAWS_FILE, *locks])
             last = _last(scratch)
             if stamp is not None and last.get('fingerprint') == stamp and (scratch / 'graph.json').is_file():
                 return _answer(path, shown, bool(last['passed']), str(last['result']), last.get('notes', {}))
             if (out_dir / 'cache.json').is_file() and not (scratch / 'cache.json').is_file():
                 shutil.copy2(out_dir / 'cache.json', scratch / 'cache.json')
-            config = load_config(root, scratch)
             config.override(run_dbt=False, warehouses=False)
             config.html = False
             # As in `konstruct gate`, the plugins main enables run too, so an edit that takes one

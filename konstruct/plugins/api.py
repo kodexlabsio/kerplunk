@@ -650,8 +650,9 @@ class Finding:
     """One thing that stops a change, from a gate check."""
 
     rule: str
-    """The rule: ``breaking``, ``approved-definition-changed``, ``conflicting-definition`` or
-    ``data-law-broken`` for Konstruct's own checks, ``<plugin>.<rule>`` for a plugin's."""
+    """The rule: ``breaking``, ``approved-definition-changed``, ``conflicting-definition``,
+    ``data-law-broken`` or ``consumer-pin-changed`` for Konstruct's own checks, ``<plugin>.<rule>``
+    for a plugin's."""
     message: str
     """What is wrong."""
     path: str | None = None

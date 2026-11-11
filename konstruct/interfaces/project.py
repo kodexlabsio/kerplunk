@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.gate import Gate
     from konstruct.analysis.history import History
     from konstruct.analysis.laws import Laws
+    from konstruct.analysis.lock import LockCheck, LockResult
     from konstruct.analysis.mutation import MutationTesting
     from konstruct.analysis.receipts import Receipt, ReceiptCheck
     from konstruct.analysis.release_notes import ReleaseNotes
@@ -1270,6 +1271,77 @@ class Project:
             result.write(self.out_dir / FILE_NAME)
         return result
 
+    def lock(
+        self, reads: Sequence[str] | None = None, *, update: bool | Sequence[str] = False, write: bool = True
+    ) -> LockResult:
+        """Pin, in ``konstruct.lock``, what each upstream column this project reads means: a
+        fingerprint of its formula composed down to source columns, the row conditions of every
+        relation on the way, its sources, its type and the business terms bound to it.
+
+        An upstream column is one the project reads and does not build itself: from another
+        repository listed in ``repositories``, or a table in a shared warehouse. Commit the file,
+        and :meth:`check_lock` (``konstruct lock --check``) fails when one of them comes to mean
+        something else. Formatting, renamed CTEs, passthrough models and a filter moved upstream
+        are not changes.
+
+        Args:
+            reads: What to pin: columns, relations, exposures or terms. By default, what the
+                lockfile names already, or every upstream column the project's models and exposures
+                read.
+            update: Accept every change to a pinned column (``True``), or the changes to these
+                columns. Otherwise a pinned column keeps its pin, as a package lockfile keeps its
+                versions, and only what fails no check (an approval date, a verification) is
+                brought up to date.
+            write: Write ``konstruct.lock`` at the project's root.
+
+        Returns:
+            The pins, with the columns added, accepted, removed and kept.
+
+        Raises:
+            konstruct.QueryError: Nothing to pin, a name matches nothing, or the lockfile cannot
+                be read.
+
+        Example::
+
+            project.lock()  # every upstream column the project reads
+            project.lock(update=['main.ltv.total'])  # accept a reviewed change
+        """
+        from konstruct.analysis.lock import lock
+
+        accept: bool | list[str] = update if isinstance(update, bool) else list(update)
+        return lock(
+            self.graph, self.root, list(reads) if reads is not None else None, update=accept, write=write
+        )
+
+    def check_lock(self, *, history: bool = True) -> LockCheck:
+        """Whether every column ``konstruct.lock`` pins still means what was locked.
+
+        Fails on a pinned column whose composed formula, row conditions, sources or type changed,
+        that is no longer built, or whose approved business term was reworded. Each change says
+        what changed (the locked and current formula side by side), who changed it (from git
+        history), which of this project's columns read it, and how to accept it or keep the
+        locked meaning.
+
+        Args:
+            history: Read git history to say who made each change.
+
+        Returns:
+            ``passed``, and each change with what it affects.
+
+        Raises:
+            konstruct.QueryError: There is no lockfile, or it cannot be read.
+
+        Example::
+
+            result = project.check_lock()
+            if not result.passed:
+                for change in result.changes:
+                    print(change.column, change.reasons, change.accept)
+        """
+        from konstruct.analysis.lock import check
+
+        return check(self.graph, self.root, history=history)
+
     def _laws_dir(self) -> Path:
         """The output directory whose laws.json the gate judges a change against."""
         return self.out_dir
@@ -1411,7 +1483,9 @@ class Project:
         reads, an approved term whose meaning changes (in definitions.yml or through a column it
         names), a column the change alters that computes a business idea differently from
         another (as :meth:`conflicts` finds), a data law in ``laws.json`` that held on all the
-        data and that the changed SQL no longer gives (see :meth:`laws`), and the findings of the gate checks of the plugins the project enables. The plugins enabled at ``base`` run as well as those enabled now,
+        data and that the changed SQL no longer gives (see :meth:`laws`), a column the change alters
+        that a repository in ``repositories`` pins in its ``konstruct.lock`` (see :meth:`lock`),
+        and the findings of the gate checks of the plugins the project enables. The plugins enabled at ``base`` run as well as those enabled now,
         in the update and in the checks, so a change cannot turn off a plugin that judges it.
         Each finding says what to do about it.
 

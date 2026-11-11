@@ -34,6 +34,7 @@ from konstruct.analysis.lock import (
     upstream_reads,
 )
 from konstruct.core.graph import Graph, Node
+from konstruct.interfaces.cli import main
 
 # The projects list other repositories outside them, which the build reads only in a trusted project.
 pytestmark = pytest.mark.usefixtures('trust_config')
@@ -1617,3 +1618,193 @@ def test_a_lockfile_takes_a_relations_columns_as_all_it_has_as_the_build_did(tmp
         False,
         False,
     ]
+
+
+# The command line, the Python API, the MCP server and the gate
+
+
+def _run(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, str]:
+    capsys.readouterr()
+    try:
+        code = main(['--no-color', '-q', *args])
+    except SystemExit as stop:
+        code = int(stop.code or 0)
+    captured = capsys.readouterr()
+    return code, captured.out + captured.err
+
+
+def test_the_lock_command(repositories: tuple[Path, Path], capsys: pytest.CaptureFixture[str]) -> None:
+    finance, marketing = repositories
+    root = str(marketing)
+    code, out = _run(capsys, '-C', root, 'lock', '--no-write')
+    assert code == 0 and out.startswith('Would write konstruct.lock: 2 upstream columns pinned (2 added).')
+    assert not (marketing / FILE_NAME).exists()
+    code, out = _run(capsys, '-C', root, 'lock')
+    assert code == 0 and '  + main.ltv.total\n' in out and (marketing / FILE_NAME).is_file()
+    code, out = _run(capsys, '-C', root, 'lock', '--check')
+    assert (code, out.strip()) == (0, 'konstruct.lock: 2 pinned upstream columns, none changed.')
+    (finance / 'ltv.sql').write_text(LTV.replace('sum(amount)', 'sum(amount) * 2'))
+    commit(finance, 'Double lifetime value', 'Ana')
+    code, out = _run(capsys, '-C', root, 'lock', '--check', '--refresh')
+    assert code == 1 and out.startswith('konstruct.lock: 1 of 2 pinned upstream columns changed')
+    assert '    locked  SUM(orders.amount)\n    now     SUM(orders.amount) * 2' in out
+    assert (
+        'changed by         Ana in ' in out
+        and 'accept it          konstruct lock --update main.ltv.total' in out
+    )
+    code, out = _run(capsys, '-C', root, 'lock', '--check', '--no-history', '--format', 'markdown')
+    assert code == 1 and out.startswith('### konstruct.lock: 1 of 2') and 'Ana' not in out
+    code, out = _run(capsys, '-C', root, 'lock', '--check', '--json')
+    document = json.loads(out)
+    assert code == 1 and document['format_version'] == 1 and document['passed'] is False
+    assert document['changes'][0]['accept'] == 'konstruct lock --update main.ltv.total'
+    # Writing again keeps the pin as locked, and says so.
+    code, out = _run(capsys, '-C', root, 'lock')
+    assert code == 0 and '1 pinned column differs from this build and was kept as locked' in out
+    code, out = _run(capsys, '-C', root, 'lock', '--update', 'main.ltv.total', '--json')
+    assert code == 0 and json.loads(out)['updated'] == ['main.ltv.total']
+    assert _run(capsys, '-C', root, 'lock', '--check')[0] == 0
+    code, out = _run(capsys, '-C', root, 'lock', '--update')
+    assert code == 0 and '(2 unchanged)' in out
+    for args in (
+        ['--check', 'main.ltv'],
+        ['--check', '--update'],
+        ['--format', 'markdown'],
+        ['--no-history'],
+    ):
+        assert _run(capsys, '-C', root, 'lock', *args)[0] == 2, args
+    code, out = _run(capsys, '-C', root, 'lock', 'no_such_relation')
+    assert code == 1 and 'no_such_relation' in out
+    (marketing / FILE_NAME).write_text('format = 7\n')
+    code, out = _run(capsys, '-C', root, 'lock', '--check')
+    assert code == 1 and 'unsupported format 7' in out
+
+
+def test_project_lock_and_check_lock(repositories: tuple[Path, Path]) -> None:
+    finance, marketing = repositories
+    project = Project(marketing)
+    project.build(warehouses=False, run_dbt=False)
+    with pytest.raises(LockError, match='no lockfile'):
+        project.check_lock()
+    assert project.lock(['main.ltv.total'], write=False).added == ['main.ltv.total']
+    assert project.lock(['main.ltv.total']).lockfile.reads == ['main.ltv.total']
+    assert project.check_lock().passed
+    (finance / 'ltv.sql').write_text(LTV.replace("<> 'returned'", "<> 'refunded'"))
+    project.build(warehouses=False, run_dbt=False)
+    changed = project.check_lock(history=False)
+    [change] = changed.changes
+    assert change.reasons == ['conditions'] and change.changed_by == []
+    assert project.lock(update=['main.ltv.total']).updated == ['main.ltv.total']
+    assert project.check_lock().passed
+
+
+def test_the_lock_check_tool(repositories: tuple[Path, Path]) -> None:
+    import anyio
+    from mcp import Client
+
+    from konstruct.interfaces.mcp_server import UNTRUSTED_CONTENT, build_server
+
+    finance, marketing = repositories
+    build(marketing)
+
+    async def call() -> Any:
+        async with Client(build_server(marketing)) as client:
+            return await client.call_tool('lock_check', {})
+
+    missing = anyio.run(call)
+    assert (
+        missing.is_error
+        and 'no lockfile' in str(missing.content)
+        and UNTRUSTED_CONTENT in str(missing.content)
+    )
+    lock(build(marketing), marketing)
+    (finance / 'ltv.sql').write_text(LTV.replace('sum(amount)', 'max(amount)'))
+    build(marketing)
+    result = anyio.run(call)
+    data = result.structured_content
+    assert not result.is_error and isinstance(data, dict)
+    assert data['untrusted_content'] == UNTRUSTED_CONTENT and data['passed'] is False
+    assert [c['column'] for c in data['changes']] == ['main.ltv.total']
+    # The tool reads only: the lockfile is as it was.
+    assert check(build(marketing), marketing).changes[0].formula_before == 'SUM(orders.amount)'
+
+
+def test_the_gate_names_the_consumer_whose_pin_a_change_alters(tmp_path: Path) -> None:
+    """finance lists dash, which pins main.ltv.total: a change in finance that alters it fails
+    finance's gate, naming dash; a pin dash has not re-locked since an earlier change does not
+    fail a change that leaves the column alone."""
+    finance, dash = tmp_path / 'finance', tmp_path / 'dash'
+    finance.mkdir()
+    dash.mkdir()
+    (finance / 'ltv.sql').write_text(LTV)
+    (finance / 'konstruct.toml').write_text('dialect = "duckdb"\nrepositories = ["../dash"]\n')
+    (finance / '.gitignore').write_text('konstruct-out/\n')
+    (dash / 'report.sql').write_text(REPORT)
+    (dash / 'konstruct.toml').write_text('dialect = "duckdb"\nrepositories = ["../finance"]\n')
+    git(finance, 'init', '-q', '-b', 'main')
+    commit(finance, 'Add lifetime value', 'Ada')
+    lock(build(dash), dash)
+    producer = Project(finance)
+    producer.build(warehouses=False, run_dbt=False)
+    assert producer.gate(base='HEAD', update=False).passed
+    (finance / 'ltv.sql').write_text(LTV.replace('sum(amount)', 'sum(amount) * 2'))
+    producer.build(warehouses=False, run_dbt=False)
+    result = producer.gate(base='HEAD', update=False)
+    [finding] = [f for f in result.findings if f.rule == 'consumer-pin-changed']
+    assert finding.path == 'ltv.sql'
+    assert finding.message == (
+        'dash pins main.ltv.total in its konstruct.lock, and the change alters its formula '
+        '(locked SUM(orders.amount); now SUM(orders.amount) * 2)'
+    )
+    assert finding.fix.endswith('who accept it with `konstruct lock --update main.ltv.total`.')
+    commit(finance, 'Double lifetime value', 'Ana')
+    (finance / 'other.sql').write_text('create table main.other as select id from raw.other')
+    producer.build(warehouses=False, run_dbt=False)
+    assert producer.gate(base='HEAD', update=False).passed
+    # A lockfile that cannot be read stops only a change to what its repository reads.
+    (dash / FILE_NAME).write_text('format = 7\n')
+    assert producer.gate(base='HEAD', update=False).passed
+    (finance / 'ltv.sql').write_text(LTV.replace('sum(amount)', 'sum(amount) * 3'))
+    producer.build(warehouses=False, run_dbt=False)
+    [broken] = producer.gate(base='HEAD', update=False).findings
+    assert broken.rule == 'consumer-pin-changed'
+    assert broken.message.startswith('the lockfile of dash cannot be checked: ')
+
+
+def test_the_consumer_check_reads_no_lockfile_when_the_change_alters_no_column(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import konstruct.analysis.lock as locking
+
+    finance, dash = tmp_path / 'finance', tmp_path / 'dash'
+    finance.mkdir()
+    dash.mkdir()
+    (finance / 'ltv.sql').write_text(LTV)
+    (finance / 'konstruct.toml').write_text('dialect = "duckdb"\nrepositories = ["../dash"]\n')
+    (dash / 'report.sql').write_text(REPORT)
+    (dash / 'konstruct.toml').write_text('dialect = "duckdb"\nrepositories = ["../finance"]\n')
+    git(finance, 'init', '-q', '-b', 'main')
+    commit(finance, 'Add lifetime value', 'Ada')
+    lock(build(dash), dash)
+    producer = Project(finance)
+    producer.build(warehouses=False, run_dbt=False)
+    read: list[Path] = []
+    original = locking.Lockfile.read
+
+    def reading(cls: type[Lockfile], path: Path) -> Lockfile:
+        read.append(path)
+        return original(path)
+
+    monkeypatch.setattr(locking.Lockfile, 'read', classmethod(reading))
+    (finance / 'README.md').write_text('Documentation only.\n')
+    assert producer.gate(base='HEAD', update=False).passed and read == []
+    # A change to one column judges the pins on it alone, reading the lockfile once.
+    (finance / 'ltv.sql').write_text(LTV.replace('sum(amount)', 'sum(amount) * 2'))
+    producer.build(warehouses=False, run_dbt=False)
+    findings = producer.gate(base='HEAD', update=False).findings
+    assert [f.message.split(',')[0] for f in findings] == ['dash pins main.ltv.total in its konstruct.lock']
+    assert [p.resolve() for p in read] == [(dash / FILE_NAME).resolve()]
+    judged = check(
+        producer.graph, finance, path=dash / FILE_NAME, consumer='dash', only={'table.main.ltv#total'}
+    )
+    assert [c.column for c in judged.changes] == ['main.ltv.total'] and judged.notes == []

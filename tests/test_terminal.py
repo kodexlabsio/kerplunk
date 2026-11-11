@@ -541,6 +541,30 @@ def test_laws_results_on_a_terminal() -> None:
     assert str(many).endswith('\n  and 5 more; the JSON lists them all')
 
 
+def test_lockfile_results_on_a_terminal() -> None:
+    from konstruct.analysis.lock import LockCheck, Lockfile, LockResult, PinChange
+
+    written = LockResult('konstruct.lock', Lockfile(), added=['a.b'], stale=['a.c'], kept=['a.c'])
+    text = str(written)
+    assert text.startswith(
+        'Wrote konstruct.lock: 0 upstream columns pinned (1 added, 1 unchanged).\n  + a.b\n'
+    )
+    assert text.endswith('`konstruct lock --update` accepts it.')
+    assert '\x1b[36m`konstruct lock --check`' in written.text(Style(colour=True))
+    change = PinChange('a.c', 'c', ['formula'], formula_before='SUM(x)', formula_after='MAX(x)')
+    checked = LockCheck(
+        'konstruct.lock', 2, [change, PinChange('a.d', 'd', ['type'])], notes=['run `konstruct lock`']
+    )
+    text = str(checked)
+    assert text.startswith(
+        'konstruct.lock: 2 of 2 pinned upstream columns changed since they were locked.\n\na.c  (c)'
+    )
+    assert 'note: run `konstruct lock`' in text and text.endswith(
+        'Accept every change: konstruct lock --update'
+    )
+    assert checked.text(Style(colour=True)).startswith('\x1b[1;31mkonstruct.lock')
+
+
 def test_commands_in_status_values_are_picked_out() -> None:
     from konstruct.interfaces.render import _commands
 

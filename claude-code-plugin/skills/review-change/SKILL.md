@@ -36,8 +36,8 @@ konstruct gate --base <ref>
 `Gate passed` or `Gate failed`, with findings: `breaking` (a removed column still read),
 `approved-definition-changed` (an approved term's meaning changes, so its owner must re-approve
 it), `conflicting-definition` (a changed column computes a business idea differently from an
-existing one) and `data-law-broken` (a total that held on all the data no longer follows from
-the SQL). Each finding names its `file` and gives a `fix`. Exit status 1 means the change should not
+existing one), `data-law-broken` (a total that held on all the data no longer follows from the
+SQL) and `consumer-pin-changed` (another repository pins a changed column in its lockfile). Each finding names its `file` and gives a `fix`. Exit status 1 means the change should not
 merge as it is.
 
 ## 3. Impact

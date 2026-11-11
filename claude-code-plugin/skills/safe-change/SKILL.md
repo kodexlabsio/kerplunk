@@ -62,6 +62,9 @@ and a `fix` line:
 - `data-law-broken`: a total that held on all the data no longer follows from a model's SQL (a
   join on a key no test covers, a new filter, another factor). Keep what the law relies on, or
   say in the pull request that the change means to alter it.
+- `consumer-pin-changed`: another repository pins the changed column in its `konstruct.lock`.
+  Keep what the column means, or tell that repository's owners, who accept it with the command
+  the finding gives.
 
 Add `--no-dbt` when dbt is not installed, and `--no-warehouse` to build from files alone. The
 MCP `gate` tool checks a copy of the graph instead, from files alone, and leaves `graph.json` as

@@ -668,6 +668,7 @@ def test_exit_statuses(
         ),
         **_receipt_statuses(tmp_path, status),
         **_law_statuses(tmp_path, status),
+        **_lock_statuses(tmp_path, status),
     }
     capsys.readouterr()
     check('exit', outcomes)
@@ -707,6 +708,29 @@ def _law_statuses(tmp_path: Path, status: Any) -> dict[str, int]:
         'verify --tolerance without --laws': status('-C', str(fanned.root), 'verify', '--tolerance', '0.1'),
         'verify --laws with --mutate': status(*laws, '--mutate'),
     }
+
+
+def _lock_statuses(tmp_path: Path, status: Any) -> dict[str, int]:
+    from tests.test_lock import LTV, REPORT, commit, git
+
+    outcomes: dict[str, int] = {}
+    finance, consumer = tmp_path / 'finance', tmp_path / 'consumer'
+    finance.mkdir()
+    consumer.mkdir()
+    (finance / 'ltv.sql').write_text(LTV)
+    git(finance, 'init', '-q', '-b', 'main')
+    commit(finance, 'Add lifetime value', 'Ada')
+    (consumer / 'report.sql').write_text(REPORT)
+    (consumer / 'konstruct.toml').write_text('dialect = "duckdb"\nrepositories = ["../finance"]\n')
+    pinned = ['-C', str(consumer), '--trust-config', 'lock']
+    outcomes['lock --check with no lockfile'] = status(*pinned, '--check')
+    outcomes['lock'] = status(*pinned)
+    outcomes['lock --check with nothing changed'] = status(*pinned, '--check')
+    (finance / 'ltv.sql').write_text(LTV.replace('sum(amount)', 'sum(amount) * 2'))
+    outcomes['lock --check with a changed pin'] = status(*pinned, '--check', '--refresh')
+    outcomes['lock with a name that matches nothing'] = status(*pinned, 'no_such_relation')
+    outcomes['lock --no-history without --check'] = status(*pinned, '--no-history')
+    return outcomes
 
 
 # JSON documents
@@ -835,6 +859,9 @@ EMPTY: dict[str, str] = {
 UNFILLED: dict[str, str] = {
     'json release-notes .changes[].effect': 'release-notes runs no SQL; verify --effect fills it',
     'json release-notes .warehouse': 'release-notes runs no SQL; verify --effect fills it',
+    'json lock --check .consumer': (
+        "only the gate checks a consumer's lockfile from its producer; `lock --check` checks the project's own"
+    ),
 }
 
 
@@ -972,6 +999,7 @@ def test_json_documents(
     _receipted(tmp_path / 'receipts', add)
     add('receipts check', '-C', str(tmp_path / 'receipts'), 'receipts', 'check', '--json')
     _laws_documents(tmp_path, add)
+    _lock_documents(tmp_path, add)
     entries: dict[str, Any] = {}
     for name, runs in documents.items():
         versions = {run.get('format_version') for run in runs}
@@ -1010,6 +1038,49 @@ def _laws_documents(tmp_path: Path, add: Any) -> None:
     con.execute("insert into raw.orders values (7, 2, 'placed')")
     con.close()
     add('verify --laws', '-C', str(fanned.root), 'verify', '--laws', '--json')
+
+
+def _lock_documents(tmp_path: Path, add: Any) -> None:
+    """`lock --json` and `lock --check --json` in the consumer of test_lock, as its producer
+    changes a pinned column and the consumer accepts the change."""
+    from tests.test_lock import LTV, REPORT, TERM, commit, git
+
+    finance, marketing = tmp_path / 'finance', tmp_path / 'marketing'
+    finance.mkdir()
+    marketing.mkdir()
+    (finance / 'ltv.sql').write_text(LTV)
+    (finance / 'definitions.yml').write_text(
+        TERM.format(definition='What a customer has paid.', status='approved', approved='2026-10-30')
+    )
+    git(finance, 'init', '-q', '-b', 'main')
+    commit(finance, 'Add lifetime value', 'Ada')
+    (finance / 'orders.sql').write_text('create table main.paid as select id, amount from raw.orders')
+    commit(finance, 'Add paid orders', 'Ada')
+    (marketing / 'report.sql').write_text(REPORT)
+    (marketing / 'konstruct.toml').write_text('dialect = "duckdb"\nrepositories = ["../finance"]\n')
+    consumer = ['-C', str(marketing), '--trust-config']
+    add('lock', *consumer, 'lock', '--json')
+    add('lock --check', *consumer, 'lock', '--check', '--json')
+    # A column read since the lock, and not pinned yet, is a note.
+    (marketing / 'paid.sql').write_text('create table main.paid_report as select amount from main.paid')
+    main(['-q', *consumer, 'build', '--update'])
+    add('lock --check', *consumer, 'lock', '--check', '--json')
+    (marketing / 'paid.sql').unlink()
+    main(['-q', *consumer, 'build', '--update'])
+    (finance / 'ltv.sql').write_text(LTV.replace('sum(amount)', 'sum(amount) * 2'))
+    (finance / 'definitions.yml').write_text(
+        TERM.format(definition='Twice what a customer has paid.', status='approved', approved='2026-11-01')
+    )
+    commit(finance, 'Double lifetime value', 'Ana')
+    add('lock --check', *consumer, 'lock', '--check', '--refresh', '--json')
+    add('lock', *consumer, 'lock', '--json')
+    add('lock', *consumer, 'lock', '--update', '--json')
+    add('lock', *consumer, 'lock', 'main.ltv', '--no-write', '--json')
+    # A pinned column the producer no longer builds is missing, and removed once accepted.
+    (finance / 'ltv.sql').write_text(LTV.replace('as total', 'as lifetime_total'))
+    commit(finance, 'Rename total', 'Ana')
+    add('lock', *consumer, 'lock', '--refresh', '--no-write', '--json')
+    add('lock', *consumer, 'lock', '--update', '--no-write', '--json')
 
 
 def test_a_field_emptied_to_null_is_missing_coverage(

@@ -32,7 +32,7 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 | `konstruct.inputs` | `dbt`, `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `ingestion`, `hcl`, `warehouse`, `usage` |
 | `konstruct.engine` | `build`, `config`, `worker` |
 | `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `world`, `ossie`, `registry` |
-| `konstruct.analysis` | `query`, `semantic`, `explain`, `english`, `conflicts`, `diff`, `gate`, `verify`, `integrity`, `mutation`, `why`, `release_notes`, `effect`, `laws`, `history`, `receipts` |
+| `konstruct.analysis` | `query`, `semantic`, `explain`, `english`, `conflicts`, `diff`, `gate`, `verify`, `integrity`, `mutation`, `why`, `release_notes`, `effect`, `laws`, `history`, `receipts`, `lock` |
 | `konstruct.outputs` | `report`, `html`, `export` |
 | `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
 | `konstruct.plugins` | `api` (the plugin API: protocols and types), `registry` (finding, enabling and loading plugins) |
@@ -193,6 +193,11 @@ print([(r.id, r.status) for r in project.check_receipts().receipts])
 laws = project.laws(confirm=True)  # writes konstruct-out/laws.json, which the gate reads
 for law in laws.laws:
     print(law.status, law.statement, law.detail)
+
+project.lock()  # pin the upstream columns this project reads in konstruct.lock
+pins = project.check_lock()
+for pinned in pins.changes:
+    print(pinned.column, pinned.reasons, pinned.accept)
 ```
 
 ```{eval-rst}
@@ -207,6 +212,8 @@ for law in laws.laws:
 .. automethod:: konstruct.Project.receipts
 .. automethod:: konstruct.Project.check_receipts
 .. automethod:: konstruct.Project.laws
+.. automethod:: konstruct.Project.lock
+.. automethod:: konstruct.Project.check_lock
 .. automethod:: konstruct.Project.export
 ```
 
@@ -512,6 +519,42 @@ for law in laws.laws:
 
 .. autoclass:: konstruct.analysis.receipts.CheckedReceipt
    :members:
+```
+
+### The Lineage Lockfile
+
+```{eval-rst}
+.. autofunction:: konstruct.analysis.lock.lock
+
+.. autofunction:: konstruct.analysis.lock.check
+
+.. autofunction:: konstruct.analysis.lock.check_consumers
+
+.. autoclass:: konstruct.analysis.lock.LockResult
+   :members:
+
+.. autoclass:: konstruct.analysis.lock.LockCheck
+   :members:
+
+.. autoclass:: konstruct.analysis.lock.PinChange
+   :members:
+
+.. autoclass:: konstruct.analysis.lock.Attribution
+   :members:
+
+.. autoclass:: konstruct.analysis.lock.Lockfile
+   :members:
+
+.. autoclass:: konstruct.analysis.lock.Pin
+   :members:
+
+.. autoclass:: konstruct.analysis.lock.Rows
+   :members:
+
+.. autoclass:: konstruct.analysis.lock.PinnedTerm
+   :members:
+
+.. autoclass:: konstruct.analysis.lock.LockError
 ```
 
 ### Builds

@@ -43,7 +43,7 @@ konstruct-yaml-pipelines 0.1.0: enabled
   packs      pipelines                API 1.0
   mcp_tools  pipelines                API 1.2
 
-Built in: inputs looker; exports openlineage, mermaid, dot, csv, ossie; checks breaking, approved-definition-changed, conflicting-definition, data-law-broken; packs konstruct.
+Built in: inputs looker; exports openlineage, mermaid, dot, csv, ossie; checks breaking, approved-definition-changed, conflicting-definition, data-law-broken, consumer-pin-changed; packs konstruct.
 ```
 
 ## The Security Model

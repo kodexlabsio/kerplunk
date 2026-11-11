@@ -31,7 +31,9 @@ With **Columns** on, graph.html is a column-level map of the whole project:
 Scripts, agents and CI that read Konstruct's outputs keep working from one release to the next.
 These are the interfaces Konstruct keeps stable:
 
-- `graph.json`, `conflicts.json`, `verify.json`, `laws.json` and the receipts in `konstruct-out/`, and `ontology.yml`;
+- `graph.json`, `conflicts.json`, `verify.json`, `laws.json` and the receipts in `konstruct-out/`, `ontology.yml`,
+  and `konstruct.lock`, which `konstruct lock` writes at the project's root and whose `format`
+  changes only with its layout;
 - the `--json` output of every command, and `--format json` and `--json-file` of `diff` and `gate`;
 - the MCP tools: their names, their inputs and the shape of their results;
 - the command line: commands, options, choices and exit statuses;
@@ -85,6 +87,8 @@ misread it; `konstruct status` reports such a graph rather than failing.
 | `conflicts` and `conflicts.json` | 1 |
 | `verify` and `verify.json` | 1 |
 | `verify --laws` and `laws.json` | 1 |
+| `lock` | 1 |
+| `lock --check` | 1 |
 | `diff` | 1 |
 | `gate` | 1 |
 | `check-sql` | 1 |

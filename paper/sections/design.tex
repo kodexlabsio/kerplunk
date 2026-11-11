@@ -331,7 +331,9 @@ each formula change in a range of commits does on today's data, and with \cmd{--
 equalities between totals that each model's SQL implies, checked per day;
 \cmd{konstruct release-notes} lists the changes to formulas, filters and business terms in that
 range, worded in plain English, with what each affects and whether its terms were approved after it;
-\cmd{konstruct diff} and \cmd{konstruct gate} review changes; \cmd{konstruct receipts} records
+\cmd{konstruct diff} and \cmd{konstruct gate} review changes, and \cmd{konstruct lock} pins, in
+a lockfile, what each upstream column a project reads means and fails when that changes;
+\cmd{konstruct receipts} records
 what an answer rests on (each column's composed formula, row conditions, sources, bound terms and
 verification state) and later reports the answers whose basis has changed;
 \cmd{konstruct define},
@@ -356,7 +358,7 @@ with the question.
 \mcpTools{} tools: \cmd{impact}, \cmd{trace}, \cmd{path}, \cmd{search}, \cmd{describe},
 \cmd{query}, \cmd{explain}, \cmd{history}, \cmd{define}, \cmd{conflicts}, \cmd{ontology},
 \cmd{entity}, \cmd{metric}, \cmd{relate}, \cmd{diff}, \cmd{gate}, \cmd{check\_sql}, \cmd{check\_history}, \cmd{release\_notes},
-\cmd{mutation\_test}, \cmd{why}, \cmd{definition\_effect}, \cmd{receipt} and \cmd{laws}. Answers are the same structured results the Python API returns, so an
+\cmd{mutation\_test}, \cmd{why}, \cmd{definition\_effect}, \cmd{receipt}, \cmd{laws} and \cmd{lock\_check}. Answers are the same structured results the Python API returns, so an
 agent learns a column's formula, its sources, which of its edges the data confirmed, the approved
 definition of the business term it holds, its owner and the entities it touches, before it writes
 a query that joins or aggregates. The server rereads the graph whenever it changes, and
@@ -382,8 +384,9 @@ fails when the change (a) removes a column that a model, task or dashboard still
 changes what an approved term means, by changing its wording, columns, filters or grain, or the
 canonical expression or row conditions of a column it names or of any column upstream of one;
 (c) adds a column that computes the same business idea as an existing one in a different way, as
-\cmd{conflicts} finds, unless the two are bound to different terms; or (d) breaks a data law that
-held on all the data, so that a model's SQL no longer keeps a total it kept. Each finding says what to do,
+\cmd{conflicts} finds, unless the two are bound to different terms; (d) breaks a data law that held
+on all the data, so that a model's SQL no longer keeps a total it kept; or (e) alters a column that
+another repository pins in its lockfile. Each finding says what to do,
 so an agent can fix the change and run the gate again. \cmd{konstruct hook} runs the gate as a
 Claude Code hook after an agent edits SQL or dbt YAML, from files alone, so the findings arrive
 next to the edit. The GitHub Action runs the same check on a

@@ -191,7 +191,7 @@ class Why:
     value: Any = None
     """The value, computed by the model's SQL in the sandbox."""
     matches: int = 0
-    """Rows of the model the key matches: 1 when it picks one row."""
+    """How many rows of the model the key matches, 1 when it picks one row."""
     expression: str | None = None
     """The column's own formula."""
     composed: str | None = None

@@ -93,11 +93,11 @@ import os
 import re
 import tomllib
 from collections import Counter, deque
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass, field
 from importlib.metadata import version as package_version
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from sqlglot import exp
 from sqlglot.dialects.dialect import Dialect
@@ -107,8 +107,12 @@ from konstruct.analysis.diff import run_git
 from konstruct.analysis.explain import Explainer, composed_from, condition_terms
 from konstruct.analysis.history import defining_file, history, utc
 from konstruct.analysis.query import QueryError, resolve_one
+from konstruct.core import jsonio
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
 from konstruct.core.sql import OUTER_SIDES, in_context
+
+if TYPE_CHECKING:
+    from konstruct.interfaces.layout import Style
 
 FILE_NAME = 'konstruct.lock'
 FORMAT = 1
@@ -179,6 +183,7 @@ class PinnedTerm:
     """A business term bound to a pinned column, as it was when the column was locked."""
 
     name: str
+    """The term's name."""
     status: str
     """``draft``, ``agreed``, ``approved`` or ``retired``."""
     version: str
@@ -188,13 +193,21 @@ class PinnedTerm:
     approved: str | None = None
     """The approval date."""
     owner: str | None = None
+    """Who owns the term."""
     definition: str | None = None
+    """What the term means, in words."""
     grain: str | None = None
+    """What one row of the term is."""
     filters: list[str] = field(default_factory=list)
+    """The filters the term requires."""
     columns: list[str] = field(default_factory=list)
+    """The columns the term names."""
     unit: str | None = None
+    """The unit of its values."""
     currency: str | None = None
+    """The currency of its values."""
     exceptions: str | None = None
+    """What the term leaves out."""
     formula: str | None = None
     """For a measure defined by a formula (an Ossie metric), the formula."""
 
@@ -288,6 +301,7 @@ class Pin:
     used_by: list[str] = field(default_factory=list)
     """This project's columns and exposures that read the column directly."""
     terms: list[PinnedTerm] = field(default_factory=list)
+    """The business terms bound to the column, as they were when it was locked."""
 
     @property
     def conditions(self) -> list[str]:
@@ -381,9 +395,11 @@ class Lockfile:
     """What was locked: columns, relations, exposures or terms, as given to ``konstruct lock``;
     empty for the default, every upstream column this project's own models and exposures read."""
     format: int = FORMAT
+    """The layout of the file (see :data:`FORMAT`)."""
     canonical: str = CANONICAL
     """The canonical form the pins were printed in (see :data:`CANONICAL`)."""
     _index: dict[str, Pin] = field(default_factory=dict, repr=False, compare=False)
+    """The pins by column, rebuilt when the pins change."""
 
     def pin(self, column: str) -> Pin | None:
         if len(self._index) != len(self.pins):
@@ -491,7 +507,7 @@ class Lockfile:
         return cls.loads(text, path.name)
 
     def write(self, path: Path) -> None:
-        path.write_text(self.dumps(), encoding='utf-8')
+        jsonio.write_text(path, self.dumps())
 
 
 def optional_text(value: Any) -> str | None:
@@ -1427,6 +1443,7 @@ class LockResult:
     path: str
     """The lockfile, relative to the project."""
     lockfile: Lockfile
+    """What the lockfile holds, as written (or, with ``write`` False, as it would be)."""
     added: list[str] = field(default_factory=list)
     """Columns pinned for the first time."""
     removed: list[str] = field(default_factory=list)
@@ -1441,6 +1458,7 @@ class LockResult:
     missing: list[str] = field(default_factory=list)
     """Columns this project reads that the relation's builder no longer builds."""
     written: bool = True
+    """Whether the lockfile was written."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1456,7 +1474,8 @@ class LockResult:
             'lockfile': self.lockfile.to_dict(),
         }
 
-    def __str__(self) -> str:
+    def summary(self) -> str:
+        """One line: what was written, and how the pins changed."""
         count = len(self.lockfile.pins)
         verb = 'Wrote' if self.written else 'Would write'
         parts = [
@@ -1469,19 +1488,28 @@ class LockResult:
             )
             if items
         ]
-        lines = [f'{verb} {self.path}: {plural(count, "upstream column")} pinned ({", ".join(parts)}).']
-        lines += [f'  + {c}' for c in self.added]
-        lines += [f'  ~ {c} (change accepted)' for c in self.updated]
-        lines += [f'  - {c}' for c in self.removed]
-        lines += [f'  ! {c} is read, but no longer built where it was' for c in self.missing]
-        if self.stale:
-            one = len(self.stale) == 1
-            lines.append(
-                f'{plural(len(self.stale), "pinned column")} {"differs" if one else "differ"} from this '
-                f'build and {"was" if one else "were"} kept as locked; `konstruct lock --check` shows '
-                'what changed, `konstruct lock --update` accepts it.'
-            )
-        return '\n'.join(lines)
+        return f'{verb} {self.path}: {plural(count, "upstream column")} pinned ({", ".join(parts)}).'
+
+    def stale_advice(self) -> str:
+        """What to do about the pins kept as locked that differ from this build; empty when none do."""
+        if not self.stale:
+            return ''
+        one = len(self.stale) == 1
+        return (
+            f'{plural(len(self.stale), "pinned column")} {"differs" if one else "differ"} from this '
+            f'build and {"was" if one else "were"} kept as locked; `konstruct lock --check` shows '
+            'what changed, `konstruct lock --update` accepts it.'
+        )
+
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import lock_lines, show
+
+        return show(lock_lines, self, style)
+
+    def __str__(self) -> str:
+        return self.text()
 
 
 def lock(
@@ -1608,14 +1636,19 @@ class Attribution:
     sha: str
     """Empty for uncommitted changes."""
     author: str
+    """Who made the change."""
     date: str
+    """When it was committed, in ISO 8601."""
     subject: str
+    """The commit's subject line."""
     path: str | None = None
     """The file changed, relative to the project."""
     repository: str | None = None
     """The git repository it is in, relative to the project (``.`` for the project's own)."""
     before: str | None = None
+    """What it changed, before the change, where that can be shown."""
     after: str | None = None
+    """And after."""
 
     @property
     def short(self) -> str:
@@ -1644,6 +1677,7 @@ class PinChange:
     recorded expression), ``upstream`` (a column further up than a formula cut short shows),
     ``type`` or ``definition``."""
     repository: str | None = None
+    """The repository that builds the column, when it is one listed in ``repositories``."""
     path: str | None = None
     """The file that builds the column, relative to the project."""
     removed: str | None = None
@@ -1653,16 +1687,23 @@ class PinChange:
     formula_after: str | None = None
     """The formula now."""
     conditions_added: list[str] = field(default_factory=list)
+    """Row conditions the column has now and did not have when locked."""
     conditions_removed: list[str] = field(default_factory=list)
+    """Row conditions it had when locked and no longer has."""
     sources_added: list[str] = field(default_factory=list)
+    """Source columns the formula reaches now and did not."""
     sources_removed: list[str] = field(default_factory=list)
+    """Source columns it reached and no longer does."""
     files: list[str] = field(default_factory=list)
     """Relations whose file changed, for columns with no recorded expression."""
     type_before: str | None = None
+    """The locked type."""
     type_after: str | None = None
+    """The type now."""
     terms: list[str] = field(default_factory=list)
     """One line per change to a bound approved term."""
     changed_by: list[Attribution] = field(default_factory=list)
+    """The commits (or uncommitted edits) that made the change, read from git history."""
     affected: list[str] = field(default_factory=list)
     """This project's columns and exposures that read the column, directly or further down."""
 
@@ -1809,7 +1850,8 @@ class LockCheck:
             'notes': self.notes,
         }
 
-    def _relock_lines(self) -> list[str]:
+    def relock_lines(self) -> list[str]:
+        """With a canonical form this Konstruct does not write, what to do: review, then re-lock."""
         if not self.relock:
             return []
         return [
@@ -1818,20 +1860,20 @@ class LockCheck:
             'then accept it: konstruct lock --update'
         ]
 
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import lock_check_lines, show
+
+        return show(lock_check_lines, self, style)
+
     def __str__(self) -> str:
-        lines = [self.summary(), *self._relock_lines()]
-        for change in self.changes:
-            lines += ['', *change.lines()]
-        if self.notes:
-            lines += ['', *(f'note: {n}' for n in self.notes)]
-        if len(self.changes) > 1:
-            lines += ['', 'Accept every change: konstruct lock --update']
-        return '\n'.join(lines)
+        return self.text()
 
     def markdown(self) -> str:
         """The check for a pull request comment. Built with ``history`` False, it names no commit,
         author or subject, so a private producer's history stays out of a public pull request."""
-        lines = [f'### {self.summary()}', *self._relock_lines()]
+        lines = [f'### {self.summary()}', *self.relock_lines()]
         for change in self.changes:
             lines += ['', '```', *change.lines(), '```']
         lines += [f'- {n}' for n in self.notes]
@@ -1845,13 +1887,15 @@ def check(
     path: Path | None = None,
     consumer: str | None = None,
     history: bool = True,
+    only: Collection[str] | None = None,
 ) -> LockCheck:
     """Compare every pin in ``konstruct.lock`` with this build of the graph.
 
     ``consumer`` names the repository (one of ``repositories``) whose lockfile it is, when it is
     not the project's own: then only the pins on columns this build builds are judged, each
     composed as far as the consumer's build saw it. ``history`` False skips reading git history
-    to say who changed what."""
+    to say who changed what. ``only`` (graph ids) judges only the pins on those columns, such as
+    the ones a change alters, and leaves the rest, and the reads not pinned, unremarked."""
     target = path or Path(root) / FILE_NAME
     lockfile = Lockfile.read(target)
     boundary = _boundary(graph, lockfile) if consumer is not None else set()
@@ -1867,6 +1911,8 @@ def check(
     pinned = set()
     unjudged: list[str] = []
     for old in lockfile.pins:
+        if only is not None and old.id not in only:
+            continue
         node = find(graph, old.column, old.id)
         pinned.add(node.id if node is not None else old.column)
         if consumer is not None and not pinner.judged(node, old.column):
@@ -1897,7 +1943,7 @@ def check(
             f'{plural(len(unjudged), "pinned column")} {"is" if one else "are"} not built in this build, '
             f'so {"it was" if one else "they were"} not checked: {", ".join(unjudged)}'
         )
-    if not lockfile.reads:
+    if not lockfile.reads and only is None:
         unpinned = [
             n for n in upstream_reads(graph, consumer) if n.id not in pinned and pinner.missing(n) is None
         ]
@@ -1912,17 +1958,26 @@ def check(
     return result
 
 
-def check_consumers(graph: Graph, root: Path, *, history: bool = True) -> list[LockCheck]:
+def check_consumers(
+    graph: Graph, root: Path, *, history: bool = True, only: Collection[str] | None = None
+) -> list[LockCheck]:
     """The lockfile of every repository in ``repositories`` that has one, checked against this
-    graph: run in the producer, it names each consumer a change would break."""
-    checks = []
+    graph: run in the producer, it names each consumer a change would break. ``only`` is as for
+    :func:`check`."""
+    return [
+        check(graph, root, path=path, consumer=name, history=history, only=only)
+        for name, path in consumer_lockfiles(graph, root)
+    ]
+
+
+def consumer_lockfiles(graph: Graph, root: Path) -> list[tuple[str, Path]]:
+    """Each repository in ``repositories`` that has a ``konstruct.lock``: its name and the file."""
+    found = []
     for relative in graph.meta.get('repositories', []):
         target = Path(root) / str(relative) / FILE_NAME
-        if not target.is_file():
-            continue
-        name = _repository_named(graph, str(relative)) or Path(str(relative)).name
-        checks.append(check(graph, root, path=target, consumer=name, history=history))
-    return checks
+        if target.is_file():
+            found.append((_repository_named(graph, str(relative)) or Path(str(relative)).name, target))
+    return found
 
 
 def _repository_named(graph: Graph, relative: str) -> str | None:

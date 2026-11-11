@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.history import History
     from konstruct.analysis.integrity import KeyCheck, LinkCheck
     from konstruct.analysis.laws import Laws
+    from konstruct.analysis.lock import LockCheck, LockResult
     from konstruct.analysis.mutation import MutationTesting
     from konstruct.analysis.query import (
         Definitions,
@@ -978,6 +979,34 @@ def laws_lines(result: Laws, style: Style) -> Lines:
         lines += table(style, rows)
         if len(blocked) > 20:
             lines.append(Text((f'  and {len(blocked) - 20} more; the JSON lists them all', 'dim')))
+    return lines
+
+
+def lock_lines(result: LockResult, style: Style) -> Lines:
+    lines = _summary(style, result.summary())
+    lines += [Text('  ', ('+', 'ok'), f' {c}') for c in result.added]
+    lines += [Text('  ', ('~', 'warn'), f' {c}', (' (change accepted)', 'dim')) for c in result.updated]
+    lines += [Text('  ', ('-', 'error'), f' {c}') for c in result.removed]
+    lines += [
+        Text('  ', ('!', 'warn'), f' {c} is read, but no longer built where it was') for c in result.missing
+    ]
+    if result.stale:
+        lines += _summary(style, _commands(result.stale_advice(), 'warn'))
+    return lines
+
+
+def lock_check_lines(result: LockCheck, style: Style) -> Lines:
+    lines = _summary(style, Text((result.summary(), 'good' if result.passed else 'bad')))
+    lines += [Text(line) for line in result.relock_lines()]
+    for change in result.changes:
+        head, *rest = change.lines()
+        lines += [blank(), Text((head, 'subject')), *(Text(line) for line in rest)]
+    if result.notes:
+        lines.append(blank())
+        for note in result.notes:
+            lines += paragraph(style, Text(('note:', 'dim'), ' ', _commands(note)), indent=0, hanging=6)
+    if len(result.changes) > 1:
+        lines += [blank(), Text('Accept every change: ', ('konstruct lock --update', 'accent'))]
     return lines
 
 
