@@ -1862,6 +1862,7 @@ def test_tool_listings_a_plugin_gets_wrong_leave_the_rest_served(
     assert [t for t in tools if '_' in t] == [
         'check_sql',
         'check_history',
+        'compile_metric',
         'release_notes',
         'mutation_test',
         'definition_effect',

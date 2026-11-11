@@ -43,6 +43,7 @@ async def _exercise(client: Client) -> None:
         'entity',
         'metric',
         'relate',
+        'compile_metric',
         'explain',
         'history',
         'path',
@@ -130,6 +131,16 @@ async def _exercise(client: Client) -> None:
     joined = structured(await client.call_tool('relate', {'start': 'customer', 'end': 'payment'}))
     assert (joined['found'], joined['cardinality']) == (True, 'one-to-many')
     assert joined['join'].startswith('FROM jaffle_shop.main.customers AS customers\nJOIN ')
+    compiled = structured(
+        await client.call_tool('compile_metric', {'metric': 'order amount', 'by': ['customer.first_name']})
+    )
+    assert compiled['compiled'] is True and compiled['sql'].startswith('SELECT\n')
+    assert compiled['path'][0]['via'] == 'orders.customer_id = customers.customer_id'
+    refused = structured(
+        await client.call_tool('compile_metric', {'metric': 'lifetime value', 'by': ['order.status']})
+    )
+    assert refused['compiled'] is False and refused['refused'][0]['link']
+    assert (await client.call_tool('compile_metric', {'metric': 'nothing at all'})).is_error
     error = await client.call_tool('entity', {'name': 'nothing'})
     assert error.is_error and UNTRUSTED_CONTENT in str(error.content)
     explained = structured(await client.call_tool('explain', {'ref': 'customer_ltv.lifetime_value'}))
@@ -240,6 +251,7 @@ def test_marks_repository_text_as_untrusted(jaffle_built_graph: Path) -> None:
         ('metric', {}),
         ('metric', {'name': 'lifetime value'}),
         ('relate', {'start': 'customer', 'end': 'payment'}),
+        ('compile_metric', {'metric': 'lifetime value', 'by': ['customer']}),
         ('explain', {'ref': 'customer_ltv.lifetime_value'}),
         ('path', {'start': 'raw_orders', 'end': 'orders'}),
         ('query', {'question': 'what breaks if stg_payments.amount changes'}),

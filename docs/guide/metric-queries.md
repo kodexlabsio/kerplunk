@@ -81,4 +81,5 @@ Some filters that do hold on the data are not shown held, so the metric is refus
 | Interface | Use |
 |-----------|-----|
 | `konstruct compile-metric` | As above. Exit status 0 when the SQL is written, 1 when the query is refused and 3 when the name finds no metric |
+| MCP `compile_metric` | `metric`, `by`, `where`, `since`, `until`, `time` and `dialect`, returning what `--json` gives, for an agent to answer a metric question with SQL that follows the ontology |
 | Python | `Project.compile_metric(metric, by=..., where=..., since=..., until=..., time=..., dialect=...)` returns a `Compiled` with `sql`, `path`, `filters`, `facts`, `confidence`, `flags` and `refused` |
