@@ -1,3 +1,21 @@
+## v0.13.7 (2026-11-11)
+
+### Feat
+
+- **mcp**: Issue an answer receipt from the MCP server
+- **cli**: Record what an answer rests on, and check later whether it still holds
+
+### Fix
+
+- **mcp**: Let one gate at a time update its copy of the graph, without graph.html
+- **mcp**: Keep the project's graph when the gate updates from files alone
+- **query**: Count a measure's formula in the version of its term, whatever its status
+
+### Refactor
+
+- **build**: Share the making of real output folders
+- **query**: Share the lockfile's pinning, and say when a pin was made
+
 ## v0.13.6 (2026-11-11)
 
 ### Feat
