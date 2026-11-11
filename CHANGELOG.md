@@ -1,3 +1,15 @@
+## v0.13.13 (2026-11-11)
+
+### Feat
+
+- **cli**: Export the ontology as OWL, a Snowflake semantic view and Databricks metric views
+- **definitions**: Name the entity each derived Ossie dataset holds
+
+### Fix
+
+- **definitions**: Leave out an Ossie metric whose composed formula would miscount
+- **sql**: Record UNNEST, LATERAL and TABLE sources, and name every condition's tables by relation
+
 ## v0.13.12 (2026-11-11)
 
 ### Feat
