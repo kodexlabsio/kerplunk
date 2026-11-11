@@ -74,28 +74,43 @@ const MAX_HEADERS: usize = 64;
 const CACHE_ENTRIES: usize = 1024;
 const TOKEN_COOKIE: &str = "konstruct_token";
 
-/// What a Python-backed operation answers.
+/// The graph an operation is asked of: the one the server serves, as the bytes of its
+/// `graph.json` and their [`graph_version`]. The backend answers from these, never from the file
+/// on disk, so an answer and everything else the server sends describe one graph, and a file the
+/// server refused (invalid JSON, a newer format) is never read behind its back.
+#[derive(Clone, Debug)]
+pub struct Served {
+    pub version: String,
+    pub bytes: Bytes,
+}
+
+/// What a Python-backed operation answers, about the graph it was given.
 #[derive(Debug)]
 pub enum Outcome {
     Answer {
-        /// The [`graph_version`] of the graph the answer came from, which the backend reads
-        /// itself and may be newer than the one the server holds; the answer is kept under it.
-        version: String,
         media: String,
         body: Vec<u8>,
     },
     /// A problem type from [`api::PROBLEM_TYPES`], and what went wrong.
-    Problem { kind: String, detail: String },
+    Problem {
+        kind: String,
+        detail: String,
+    },
 }
 
 /// Answers the operations that are written in Python. It is called on a blocking thread, one
 /// call per request that is not cached.
 pub trait Backend: Send + Sync + 'static {
-    fn answer(&self, operation: &str, arguments: &[(&'static str, Argument)]) -> Outcome;
+    fn answer(
+        &self,
+        graph: &Served,
+        operation: &str,
+        arguments: &[(&'static str, Argument)],
+    ) -> Outcome;
 }
 
 /// The version of a file the server sends, `graph.json` above all: FNV-1a 64 of its bytes, in
-/// hexadecimal. The backend names the graph an answer came from by the same version.
+/// hexadecimal. The backend is given the graph it answers about with the same version.
 pub fn graph_version(bytes: &[u8]) -> String {
     format!("{:016x}", fnv::hash(fnv::OFFSET_BASIS, bytes))
 }
@@ -1126,10 +1141,11 @@ async fn python(
     operation: &'static Operation,
     arguments: Vec<(&'static str, Argument)>,
     page: Option<(Page, Option<String>)>,
-    version: &str,
+    graph: Served,
     request: &Request<Incoming>,
 ) -> Response<ResponseBody> {
     let cached = operation.cached;
+    let version = graph.version.as_str();
     let Some(backend) = shared.backend.clone() else {
         return problem(
             "internal-error",
@@ -1164,29 +1180,24 @@ async fn python(
                 return busy;
             };
             let id = operation.id;
+            let given = graph.clone();
             let answered = tokio::task::spawn_blocking(move || {
                 let _permit = permit;
-                backend.answer(id, &call)
+                backend.answer(&given, id, &call)
             })
             .await;
             match answered {
-                Ok(Outcome::Answer {
-                    version: read,
-                    media,
-                    body,
-                }) => {
+                Ok(Outcome::Answer { media, body }) => {
                     let parsed = operation
                         .paging
                         .and_then(|_| serde_json::from_slice::<Value>(&body).ok());
                     let entry = Arc::new(Cached {
-                        version: read,
+                        version: graph.version.clone(),
                         media,
                         body: Bytes::from(body),
                         parsed,
                         gzipped: OnceLock::new(),
                     });
-                    // Under the graph Python read, which a build may have replaced since the
-                    // server looked: kept under the server's, it would outlive that graph.
                     if cached {
                         shared.store(&entry.version, key, entry.clone());
                     }
@@ -1250,7 +1261,10 @@ async fn api_answer(
         Err(message) => return problem("invalid-parameter", &message),
     };
     let snapshot = shared.current();
-    let version = snapshot.file.version.clone();
+    let graph = Served {
+        version: snapshot.file.version.clone(),
+        bytes: snapshot.graph.bytes.clone(),
+    };
     let page = match operation
         .paging
         .map(|paging| api::page(&paging, &arguments))
@@ -1260,7 +1274,7 @@ async fn api_answer(
         Some(Err(message)) => return problem("invalid-parameter", &message),
     };
     drop(snapshot);
-    python(shared, operation, arguments, page, &version, request).await
+    python(shared, operation, arguments, page, graph, request).await
 }
 
 /// The response to one request.

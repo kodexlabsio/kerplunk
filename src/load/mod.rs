@@ -27,6 +27,10 @@ use crate::graph::{EdgeKind, GraphIndex, NodeKind};
 use crate::json::tape::{Doc, Kind};
 use crate::keys;
 
+/// The newest `graph.json` format this Konstruct reads and writes (`konstruct.core.formats`
+/// says when it changes); every earlier one is read.
+pub const GRAPH_FORMAT_VERSION: i64 = 1;
+
 /// A field a node or edge does not have.
 pub const NONE: u32 = u32::MAX;
 

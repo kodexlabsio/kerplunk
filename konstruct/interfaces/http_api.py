@@ -17,7 +17,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from konstruct import _core
 from konstruct.analysis import query
 from konstruct.analysis.query import QueryError, item
 from konstruct.core import jsonio
@@ -176,44 +175,45 @@ class _Served(Project):
 
 
 class Api:
-    """Answers the API's operations for the graph in ``out_dir``, one at a time.
+    """Answers the API's operations, one at a time, from the graph the server serves.
 
-    Called as ``api(operation, arguments)``, it returns ``('ok', media type, body, version)``, or
-    a problem type of the API and what went wrong, as ``(type, '', detail, version)``. ``version``
-    is the :func:`konstruct._core.graph_version` of the ``graph.json`` the answer came from: a
-    build can replace the file after the server last looked, and the server keeps the answer
-    under the graph it is true of.
+    Called as ``api(operation, arguments, version, data)``, with the
+    :func:`konstruct._core.graph_version` and bytes of the ``graph.json`` the server accepted,
+    it returns ``('ok', media type, body, version)``, or a problem type of the API and what
+    went wrong, as ``(type, '', detail, version)``. It reads nothing from disk itself, so a file
+    the server refused, such as one a newer Konstruct wrote, never reaches it, and every answer
+    describes the graph the server sends. Each version is read once.
     """
 
     def __init__(self, project_root: Path, out_dir: Path, plugins: bool = True) -> None:
         # Its own Project, so a rebuild by `--watch` never changes the graph under an answer.
         self.project = _Served(project_root, out_dir, plugins)
         self._lock = threading.Lock()
-        self._stamp: tuple[int, int, int] | None = None
         self.version = ''
+        self._unreadable: Exception | None = None
 
-    def _load(self) -> None:
-        """Read graph.json again if it was replaced since the last answer, and its version from
-        the same bytes."""
-        try:
-            stat = self.project.graph_path.stat()
-        except OSError:
-            return
-        stamp = (stat.st_mtime_ns, stat.st_size, stat.st_ino)
-        if stamp == self._stamp and self.project.served is not None:
-            return
-        data = self.project.graph_path.read_bytes()
-        self.project.served = Graph.from_json(data, str(self.project.graph_path))
-        self.version = _core.graph_version(data)
-        # Taken before the read: a file replaced during it is read again next time.
-        self._stamp = stamp
+    def _load(self, version: str, data: bytes) -> None:
+        """Read the served graph when the server serves a new version; a version Graph.read
+        cannot read fails every answer with its error, without being read again."""
+        if version != self.version:
+            self.version, self._unreadable, self.project.served = version, None, None
+            try:
+                self.project.served = Graph.from_json(data, str(self.project.graph_path))
+            except Exception as error:
+                self._unreadable = error
+        if self._unreadable is not None:
+            raise self._unreadable.with_traceback(None)
 
-    def __call__(self, operation: str, arguments: dict[str, Any]) -> tuple[str, str, str, str]:
+    def __call__(
+        self, operation: str, arguments: dict[str, Any], version: str, data: bytes
+    ) -> tuple[str, str, str, str]:
         with self._lock:
-            kind, media, body = self._answer(operation, arguments)
+            kind, media, body = self._answer(operation, arguments, version, data)
             return kind, media, body, self.version
 
-    def _answer(self, operation: str, arguments: dict[str, Any]) -> tuple[str, str, str]:
+    def _answer(
+        self, operation: str, arguments: dict[str, Any], version: str, data: bytes
+    ) -> tuple[str, str, str]:
         from konstruct.analysis.diff import DiffError
         from konstruct.outputs.export import ExportError
 
@@ -221,7 +221,7 @@ class Api:
         if handler is None:
             return ('internal-error', '', f'{operation} has no Python answer')
         try:
-            self._load()
+            self._load(version, data)
             answer = handler(self.project, **arguments)
         except QueryError as error:
             missing = str(error).startswith('nothing in the graph matches')

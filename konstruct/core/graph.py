@@ -51,11 +51,13 @@ RELATION_KINDS: frozenset[str] = frozenset({'source', 'table', 'model', 'seed', 
 # that names the relation resolves to the first kind in this order.
 RELATION_PRIORITY: dict[str, int] = {'source': 0, 'model': 1, 'snapshot': 2, 'seed': 3, 'table': 4}
 # The graph.json format; konstruct.core.formats says when it changes. Every earlier format is read.
-GRAPH_FORMAT_VERSION = 1
+# The core holds it, so `konstruct serve` refuses at start-up the graphs Graph.read refuses.
+GRAPH_FORMAT_VERSION: int = _core.GRAPH_FORMAT_VERSION
 
 _Index = TypeVar('_Index')
 # Held while a read graph's edges are made Python objects (``Graph._edge_map``).
-_MAKING_EDGES = threading.Lock()
+# Reentrant: a finaliser the collector runs while one graph's edges are made may make another's.
+_MAKING_EDGES = threading.RLock()
 IndexBasis = Literal['graph', 'nodes', 'relations']
 """What an index is made from, so what makes it stale (see ``Graph.indexed``)."""
 

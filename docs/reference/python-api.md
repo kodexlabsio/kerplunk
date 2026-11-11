@@ -475,7 +475,7 @@ for column in graph.columns_of(orders.id):
 
 ```{eval-rst}
 .. autoclass:: konstruct.Graph
-   :members: read, write, to_dict, resolve, label, node_for_relation, nodes_for_relation, columns_of, column, parent_of, out_edges, in_edges, impact, trace, path, add_node, add_edge, warn
+   :members: read, from_json, from_dict, write, to_dict, resolve, label, node_for_relation, nodes_for_relation, columns_of, column, parent_of, out_edges, in_edges, impact, trace, path, add_node, add_edge, warn
 
 .. autoclass:: konstruct.Node
    :members:

@@ -374,15 +374,44 @@ impl SearchIndex {
     }
 }
 
-/// The Python function that answers the API's operations: called with the operation id and its
-/// arguments, it returns `("ok", media type, body, graph version)` or
-/// `(problem type, "", detail, graph version)`.
+/// The Python function that answers the API's operations: called with the operation id, its
+/// arguments, and the version and bytes of the graph the server serves, it returns
+/// `("ok", media type, body, graph version)` or `(problem type, "", detail, graph version)`.
 struct PythonBackend {
     function: Py<PyAny>,
+    /// The served graph's bytes as a Python `bytes`, made once for each version.
+    graph: Mutex<Option<(String, Py<pyo3::types::PyBytes>)>>,
+}
+
+impl PythonBackend {
+    /// `graph`'s bytes as Python `bytes`: those made for its version, or new ones. Nothing waits
+    /// for the table: another call holding it means these are made again, for this call only.
+    fn bytes<'py>(
+        &self,
+        py: Python<'py>,
+        graph: &serve::Served,
+    ) -> Bound<'py, pyo3::types::PyBytes> {
+        let mut held = self.graph.try_lock().ok();
+        if let Some(Some((version, bytes))) = held.as_deref()
+            && *version == graph.version
+        {
+            return bytes.bind(py).clone();
+        }
+        let made = pyo3::types::PyBytes::new(py, &graph.bytes);
+        if let Some(slot) = held.as_deref_mut() {
+            *slot = Some((graph.version.clone(), made.clone().unbind()));
+        }
+        made
+    }
 }
 
 impl serve::Backend for PythonBackend {
-    fn answer(&self, operation: &str, arguments: &[(&'static str, Argument)]) -> Outcome {
+    fn answer(
+        &self,
+        graph: &serve::Served,
+        operation: &str,
+        arguments: &[(&'static str, Argument)],
+    ) -> Outcome {
         // The error is the operator's, on the server's terminal; a client is not told where
         // this machine keeps the project.
         let failed = |error: PyErr| {
@@ -405,13 +434,16 @@ impl serve::Backend for PythonBackend {
                     return failed(error);
                 }
             }
-            let result = match self.function.call1(py, (operation, keywords)) {
+            let bytes = self.bytes(py, graph);
+            let result = match self
+                .function
+                .call1(py, (operation, keywords, &graph.version, bytes))
+            {
                 Ok(result) => result,
                 Err(error) => return failed(error),
             };
             match result.extract::<(String, String, String, String)>(py) {
-                Ok((kind, media, body, version)) if kind == "ok" => Outcome::Answer {
-                    version,
+                Ok((kind, media, body, _)) if kind == "ok" => Outcome::Answer {
                     media,
                     body: body.into_bytes(),
                 },
@@ -459,8 +491,12 @@ impl Server {
     ) -> PyResult<Self> {
         let mut options = serve::Options::new(out_dir, host, port, page);
         options.token = token;
-        options.backend =
-            api.map(|function| Arc::new(PythonBackend { function }) as Arc<dyn serve::Backend>);
+        options.backend = api.map(|function| {
+            Arc::new(PythonBackend {
+                function,
+                graph: Mutex::new(None),
+            }) as Arc<dyn serve::Backend>
+        });
         let server = py
             .detach(|| serve::Server::bind(options))
             .map_err(|error| PyOSError::new_err(error.to_string()))?;
@@ -541,6 +577,10 @@ impl Router {
 mod core_module {
     use pyo3::exceptions::PyImportError;
     use pyo3::prelude::*;
+
+    /// The newest graph.json format this Konstruct reads and writes.
+    #[pymodule_export]
+    const GRAPH_FORMAT_VERSION: i64 = crate::load::GRAPH_FORMAT_VERSION;
 
     #[pymodule_export]
     use super::{GraphIndex, RelationNames, Router, SearchIndex, Server, graph_version, openapi};

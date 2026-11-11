@@ -10,7 +10,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use _core::serve::api::Argument;
-use _core::serve::{Backend, Options, Outcome, Server, graph_version};
+use _core::serve::{Backend, Options, Outcome, Served, Server, graph_version};
 
 const PAGE: &str = "<!doctype html><html><head><style>p{}</style></head><body>\
                     <script type=\"module\">go()</script></body></html>";
@@ -48,32 +48,35 @@ fn write_graph(directory: &std::path::Path, text: &str) {
     std::fs::rename(&temporary, directory.join("graph.json")).unwrap();
 }
 
-/// Counts its calls, and answers `explain` with them, from the graph in `directory`, or from a
-/// graph of its own when `elsewhere` is set.
+/// Counts its calls, answers `explain` with them, and records the graph each call was given.
 #[derive(Default)]
 struct Counting {
     calls: AtomicUsize,
-    directory: std::sync::Mutex<Option<PathBuf>>,
-    elsewhere: AtomicBool,
+    given: std::sync::Mutex<Vec<(String, String)>>,
 }
 
 impl Counting {
-    /// The version of the graph this backend read, as Python reports it.
-    fn version(&self) -> String {
-        if self.elsewhere.load(Ordering::SeqCst) {
-            return "0123456789abcdef".to_owned();
-        }
-        let directory = self.directory.lock().unwrap().clone().unwrap();
-        graph_version(&std::fs::read(directory.join("graph.json")).unwrap())
+    /// The version and text of the graph the last call was given.
+    fn last(&self) -> (String, String) {
+        self.given.lock().unwrap().last().cloned().unwrap()
     }
 }
 
 impl Backend for Counting {
-    fn answer(&self, operation: &str, arguments: &[(&'static str, Argument)]) -> Outcome {
+    fn answer(
+        &self,
+        graph: &Served,
+        operation: &str,
+        arguments: &[(&'static str, Argument)],
+    ) -> Outcome {
         let calls = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+        let text = String::from_utf8(graph.bytes.to_vec()).unwrap();
+        self.given
+            .lock()
+            .unwrap()
+            .push((graph.version.clone(), text));
         match operation {
             "explain" => Outcome::Answer {
-                version: self.version(),
                 media: "application/json".to_owned(),
                 body: format!(
                     "{{\"calls\": {calls}, \"ref\": {:?}}}",
@@ -82,7 +85,6 @@ impl Backend for Counting {
                 .into_bytes(),
             },
             "listNodes" => Outcome::Answer {
-                version: self.version(),
                 media: "application/json".to_owned(),
                 body: br#"{"kinds": [], "items": [1, 2, 3]}"#.to_vec(),
             },
@@ -380,7 +382,6 @@ fn python_answers_are_cached_per_graph_version_and_lists_paged() {
     let backend = Arc::new(Counting::default());
     let shared: Arc<dyn Backend> = backend.clone();
     let server = start("backend", |options| options.backend = Some(shared));
-    *backend.directory.lock().unwrap() = Some(server.directory.clone());
     let first = get(server.address, "/api/v1/explain/orders.amount", "");
     let second = get(server.address, "/api/v1/explain/orders.amount", "");
     assert!(first.contains("\"calls\": 1"), "{first}");
@@ -426,61 +427,55 @@ fn python_answers_are_cached_per_graph_version_and_lists_paged() {
 }
 
 #[test]
-fn an_answer_is_kept_under_the_graph_it_came_from() {
+fn the_backend_answers_from_the_graph_the_server_serves() {
     let backend = Arc::new(Counting::default());
     let shared: Arc<dyn Backend> = backend.clone();
-    let server = start("versions", |options| options.backend = Some(shared));
-    *backend.directory.lock().unwrap() = Some(server.directory.clone());
-    // The backend read another graph than the one served, as Python does when a build replaces
-    // graph.json between the server's check and Python's read: its answer is not kept for this one.
-    backend.elsewhere.store(true, Ordering::SeqCst);
+    let server = start("served", |options| options.backend = Some(shared));
+    let wait_for = |text: &str| {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !get(server.address, "/graph.json", "").ends_with(text) {
+            assert!(Instant::now() < deadline, "the server did not reload");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    let first = graph(&["amount"]);
     assert!(get(server.address, "/api/v1/explain/orders.amount", "").contains("\"calls\": 1"));
-    assert!(get(server.address, "/api/v1/explain/orders.amount", "").contains("\"calls\": 2"));
-    backend.elsewhere.store(false, Ordering::SeqCst);
-    assert!(get(server.address, "/api/v1/explain/orders.amount", "").contains("\"calls\": 3"));
-    assert!(get(server.address, "/api/v1/explain/orders.amount", "").contains("\"calls\": 3"));
-}
-
-#[test]
-fn a_cursor_belongs_to_the_graph_its_page_came_from() {
-    let backend = Arc::new(Counting::default());
-    let shared: Arc<dyn Backend> = backend.clone();
-    let server = start("cursors", |options| options.backend = Some(shared));
-    *backend.directory.lock().unwrap() = Some(server.directory.clone());
-    // Python read a graph the server has not seen yet: the page and its cursor are of that one.
-    backend.elsewhere.store(true, Ordering::SeqCst);
-    let first = get(server.address, "/api/v1/nodes?limit=2", "");
-    assert!(
-        first.contains("\"next_cursor\":\"0123456789abcdef.2\""),
-        "{first}"
+    assert_eq!(
+        backend.last(),
+        (graph_version(first.as_bytes()), first.clone())
     );
-    let rest = get(
-        server.address,
-        "/api/v1/nodes?limit=2&cursor=0123456789abcdef.2",
-        "",
-    );
-    assert!(
-        rest.contains("\"items\":[3]") && rest.contains("\"next_cursor\":null"),
-        "{rest}"
-    );
-    // Once the backend answers from another graph, the cursor is stale.
-    backend.elsewhere.store(false, Ordering::SeqCst);
-    let stale = get(
-        server.address,
-        "/api/v1/nodes?limit=2&cursor=0123456789abcdef.2",
-        "",
-    );
-    assert!(stale.starts_with("HTTP/1.1 409"), "{stale}");
+    // Files the server refuses are never given to the backend: it keeps answering from the
+    // graph the server keeps serving, and what it answered about it stays kept.
+    for refused in [
+        "{not json".to_owned(),
+        first.replacen('{', r#"{"format_version": 2, "#, 1),
+        first.replacen('{', r#"{"format_version": "x", "#, 1),
+    ] {
+        write_graph(&server.directory, &refused);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(get(server.address, "/graph.json", "").ends_with(&first));
+        assert!(get(server.address, "/api/v1/explain/orders.amount", "").contains("\"calls\": 1"));
+        get(server.address, "/api/v1/explain/orders.tax", "");
+        assert_eq!(
+            backend.last(),
+            (graph_version(first.as_bytes()), first.clone())
+        );
+    }
+    // A good file again: it is served, and the backend is given it.
+    let second = graph(&["amount", "tax"]);
+    write_graph(&server.directory, &second);
+    wait_for(&second);
+    assert!(!get(server.address, "/api/v1/explain/orders.amount", "").contains("\"calls\": 1"));
+    assert_eq!(backend.last(), (graph_version(second.as_bytes()), second));
 }
 
 /// Takes a while over every answer, as Python does over a large graph.
 struct Slow;
 
 impl Backend for Slow {
-    fn answer(&self, _: &str, _: &[(&'static str, Argument)]) -> Outcome {
+    fn answer(&self, _: &Served, _: &str, _: &[(&'static str, Argument)]) -> Outcome {
         std::thread::sleep(Duration::from_millis(400));
         Outcome::Answer {
-            version: "0".repeat(16),
             media: "application/json".to_owned(),
             body: b"{}".to_vec(),
         }

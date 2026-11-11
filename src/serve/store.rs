@@ -1,12 +1,15 @@
-//! A `graph.json` as the server holds it: the file's bytes, checked to be a Konstruct graph before
-//! it replaces the one being served, so a file that does not parse leaves the graph as it was.
+//! A `graph.json` as the server holds it: the file's bytes, checked to be a graph this Konstruct
+//! reads before it replaces the one being served, so a file that does not parse leaves the graph
+//! as it was.
 //!
 //! The server answers nothing from the graph itself: every answer comes from the Python API
-//! (`konstruct.interfaces.http_api`), so this reads only what checking the file and the size the
-//! event stream reports need, with the JSON reader `Graph.read` uses ([`crate::json`]).
+//! (`konstruct.interfaces.http_api`), which reads the file with `Graph.read`'s reader. So this
+//! decides only what that reader decides before anything else, with the same JSON reader
+//! ([`crate::json`]): JSON, an object, and a format this Konstruct reads. What the nodes and
+//! edges hold is left to `Graph.read`, so the server serves exactly the graphs it reads.
 
-use crate::json::tape::{Doc, Kind, Tape};
-use crate::load::member;
+use crate::json::tape::{Doc, Kind, Number, Tape};
+use crate::load::{GRAPH_FORMAT_VERSION, member};
 
 /// Why a graph could not be read.
 #[derive(Debug)]
@@ -25,44 +28,24 @@ impl std::error::Error for LoadError {}
 pub struct GraphStore {
     /// The file as read.
     pub bytes: bytes::Bytes,
-    /// How many node entries the file has.
+    /// How many node entries the file has, for the event stream.
     pub nodes: usize,
-    /// How many edge entries the file has.
+    /// How many edge entries the file has, for the event stream.
     pub edges: usize,
 }
 
-/// How many entries the list `name` of the graph has, each an object whose `fields` are strings;
-/// none when it has no such list.
-fn entries(doc: Doc<'_>, name: &str, fields: [&str; 2]) -> Result<usize, LoadError> {
-    let Some(list) = member(doc, 0, name) else {
-        return Ok(0);
-    };
-    if doc.kind(list) != Kind::Array {
-        return Err(LoadError(format!(
-            "graph.json is not a Konstruct graph: its {name} are not a list"
-        )));
-    }
-    let mut count = 0;
-    for (number, item) in doc.items(list).enumerate() {
-        for field in fields {
-            let value = (doc.kind(item) == Kind::Object)
-                .then(|| member(doc, item, field))
-                .flatten();
-            if value.is_none_or(|v| doc.kind(v) != Kind::String) {
-                return Err(LoadError(format!(
-                    "graph.json has an entry {number} in its {name} without a {field} that is a string"
-                )));
-            }
-        }
-        count += 1;
-    }
-    Ok(count)
+/// How many entries the graph's list `name` has: as a Python dictionary keeps it, the last
+/// member of that name; none when it is not a list.
+fn entries(doc: Doc<'_>, name: &str) -> usize {
+    member(doc, 0, name)
+        .filter(|&list| doc.kind(list) == Kind::Array)
+        .map_or(0, |list| doc.items(list).count())
 }
 
 impl GraphStore {
-    /// Check the bytes of a `graph.json` with the reader `Graph.read` uses: JSON, and an object
-    /// whose `nodes` have a string id and kind and whose `edges` have a string source and
-    /// target.
+    /// Check the bytes of a `graph.json` as `Graph.read` does first (`konstruct.core.formats`):
+    /// JSON, an object, and a `format_version`, the last member of that name, that is absent
+    /// (format 1) or an integer from 1 to [`GRAPH_FORMAT_VERSION`].
     pub fn load(bytes: Vec<u8>) -> Result<Self, LoadError> {
         let tape = Tape::parse(&bytes).map_err(|e| {
             LoadError(format!(
@@ -73,11 +56,26 @@ impl GraphStore {
         let doc = tape.doc(&bytes);
         if doc.kind(0) != Kind::Object {
             return Err(LoadError(
-                "graph.json is not a Konstruct graph: it is not an object".into(),
+                "graph.json is not a Konstruct document (expected a JSON object)".into(),
             ));
         }
-        let nodes = entries(doc, "nodes", ["id", "kind"])?;
-        let edges = entries(doc, "edges", ["source", "target"])?;
+        if let Some(version) = member(doc, 0, "format_version") {
+            let newer = |format: &dyn std::fmt::Display| {
+                LoadError(format!(
+                    "graph.json was written by a newer Konstruct (format {format}; this one reads \
+                     formats 1 to {GRAPH_FORMAT_VERSION}); upgrade Konstruct to read it"
+                ))
+            };
+            // An integer, as Python's int: not a bool, and not a float such as 1.0.
+            let number = (doc.kind(version) == Kind::Number).then(|| doc.number(version));
+            match number {
+                Some(Number::Int(n)) if (1..=GRAPH_FORMAT_VERSION).contains(&n) => {}
+                Some(Number::Int(n)) if n > GRAPH_FORMAT_VERSION => return Err(newer(&n)),
+                Some(Number::UInt(n)) => return Err(newer(&n)),
+                _ => return Err(LoadError("graph.json has an unknown format_version".into())),
+            }
+        }
+        let (nodes, edges) = (entries(doc, "nodes"), entries(doc, "edges"));
         Ok(Self {
             bytes: bytes::Bytes::from(bytes),
             nodes,
@@ -115,23 +113,62 @@ mod tests {
     }
 
     #[test]
-    fn values_konstruct_does_not_write_are_served() {
-        // Graph.read gives these the meaning Graph.from_dict always gave them.
-        let text = r#"{"nodes": [{"id": "a", "kind": "model", "attrs": [], "origins": "abc"}],
-            "edges": [{"source": "a", "target": "b", "kind": 2}, {"source": "a", "target": "a"}]}"#;
-        let graph = GraphStore::load(text.as_bytes().to_vec()).unwrap();
-        assert_eq!((graph.nodes, graph.edges), (1, 2));
+    fn what_graph_read_reads_is_served() {
+        // Graph.read gives these the meaning Graph.from_dict always gave them, or answers with
+        // its own error; the server leaves them to it.
+        for (text, counts) in [
+            (
+                r#"{"nodes": [{"id": 1, "kind": "model", "name": "a"}]}"#,
+                (1, 0),
+            ),
+            (r#"{"nodes": [{"id": "a", "kind": "model"}]}"#, (1, 0)),
+            (
+                r#"{"nodes": [{"id": "a", "kind": 3, "attrs": [], "origins": "abc"}],
+                    "edges": [{"source": "a", "target": "b", "kind": 2}, {"source": 1}]}"#,
+                (1, 2),
+            ),
+            (r#"{"nodes": {"a": 1}, "edges": "x"}"#, (0, 0)),
+            (r#"{"format_version": 1, "nodes": []}"#, (0, 0)),
+        ] {
+            let graph = GraphStore::load(text.as_bytes().to_vec()).expect(text);
+            assert_eq!((graph.nodes, graph.edges), counts, "{text}");
+        }
+    }
+
+    #[test]
+    fn a_newer_or_unknown_format_is_refused() {
+        for (text, message) in [
+            (r#"{"format_version": 2}"#, "newer Konstruct (format 2"),
+            (
+                r#"{"format_version": 18446744073709551615}"#,
+                "newer Konstruct",
+            ),
+            (r#"{"format_version": 0}"#, "unknown format_version"),
+            (r#"{"format_version": 1.0}"#, "unknown format_version"),
+            (r#"{"format_version": true}"#, "unknown format_version"),
+            (r#"{"format_version": "1"}"#, "unknown format_version"),
+            ("[1]", "not a Konstruct document"),
+        ] {
+            let error = GraphStore::load(text.as_bytes().to_vec()).unwrap_err();
+            assert!(error.0.contains(message), "{text}: {error}");
+        }
+    }
+
+    #[test]
+    fn the_last_of_two_members_with_the_same_key_counts() {
+        // As in a Python dictionary, so as Graph.read reads the file.
+        let newer = r#"{"format_version": 1, "format_version": 2}"#;
+        assert!(GraphStore::load(newer.as_bytes().to_vec()).is_err());
+        let older = r#"{"format_version": 2, "format_version": 1, "nodes": [1, 2], "nodes": [3]}"#;
+        let graph = GraphStore::load(older.as_bytes().to_vec()).unwrap();
+        assert_eq!(graph.nodes, 1);
     }
 
     #[test]
     fn bad_files_are_errors() {
         assert!(GraphStore::load(b"not json".to_vec()).is_err());
         assert!(GraphStore::load(vec![0xff, 0xfe]).is_err());
-        assert!(GraphStore::load(br#"{"nodes": [{"id": 1}]}"#.to_vec()).is_err());
-        assert!(
-            GraphStore::load(br#"{"nodes": [], "edges": [{"source": "a"}]}"#.to_vec()).is_err()
-        );
-        assert!(GraphStore::load(br#"{"nodes": {}}"#.to_vec()).is_err());
+        assert!(GraphStore::load(br#"{"nodes": [1,]}"#.to_vec()).is_err());
         let empty = GraphStore::load(b"{}".to_vec()).unwrap();
         assert_eq!(empty.nodes, 0);
     }

@@ -9,6 +9,9 @@ which reads the graph files itself and asks ``konstruct.interfaces.http_api`` fo
 from collections.abc import Callable
 from typing import Any, final
 
+GRAPH_FORMAT_VERSION: int
+"""The newest graph.json format this Konstruct reads and writes."""
+
 @final
 class GraphIndex:
     """The edges of a graph, indexed for walks and shortest paths."""
@@ -190,11 +193,12 @@ class Server:
         port: int,
         page: str,
         token: str | None = None,
-        api: Callable[[str, dict[str, Any]], tuple[str, str, str, str]] | None = None,
+        api: Callable[[str, dict[str, Any], str, bytes], tuple[str, str, str, str]] | None = None,
     ) -> None:
         """Load ``out_dir/graph.json`` and bind ``host:port`` (0 for any free port). With
         ``token``, every request must carry it. ``api`` answers every operation of the API
-        (``konstruct.interfaces.http_api.Api``). Raises ``OSError`` when there is no graph or the
+        (``konstruct.interfaces.http_api.Api``), given the version and bytes of the graph the
+        server serves. Raises ``OSError`` when there is no graph or the
         port is taken."""
     @property
     def host(self) -> str:

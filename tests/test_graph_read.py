@@ -551,3 +551,21 @@ def test_any_document_means_what_it_did(document: Any, tmp_path_factory: pytest.
         assert_same(read, expected)
     else:
         assert read == expected
+
+
+def test_edges_made_while_another_graph_makes_its_own_on_the_same_thread() -> None:
+    """A finaliser the collector runs while one graph's edges are made may make another's."""
+    from konstruct.core import graph as module
+
+    first, second = Graph.read(SNAPSHOTS[0]), Graph.read(SNAPSHOTS[-1])
+
+    def make() -> None:
+        with module._MAKING_EDGES:
+            assert first.edges and second.edges
+
+    # On a thread, so a lock that is not reentrant fails the test rather than hangs it.
+    maker = threading.Thread(target=make, daemon=True)
+    maker.start()
+    maker.join(timeout=60)
+    assert not maker.is_alive(), 'making edges waited for the lock this thread holds'
+    assert not in_file(first) and not in_file(second)

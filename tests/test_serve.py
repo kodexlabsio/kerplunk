@@ -403,10 +403,59 @@ def test_the_committed_openapi_document_is_the_served_one() -> None:
             Draft202012Validator.check_schema(parameter['schema'])
 
 
+class Asking:
+    """An :class:`Api` given the graph in a project's graph.json, as the server gives it the graph
+    it serves."""
+
+    def __init__(self, project: Path) -> None:
+        self.api = Api(project, project / 'konstruct-out')
+        self.path = project / 'konstruct-out' / 'graph.json'
+
+    def __call__(self, operation: str, arguments: dict[str, Any]) -> tuple[str, str, str, str]:
+        data = self.path.read_bytes()
+        return self.api(operation, arguments, _core.graph_version(data), data)
+
+
 def small_project(root: Path, columns: str = 'id, name') -> Path:
     (root / 'jobs').mkdir(parents=True, exist_ok=True)
     (root / 'jobs' / 'users.sql').write_text(f'create table main.people as select {columns} from raw.users\n')
     return root
+
+
+def test_a_refused_reload_keeps_the_server_and_the_api_on_one_graph(tmp_path: Path) -> None:
+    """A newer format, an unknown one or invalid JSON in place of graph.json leaves the graph the
+    server serves, and the API keeps answering from it, until a good file comes."""
+    project = small_project(tmp_path / 'shop')
+    Project(project).build()
+    path = project / 'konstruct-out' / 'graph.json'
+    good = json.loads(path.read_text())
+    served = start(project, '--no-build')
+    try:
+        _, headers, kept = served.request('/graph.json')
+        assert served.json('/api/v1/nodes/table.main.people')['node']['id'] == 'table.main.people'
+        for text in (
+            json.dumps({**good, 'format_version': 2}),
+            json.dumps({**good, 'format_version': 'x'}),
+            '{not json',
+        ):
+            temporary = path.with_name('.graph.json.tmp')
+            temporary.write_text(text)
+            temporary.replace(path)
+            time.sleep(1.2)
+            _, now, body = served.request('/graph.json')
+            assert now['etag'] == headers['etag'] and body == kept, text
+            # Answers come from the graph served, cached or not.
+            assert served.json('/api/v1/nodes/table.main.people')['node']['id'] == 'table.main.people'
+            assert served.json('/api/v1/nodes/table.main.people%23name')['node']['name'] == 'name'
+        small_project(project, 'id, name, email')
+        Project(project).build()
+        deadline = time.monotonic() + 10
+        while served.request('/graph.json')[1]['etag'] == headers['etag']:
+            assert time.monotonic() < deadline, 'the good file was not served'
+            time.sleep(0.2)
+        assert served.json('/api/v1/nodes/table.main.people%23email')['node']['name'] == 'email'
+    finally:
+        assert served.stop() == 0
 
 
 def test_live_reload_after_a_rebuild(tmp_path: Path) -> None:
@@ -505,7 +554,7 @@ def test_a_ref_git_would_read_as_an_option_is_refused_and_writes_nothing(tmp_pat
     finally:
         assert served.stop() == 0
     # Behind the server, the Python operations refuse it too.
-    api = Api(project, project / 'konstruct-out')
+    api = Asking(project)
     for operation, arguments in (
         ('diff', {'base': f'--output={written}'}),
         ('gate', {'base': f'-o{written}'}),
@@ -645,7 +694,7 @@ def test_the_rebuilder_rebuilds_once_per_change(tmp_path: Path, monkeypatch: pyt
 def test_the_api_answers_with_the_python_api_in_process(tmp_path: Path) -> None:
     project = small_project(tmp_path / 'shop')
     Project(project).build()
-    api = Api(project, project / 'konstruct-out')
+    api = Asking(project)
     graph = Graph.read(project / 'konstruct-out' / 'graph.json')
     people, name = 'table.main.people', 'table.main.people#name'
 
@@ -682,7 +731,7 @@ def test_an_answer_names_the_graph_it_came_from(tmp_path: Path) -> None:
     project = small_project(tmp_path / 'shop')
     Project(project).build()
     path = project / 'konstruct-out' / 'graph.json'
-    api = Api(project, project / 'konstruct-out')
+    api = Asking(project)
     kind, _, body, version = api('getNode', {'id': 'table.main.people'})
     assert kind == 'ok' and version == _core.graph_version(path.read_bytes())
     assert len(version) == 16 and json.loads(body)['node']['id'] == 'table.main.people'
@@ -692,14 +741,34 @@ def test_an_answer_names_the_graph_it_came_from(tmp_path: Path) -> None:
     Project(project).build(update=True)
     kind, _, body, newer = api('getNode', {'id': 'table.main.people#email'})
     assert kind == 'ok' and newer == _core.graph_version(path.read_bytes()) != version
-    # A problem names it too, and an unchanged file is not read again.
+    # A problem names it too, and a version is read once.
+    served = api.api.project.served
     assert api('getNode', {'id': 'nowhere'})[::3] == ('no-such-node', newer)
+    assert api.api.project.served is served
+
+
+def test_the_api_answers_from_the_graph_it_is_given_and_reads_nothing(tmp_path: Path) -> None:
+    project = small_project(tmp_path / 'shop')
+    Project(project).build()
+    path = project / 'konstruct-out' / 'graph.json'
+    good = path.read_bytes()
+    api = Api(project, project / 'konstruct-out')
+    path.unlink()  # the server gives the API its graph; the API does not look for the file
+    kind, _, _, version = api('getNode', {'id': 'table.main.people'}, _core.graph_version(good), good)
+    assert kind == 'ok' and version == _core.graph_version(good)
+    # A graph Graph.read cannot read fails each answer with its error, read once.
+    broken = b'{"nodes": [{"id": "a", "kind": "model"}]}'
+    for _ in range(2):
+        kind, _, detail, version = api('getNode', {'id': 'a'}, _core.graph_version(broken), broken)
+        assert (kind, version) == ('internal-error', _core.graph_version(broken)) and 'KeyError' in detail
+    kind, _, _, version = api('getNode', {'id': 'table.main.people'}, _core.graph_version(good), good)
+    assert kind == 'ok' and version == _core.graph_version(good)
 
 
 def test_api_errors_become_problem_types(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project = small_project(tmp_path / 'shop')
     Project(project).build()
-    api = Api(project, project / 'konstruct-out')
+    api = Asking(project)
     assert api('nothing', {})[0] == 'internal-error'
     assert api('explain', {'ref': 'no_such_thing'})[0] == 'no-such-node'
     kind, media, body, _ = api('resolve', {'name': 'people'})
