@@ -58,16 +58,14 @@ class Rebuilder(threading.Thread):
         self.interval = interval
         self.stopped = threading.Event()
         # The changes a failed build was attempted for, so it is not retried until they change.
-        self._failed: list[tuple[str, float]] | None = None
+        self._failed: list[tuple[str, list[int] | None]] | None = None
 
-    def _changes(self) -> list[tuple[str, float]]:
-        changed = []
-        for name in self.project.changed_inputs():
-            try:
-                changed.append((name, (self.project.root / name).stat().st_mtime))
-            except OSError:
-                continue
-        return changed
+    def _changes(self) -> list[tuple[str, list[int] | None]]:
+        """Each changed input with what it is now; None for one that is gone, which is a change
+        too, so deleting or renaming an input rebuilds."""
+        from konstruct.core.files import identity
+
+        return [(name, identity(self.project.root / name)) for name in self.project.changed_inputs()]
 
     def check(self) -> bool:
         """Rebuild if inputs changed; whether a build ran."""

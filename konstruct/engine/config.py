@@ -56,12 +56,14 @@ from __future__ import annotations
 
 import contextlib
 import os
+import posixpath
 import re
+import sys
 import tomllib
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from fnmatch import fnmatch, fnmatchcase
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -69,6 +71,7 @@ import yaml
 if TYPE_CHECKING:
     from konstruct.inputs.usage import UsageSettings
 
+from konstruct.core.files import identity
 from konstruct.inputs.dbt import SKIP_DIRS, DbtProject, walk_dirs
 from konstruct.inputs.warehouse import (
     BigQueryConnector,
@@ -305,6 +308,8 @@ class Config:
     outside_links: dict[Path, set[str]] = field(default_factory=dict)
     """Files left unread because they lead outside the project through a symbolic link while it
     is untrusted: each directory holding such a link, with the links' names (see :meth:`inside`)."""
+    config_found: list[int] | None = None
+    """``config_file`` as it was just before it was read (``konstruct.core.files.identity``)."""
 
     def override(
         self,
@@ -620,10 +625,14 @@ def _read(root: Path, out_dir: Path | None) -> tuple[Config, dict[str, Any]]:
     root = root.resolve()
     data: dict[str, Any] = {}
     config_file: Path | None = None
+    # Each file as it was just before it was read, so a change after that counts as a change.
+    found: list[int] | None = None
     if (root / 'konstruct.toml').is_file():
         config_file = root / 'konstruct.toml'
+        found = identity(config_file)
         data = read_settings(config_file)
     elif (root / 'pyproject.toml').is_file():
+        found = identity(root / 'pyproject.toml')
         tool = _read_toml(root / 'pyproject.toml').get('tool', {}).get('konstruct')
         if isinstance(tool, dict):
             config_file = root / 'pyproject.toml'
@@ -674,6 +683,7 @@ def _read(root: Path, out_dir: Path | None) -> tuple[Config, dict[str, Any]]:
         else None,
         discover_warehouses=bool(data.get('discover_warehouses', True)),
         config_file=config_file,
+        config_found=found,
         plugins=plugins,
         sections={k: v for k, v in data.items() if isinstance(v, dict)},
         trusted=False,
@@ -692,13 +702,172 @@ def _read_toml(path: Path) -> dict[str, Any]:
 # Discovery
 
 
+def _reads_as(path: Path, looks_like: Callable[[str], bool]) -> bool:
+    try:
+        return looks_like(path.read_text(encoding='utf-8', errors='replace'))
+    except OSError:
+        return False
+
+
+def _is_dag(path: Path, relative: str, patterns: tuple[str, ...]) -> bool:
+    from konstruct.inputs.airflow import looks_like_dag_file
+
+    return _reads_as(path, looks_like_dag_file)
+
+
+def _is_dagster(path: Path, relative: str, patterns: tuple[str, ...]) -> bool:
+    from konstruct.inputs.dagster import looks_like_dagster_file
+
+    return _reads_as(path, looks_like_dagster_file)
+
+
+def _is_spark(path: Path, relative: str, patterns: tuple[str, ...]) -> bool:
+    from konstruct.inputs.spark import looks_like_spark_file
+
+    return _reads_as(path, looks_like_spark_file)
+
+
+def _is_definitions(path: Path, relative: str, patterns: tuple[str, ...]) -> bool:
+    from konstruct.semantics.definitions import FILE_NAMES
+
+    return path.name in FILE_NAMES
+
+
+def _is_ossie(path: Path, relative: str, patterns: tuple[str, ...]) -> bool:
+    from konstruct.semantics.ossie import FILE_SUFFIXES
+
+    return path.name.endswith(FILE_SUFFIXES)
+
+
+def _is_named(path: Path, relative: str, patterns: tuple[str, ...]) -> bool:
+    return any(fnmatchcase(path.name, pattern) for pattern in patterns)
+
+
+def _is_globbed(path: Path, relative: str, patterns: tuple[str, ...]) -> bool:
+    names = relative.split('/')
+    return any(_globs(names, pattern) for pattern in patterns)
+
+
+def _globs(names: list[str], pattern: str) -> bool:
+    """Whether ``root.glob(pattern)`` gives the file whose path from the root has these names, as
+    this Python's pathlib globs: ``**`` is any number of folders, none included, any other part
+    matches one name as :func:`fnmatch.fnmatch` does, and a pattern ending in ``/`` gives folders
+    only, as one ending in ``**`` does before Python 3.13. Paths are compared as written, with
+    ``.``, ``..`` and repeated separators taken out."""
+    if pattern.endswith(('/', os.sep)) or PurePath(pattern).anchor:
+        return False
+    parts = posixpath.normpath(PurePath(pattern).as_posix()).split('/')
+    if parts[-1] == '**' and sys.version_info < (3, 13):
+        return False
+    return _glob_match(parts, names)
+
+
+def _glob_match(parts: list[str], names: list[str]) -> bool:
+    if not parts:
+        return not names
+    if parts[0] == '**':
+        # Folders only before the last name, unless the pattern ends here.
+        if len(parts) == 1:
+            return bool(names)
+        return any(_glob_match(parts[1:], names[start:]) for start in range(len(names)))
+    return bool(names) and fnmatch(names[0], parts[0]) and _glob_match(parts[1:], names[1:])
+
+
+def _loader_kind(path: Path, relative: str) -> str | None:
+    """The format of a loader configuration file, None when it is not one: larger files are not
+    configuration and are not read."""
+    from konstruct.inputs.ingestion import MAX_BYTES, kind_of
+
+    try:
+        if path.stat().st_size > MAX_BYTES:
+            return None
+        text = path.read_text(encoding='utf-8', errors='replace')
+    except OSError:
+        return None
+    return kind_of(relative, text)
+
+
+def _is_loader(path: Path, relative: str, patterns: tuple[str, ...]) -> bool:
+    from konstruct.inputs.ingestion import SUFFIXES
+
+    return path.name.lower().endswith(SUFFIXES) and _loader_kind(path, relative) is not None
+
+
+FINDS: dict[str, Callable[[Path, str, tuple[str, ...]], bool]] = {
+    'any': lambda path, relative, patterns: True,
+    'airflow': _is_dag,
+    'dagster': _is_dagster,
+    'spark': _is_spark,
+    'definitions': _is_definitions,
+    'ossie': _is_ossie,
+    'names': _is_named,
+    'globs': _is_globbed,
+    'loader': _is_loader,
+}
+"""What discovery requires of a file, by name, once it has the file: ``(path, its path relative
+to the repository as ``/``-separated text, patterns)`` gives whether discovery would take it. The
+discover functions use these, and so does the check for new files beside an input, which keeps
+the name with each folder it watches (see :func:`how_found`)."""
+
+
+def relative_text(path: Path, base: Path) -> str:
+    """``path`` from ``base`` as the tests in :data:`FINDS` take it: ``/``-separated, with
+    ``.`` and ``..`` taken out and symbolic links left as they are."""
+    return Path(os.path.relpath(path, base)).as_posix()
+
+
+@dataclass(frozen=True)
+class Found:
+    """How discovery found an input, so a file beside it is judged by the same rule: the test in
+    :data:`FINDS`, its patterns, and whether the project's ``exclude`` patterns applied."""
+
+    test: str
+    exclude: bool
+    patterns: tuple[str, ...] = ()
+
+
+def how_found(config: Config, kind: str, path: Path, patterns: Iterable[str] = ()) -> Found | None:
+    """The rule discovery of ``kind`` found ``path`` by: discovered in the repository, under its
+    exclude patterns; in a directory its configured paths list, without them; or None when the
+    configuration names the file itself, as then a file beside it is no input."""
+    named = tuple(patterns)
+    if kind == 'sql':
+        if config.sql_paths is None:
+            return Found('any', exclude=True)
+        return Found('globs', exclude=False, patterns=tuple(config.sql_paths))
+    discovered, in_directory = {
+        'airflow': ('airflow', 'any'),
+        'dagster': ('dagster', 'any'),
+        'spark': ('spark', 'any'),
+        'powerbi': ('any', 'any'),
+        'definitions': ('definitions', 'definitions'),
+        'ossie': ('ossie', 'ossie'),
+        'loader': ('loader', 'loader'),
+    }.get(kind, ('names', 'names'))
+    configured = {
+        'airflow': config.dag_paths,
+        'dagster': config.dagster_paths,
+        'spark': config.spark_paths,
+        'powerbi': config.powerbi_paths,
+        'definitions': config.definitions_paths,
+        'ossie': config.ossie_paths,
+        'loader': config.ingestion_paths,
+    }.get(kind, config.paths_for(kind))
+    if configured is None:
+        return Found(discovered, exclude=True, patterns=named)
+    resolved = path.resolve()
+    if any(p.is_dir() and resolved.is_relative_to(p.resolve()) for p in configured):
+        return Found(in_directory, exclude=False, patterns=named)
+    return None
+
+
 def discover_input_files(config: Config, name: str, patterns: Iterable[str]) -> list[Path]:
     """The files of an input: those its ``[<name>] paths`` lists (a directory gives every file in it
     whose name matches one of ``patterns``), or every such file in the repository."""
-    patterns = list(patterns)
+    named = tuple(patterns)
 
     def wanted(path: Path) -> bool:
-        return any(fnmatchcase(path.name, pattern) for pattern in patterns)
+        return _is_named(path, '', named)
 
     listed = config.paths_for(name)
     if listed is not None:
@@ -743,8 +912,6 @@ def _walk_files(config: Config, suffix: str) -> list[Path]:
 
 
 def discover_dag_files(config: Config) -> list[Path]:
-    from konstruct.inputs.airflow import looks_like_dag_file
-
     if config.dag_paths is not None:
         files: list[Path] = []
         for path in config.dag_paths:
@@ -753,20 +920,10 @@ def discover_dag_files(config: Config) -> list[Path]:
             elif path.is_file():
                 files.append(path)
         return config.inside(files)
-    candidates = []
-    for path in iter_files(config, '.py'):
-        try:
-            text = path.read_text(encoding='utf-8', errors='replace')
-        except OSError:
-            continue
-        if looks_like_dag_file(text):
-            candidates.append(path)
-    return candidates
+    return [path for path in iter_files(config, '.py') if _is_dag(path, '', ())]
 
 
 def discover_dagster_files(config: Config) -> list[Path]:
-    from konstruct.inputs.dagster import looks_like_dagster_file
-
     if config.dagster_paths is not None:
         files: list[Path] = []
         for path in config.dagster_paths:
@@ -775,21 +932,11 @@ def discover_dagster_files(config: Config) -> list[Path]:
             elif path.is_file():
                 files.append(path)
         return config.inside(files)
-    found = []
-    for path in iter_files(config, '.py'):
-        try:
-            text = path.read_text(encoding='utf-8', errors='replace')
-        except OSError:
-            continue
-        if looks_like_dagster_file(text):
-            found.append(path)
-    return found
+    return [path for path in iter_files(config, '.py') if _is_dagster(path, '', ())]
 
 
 def discover_spark_files(config: Config) -> list[Path]:
     """PySpark jobs: the configured paths, or every Python file that uses Spark SQL."""
-    from konstruct.inputs.spark import looks_like_spark_file
-
     if config.spark_paths is not None:
         files: list[Path] = []
         for path in config.spark_paths:
@@ -798,15 +945,7 @@ def discover_spark_files(config: Config) -> list[Path]:
             elif path.is_file():
                 files.append(path)
         return config.inside(files)
-    found = []
-    for path in iter_files(config, '.py'):
-        try:
-            text = path.read_text(encoding='utf-8', errors='replace')
-        except OSError:
-            continue
-        if looks_like_spark_file(text):
-            found.append(path)
-    return found
+    return [path for path in iter_files(config, '.py') if _is_spark(path, '', ())]
 
 
 def discover_looker_files(config: Config) -> list[Path]:
@@ -841,15 +980,16 @@ def discover_definitions_files(config: Config) -> list[Path]:
             elif path.is_file():
                 files.append(path)
         return config.inside(files)
-    return [p for p in [*iter_files(config, '.yml'), *iter_files(config, '.yaml')] if p.name in FILE_NAMES]
+    return [
+        p for p in [*iter_files(config, '.yml'), *iter_files(config, '.yaml')] if _is_definitions(p, '', ())
+    ]
 
 
 def discover_ossie_files(config: Config) -> list[Path]:
     """Apache Ossie semantic models: the configured paths, or every ``*.ossie.yaml`` in the repository."""
-    from konstruct.semantics.ossie import FILE_SUFFIXES
 
     def wanted(path: Path) -> bool:
-        return path.name.endswith(FILE_SUFFIXES)
+        return _is_ossie(path, '', ())
 
     if config.ossie_paths is not None:
         files: list[Path] = []
@@ -866,7 +1006,7 @@ def discover_ingestion_files(config: Config) -> list[tuple[Path, str]]:
     """Loader configuration files (dlt pipelines, ``meltano.yml``, Singer catalogs and the rest),
     each with its format: the configured paths, or every file in the repository whose name and
     text show a format Konstruct reads. Larger files are not configuration and are not read."""
-    from konstruct.inputs.ingestion import MAX_BYTES, SUFFIXES, kind_of
+    from konstruct.inputs.ingestion import SUFFIXES
 
     candidates: list[Path] = []
     if config.ingestion_paths is not None:
@@ -897,14 +1037,8 @@ def discover_ingestion_files(config: Config) -> list[tuple[Path, str]]:
     root = f'{config.root}{os.sep}'
     found = []
     for path in config.inside(candidates):
-        try:
-            if path.stat().st_size > MAX_BYTES:
-                continue
-            text = path.read_text(encoding='utf-8', errors='replace')
-        except OSError:
-            continue
         name = str(path)
-        kind = kind_of((name[len(root) :] if name.startswith(root) else name).replace(os.sep, '/'), text)
+        kind = _loader_kind(path, (name[len(root) :] if name.startswith(root) else name).replace(os.sep, '/'))
         if kind is not None:
             found.append((path, kind))
     return found
@@ -914,7 +1048,12 @@ def discover_sql_files(config: Config, projects: list[DbtProject], used: set[Pat
     if config.sql_paths is not None:
         files: list[Path] = []
         for pattern in config.sql_paths:
-            files.extend(sorted(p for p in config.root.glob(pattern) if p.is_file()))
+            # The files the glob gives that the test takes, so the check for a new file beside one
+            # of them (FINDS['globs']) takes exactly what discovery does.
+            globbed = (p for p in config.root.glob(pattern) if p.is_file())
+            files.extend(
+                sorted(p for p in globbed if FINDS['globs'](p, relative_text(p, config.root), (pattern,)))
+            )
         return [f for f in config.inside(files) if f.resolve() not in used]
     owned = [p.resolve() for project in projects for p in [*project.source_paths, project.target_path]]
     owned += [(project.root / name).resolve() for project in projects for name in ('analyses', 'analysis')]

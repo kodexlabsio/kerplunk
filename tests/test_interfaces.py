@@ -872,6 +872,8 @@ EMPTY: dict[str, str] = {
     'json status .ingestion_files': 'the projects have no loader configuration files',
     'json status .repositories[].inputs.ingestion_files': 'the projects have no loader configuration files',
     'json sensitivity .unmasked': 'only a warehouse that reads masking policies (Snowflake, Databricks, BigQuery) fills it',
+    'json graph.json .meta.watched_siblings[].exclude': "the projects' konstruct.toml sets no exclude patterns; "
+    'each is a string (tests/test_build.py)',
 }
 # Fields the projects only ever fill with null, each with why; every other field must show the
 # type it holds, or a change to that type would pass.

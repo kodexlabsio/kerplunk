@@ -11,11 +11,13 @@ import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from konstruct import __version__
 from konstruct.core import jsonio
+from konstruct.core.files import digest, identity, listing, regular_files, stated
 from konstruct.core.graph import RELATION_KINDS, Edge, Graph, Node, relation_key
 from konstruct.core.sql import (
     PARSE_ERRORS,
@@ -28,8 +30,10 @@ from konstruct.core.sql import (
     strip_templating,
 )
 from konstruct.engine.config import (
+    FINDS,
     Config,
     ConfigError,
+    Found,
     UntrustedConfig,
     dbt_projects,
     discover_dag_files,
@@ -41,7 +45,10 @@ from konstruct.engine.config import (
     discover_spark_files,
     discover_sql_files,
     discover_warehouses,
+    how_found,
     load_config,
+    relative_text,
+    repository_profiles,
 )
 from konstruct.inputs import airflow, dagster, dbt
 from konstruct.inputs.warehouse import MissingDriver, RelationMeta
@@ -191,7 +198,20 @@ class Builder:
         self.inputs: dict[str, int] = {}
         # One entry per input, for the build summary and `konstruct status`.
         self.sources: list[dict[str, str]] = []
+        # The inputs the build reads, files or directories, relative to the root; and each file in
+        # them as the build found it just before reading it (konstruct.core.files.identity).
         self.watched: set[str] = set()
+        self.seen: dict[str, list[int]] = {}
+        # The files beside each file read with its extension, by its folder (relative to the root),
+        # extension and the rule discovery found it by: a digest of the folder's files with that
+        # extension (konstruct.core.files.listing), and each name with a digest of it as it was
+        # found (konstruct.core.files.identity), enough to see a name appear, or any rewrite of a
+        # file that may have made it an input (one written into a file created empty, say),
+        # without reading it.
+        self.siblings: dict[tuple[str, str, Found], tuple[str, dict[str, str]]] = {}
+        # Read before the build began, when the configuration was loaded.
+        if config.config_file:
+            self.watch_read(config.config_file, config.config_found)
         self.plugins = Plugins.for_config(config)
         # Connections the repository's own configuration names but the user has not trusted.
         self.untrusted: list[str] = []
@@ -203,10 +223,61 @@ class Builder:
 
     # Shared helpers
 
-    def watch(self, *paths: Path) -> None:
+    def watch(self, *paths: Path, found: Found | None = None) -> None:
+        """Note inputs the build is about to read, files or directories, and each file in them as
+        it is now. Called just before a path is read, so a change after that (an editor saving
+        the file while the build runs, or a file caught half-written) is one the graph does not
+        reflect, and :func:`changed_inputs` reports it. A file read twice keeps what it was
+        first.
+
+        ``found`` is the rule discovery found the files by (:func:`how_found`): the files beside
+        each with its extension are noted too, as discovery would see them (under its exclude
+        patterns if it applied them, never in the output folder), each by its name and a digest
+        of :func:`konstruct.core.files.identity` only, as the build may not read them. A new one, or
+        one no longer as found, is judged by the same rule, so a file there that becomes an input
+        counts as a change.
+        Files the build is told where to find (dbt's artefacts, profiles) have no such rule."""
         for path in paths:
-            if path.exists():
-                self.watched.add(self.rel_path(path))
+            if path.is_dir():
+                name = self.rel_path(path)
+                self.watched.add(name)
+                for file in path.rglob('*'):
+                    self._seen(str(Path(name) / file.relative_to(path)), identity(file))
+                continue
+            self.watch_read(path, identity(path))
+            folder = path.parent
+            if found is None or not path.suffix or folder.resolve() == self.config.out_dir:
+                continue
+            key = (self.rel_path(folder), path.suffix, found)
+            if key in self.siblings:
+                continue
+            # Listed as changed_inputs lists them, so both find each file the same on every system.
+            try:
+                files = list(regular_files(folder, path.suffix))
+            except OSError:
+                files = []
+            whole = listing(files)
+            self.siblings[key] = (
+                whole,
+                {
+                    name: digest(stated(status))
+                    for name, status in files
+                    if not (found.exclude and self.config.excluded(folder / name))
+                },
+            )
+
+    def watch_read(self, path: Path, found: list[int] | None) -> None:
+        """Note an input read already, as ``found`` says it was just before it was read: a file
+        discovery or the configuration read before the build could watch it."""
+        if found is not None:
+            name = self.rel_path(path)
+            self.watched.add(name)
+            self._seen(name, found)
+
+    def _seen(self, name: str, found: list[int] | None) -> None:
+        # Regular files only: a directory's entries are its own, a FIFO or a device is no input.
+        if found is not None:
+            self.seen.setdefault(name, found)
 
     def rel_path(self, path: Path | str) -> str:
         return os.path.relpath(Path(path).resolve(), self.config.root)
@@ -450,9 +521,24 @@ class Builder:
         self.graph.meta['default_schema'] = self.default_schema
         self.graph.meta['inputs'] = self.inputs
         self.graph.meta['sources'] = self.sources
-        if self.config.config_file:
-            self.watch(self.config.config_file)
         self.graph.meta['watched'] = sorted(self.watched)
+        self.graph.meta['watched_files'] = _found(self.seen)
+        self.graph.meta['watched_siblings'] = [
+            {
+                'root': '.',
+                'folder': folder,
+                'extension': extension,
+                'test': found.test,
+                'patterns': list(found.patterns),
+                'exclude': list(self.config.exclude) if found.exclude else [],
+                'digest': whole,
+                'names': sorted(beside),
+                'found': [beside[name] for name in sorted(beside)],
+            }
+            for (folder, extension, found), (whole, beside) in sorted(
+                self.siblings.items(), key=lambda item: (item[0][0], item[0][1], item[0][2].test)
+            )
+        ]
         return self.graph
 
     def load_dbt(self) -> list[dbt.DbtProject]:
@@ -465,12 +551,21 @@ class Builder:
                 # profile, whatever the profile names, so only a trusted project runs it.
                 run_dbt, why_not = False, 'dbt is not run until the project is trusted'
                 self.untrusted.append(f'running dbt in {project.name}')
+            # The sources before dbt reads them; its artefacts once it has written them.
+            # dbt_project.yml was read when the project was found, the repository's own
+            # profiles.yml is read to connect, and the renderer reads installed packages' macros.
+            self.watch_read(project.root / 'dbt_project.yml', project.found)
+            self.watch(*project.source_paths)
+            self.watch(*repository_profiles(self.config, [project]))
+            packages = project.root / 'dbt_packages'
+            if packages.is_dir():
+                self.watch(*sorted(p / 'macros' for p in packages.iterdir() if (p / 'macros').is_dir()))
             status = dbt.ensure_artefacts(project, run_dbt=run_dbt, graph=self.graph, why_not=why_not)
-            self.watch(project.root / 'dbt_project.yml', *project.source_paths)
             artefacts = [project.manifest_path, project.catalog_path]
             if len(self.config.inside(artefacts)) < len(artefacts):
                 loaded = None  # the dbt artefacts link outside the project, which needs trust
             else:
+                self.watch(*artefacts)
                 loaded = dbt.load(project, self.graph, dialect=self.config.dialect, keep=self.config.inside)
             entry = {
                 'input': 'dbt',
@@ -482,7 +577,6 @@ class Builder:
             if loaded is None:
                 entry['status'] = 'failed'
                 continue
-            self.watch(project.manifest_path, project.catalog_path)
             entry['detail'] = ', '.join(
                 f'{count} {kind}{"s" if count != 1 else ""}' for kind, count in loaded.counts.items() if count
             )
@@ -608,12 +702,16 @@ class Builder:
                 *self.config.inside(
                     sorted(
                         c
-                        for glob in ingestion.COMPANIONS.get(kind, ())
-                        for c in path.parent.glob(glob)
+                        for companion_glob in ingestion.COMPANIONS.get(kind, ())
+                        for c in path.parent.glob(companion_glob)
                         if _small_file(c, ingestion.MAX_BYTES)
                     )
                 ),
             ]:
+                # The configuration file by the rule that found it; its companions are named by it.
+                self.watch(
+                    companion, found=how_found(self.config, 'loader', path) if companion == path else None
+                )
                 try:
                     text = companion.read_text(encoding='utf-8', errors='replace')
                 except OSError as error:
@@ -621,7 +719,6 @@ class Builder:
                         f'{ingestion.LOADER_OF[kind]}: cannot read {self.rel_path(companion)}: {error}'
                     )
                     continue
-                self.watch(companion)
                 unit.append((self.rel_path(companion), text))
                 if companion != path:
                     companions.add(self.rel_path(companion))
@@ -1139,7 +1236,7 @@ class Builder:
         files = discover_dag_files(self.config)
         dags_seen = 0
         for path in files:
-            self.watch(path)
+            self.watch(path, found=how_found(self.config, 'airflow', path))
             try:
                 content = path.read_bytes()
             except OSError as error:
@@ -1173,9 +1270,11 @@ class Builder:
                     if task.sql_path and not self.config.inside([Path(task.sql_path)]):
                         task.sql, task.sql_path = None, None  # a template outside the project
                     elif task.sql_path and Path(task.sql_path).is_file():
+                        self.watch(
+                            Path(task.sql_path), found=how_found(self.config, 'sql', Path(task.sql_path))
+                        )
                         task.sql = Path(task.sql_path).read_text(encoding='utf-8')
                         used_sql.add(Path(task.sql_path).resolve())
-                        self.watch(Path(task.sql_path))
                 self.add_dag(dag)
                 dags_seen += 1
                 tasks += len(dag.tasks)
@@ -1257,7 +1356,7 @@ class Builder:
     def load_dagster(self) -> None:
         files: list[dagster.DagsterFile] = []
         for path in discover_dagster_files(self.config):
-            self.watch(path)
+            self.watch(path, found=how_found(self.config, 'dagster', path))
             try:
                 content = path.read_bytes()
             except OSError as error:
@@ -1488,7 +1587,7 @@ class Builder:
         relationships: list[dict[str, str]] = []
         authored_relationships: list[dict[str, Any]] = []
         for path in discover_ossie_files(self.config):
-            self.watch(path)
+            self.watch(path, found=how_found(self.config, 'ossie', path))
             rel = self.rel_path(path)
             try:
                 parsed = ossie.parse_file(path, rel)
@@ -1592,7 +1691,7 @@ class Builder:
         files: list[InputFile] = []
         for path in paths:
             rel = self.rel_path(path)
-            self.watch(path)
+            self.watch(path, found=how_found(self.config, name, path, patterns))
             try:
                 files.append(InputFile(rel, path.read_bytes()))
             except OSError as error:
@@ -1756,7 +1855,7 @@ class Builder:
         parsed: list[powerbi.PowerBIFile] = []
         for path in files:
             rel = self.rel_path(path)
-            self.watch(path)
+            self.watch(path, found=how_found(self.config, 'powerbi', path))
             try:
                 content = path.read_bytes()
             except OSError as error:
@@ -1932,7 +2031,7 @@ class Builder:
         """Business terms from definitions.yml, attached to the columns they name."""
         terms: list[definitions.Term] = []
         for path in discover_definitions_files(self.config):
-            self.watch(path)
+            self.watch(path, found=how_found(self.config, 'definitions', path))
             rel = self.rel_path(path)
             try:
                 parsed = definitions.parse_file(path, rel)
@@ -2232,7 +2331,7 @@ class Builder:
         statements_read = 0
         for path in files:
             rel = self.rel_path(path)
-            self.watch(path)
+            self.watch(path, found=how_found(self.config, 'spark', path))
             try:
                 job = spark.parse(path.read_text(encoding='utf-8'), rel)
             except OSError as error:
@@ -2269,13 +2368,13 @@ class Builder:
     def load_sql_files(self, projects: list[dbt.DbtProject], used: set[Path]) -> None:
         files = discover_sql_files(self.config, projects, used)
         for path in files:
+            self.watch(path, found=how_found(self.config, 'sql', path))
             try:
                 text = path.read_text(encoding='utf-8')
             except OSError as error:
                 self.graph.warn(f'sql: cannot read {self.rel_path(path)}: {error}')
                 continue
             rel = self.rel_path(path)
-            self.watch(path)
             statements = self.analyse_cached(strip_templating(text), kind='file')
             writes = sorted({s.target for s in statements if s.target})
             self.sources.append(
@@ -2405,21 +2504,135 @@ def _selected_assets(
     return list(dict.fromkeys(chosen))
 
 
-def changed_inputs(graph_path: Path, graph: Graph) -> list[str]:
-    """Files the last build read that have changed since it ran, relative to the project root."""
+IDENTITY = ('size', 'mtime_ns', 'ctime_ns', 'device', 'inode')
+"""The fields of each ``watched_files`` entry besides its path, in the order of
+:func:`konstruct.core.files.identity`."""
+
+
+def _found(seen: dict[str, list[int]]) -> list[dict[str, Any]]:
+    """``watched_files`` as graph.json holds it: each file, as the build found it."""
+    return [{'path': path, **dict(zip(IDENTITY, found, strict=True))} for path, found in sorted(seen.items())]
+
+
+def _seen(meta: dict[str, Any]) -> dict[str, list[Any]] | None:
+    """The files a graph's build found, by path, as :func:`konstruct.core.files.identity` gives
+    them; None for a graph from before builds recorded them."""
+    found = meta.get('watched_files')
+    if not isinstance(found, list):
+        return None
+    return {str(f.get('path')): [f.get(k) for k in IDENTITY] for f in found if isinstance(f, dict)}
+
+
+Verdicts = dict[str, tuple[list[int], bool]]
+"""Each file in a folder beside an input that is no longer as the build found it, by its name: the
+file as it was judged (:func:`konstruct.core.files.identity`) and whether it would now be an
+input."""
+
+Judged = dict[tuple[str, str, str, tuple[str, ...], tuple[str, ...], str, str], tuple[str, Verdicts]]
+"""What :func:`changed_inputs` concluded of the folders beside an input whose files are not all
+as the build found them: by the folder, the extension, the test, its patterns, the exclude
+patterns, the repository's root and the digest the build recorded of the folder's listing, the
+digest of the listing when it was judged (:func:`konstruct.core.files.listing`) and the
+:data:`Verdicts` on its changed files. A folder listed as it was then is not looked at file by
+file again, and a file as it was then is not read again, so files that are no inputs and start no
+build (helper modules a branch switch rewrote) cost one hash of their folder at each check, as
+they would unchanged. A folder whose files are all as the build found them adds nothing."""
+
+
+def _new_siblings(meta: dict[str, Any], root: Path, out_dir: Path, judged: Judged) -> list[str]:
+    """The files beside those a build read, with their extension, that discovery would now take
+    and that are new or no longer as the build found them: judged by the rule discovery found
+    their neighbour by (:data:`konstruct.engine.config.FINDS`), under that repository's own
+    exclude patterns if discovery applied them, and never in the output folder. A folder is
+    looked at file by file only when its listing's digest is neither the one the build recorded
+    nor the one ``judged`` holds, and a file is read only when ``judged`` does not hold it as it
+    is now; ``judged`` keeps what this check found, and nothing else."""
+    new = []
+    kept: Judged = {}
+    for entry in meta.get('watched_siblings', []):
+        if not isinstance(entry, dict) or entry.get('test') not in FINDS:
+            continue
+        name = str(entry['test'])
+        base = root / str(entry.get('root', '.'))
+        folder, extension = root / str(entry.get('folder')), str(entry.get('extension'))
+        if folder.resolve() == out_dir:
+            continue
+        try:
+            listed = listing(regular_files(folder, extension))
+        except OSError:
+            continue
+        recorded = str(entry.get('digest'))
+        if listed == recorded:
+            continue  # every file there as the build found it
+        patterns = tuple(str(p) for p in entry.get('patterns', []))
+        exclude = tuple(str(p) for p in entry.get('exclude', []))
+        key = (str(folder), extension, name, patterns, exclude, str(base), recorded)
+        before = judged.get(key)
+        if before is not None and before[0] == listed:
+            verdicts = before[1]
+        else:
+            try:
+                files = list(regular_files(folder, extension))
+            except OSError:
+                continue
+            known = dict(zip(entry.get('names', []), entry.get('found', []), strict=False))
+            earlier = before[1] if before is not None else {}
+            verdicts = {}
+            for file_name, status in files:
+                now = stated(status)
+                verdict = earlier.get(file_name)
+                if verdict is None or verdict[0] != now:
+                    if known.get(file_name) == digest(now):
+                        continue
+                    file = folder / file_name
+                    relative = relative_text(file, base)
+                    excluded = any(fnmatch(relative, pattern) for pattern in exclude)
+                    verdict = (now, not excluded and FINDS[name](file, relative, patterns))
+                verdicts[file_name] = verdict
+        kept[key] = (listed, verdicts)
+        new += [os.path.relpath(folder / n, root) for n, (_, taken) in verdicts.items() if taken]
+    judged.clear()
+    judged.update(kept)
+    return new
+
+
+def changed_inputs(graph_path: Path, graph: Graph, judged: Judged | None = None) -> list[str]:
+    """Files the last build read that have changed since it read them, relative to the project
+    root: each file it recorded (``watched_files`` in the graph's meta) that is no longer as it
+    was just before it was read (:func:`konstruct.core.files.identity`: its size, times, device
+    or inode differ, or it is gone), each file it did not find in a directory it read, and each
+    file beside a file it read with that file's extension (``watched_siblings``), new or no
+    longer as the build found it, that discovery would now take (not excluded, not in the output
+    folder): a new SQL file or DAG beside one it read, or a helper rewritten as a DAG. A file
+    changed while the build ran, after it was read, is one the graph does not reflect, whenever
+    graph.json was written. A graph from before builds recorded what they found is compared with
+    graph.json's own time, as it always was.
+
+    ``judged`` is kept from one check to the next by a caller that checks again (see
+    :data:`Judged`), so a file beside an input is read once for each change to it."""
     try:
-        built = graph_path.stat().st_mtime
+        written = graph_path.stat().st_mtime_ns
     except OSError:
         return []
+    seen = _seen(graph.meta)
     root = Path(str(graph.meta.get('root', graph_path.parent.parent)))
     changed = []
+    if seen is not None:
+        changed = [name for name, found in seen.items() if identity(root / name) != found]
+        changed += _new_siblings(
+            graph.meta, root, graph_path.parent.resolve(), {} if judged is None else judged
+        )
     for name in graph.meta.get('watched', []):
         path = root / name
-        candidates = path.rglob('*') if path.is_dir() else [path]
-        for candidate in candidates:
+        for candidate in path.rglob('*') if path.is_dir() else [path]:
+            relative = os.path.relpath(candidate, root)
+            if seen is not None:
+                if relative not in seen and identity(candidate) is not None:
+                    changed.append(relative)
+                continue
             try:
-                if candidate.is_file() and candidate.stat().st_mtime > built:
-                    changed.append(os.path.relpath(candidate, root))
+                if candidate.is_file() and candidate.stat().st_mtime_ns > written:
+                    changed.append(relative)
             except OSError:
                 continue
     return sorted(set(changed))
@@ -2742,6 +2955,22 @@ def merge_repository(
         graph.meta.setdefault('sources', []).append({**source, 'repository': name})
     graph.meta['watched'] = sorted(
         {*graph.meta.get('watched', []), *(moved(w) for w in other.meta.get('watched', []))}
+    )
+    seen = _seen(graph.meta) or {}
+    for file, found in (_seen(other.meta) or {}).items():
+        seen.setdefault(moved(file), found)
+    graph.meta['watched_files'] = _found(seen)
+    # Each repository's folders under the main root; its exclude patterns stay its own, matched
+    # from its own root.
+    graph.meta['watched_siblings'] = sorted(
+        [
+            *graph.meta.get('watched_siblings', []),
+            *(
+                {**s, 'root': moved(s['root']), 'folder': moved(s['folder'])}
+                for s in other.meta.get('watched_siblings', [])
+            ),
+        ],
+        key=lambda s: (s['folder'], s['extension'], s['test']),
     )
     graph.meta.setdefault('repositories', []).append(os.path.relpath(path, config.root))
     return builder

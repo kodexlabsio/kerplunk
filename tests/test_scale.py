@@ -167,6 +167,12 @@ def _graph(root: Path) -> str:
     data['meta'] = {
         k: v for k, v in data['meta'].items() if k not in ('root', 'generated_at', 'build_seconds')
     }
+    # The two builds read the same files, written at different times in different places.
+    data['meta']['watched_files'] = [
+        {'path': f['path'], 'size': f['size']} for f in data['meta'].get('watched_files', [])
+    ]
+    for siblings in data['meta'].get('watched_siblings', []):
+        del siblings['found'], siblings['digest']
     return json.dumps(data, sort_keys=True).replace(str(root), 'ROOT')
 
 

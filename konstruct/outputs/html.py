@@ -22,7 +22,6 @@ import functools
 import hashlib
 import logging
 import os
-import stat
 from dataclasses import asdict
 from functools import cache
 from importlib import resources
@@ -30,6 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from konstruct.core import jsonio
+from konstruct.core.files import identity
 from konstruct.core.graph import Graph, Node
 
 if TYPE_CHECKING:
@@ -111,16 +111,8 @@ def _read(root: Path, relative: str) -> str | None:
 
 
 def _stat(root: Path, relative: str) -> list[int] | None:
-    """What says a file changed: its size, modification and change times, device and inode, or
-    None if it is not a file. The change time moves even when a rewrite puts the modification time
-    back."""
-    try:
-        found = (root / relative).stat()
-    except (OSError, ValueError):
-        return None
-    if not stat.S_ISREG(found.st_mode):
-        return None
-    return [found.st_size, found.st_mtime_ns, found.st_ctime_ns, found.st_dev, found.st_ino]
+    """Whether ``relative`` changed, by the rule every kept file follows (:func:`identity`)."""
+    return identity(root / relative)
 
 
 def _compiled_path(node: Node, path: str) -> list[str]:

@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.sensitivity import Sensitivity, Settings
     from konstruct.analysis.verify import Engine, Verification
     from konstruct.analysis.why import Why
-    from konstruct.engine.build import BuildResult
+    from konstruct.engine.build import BuildResult, Judged
     from konstruct.engine.config import Config
     from konstruct.engine.trust import Trust
     from konstruct.plugins.registry import Plugins
@@ -112,6 +112,8 @@ class Project:
         self._graph: Graph | None = None
         self._stamp: tuple[int, ...] | None = None
         self._derived: tuple[tuple[int, int, bytes], Ontology] | None = None
+        # What changed_inputs concluded of files beside the inputs, kept between checks.
+        self._judged: Judged = {}
 
     def __repr__(self) -> str:
         return f'Project({str(self.path)!r})'
@@ -259,7 +261,7 @@ class Project:
         """
         from konstruct.engine.build import changed_inputs
 
-        return changed_inputs(self.graph_path, self.graph) if self.has_graph() else []
+        return changed_inputs(self.graph_path, self.graph, self._judged) if self.has_graph() else []
 
     def impact(self, ref: str, max_depth: int | None = None) -> query.Walk:
         """Everything downstream of a table, model or column: what a change to it affects.

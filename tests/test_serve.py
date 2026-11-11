@@ -17,7 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import IO, Any, ClassVar
 from urllib.parse import quote
@@ -151,6 +151,23 @@ class Events:
                 continue
             key, _, value = line.partition(': ')
             fields[key] = value
+
+    def until(self, wanted: Callable[[dict[str, Any]], bool], timeout: float = 60) -> dict[str, Any]:
+        """The first event ``wanted`` accepts, within ``timeout`` seconds: a rebuild can announce a
+        graph on the way, such as one built from a file caught half-written, before the one the
+        test waits for."""
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            assert remaining > 0, f'no event met the condition within {timeout}s'
+            assert self.connection.sock is not None
+            self.connection.sock.settimeout(remaining)
+            try:
+                event = self.next()
+            except TimeoutError:
+                raise AssertionError(f'no event met the condition within {timeout}s') from None
+            if wanted(event):
+                return event
 
     def close(self) -> None:
         self.connection.close()
@@ -467,10 +484,11 @@ def test_live_reload_after_a_rebuild(tmp_path: Path) -> None:
         _, headers, before = served.request('/graph.json')
         assert headers['etag'] == f'"{first["version"]}"'
         assert b'#email' not in before
-        time.sleep(1.1)  # past the graph's modification time, as an editor's save would be
         small_project(project, 'id, name, email')
-        changed = events.next()
-        assert changed['version'] != first['version'] and changed['nodes'] > first['nodes']
+        # The watcher may catch the file between write_text's truncation and its write, and
+        # announce the graph built from that first: wait for the one with the new column.
+        changed = events.until(lambda event: event['nodes'] > first['nodes'])
+        assert changed['version'] != first['version']
         _, headers, after = served.request('/graph.json')
         assert headers['etag'] == f'"{changed["version"]}"' and b'#email' in after
         events.close()
@@ -689,6 +707,17 @@ def test_the_rebuilder_rebuilds_once_per_change(tmp_path: Path, monkeypatch: pyt
     rebuilder.stopped.set()
     rebuilder.join(timeout=5)
     assert not rebuilder.is_alive()
+
+
+def test_the_rebuilder_rebuilds_when_an_input_is_deleted(tmp_path: Path) -> None:
+    """A deleted or renamed input cannot be looked at, and is a change all the same."""
+    project = Project(small_project(tmp_path / 'shop'))
+    project.build()
+    rebuilder = serve.Rebuilder(project, Console(colour=False, quiet=True), interval=0.01)
+    (project.path / 'jobs' / 'users.sql').unlink()
+    assert rebuilder.check()
+    assert 'table.main.people' not in Graph.read(project.graph_path).nodes
+    assert not rebuilder.check()
 
 
 def test_the_api_answers_with_the_python_api_in_process(tmp_path: Path) -> None:
