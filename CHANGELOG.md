@@ -1,3 +1,14 @@
+## v0.13.10 (2026-11-11)
+
+### Fix
+
+- **query**: List the copies of each conflict's own idea in carried_into
+
+### Perf
+
+- **query**: Compare only the pairs of the columns a change alters in the gate
+- **query**: Work out each column of a conflict once, not once for every pair
+
 ## v0.13.9 (2026-11-11)
 
 ### Feat
