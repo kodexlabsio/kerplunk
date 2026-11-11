@@ -1,3 +1,9 @@
+## v0.13.16 (2026-11-11)
+
+### Fix
+
+- **build**: Count an input changed while the build ran as changed
+
 ## v0.13.15 (2026-11-11)
 
 ### Fix
