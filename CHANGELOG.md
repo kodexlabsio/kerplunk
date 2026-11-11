@@ -1,3 +1,11 @@
+## v0.13.14 (2026-11-11)
+
+### Feat
+
+- **viewer**: Draw the business as a world map of entities, metrics and their trust
+- **lineage**: Follow sensitive data through the lineage, with a gate rule and an erasure map
+- **warehouse**: Read the tags and masking policies on each column
+
 ## v0.13.13 (2026-11-11)
 
 ### Feat
