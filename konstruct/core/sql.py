@@ -333,6 +333,9 @@ def _column_lineage(
     result: StatementLineage,
 ) -> None:
     schema = build_schema(known, dialect)
+    known_tables = {key.lower() for key, columns in known.items() if columns}
+    if any(read not in known_tables for read in result.reads):
+        _name_unknown_columns(query, Dialect.get_or_raise(dialect), known_tables, default_catalog, default_db)
     qualify_kwargs: dict[str, Any] = {
         'dialect': dialect,
         'schema': schema,
@@ -384,7 +387,7 @@ def _column_lineage(
             'SELECT * over relations with unknown columns: ' + ', '.join(sorted(set(star_tables)))
         )
 
-    result.references = _references(scope, dialect, schema, default_catalog, default_db)
+    result.references = _references(scope, _Sources(scope), dialect, schema, default_catalog, default_db)
     canon = Canonical(dialect, default_catalog, default_db)
     for index, (name, node) in enumerate(nodes.items()):
         if name != '*':
@@ -393,6 +396,117 @@ def _column_lineage(
     scopes = _scopes(scope, lambda t: table_key(t, default_catalog, default_db))
     result.nullable, result.read_before, result.star_reads = scopes.nullable, scopes.read_before, scopes.stars
     result.conditions = canon.conditions(scope, schema, scopes)
+
+
+def _name_unknown_columns(
+    query: exp.Expr,
+    dialect: Dialect,
+    known: Collection[str],
+    default_catalog: str | None,
+    default_db: str | None,
+) -> None:
+    """Qualify the unqualified columns of each scope that reads one relation whose columns are unknown
+    with that relation, as SQL looks a name up in the innermost scope first.
+
+    sqlglot leaves such a column unqualified: lineage then cannot place it once CTEs are in view, it is
+    missing from the references, and in a subquery, where it could as well belong to the outer query,
+    qualify refuses the whole statement. This runs before qualify, on the statement as parsed.
+    """
+
+    def unknown(source: exp.Table | Scope) -> bool:
+        if isinstance(source, exp.Table):
+            # A table function such as read_parquet(...) has no name to look up.
+            return isinstance(source.this, exp.Identifier) and (
+                table_key(source, default_catalog, default_db) not in known
+            )
+        return any(unknown(inner) for _, inner in _star_sources(source))
+
+    root = build_scope(query)
+    for scope in root.traverse() if root is not None else ():
+        select = scope.expression
+        if not isinstance(select, exp.Select) or len(scope.selected_sources) != 1:
+            continue
+        [(name, (node, source))] = scope.selected_sources.items()
+        identifier = _source_name(node)
+        if identifier is None or not unknown(source):
+            continue
+        # A select alias that WHERE or GROUP BY refers to, a pseudocolumn such as Oracle's ROWNUM and
+        # a relation read as a record (BigQuery's `select t from t`) are not columns of the relation.
+        others = {name.lower()} | {p.lower() for p in dialect.PSEUDOCOLUMNS}
+        others |= {
+            item.alias.lower()
+            for item in select.selects
+            if isinstance(item, exp.Alias)
+            and not (isinstance(item.this, exp.Column) and item.this.name == item.alias)
+        }
+        for column in _own_columns(select):
+            if not column.table and column.name.lower() not in others:
+                column.set('table', identifier.copy())
+
+
+def _own_columns(select: exp.Select) -> list[exp.Column]:
+    """The columns of ``select`` itself, wherever they are in it (sqlglot leaves those of QUALIFY out
+    of a scope's columns), outside the queries within it and the names a star leaves out."""
+
+    def inside(node: exp.Expr) -> bool:
+        return node is not select and isinstance(node, (exp.Query, exp.Star))
+
+    return [node for node in select.walk(prune=inside) if isinstance(node, exp.Column)]
+
+
+def _source_name(node: exp.Expr) -> exp.Identifier | None:
+    """The name a query gives the relation it reads in FROM or JOIN: its alias, or the table's name."""
+    if isinstance(node, exp.Query) and isinstance(node.parent, exp.Subquery):
+        node = node.parent  # a subquery in FROM, whose alias is on its brackets
+    alias = node.args.get('alias')
+    name = alias.this if isinstance(alias, exp.TableAlias) else node.this
+    return name if isinstance(name, exp.Identifier) else None
+
+
+def _is_star(item: exp.Expr) -> bool:
+    return isinstance(item, exp.Star) or (isinstance(item, exp.Column) and isinstance(item.this, exp.Star))
+
+
+def _star_sources(scope: Scope) -> list[tuple[exp.Expr, exp.Table | Scope]]:
+    """The relations, with the node that reads each, whose every column a ``SELECT *`` or ``t.*`` in
+    ``scope`` passes on."""
+    select = scope.expression
+    if not isinstance(select, exp.Select):
+        return []
+    found: list[tuple[exp.Expr, exp.Table | Scope]] = []
+    for item in select.selects:
+        if isinstance(item, exp.Star):
+            found.extend(scope.selected_sources.values())
+        elif isinstance(item, exp.Column) and _is_star(item) and item.table in scope.selected_sources:
+            found.append(scope.selected_sources[item.table])
+    return found
+
+
+class _Sources:
+    """The relation each column of a query reads, including the columns of subqueries in its filters."""
+
+    def __init__(self, root: Scope) -> None:
+        self.root = root
+        self.owners: dict[int, Scope] | None = None
+
+    def of(self, column: exp.Column, scope: Scope) -> exp.Table | Scope | None:
+        """The source ``column`` names: one of ``scope``'s, or, for a column inside one of its
+        subqueries, one of that subquery's or of a query around it (a correlated reference)."""
+        source = scope.sources.get(column.table)
+        if source is not None or not column.table:
+            return source
+        if self.owners is None:
+            self.owners = {}
+            for inner in self.root.traverse():
+                for found in inner.columns:
+                    self.owners.setdefault(id(found), inner)
+        owner = self.owners.get(id(column))
+        while owner is not None:
+            source = owner.sources.get(column.table)
+            if source is not None:
+                return source
+            owner = owner.parent
+        return None
 
 
 def _strip_fields(expression: exp.Expr) -> exp.Expr:
@@ -765,6 +879,7 @@ class Canonical:
         # Keyed by id(), so each entry keeps its node alive: lineage nodes built for conditions are
         # temporary, and a freed node's id can be reused by the next one.
         self.memo: dict[int, tuple[LineageNode, str]] = {}
+        self.sources: _Sources | None = None
 
     def node(self, node: LineageNode) -> str:
         cached = self.memo.get(id(node))
@@ -827,6 +942,7 @@ class Canonical:
         :func:`in_context`)."""
         found: set[str] = set()
         folded = {id(s) for s in scopes.folded.values()}
+        self.sources = _Sources(root)
         for scope in root.traverse():
             query = scope.expression
             side, before = scopes.sides.get(id(scope)), scopes.before.get(id(scope), [])
@@ -921,7 +1037,8 @@ class Canonical:
         def replace(item: exp.Expr) -> exp.Expr:
             if not isinstance(item, exp.Column):
                 return item
-            source = scope.sources.get(item.table) if item.table else single
+            resolver = self.sources or _Sources(scope)
+            source = resolver.of(item, scope) if item.table else single
             if isinstance(source, exp.Table):
                 return exp.Var(
                     this=f'{table_key(source, self.default_catalog, self.default_db)}.{item.name.lower()}'
@@ -934,11 +1051,25 @@ class Canonical:
                 return _inline(self.node(traced))
             return item
 
-        return part.transform(replace).sql(dialect=self.dialect, copy=False)
+        # In place, not on a copy: a column's own node says which scope it is in.
+        if isinstance(part, exp.Column):
+            return replace(part).sql(dialect=self.dialect)
+        swapped: list[tuple[exp.Expr, exp.Expr]] = []
+        try:
+            for column in list(part.find_all(exp.Column)):
+                new = replace(column)
+                if new is not column:
+                    column.replace(new)
+                    swapped.append((new, column))
+            return part.sql(dialect=self.dialect, copy=False)
+        finally:
+            for new, old in reversed(swapped):
+                new.replace(old)
 
 
 def _references(
     root: Scope,
+    sources: _Sources,
     dialect: DialectType,
     schema: MappingSchema,
     default_catalog: str | None,
@@ -960,10 +1091,22 @@ def _references(
         for key in _REFERENCE_CLAUSES:
             value = select.args.get(key)
             for part in value if isinstance(value, list) else [value]:
-                if isinstance(part, exp.Expr):
-                    columns.extend(part.find_all(exp.Column))
+                # What a join matches on, and the columns an UNNEST, FLATTEN or table function it
+                # joins expands: a joined subquery's own columns belong to its scope.
+                if isinstance(part, exp.Join):
+                    columns += [
+                        n
+                        for n in part.this.walk(prune=lambda n: isinstance(n, exp.Query))
+                        if isinstance(n, exp.Column)
+                    ]
+                    parts = [part.args.get('on'), *(part.args.get('using') or [])]
+                else:
+                    parts = [part]
+                for piece in parts:
+                    if isinstance(piece, exp.Expr):
+                        columns.extend(piece.find_all(exp.Column))
         for column in columns:
-            source = scope.sources.get(column.table)
+            source = sources.of(column, scope)
             fields = _fields_read(column)
             if isinstance(source, exp.Table):
                 add(table_key(source, default_catalog, default_db), '.'.join((column.name, *fields)))

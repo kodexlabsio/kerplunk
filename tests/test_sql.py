@@ -709,6 +709,79 @@ def test_group_by_all_leaves_out_functions_sqlglot_does_not_know() -> None:
     assert result.references == [(ORDERS, 'customer_id')]
 
 
+@pytest.mark.parametrize('schema', [SCHEMA, {}], ids=['known columns', 'unknown columns'])
+@pytest.mark.parametrize(
+    ('condition', 'outer', 'inner'),
+    [
+        ('o.id in (select order_id from payments)', 'id', {'order_id'}),
+        ('o.id not in (select order_id from payments where amount > 0)', 'id', {'order_id', 'amount'}),
+        ('exists (select 1 from payments where order_id = o.id)', 'id', {'order_id'}),
+        ('not exists (select 1 from payments p where p.order_id = o.id)', 'id', {'order_id'}),
+        ('o.amount > (select avg(amount) from payments)', 'amount', {'amount'}),
+    ],
+)
+def test_a_subquery_filter_beside_a_join(
+    condition: str, outer: str, inner: set[str], schema: dict[str, Any]
+) -> None:
+    sql = f"""
+    select o.id, c.first_name
+    from orders o join customers c on o.customer_id = c.id
+    where {condition}
+    """
+    result = one(sql, schema=schema)
+    assert result.errors == []
+    assert result.columns == {'id': [src(ORDERS, 'id')], 'first_name': [src(CUSTOMERS, 'first_name')]}
+    assert set(result.references) == {
+        (ORDERS, 'customer_id'),
+        (CUSTOMERS, 'id'),
+        (ORDERS, outer),
+        *((PAYMENTS, column) for column in inner),
+    }
+
+
+def test_a_correlated_subquery_names_the_outer_column() -> None:
+    sql = 'select o.id from orders o where exists (select 1 from payments where order_id = o.id)'
+    assert 'WHERE: db.main.payments.order_id = db.main.orders.id' in one(sql, schema={}).conditions
+
+
+@pytest.mark.parametrize('schema', [SCHEMA, {}], ids=['known columns', 'unknown columns'])
+@pytest.mark.parametrize(
+    'join',
+    [
+        'join (select order_id, sum(amount) as total from payments group by order_id) l on l.order_id = o.id',
+        'cross join lateral (select sum(p.amount) as total from payments p where p.order_id = o.id) l',
+        'left join lateral (select sum(p.amount) as total from payments p where p.order_id = o.id) l on true',
+    ],
+)
+def test_the_columns_a_joined_subquery_selects_are_not_references(join: str, schema: dict[str, Any]) -> None:
+    result = one(f'select o.id, l.total from orders o {join}', schema=schema)
+    assert set(result.references) == {(PAYMENTS, 'order_id'), (ORDERS, 'id')}
+
+
+def test_the_columns_of_a_join_using_are_references() -> None:
+    result = one('select o.amount from orders o join payments p using (id)')
+    assert set(result.references) == {(ORDERS, 'id'), (PAYMENTS, 'id')}
+
+
+@pytest.mark.parametrize(
+    ('sql', 'dialect'),
+    [
+        ('select id from arrs cross join unnest(arr) as t(x)', 'duckdb'),
+        ('select id from arrs, unnest(arr) as x', 'bigquery'),
+        ('select a.id from arrs a, lateral flatten(input => a.arr) f', 'snowflake'),
+    ],
+)
+def test_the_list_a_join_unnests_is_a_reference(sql: str, dialect: str) -> None:
+    # An empty list joins no row: the list decides which rows there are.
+    result = one(sql, dialect=dialect, schema={'db.main.arrs': {'id': 'int', 'arr': 'int[]'}})
+    assert ('db.main.arrs', 'arr') in result.references
+
+
+def test_unqualified_columns_of_a_relation_with_unknown_columns_are_references() -> None:
+    result = one("select id from orders where status = 'completed' group by id", schema={})
+    assert result.references == [(ORDERS, 'status'), (ORDERS, 'id')]
+
+
 def test_the_relations_a_star_it_could_not_expand_reads() -> None:
     """Every column of a relation with unknown columns reaches the output of a ``SELECT *`` over it,
     beside any other item and through a CTE, except those it leaves out."""
