@@ -90,7 +90,7 @@ Having a context layer is not the same as having a right one. Of the enterprises
 
 - **Lineage, on the data.** `konstruct verify` perturbs each input column, reruns each model and records what moves. On dbt Labs' jaffle-shop all 87 claimed column edges are confirmed, and nothing moved that the graph did not predict.
 - **Formula identity.** Two columns that claim the same metric are compared by what they compute, not how they are written: `SUM(price * quantity)` and `SUM(quantity * price)` are one formula, and `konstruct conflicts` shows where two that differ give different results.
-- **Data laws.** Totals a model's SQL must conserve, such as `SUM(daily_revenue.revenue) = SUM(raw_payments.amount)`, are proposed from the SQL and confirmed on the warehouse, through the Python API.
+- **Data laws.** Totals a model's SQL must conserve, such as `SUM(daily_revenue.revenue) = SUM(raw_payments.amount)`, are proposed from the SQL and confirmed on the warehouse with `konstruct verify --laws`, and the gate fails a change that breaks one.
 - **Mutation testing.** `konstruct verify --mutate` runs small wrong versions of each model and shows which ones your tests would let through, and suggests a test that would catch each.
 - **The rows behind a number.** `konstruct verify --why` lists the source rows behind one value, each with its share, and the rows a filter or join left out.
 
