@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import copy
+import json
+import pickle
+import subprocess
+import sys
 import textwrap
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -330,6 +337,314 @@ def test_looks_like_dag_file() -> None:
     assert looks_like_dag_file('from airflow import DAG')
     assert looks_like_dag_file('from airflow.sdk import dag\n@dag()')
     assert not looks_like_dag_file('import pandas')
+    assert not looks_like_dag_file('import airflow')
+    assert not looks_like_dag_file('DAG')
+
+
+SYNTAX = {
+    'match': 'match x:\n    case [1, *rest] if rest:\n        pass\n    case {"a": 1, **kw} | None:\n        pass\n',
+    'type parameters': 'type Alias[T = int] = list[T]\nclass C[T: int, *Ts, **P]:\n    def m[U](self, x: U) -> U: ...\n',
+    'nested f-string quotes': 'x = f"{d["k"]} {f"{y!r:>{w}}"} {"\\n".join(z)}"\n',
+    'template string': 'x = t"hello {name} {value=}"\n',
+    'except without parentheses': 'try:\n    pass\nexcept ValueError, TypeError:\n    pass\n',
+    'except star': 'try:\n    pass\nexcept* ValueError:\n    pass\n',
+    'lazy import': 'lazy import json\nlazy from os import path\n',
+    'parenthesised with': 'with (open("a") as a, open("b") as b):\n    pass\n',
+    'star in subscript': 'x = a[*b]\ny = a[1:2, ::3]\n',
+    'async': 'async def f():\n    async with a as b:\n        return [i async for i in z]\n',
+    'positional only': 'def f(a, /, b, *, c): ...\nif (n := 10) > 5: pass\n',
+    'unicode names': 'ünï = 1\n变量 = 2\n',
+}
+
+
+@pytest.mark.parametrize('prelude', SYNTAX.values(), ids=SYNTAX.keys())
+def test_the_syntax_of_every_python_version_is_read(tmp_path: Path, prelude: str) -> None:
+    [dag] = parse(
+        tmp_path,
+        'from airflow import DAG\n'
+        + prelude
+        + 'with DAG("d") as dag:\n    BashOperator(task_id="a", bash_command="dbt run")\n',
+    )
+    assert list(dag.tasks) == ['a']
+
+
+def test_a_syntax_error_names_its_line_and_file(tmp_path: Path) -> None:
+    path = tmp_path / 'broken.py'
+    path.write_text('from airflow import DAG\nx = 1\nwith DAG("x") as dag:\n    oops(\n')
+    with pytest.raises(SyntaxError) as raised:
+        parse_file(path)
+    assert raised.value.filename == str(path)
+    assert raised.value.lineno in (4, 5)
+    assert raised.value.msg
+
+
+def test_a_file_that_cannot_be_read_raises_as_reading_it_does(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        parse_file(tmp_path / 'missing.py')
+    (tmp_path / 'latin.py').write_bytes(b'x = "caf\xe9"\n')
+    with pytest.raises(UnicodeDecodeError):
+        parse_file(tmp_path / 'latin.py')
+
+
+def test_windows_line_ends_read_as_python_reads_them(tmp_path: Path) -> None:
+    path = tmp_path / 'dos.py'
+    path.write_bytes(
+        b'from airflow import DAG\r\nwith DAG("d") as dag:\r\n'
+        b'    BashOperator(task_id="a", bash_command="""echo 1\r\ndbt run""")\r\n'
+        b'    BashOperator(task_id="b")\r\n'
+    )
+    [dag] = parse_file(path)
+    assert dag.tasks['a'].bash_command == 'echo 1\ndbt run'
+    assert [dag.tasks['a'].line, dag.tasks['b'].line] == [3, 5]
+
+
+def test_a_decorated_task_is_on_the_line_of_its_def(tmp_path: Path) -> None:
+    [dag] = parse(
+        tmp_path,
+        """
+        from airflow.sdk import dag, task
+
+        @dag(schedule=None)
+        def pipeline():
+            @task(
+                retries=1,
+            )
+            # between
+            def extract():
+                \"\"\"Pull it.\"\"\"
+
+            extract()
+        """,
+    )
+    assert dag.line == 5
+    assert dag.tasks['extract'].line == 10
+    assert dag.tasks['extract'].doc == 'Pull it.'
+
+
+def test_a_long_chain_of_elifs_is_read_in_bounded_time(tmp_path: Path) -> None:
+    branches = ''.join(f'elif x == {i}:\n    BashOperator(task_id=f"{{u}}{i}")\n' for i in range(60))
+    started = time.perf_counter()
+    [dag] = parse(
+        tmp_path,
+        'from airflow import DAG\nwith DAG("d") as dag:\n    if x == -1:\n        pass\n'
+        + textwrap.indent(branches, '    '),
+    )
+    assert dag.tasks == {} and len(dag.warnings) == 60
+    assert time.perf_counter() - started < 5
+
+
+def test_each_else_and_finally_is_read_once(tmp_path: Path) -> None:
+    """Nested try and finally took twice as long with each level, and warned once for each read."""
+
+    def nested(depth: int, indent: str) -> str:
+        if depth == 0:
+            return f'{indent}BashOperator(task_id=f"{{unresolved}}")\n'
+        return f'{indent}try:\n{indent}    pass\nfinally:\n'.replace('finally', f'{indent}finally') + nested(
+            depth - 1, indent + '    '
+        )
+
+    started = time.perf_counter()
+    [dag] = parse(tmp_path, 'from airflow import DAG\nwith DAG("d") as dag:\n' + nested(40, '    '))
+    assert len(dag.warnings) == 1 and 'no constant task_id' in dag.warnings[0]
+    assert time.perf_counter() - started < 5
+    [dag] = parse(
+        tmp_path,
+        """
+        from airflow import DAG
+        with DAG("d") as dag:
+            if a:
+                pass
+            else:
+                BashOperator(task_id=f"{x}")
+            for i in y:
+                pass
+            else:
+                BashOperator(task_id=f"{x}")
+        """,
+    )
+    assert len(dag.warnings) == 2
+
+
+def test_thousands_of_generated_tasks_with_unpacked_keywords_are_read(tmp_path: Path) -> None:
+    tasks = ''.join(
+        f"    t{i} = BashOperator(task_id='t{i}', bash_command='echo {i}', **common)\n" for i in range(5100)
+    )
+    [dag] = parse(tmp_path, 'from airflow import DAG\ncommon = {}\nwith DAG("d") as dag:\n' + tasks)
+    assert len(dag.tasks) == 5100
+
+
+def test_folding_values_that_double_is_capped(tmp_path: Path) -> None:
+    """A string defined from itself forty times would be 2**40 long: a value over a mebibyte is left
+    unresolved, the name is unbound (not kept at its last smaller value), and the process does not run
+    out of memory."""
+    source = tmp_path / 'doubling.py'
+    source.write_text(
+        'from airflow import DAG\ns = "x"\n'
+        + 's = s + s\n' * 40
+        + 'f = "y"\n'
+        + 'f = f"{f}{f}"\n' * 40
+        + 'with DAG("d") as dag:\n    BashOperator(task_id=s, bash_command="no")\n'
+        '    BashOperator(task_id="b", bash_command=f)\n    BashOperator(task_id="c", bash_command="ok")\n'
+    )
+    code = (
+        'import sys; from konstruct.inputs.airflow import parse_file\n'
+        '[dag] = parse_file(sys.argv[1])\n'
+        'print({t.task_id: t.bash_command[:14] for t in dag.tasks.values()}, len(dag.warnings))'
+    )
+    done = subprocess.run([sys.executable, '-c', code, str(source)], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr[-300:]
+    assert done.stdout.strip() == "{'b': '{{ unresolved ', 'c': 'ok'} 1"
+
+
+def _unreadable_or_read(tmp_path: Path, body: str) -> None:
+    """Reads ``body`` in a process of its own, which must finish: with a result or a SyntaxError."""
+    source = tmp_path / 'deep.py'
+    source.write_text('from airflow import DAG\n' + body + '\n')
+    code = (
+        'import sys; from konstruct.inputs.airflow import parse_file\n'
+        'try: parse_file(sys.argv[1])\nexcept SyntaxError: pass'
+    )
+    done = subprocess.run([sys.executable, '-c', code, str(source)], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr[-300:]
+
+
+def test_long_lists_of_ternaries_and_lambdas_are_read(tmp_path: Path) -> None:
+    ternaries = ''.join(f"    {{'id': {i}, 'v': 1 if a else 2}},\n" for i in range(6000))
+    lambdas = ''.join(f'    lambda: {i},\n' for i in range(6000))
+    [dag] = parse(
+        tmp_path,
+        'from airflow import DAG\nCONFIG = [\n'
+        + ternaries
+        + ']\nHOOKS = [\n'
+        + lambdas
+        + ']\nwith DAG("d") as dag:\n    BashOperator(task_id="a")\n',
+    )
+    assert list(dag.tasks) == ['a']
+
+
+def test_chains_of_ternaries_and_lambdas_100000_deep_finish(tmp_path: Path) -> None:
+    _unreadable_or_read(tmp_path, 'x = ' + '1 if 2 else ' * 100_000 + '3')
+    _unreadable_or_read(tmp_path, 'x = ' + 'lambda: ' * 100_000 + '3')
+
+
+def test_indentation_errors_are_indentation_errors(tmp_path: Path) -> None:
+    for text in ('x = 1\n  y = 2\n', 'if a:\npass\n', 'if a:\n        x\n    y\n'):
+        path = tmp_path / 'indent.py'
+        path.write_text(text)
+        with pytest.raises(IndentationError):
+            parse_file(path)
+    path.write_text('x = (\n')
+    with pytest.raises(SyntaxError) as raised:
+        parse_file(path)
+    assert not isinstance(raised.value, IndentationError)
+
+
+def test_records_copy_and_pickle_like_dataclasses() -> None:
+    [dag] = parse_file(EXAMPLE_DAG)
+    task = dag.tasks['dbt_run_staging']
+    for record in (dag, task, task.dbt[0]):
+        assert copy.copy(record) == record
+        assert copy.deepcopy(record) == record
+        assert pickle.loads(pickle.dumps(record)) == record
+    assert copy.copy(task).dbt is task.dbt
+    assert copy.deepcopy(task).dbt is not task.dbt
+    assert copy.deepcopy(dag).tasks['dbt_run_staging'] is not task
+
+
+def test_the_tables_the_reader_is_built_from_are_still_there() -> None:
+    from konstruct.inputs import airflow
+
+    assert frozenset({'DAG'}) == airflow.DAG_CLASSES
+    assert frozenset({'TaskGroup'}) == airflow.GROUP_CLASSES
+    assert frozenset({'DbtTaskGroup', 'DbtDag'}) == airflow.COSMOS_CLASSES
+    assert airflow.SQL_KWARGS == ('sql', 'query', 'sql_query')
+    assert airflow.WRITE_KWARGS == ('target_table', 'destination_table', 'destination_project_dataset_table')
+    assert airflow.READ_KWARGS == ('table', 'source_table', 'source_project_dataset_table')
+    assert airflow.UNRESOLVED == '{{ unresolved }}'
+    assert airflow.GROUP == '\x00group:'
+    assert frozenset({'run', 'build', 'test', 'seed', 'snapshot', 'compile'}) == airflow.DBT_COMMANDS
+
+
+def test_records_are_edited_in_place_like_dataclasses(tmp_path: Path) -> None:
+    [dag] = parse(
+        tmp_path,
+        """
+        from airflow import DAG
+        with DAG("d") as dag:
+            BashOperator(task_id="a", bash_command="dbt run -s x", sql="select 1")
+        """,
+    )
+    task = dag.tasks['a']
+    assert task is dag.tasks['a'] and task.dbt is task.dbt
+    task.sql, task.sql_path = None, None
+    task.dbt[0].selectors.append('y')
+    dag.warnings.append('edited')
+    assert dag.tasks['a'].sql is None
+    assert dag.tasks['a'].dbt == [DbtInvocation(command='run', selectors=['x', 'y'])]
+    assert dag.warnings == ['edited']
+    assert dag != DagInfo(dag_id='d', path=dag.path, line=dag.line)
+    assert 'DbtInvocation(command=' in repr(task.dbt[0])
+
+
+def test_a_record_survives_json(tmp_path: Path) -> None:
+    [dag] = parse_file(EXAMPLE_DAG)
+    restored = DagInfo.from_dict(json.loads(json.dumps(dag.to_dict())))
+    assert restored == dag
+    assert restored.dependencies == dag.dependencies and isinstance(restored.dependencies[0], tuple)
+    with pytest.raises(TypeError):
+        DagInfo.from_dict({**dag.to_dict(), 'unknown': 1})
+
+
+def test_files_are_read_from_many_threads_at_once(tmp_path: Path) -> None:
+    path = tmp_path / 'dag.py'
+    path.write_text(EXAMPLE_DAG.read_text())
+    expected = [d.to_dict() for d in parse_file(path)]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _: [d.to_dict() for d in parse_file(path)], range(64)))
+    assert all(result == expected for result in results)
+
+
+@pytest.mark.parametrize(
+    'body',
+    [
+        'x = ' + '-' * 200_000 + '1',
+        'x = ' + ' + '.join(['1'] * 20_000),
+        'x = ' + '[' * 3000 + ']' * 3000 + '\n' * 40_000,
+    ],
+    ids=['minus', 'sum', 'brackets'],
+)
+def test_nesting_too_deep_to_read_is_a_syntax_error(tmp_path: Path, body: str) -> None:
+    with pytest.raises(SyntaxError):
+        parse(tmp_path, 'from airflow import DAG\n' + body + '\n')
+
+
+def test_scan_python_files_decides_from_the_bytes(tmp_path: Path) -> None:
+    from konstruct._core import scan_python_files
+
+    files = {
+        'dag.py': b'from airflow import DAG\n',
+        'taskflow.py': b'import airflow\n@dag\ndef f(): ...\n',
+        'assets.py': b'from dagster import asset\n@asset\ndef a(): ...\n',
+        'both.py': b'airflow DAG dagster sensor',
+        'plain.py': b'import pandas\n',
+        'airflow_only.py': b'# the airflow deployment\n',
+        'binary.py': b'\xff\xfe airflow \xff@dag',
+    }
+    for name, content in files.items():
+        (tmp_path / name).write_bytes(content)
+    paths = [tmp_path / name for name in files] + [tmp_path / 'missing.py', tmp_path]
+    found = dict(zip([*files, 'missing.py', 'directory'], scan_python_files(paths), strict=True))
+    assert found == {
+        'dag.py': (True, False),
+        'taskflow.py': (True, False),
+        'assets.py': (False, True),
+        'both.py': (True, True),
+        'plain.py': (False, False),
+        'airflow_only.py': (False, False),
+        'binary.py': (True, False),
+        'missing.py': (False, False),
+        'directory': (False, False),
+    }
 
 
 @pytest.mark.parametrize(
@@ -351,3 +666,14 @@ def test_looks_like_dag_file() -> None:
 )
 def test_parse_dbt_commands(command: str, expected: list[DbtInvocation]) -> None:
     assert parse_dbt_commands(command) == expected
+
+
+def test_a_large_dict_literal_is_read_in_linear_time(tmp_path: Path) -> None:
+    keys = ', '.join(f"'key{i}': [{i}, 'v{i}']" for i in range(40_000))
+    started = time.perf_counter()
+    [dag] = parse(
+        tmp_path,
+        f'from airflow import DAG\nCONFIG = {{{keys}}}\nwith DAG("d") as dag:\n    BashOperator(task_id="a")\n',
+    )
+    assert list(dag.tasks) == ['a']
+    assert time.perf_counter() - started < 5

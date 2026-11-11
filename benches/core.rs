@@ -423,6 +423,23 @@ fn main() {
             .sum();
         black_box(count);
     });
+    // Python source with neither word, as nearly every file discovery looks at is: the scan for
+    // "airflow" and "dagster", and the rest of what decides whether it declares DAGs.
+    let python: String = (0..4096)
+        .map(|n| {
+            format!(
+                "def handler_{n}(request, context):\n    \"\"\"Answer the request.\"\"\"\n    return {{'id': {n}, 'name': context.name}}\n\n"
+            )
+        })
+        .collect();
+    let python = python.into_bytes();
+    println!("Python source: {} bytes", python.len());
+    bench(filter, "scan a file for airflow and dagster", || {
+        black_box(_core::scan::gates(black_box(&python)));
+    });
+    bench(filter, "classify a file as a DAG or Dagster file", || {
+        black_box(_core::scan::classify(black_box(&python)));
+    });
     bench(filter, "keys of every id, name and label", || {
         for node in &nodes {
             black_box(keys::from_str(&node.id));

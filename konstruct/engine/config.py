@@ -913,6 +913,8 @@ def _walk_files(config: Config, suffix: str) -> list[Path]:
 
 
 def discover_dag_files(config: Config) -> list[Path]:
+    from konstruct._core import scan_python_files
+
     if config.dag_paths is not None:
         files: list[Path] = []
         for path in config.dag_paths:
@@ -921,10 +923,13 @@ def discover_dag_files(config: Config) -> list[Path]:
             elif path.is_file():
                 files.append(path)
         return config.inside(files)
-    return [path for path in iter_files(config, '.py') if _is_dag(path, '', ())]
+    candidates = iter_files(config, '.py')
+    return [path for path, (dag, _) in zip(candidates, scan_python_files(candidates), strict=True) if dag]
 
 
 def discover_dagster_files(config: Config) -> list[Path]:
+    from konstruct._core import scan_python_files
+
     if config.dagster_paths is not None:
         files: list[Path] = []
         for path in config.dagster_paths:
@@ -933,7 +938,10 @@ def discover_dagster_files(config: Config) -> list[Path]:
             elif path.is_file():
                 files.append(path)
         return config.inside(files)
-    return [path for path in iter_files(config, '.py') if _is_dagster(path, '', ())]
+    candidates = iter_files(config, '.py')
+    return [
+        path for path, (_, dagster) in zip(candidates, scan_python_files(candidates), strict=True) if dagster
+    ]
 
 
 def discover_spark_files(config: Config) -> list[Path]:

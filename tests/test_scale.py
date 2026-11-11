@@ -293,6 +293,177 @@ def test_workers_keep_their_directory_off_the_path() -> None:
     assert directory is not None and not Path(directory).exists()
 
 
+DAG_TEMPLATE = '''"""Load and model the {name} feed."""
+
+from datetime import datetime
+
+from airflow import DAG
+from airflow.decorators import task
+from airflow.operators.bash import BashOperator
+from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
+
+SCHEMA = "analytics"
+
+with DAG(
+    dag_id="feed_{index}",
+    schedule="@daily",
+    start_date=datetime(2024, 1, 1),
+    tags=["feeds", "group{group}"],
+    description=f"The {name} feed, loaded into {{SCHEMA}}",
+) as dag:
+    seed = BashOperator(task_id="seed", bash_command="cd /opt/shop && dbt seed --select {name}")
+    staged = BashOperator(
+        task_id="staged",
+        bash_command="dbt run --select staging.{name}+ --exclude tag:slow && dbt test --select {name}",
+    )
+    summary = SQLExecuteQueryOperator(
+        task_id="summary",
+        sql=(
+            f"insert into {{SCHEMA}}.{name}_daily "
+            "select day, count(*) as events, sum(amount) as revenue "
+            f"from {{SCHEMA}}.{name}_events group by day"
+        ),
+    )
+
+    @task
+    def notify():
+        """Tell the owners the {name} feed is loaded."""
+        return "done"
+
+    check = BashOperator(task_id="check", bash_command="echo ok")
+    publish = BashOperator(task_id="publish", bash_command="echo ok")
+
+    seed >> staged >> summary >> notify()
+    summary >> check >> publish
+'''
+
+OTHER_TEMPLATE = '''"""A helper module of the {name} service."""
+
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+{mention}
+
+@dataclass
+class {name}Record:
+    key: str
+    values: dict[str, int] = field(default_factory=dict)
+
+    def total(self) -> int:
+        return sum(self.values.values())
+
+
+def load(path: Path) -> list[{name}Record]:
+    """Read the records saved at ``path``."""
+    found = []
+    for line in path.read_text().splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        item = json.loads(line)
+        found.append({name}Record(key=item["key"], values=item.get("values", {{}})))
+    log.info("read %d records from %s", len(found), path)
+    return found
+
+
+def merge(left: {name}Record, right: {name}Record) -> {name}Record:
+    values = dict(left.values)
+    for key, count in right.values.items():
+        values[key] = values.get(key, 0) + count
+    return {name}Record(key=left.key, values=values)
+
+
+class {name}Service:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.records: dict[str, {name}Record] = {{}}
+
+    def refresh(self) -> int:
+        for path in sorted(self.root.glob("*.jsonl")):
+            for record in load(path):
+                known = self.records.get(record.key)
+                self.records[record.key] = merge(known, record) if known else record
+        return len(self.records)
+'''
+
+ASSETS_TEMPLATE = '''from dagster import AssetKey, Definitions, asset, define_asset_job
+
+
+@asset(group_name="feeds")
+def raw_{index}():
+    """The raw {index} feed."""
+    return []
+
+
+@asset(group_name="feeds", deps=[AssetKey("source_{index}")])
+def cleaned_{index}(raw_{index}):
+    return raw_{index}
+
+
+feeds_{index} = define_asset_job("feeds_{index}", selection="cleaned_{index}")
+defs = Definitions(assets=[raw_{index}, cleaned_{index}], jobs=[feeds_{index}])
+'''
+
+
+def make_orchestrator_repo(root: Path, dags: int, others: int, assets: int = 0) -> None:
+    """A repository of ``dags`` Airflow DAG files, ``assets`` Dagster definition files and
+    ``others`` Python files that are neither (one in twenty mentions Airflow without defining a
+    DAG), in directories of 100. Also used by .kodex/scripts/orchestrator_benchmark.py."""
+    for kind, count in (('dags', dags), ('assets', assets), ('lib', others)):
+        for index in range(count):
+            directory = root / kind / f'part{index // 100:03}'
+            directory.mkdir(parents=True, exist_ok=True)
+            name = f'feed{index}'
+            if kind == 'dags':
+                text = DAG_TEMPLATE.format(name=name, index=index, group=index % 7)
+            elif kind == 'assets':
+                text = ASSETS_TEMPLATE.format(index=index)
+            else:
+                mention = '# Scheduled by the airflow deployment.\n' if index % 20 == 0 else ''
+                text = OTHER_TEMPLATE.format(name=name.capitalize(), mention=mention)
+            (directory / f'{name}.py').write_text(text)
+
+
+def test_orchestrator_files_are_found_and_read_at_scale(tmp_path: Path) -> None:
+    """Finding the DAG and Dagster files among thousands of Python files, and reading each DAG
+    file, take seconds of wall time at most, and find exactly the generated files."""
+    from konstruct.engine.config import discover_dag_files, discover_dagster_files, load_config
+    from konstruct.inputs.airflow import parse_file
+
+    dags, assets, others = 400, 100, 1000
+    make_orchestrator_repo(tmp_path, dags, others, assets)
+    config = load_config(tmp_path)
+    started = time.perf_counter()
+    found_dags = discover_dag_files(config)
+    found_assets = discover_dagster_files(config)
+    discovery = time.perf_counter() - started
+    assert len(found_dags) == dags
+    assert {p.parent.parent.name for p in found_dags} == {'dags'}
+    assert len(found_assets) == assets
+    started = time.perf_counter()
+    parsed = [parse_file(path) for path in found_dags]
+    reading = time.perf_counter() - started
+    assert all(len(d) == 1 and len(d[0].tasks) == 6 and d[0].warnings == [] for d in parsed)
+    seven = {d[0].dag_id: d[0] for d in parsed}['feed_7']
+    assert seven.dependencies == [
+        ('seed', 'staged'),
+        ('staged', 'summary'),
+        ('summary', 'notify'),
+        ('summary', 'check'),
+        ('check', 'publish'),
+    ]
+    assert discovery < 30, f'finding the files took {discovery:.1f}s'
+    assert reading < 30, f'reading {dags} DAG files took {reading:.1f}s'
+    print(
+        f'\n{dags + assets + others} files: discovery {discovery:.2f}s, '
+        f'reading {dags} DAG files {reading:.2f}s'
+    )
+
+
 MEASURES = 5
 
 

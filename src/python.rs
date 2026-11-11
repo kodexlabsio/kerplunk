@@ -572,7 +572,7 @@ impl Router {
 }
 
 /// Konstruct's native core: graph traversal, name resolution, search, search by meaning,
-/// formula identity, topic routing and the server.
+/// formula identity, topic routing, the readers of Airflow and Dagster files and the server.
 #[pymodule(name = "_core")]
 mod core_module {
     use pyo3::exceptions::PyImportError;
@@ -585,18 +585,25 @@ mod core_module {
     #[pymodule_export]
     use super::{GraphIndex, RelationNames, Router, SearchIndex, Server, graph_version, openapi};
     #[pymodule_export]
+    use crate::airflow::python::{
+        DagInfo, DbtInvocation, TaskInfo, looks_like_dag_file, parse_dag_file, parse_dag_source,
+        parse_dbt_commands,
+    };
+    #[pymodule_export]
     use crate::identity::python::FormulaSet;
     #[pymodule_export]
     use crate::load::python::GraphFile;
+    #[pymodule_export]
+    use crate::scan::python::scan_python_files;
     #[pymodule_export]
     use crate::vector::python::{VectorIndex, concept, terms};
 
     /// Refuses to load on a processor the routines cannot run on, before anything calls them.
     #[pymodule_init]
-    fn init(_module: &Bound<'_, PyModule>) -> PyResult<()> {
-        match crate::unsupported_processor() {
-            Some(reason) => Err(PyImportError::new_err(reason)),
-            None => Ok(()),
+    fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
+        if let Some(reason) = crate::unsupported_processor() {
+            return Err(PyImportError::new_err(reason));
         }
+        crate::airflow::python::add_tables(module)
     }
 }

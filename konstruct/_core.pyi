@@ -1,13 +1,17 @@
 """Konstruct's native core (the Rust crate in src/): graph traversal, name resolution, search,
-search by meaning, formula identity, topic routing and the server. ``konstruct.core.graph``,
-``konstruct.analysis.query``, ``konstruct.analysis.semantic`` and ``konstruct.analysis.identity``
-are its callers; nodes, edges and relations are passed in, and come back, as ordinals into the
-lists given. Any string may hold lone surrogates (a file name decoded with ``surrogateescape``),
-and an id comes back exactly as it was given. ``konstruct.interfaces.serve`` starts the server,
-which reads the graph files itself and asks ``konstruct.interfaces.http_api`` for every answer."""
+search by meaning, formula identity, topic routing, the readers of Airflow and Dagster files and
+the server. ``konstruct.core.graph``, ``konstruct.analysis.query``,
+``konstruct.analysis.semantic`` and ``konstruct.analysis.identity`` are the callers of the
+indexes; nodes, edges and relations are passed in, and come back, as ordinals into the lists
+given. Any string may hold lone surrogates (a file name decoded with ``surrogateescape``), and an
+id comes back exactly as it was given. ``konstruct.interfaces.serve`` starts the server, which
+reads the graph files itself and asks ``konstruct.interfaces.http_api`` for every answer.
+``konstruct.inputs.airflow`` and ``konstruct.inputs.dagster`` re-export the readers of the
+orchestrators' files, whose records here are the ones the build and the plugins read."""
 
-from collections.abc import Callable
-from typing import Any, final
+from collections.abc import Callable, Sequence
+from os import PathLike
+from typing import Any, Self, final
 
 GRAPH_FORMAT_VERSION: int
 """The newest graph.json format this Konstruct reads and writes."""
@@ -228,3 +232,124 @@ class Router:
     def route(self, topic: str) -> str | None:
         """The topic after routing: replaced when the whole expression matches it, else unchanged;
         None when the replacement splits a character, as an expression on bytes can."""
+
+DAG_CLASSES: frozenset[str]
+GROUP_CLASSES: frozenset[str]
+COSMOS_CLASSES: frozenset[str]
+SQL_KWARGS: tuple[str, ...]
+WRITE_KWARGS: tuple[str, ...]
+READ_KWARGS: tuple[str, ...]
+DBT_COMMANDS: frozenset[str]
+UNRESOLVED: str
+GROUP: str
+"""The tables the Airflow reader is built from: the classes it takes for a DAG, a task group and
+a Cosmos task, the keyword arguments that hold SQL or name tables, the dbt commands it reads, and
+the marks it puts in ids."""
+
+class DbtInvocation:
+    """One ``dbt <command>`` that an Airflow task runs, and what it selects."""
+
+    command: str
+    selectors: list[str]
+    excludes: list[str]
+    project_dir: str | None
+    unsupported: list[str]
+    def __init__(
+        self,
+        command: str,
+        selectors: list[str] | None = None,
+        excludes: list[str] | None = None,
+        project_dir: str | None = None,
+        unsupported: list[str] | None = None,
+    ) -> None: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self: ...
+    def __reduce__(self) -> tuple[Any, ...]: ...
+
+class TaskInfo:
+    """One task of an Airflow DAG."""
+
+    task_id: str
+    operator: str
+    line: int
+    doc: str | None
+    bash_command: str | None
+    sql: str | None
+    sql_path: str | None
+    dbt: list[DbtInvocation]
+    reads: list[str]
+    writes: list[str]
+    inlets: list[str]
+    outlets: list[str]
+    def __init__(
+        self,
+        task_id: str,
+        operator: str,
+        line: int,
+        doc: str | None = None,
+        bash_command: str | None = None,
+        sql: str | None = None,
+        sql_path: str | None = None,
+        dbt: list[DbtInvocation] | None = None,
+        reads: list[str] | None = None,
+        writes: list[str] | None = None,
+        inlets: list[str] | None = None,
+        outlets: list[str] | None = None,
+    ) -> None: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self: ...
+    def __reduce__(self) -> tuple[Any, ...]: ...
+
+class DagInfo:
+    """One DAG of an Airflow file: its tasks by id and the dependencies between them."""
+
+    dag_id: str
+    path: str
+    line: int
+    schedule: str | None
+    description: str | None
+    tags: list[str]
+    tasks: dict[str, TaskInfo]
+    dependencies: list[tuple[str, str]]
+    warnings: list[str]
+    def __init__(
+        self,
+        dag_id: str,
+        path: str,
+        line: int,
+        schedule: str | None = None,
+        description: str | None = None,
+        tags: list[str] | None = None,
+        tasks: dict[str, TaskInfo] | None = None,
+        dependencies: list[tuple[str, str]] | None = None,
+        warnings: list[str] | None = None,
+    ) -> None: ...
+    def to_dict(self) -> dict[str, Any]:
+        """The record as plain dicts, lists and tuples."""
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DagInfo:
+        """The record ``to_dict`` describes."""
+    def __eq__(self, other: object) -> bool: ...
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self: ...
+    def __reduce__(self) -> tuple[Any, ...]: ...
+
+def looks_like_dag_file(text: str) -> bool:
+    """Whether ``text`` looks like the file of an Airflow DAG: it mentions Airflow and a DAG."""
+
+def parse_dag_file(path: str | PathLike[str]) -> list[DagInfo]:
+    """The DAGs of an Airflow file, read without importing or running it. Raises ``SyntaxError``
+    for text that is not Python, or is nested too deeply to read."""
+
+def parse_dag_source(path: str | PathLike[str], source: str) -> list[DagInfo]:
+    """The DAGs of Python ``source``, read as if it were the file at ``path``."""
+
+def parse_dbt_commands(command: str) -> list[DbtInvocation]:
+    """The ``dbt <command>`` invocations in a shell command, with their selection flags."""
+
+def scan_python_files(paths: Sequence[str | PathLike[str]]) -> list[tuple[bool, bool]]:
+    """For each path, whether the file looks like an Airflow DAG file and whether it looks like a
+    Dagster file (``looks_like_dag_file`` and ``looks_like_dagster_file`` of its bytes), with the
+    files read in parallel. A file that cannot be read is neither."""
