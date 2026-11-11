@@ -312,7 +312,7 @@ def test_the_lock_wait_leaves_time_to_build(tmp_path: Path, monkeypatch: pytest.
         waits.append(seconds)
         yield False
 
-    monkeypatch.setattr(hook, '_locked', locked)
+    monkeypatch.setattr(hook, 'locked', locked)
     answer = hook._gate(tmp_path, tmp_path / 'konstruct-out', tmp_path / 'a.sql', 'a.sql')
     assert waits == [0.0]
     context = answer['hookSpecificOutput']['additionalContext']
@@ -322,11 +322,11 @@ def test_the_lock_wait_leaves_time_to_build(tmp_path: Path, monkeypatch: pytest.
 def test_a_busy_hook_directory_gives_a_note(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     scratch = tmp_path / 'konstruct-out' / '.hook'
     scratch.mkdir(parents=True)
-    with hook._locked(scratch, 1.0) as first:
+    with hook.locked(scratch, 1.0) as first:
         assert first
         # Another process holding the lock: this one gives up after the wait.
         monkeypatch.setattr(hook, '_try_lock', lambda file: False)
-        with hook._locked(scratch, seconds=0.3) as second:
+        with hook.locked(scratch, seconds=0.3) as second:
             assert second is False
 
 

@@ -147,7 +147,7 @@ def find_graph(start: Path) -> tuple[Path, Path] | None:
 
 
 @contextlib.contextmanager
-def _locked(directory: Path, seconds: float) -> Iterator[bool]:
+def locked(directory: Path, seconds: float) -> Iterator[bool]:
     """Hold an exclusive lock on ``directory`` while the body runs; yield False when another
     process holds it for longer than ``seconds``. The lock goes with the process, so a hook
     that is killed leaves none behind."""
@@ -326,8 +326,8 @@ def _gate(root: Path, out_dir: Path, path: Path, shown: str) -> dict[str, Any]:
         # The copy is Konstruct's working space: keep it out of commits.
         (scratch / '.gitignore').write_text('*\n', encoding='utf-8')
         expected = float(_last(scratch).get('seconds') or 30.0)
-        with _locked(scratch, max(0.0, TIMEOUT - _MARGIN - expected)) as locked:
-            if not locked:
+        with locked(scratch, max(0.0, TIMEOUT - _MARGIN - expected)) as held:
+            if not held:
                 return _marked(
                     _context(
                         f'Konstruct: another hook is still running the gate, so the edit to {shown} was '

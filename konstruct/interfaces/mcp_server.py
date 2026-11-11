@@ -24,7 +24,7 @@ from mcp.types import ToolAnnotations
 from konstruct import __version__
 from konstruct.analysis.query import QueryError, SearchMode
 from konstruct.core.formats import FormatError, document
-from konstruct.engine.config import ConfigError
+from konstruct.engine.config import Config, ConfigError
 from konstruct.interfaces import toolkit
 from konstruct.interfaces.project import Project
 from konstruct.plugins.registry import describe as describe_error
@@ -77,7 +77,9 @@ Konstruct's MCP tools take the names and main arguments of the commands below (`
 --why` and `receipt` for `konstruct receipts issue`) and return what the command returns with `--json`; use them where you can. Run the others
 (`konstruct build`, `status`, `list`, `verify` and `export`) in a shell. The
 `konstruct://report`, `konstruct://ontology` and `konstruct://summary` resources hold the build's
-REPORT.md, the ontology and a summary of the graph.
+REPORT.md, the ontology and a summary of the graph. Unlike `konstruct gate`, the `gate` tool checks
+a copy of the graph and leaves graph.json as last built, so the other tools answer from the last
+build until `konstruct build --update` runs.
 
 """
 
@@ -509,23 +511,45 @@ def _resources(server: MCPServer, project: Project) -> None:
 
 GATE_DIR = '.gate'
 """Where the MCP gate keeps its copy of the graph, inside the output directory."""
+GATE_WAIT = 120.0
+"""How long a gate waits for another gate that is updating the same copy."""
+
+
+class _GateCopy(Project):
+    """The project seen from the gate's copy of its graph, built without graph.html, which the
+    gate does not read."""
+
+    def config(self) -> Config:
+        config = super().config()
+        config.html = False
+        return config
 
 
 def gate_copy(project: Project, base: str | None) -> Gate:
     """The gate over a copy of the project's graph in ``konstruct-out/.gate``, brought up to date
-    from the files alone. A change an agent makes can alter the connections too, so the update
-    connects to no warehouse; built into the project's own output directory, that build would
-    replace the graph the other tools answer from with one that has lost the warehouse's tables
-    and the lineage they carry."""
+    from the files alone, as the post-edit hook does.
+
+    A change an agent makes can alter the connections too, so the update connects to no
+    warehouse. Built into the project's own output directory, that build would replace the graph
+    the other tools answer from with one that has lost the warehouse's tables and the lineage they
+    carry; the copy leaves graph.json as last built. Two gates on one project take turns.
+    """
+    from konstruct.interfaces.hook import locked
+
     scratch = project.out_dir / GATE_DIR
     scratch.mkdir(parents=True, exist_ok=True)
     # The copy is Konstruct's working space: keep it out of commits.
     (scratch / '.gitignore').write_text('*\n', encoding='utf-8')
-    cache = project.out_dir / 'cache.json'
-    if cache.is_file() and not (scratch / 'cache.json').is_file():
-        shutil.copy2(cache, scratch / 'cache.json')
-    checker = Project(project.path, out_dir=scratch, plugins=project.use_plugins)
-    return checker.gate(base, run_dbt=False, warehouses=False)
+    with locked(scratch, GATE_WAIT) as held:
+        if not held:
+            raise ToolError(
+                f'another gate has been updating the copy of the graph for {GATE_WAIT:g} s; try again'
+            )
+        cache = project.out_dir / 'cache.json'
+        if cache.is_file() and not (scratch / 'cache.json').is_file():
+            shutil.copy2(cache, scratch / 'cache.json')
+        checker = _GateCopy(project.path, out_dir=scratch, plugins=project.use_plugins)
+        return checker.gate(base, run_dbt=False, warehouses=False)
 
 
 def serve(root: Path, *, plugins: bool = True, prompts: bool = True) -> None:

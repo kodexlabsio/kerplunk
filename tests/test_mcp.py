@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -316,6 +318,34 @@ def test_gate_leaves_the_project_graph_as_it_is(jaffle_built_graph: Path, tmp_pa
     assert result['passed'] is True
     assert graph.read_bytes() == before
     assert (root / 'konstruct-out' / '.gate' / 'graph.json').is_file()
+    # The gate reads no graph.html, so its copy has none.
+    assert not (root / 'konstruct-out' / '.gate' / 'graph.html').exists()
+
+
+def test_a_gate_waits_its_turn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two gates would update one copy of the graph at once: a gate that cannot take the lock says
+    so rather than build over the other."""
+    from konstruct.interfaces import hook
+
+    root = tmp_path / 'repo'
+    (root / 'konstruct-out').mkdir(parents=True)
+    (root / 'konstruct-out' / 'graph.json').write_text('{"nodes": [], "edges": []}')
+    waits: list[float] = []
+
+    @contextlib.contextmanager
+    def busy(directory: Path, seconds: float) -> Iterator[bool]:
+        waits.append(seconds)
+        yield False
+
+    monkeypatch.setattr(hook, 'locked', busy)
+
+    async def run() -> Any:
+        async with Client(build_server(root)) as client:
+            return await client.call_tool('gate', {})
+
+    result = anyio.run(run)
+    assert result.is_error and 'another gate' in str(result.content)
+    assert waits == [120.0]
 
 
 def test_check_history_never_names_people(jaffle_built_graph: Path, monkeypatch: pytest.MonkeyPatch) -> None:

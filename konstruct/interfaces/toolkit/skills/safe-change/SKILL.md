@@ -60,7 +60,10 @@ and a `fix` line:
 - `conflicting-definition`: a changed column now computes a business idea differently from an
   existing one. Compute it the same way, or bind each to its own term in `definitions.yml`.
 
-Add `--no-dbt` when dbt is not installed, and `--no-warehouse` to build from files alone.
+Add `--no-dbt` when dbt is not installed, and `--no-warehouse` to build from files alone. The
+MCP `gate` tool checks a copy of the graph instead, from files alone, and leaves `graph.json` as
+last built: after it, the other tools answer from the last build until `konstruct build --update`
+runs.
 
 ## 4. Fix and Repeat
 
