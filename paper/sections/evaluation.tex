@@ -189,6 +189,30 @@ agent leaves it with the benchmark's own \cmd{duckdb\_match}. Timeouts stop the 
 everything it started, and an interrupted run resumes. The design isolates one variable: the
 presence of the graph, the formulas and the definitions.
 
+\subsection{The Answer Benchmark}
+\label{sec:eval-answers}
+
+The agent benchmark scores whole tasks; this harness scores single answers to business
+questions, and counts the wrong ones given without doubt. \cmd{.kodex/scripts/answer\_benchmark.py} asks an agent \answerQuestions{} business
+questions (version \answerSetVersion{} of its question set) about \answerCorpora{} dbt projects on
+DuckDB: \answerExampleQuestions{} on the bundled example and \answerJsQuestions{} on jaffle-shop
+at its pinned commit. Each question has a single numeric answer, computed by a reference query
+committed with it that reads only the tables the project's seeds load, so the gold answer does not
+depend on the models the agent queries; the tests run every reference on the built warehouse. Of
+the questions, \answerTrapQuestions{} carry a trap: an answer that depends on a business
+definition, a filter a definition requires, a join to a finer grain that repeats the rows summed,
+an average over the wrong rows, amounts stored in cents, or a column with a plausible name and
+another value. The agent answers each question in \answerArms{} arms, each with a tool that runs
+read-only SQL on the warehouse through the engine of \cref{sec:verify}: the schema alone; the
+schema with the project's definitions given as text, as a declared semantic layer serves them; and
+the schema with Konstruct's MCP server over the built graph. It submits a number, or none to
+abstain, with any doubt it has. The rubric is deterministic and committed with the questions: a
+number within the tolerance of the question's unit is correct, any other number is wrong, and a
+wrong number submitted with no stated doubt is confidently wrong. No model grades an answer. The
+run is one command, \cmd{uv run --with anthropic .kodex/scripts/answer\_benchmark.py}, which reads
+the model from \cmd{KONSTRUCT\_BENCH\_MODEL} and the API key from the environment. Its \cmd{--plan} and \cmd{--dry-run} modes call no API, and \cmd{paper/generate.py} runs it only
+when \cmd{KONSTRUCT\_PAPER\_ANSWER\_BENCHMARK} is set, so this paper reports no result of it.
+
 \subsection{Keeping the Paper True}
 
 The script \cmd{paper/generate.py} runs every experiment above and writes the macros this paper
