@@ -35,9 +35,13 @@ MAX_BYTES = 2_000_000
 SUFFIXES = ('.py', '.yml', '.yaml', '.json', '.tf', '.properties')
 """The file names discovery looks at."""
 MALFORMED = (RecursionError, MemoryError, ValueError, TypeError, AttributeError, KeyError, IndexError)
-"""What a reader raises on a file of a shape it does not expect: nesting past Python's recursion
-limit or its parser's memory, or a number where a list or mapping belongs. Parse errors (JSON's,
+"""What a reader raises on a file of a shape it does not expect: nesting past :data:`MAX_DEPTH`,
+Python's recursion limit or its parser's memory, or a number where a list or mapping belongs. Parse errors (JSON's,
 ``ast``'s) are ValueErrors too."""
+MAX_DEPTH = 500
+"""How deeply a JSON document or a Python file may nest. Python 3.14 parses documents far deeper
+than its recursion limit let earlier releases read, so the limit is Konstruct's own, and a file
+reads the same on every release."""
 MAX_YAML_VALUES = 1_000_000
 """The most values a YAML file may stand for once its aliases are expanded: a few hundred bytes
 of aliases to aliases stand for millions, which reading would expand."""
@@ -194,6 +198,34 @@ class _Context:
             self.problem(0, f'cannot read{" " + part if part else ""}: {reason or type(error).__name__}')
 
 
+def _within_depth(root: Any, children: Callable[[Any], Iterable[Any]]) -> None:
+    """Raises RecursionError, which a reader reports as nesting too deep, when ``root`` holds a
+    value more than :data:`MAX_DEPTH` levels down. It walks with a stack, so it is safe at any
+    depth."""
+    stack = [(root, 0)]
+    while stack:
+        node, depth = stack.pop()
+        if depth > MAX_DEPTH:
+            raise RecursionError(f'nested more than {MAX_DEPTH} levels deep')
+        stack.extend((child, depth + 1) for child in children(node))
+
+
+def _containers(value: Any) -> Iterable[Any]:
+    if isinstance(value, dict):
+        return [v for v in value.values() if isinstance(v, dict | list)]
+    if isinstance(value, list):
+        return [v for v in value if isinstance(v, dict | list)]
+    return ()
+
+
+def _json(text: str | bytes) -> Any:
+    """A JSON document's value, as ``json.loads`` gives it, nested at most :data:`MAX_DEPTH`
+    levels."""
+    data = json.loads(text)
+    _within_depth(data, _containers)
+    return data
+
+
 def _direct(columns: Iterable[str]) -> list[tuple[str, str, str]]:
     return [(c, c, 'direct') for c in columns]
 
@@ -274,7 +306,7 @@ def kind_of(path: str, text: str) -> str | None:
             return 'singer_catalog'
         if 'state' in lower and '"bookmarks"' in text:
             try:
-                data = json.loads(text)
+                data = _json(text)
             except (ValueError, RecursionError):
                 return None
             return 'singer_state' if _singer_bookmarks(path, data) is not None else None
@@ -343,6 +375,7 @@ def _read_dlt(text: str, context: _Context) -> None:
     except SyntaxError as error:
         context.problem(error.lineno or 0, f'cannot parse: {error.msg}')
         return
+    _within_depth(tree, ast.iter_child_nodes)
     resources: dict[str, list[_Resource]] = {}
     sources: dict[str, list[str]] = {}
     for node in ast.walk(tree):
@@ -595,7 +628,7 @@ def dlt_version_feeds(rows: Iterable[tuple[object, ...]], dataset: tuple[str, ..
     for schema_name, (_, schema) in sorted(newest.items()):
         with context.reading_file(where, f'the schema of {schema_name}'):
             try:
-                data = json.loads(schema) if isinstance(schema, str | bytes) else schema
+                data = _json(schema) if isinstance(schema, str | bytes) else schema
             except ValueError:
                 context.problem(0, f'the schema of {schema_name} is not JSON')
                 continue
@@ -655,7 +688,7 @@ def _tap(path: str) -> str:
 
 def _read_singer_catalog(text: str, context: _Context) -> None:
     try:
-        data = json.loads(text)
+        data = _json(text)
     except ValueError as error:
         context.problem(0, f'cannot read JSON: {error}')
         return
@@ -708,7 +741,7 @@ def _singer_bookmarks(path: str, data: Any) -> dict[str, Any] | None:
 
 def _read_singer_state(text: str, context: _Context) -> None:
     try:
-        data = json.loads(text)
+        data = _json(text)
     except ValueError as error:
         context.problem(0, f'cannot read JSON: {error}')
         return
@@ -794,7 +827,7 @@ def _read_meltano_project(files: list[tuple[str, str]], context: _Context) -> No
         if not path.endswith('.lock'):
             continue
         with context.reading_file(path):
-            data = json.loads(text)
+            data = _json(text)
             if not (isinstance(data, dict) and isinstance(data.get('name'), str)):
                 continue
             defaults = {
@@ -980,7 +1013,7 @@ def _read_airbyte_api(text: str, context: _Context) -> None:
     """A connection as Airbyte's API returns it: the public API (``configurations.streams``) or
     the configuration API (``syncCatalog``), alone, in a list, or under ``data``."""
     try:
-        data = json.loads(text)
+        data = _json(text)
     except ValueError as error:
         context.problem(0, f'cannot read JSON: {error}')
         return
@@ -1409,7 +1442,7 @@ def _read_kafka_connect(text: str, context: _Context) -> None:
         ]
     else:
         try:
-            data = json.loads(text)
+            data = _json(text)
         except ValueError as error:
             context.problem(0, f'cannot read JSON: {error}')
             return
@@ -1851,7 +1884,7 @@ def _read_dms(text: str, context: _Context) -> None:
     """A DMS task's table mappings: each table a selection rule includes by name, renamed as its
     transformation rules say, and the columns they rename."""
     try:
-        data = json.loads(text)
+        data = _json(text)
     except ValueError as error:
         context.problem(0, f'cannot read JSON: {error}')
         return

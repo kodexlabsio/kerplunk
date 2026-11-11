@@ -2006,6 +2006,24 @@ def test_the_schemas_dlt_keeps_in_the_warehouse(tmp_path: Path) -> None:
     assert 'system.dlt.github.issues' not in graph.nodes
 
 
+@pytest.mark.parametrize(
+    ('kind', 'path', 'text'),
+    [
+        ('singer_catalog', 'tap-x.catalog.json', '{"streams": ' + '[' * 600 + ']' * 600 + '}'),
+        ('dlt', 'p.py', 'import dlt\np = dlt.pipeline("a")\np.run(' + '+'.join(['1'] * 600) + ')'),
+    ],
+)
+def test_nesting_past_the_limit_is_a_problem_on_every_python(kind: str, path: str, text: str) -> None:
+    """600 levels is within Python 3.12's recursion limit and far within 3.14's, so the limit is
+    Konstruct's own rather than the interpreter's."""
+    from konstruct.inputs.ingestion import MAX_DEPTH, read
+
+    assert MAX_DEPTH < 600
+    reading = read(kind, path, text)
+    assert reading.feeds == []
+    assert len(reading.problems) == 1 and 'nested too deeply' in reading.problems[0]
+
+
 def test_a_malformed_dlt_version_leaves_the_other_schemas() -> None:
     from konstruct.inputs.ingestion import dlt_version_feeds
 
