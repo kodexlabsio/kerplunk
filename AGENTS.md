@@ -177,5 +177,17 @@ Check each when updating packages, and remove it once it is no longer needed.
   `python-source = "."` and the extension at `konstruct._core` from the crate at the repository root.
 - **PyO3 0.30**: every 0.x minor is a breaking release that changes the binding API; raise it
   deliberately, with `cargo test` and the full suite.
+- **ruff_python_parser `=0.0.10`** (with `ruff_python_ast` and `ruff_text_size` at the same
+  version): the Python parser of the Airflow and Dagster readers. It is MIT licensed, from the Ruff
+  project, and reads the syntax of Python 3.7 to 3.15 (match, PEP 695 and 696 type parameters,
+  nested f-strings, t-strings, `except` without parentheses). It depends on `stacker`, which
+  brings `psm` and `cc`: `psm` assembles a few lines for its target with a C compiler, so a job
+  that builds the crate for another architecture needs that architecture's cross compiler (the
+  qemu job installs `gcc-<triplet>`, and the wheel jobs build in cross containers). The parser
+  grows its stack on the heap, so a file nested deeply costs memory, not a crash; `src/pysyntax/`
+  refuses what would cost too much. Its API changes in every 0.0.x release, and 0.0.11 and later
+  need a newer Rust than 1.95, our `rust-version`: raise it deliberately, with the Rust tests,
+  `tests/test_airflow.py`, `tests/test_dagster.py` and `.kodex/scripts/orchestrator_benchmark.py`
+  before and after, and move `rust-version` with it.
 - **maturin `>=1.16,<2`** in `[build-system]`: the build backend; a major can change how
   `[tool.maturin]` is read and what the wheel holds. Raise it with `uv build` and the wheels job.

@@ -87,16 +87,13 @@ jobs:
       - name: Tests
         run: cargo test --locked
 
-      # rust-version in Cargo.toml, which installing from source needs at least, on every
-      # architecture: global_asm! is stable on powerpc64 only from 1.95.
+      # rust-version in Cargo.toml, which installing from source needs at least. The other
+      # architectures are checked in the jobs below, which have their cross compilers: the Python
+      # parser's stack growth assembles a few lines for its target with a C compiler.
       - name: Check the oldest supported Rust
         run: |
-          targets="x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu riscv64gc-unknown-linux-gnu"
-          targets="$targets powerpc64le-unknown-linux-gnu s390x-unknown-linux-gnu loongarch64-unknown-linux-gnu"
-          rustup toolchain install 1.95 --profile minimal --target ${targets// /,}
-          for target in $targets; do
-            cargo +1.95 check --locked --all-targets --all-features --target "$target"
-          done
+          rustup toolchain install 1.95 --profile minimal
+          cargo +1.95 check --locked --all-targets --all-features
 
       # The assembly takes 64-bit pointers, so a 32-bit ABI on a supported architecture is
       # refused at compile time rather than built.
@@ -144,6 +141,15 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends qemu-user "gcc-${GNU}" "libc6-dev-${{ matrix.debian }}-cross"
 
+      # rust-version in Cargo.toml, on every architecture: global_asm! is stable on powerpc64
+      # only from 1.95.
+      - name: Check the oldest supported Rust
+        run: |
+          rustup toolchain install 1.95 --profile minimal --target "$TARGET"
+          upper=$(echo "$TARGET" | tr 'a-z-' 'A-Z_')
+          export "CARGO_TARGET_${upper}_LINKER=${GNU}-gcc"
+          cargo +1.95 check --locked --all-targets --all-features --target "$TARGET"
+
       - name: Test under qemu
         run: |
           rustup target add "$TARGET"
@@ -181,6 +187,10 @@ jobs:
       # distribution with glibc 2.28 or newer (2.31 for riscv64 and 2.36 for loongarch64).
       - name: Build the wheel
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        # The s390x cross compiler targets z900 by default, which lacks instructions the parser's
+        # stack-growing crate (psm) assembles; z13 is what the s390x wheel requires anyway.
+        env:
+          CFLAGS_s390x_unknown_linux_gnu: -march=z13
         with:
           command: build
           args: --release --locked --out dist

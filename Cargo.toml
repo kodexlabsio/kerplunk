@@ -37,6 +37,10 @@ tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread", "s
 regex = "1.13.1"
 # Its parser, to refuse Java's possessive repeats (a*+), which regex reads as a repeat of a repeat.
 regex-syntax = "0.8.11"
+# Python's syntax tree for Airflow and Dagster files (src/pysyntax/), read and never run.
+ruff_python_ast = "=0.0.10"
+ruff_python_parser = "=0.0.10"
+ruff_text_size = "=0.0.10"
 
 [features]
 # The Python extension module, built by maturin. abi3 makes one wheel per platform serve every
