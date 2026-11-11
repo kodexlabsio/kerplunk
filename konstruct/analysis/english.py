@@ -32,7 +32,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.dialects.dialect import Dialect
 
-from konstruct.analysis.explain import Explainer, split_condition
+from konstruct.analysis.explain import Explainer, joined_reading, split_condition
 from konstruct.core.graph import Graph, Node
 from konstruct.core.sql import PARSE_ERRORS
 from konstruct.semantics.ontology import id_like
@@ -757,6 +757,7 @@ class Condition:
     def __init__(self, text: str, dialect: Dialect) -> None:
         self.text = text
         label, rest = split_condition(text)
+        label, self.joined = joined_reading(label)
         base, _, before = label.partition(' BEFORE ')
         self.clause = base
         self.before = [s for s in before.split(', ') if s]
@@ -796,6 +797,10 @@ def word_condition(condition: Condition, wording: Wording) -> str:
         text = f'rows are kept only where {one()}, after the window functions'
     elif clause in _JOINS and trees:
         text = _JOINS[clause].format(c=one())
+        if condition.joined is not None:
+            # A join whose ON does not name the reading it joins, named for it.
+            named = condition.joined.replace('"', '').split('.')[-1]
+            text = text.replace('rows are joined', f'the rows of {named} are joined', 1)
     elif clause.endswith(' JOIN WHERE') and trees:
         side = clause.removesuffix(' JOIN WHERE').lower()
         text = f'on the side a {side} join may find no match in, rows are joined only where {one()}'

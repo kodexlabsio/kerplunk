@@ -73,7 +73,7 @@ from typing import TYPE_CHECKING, Any
 import sqlglot
 from sqlglot import exp
 
-from konstruct.core.graph import RELATION_KINDS, Graph, Node
+from konstruct.core.graph import RELATION_KINDS, Graph, Node, split_reading
 from konstruct.core.graph import column_id as _column_id
 from konstruct.core.sql import PARSE_ERRORS
 
@@ -621,7 +621,8 @@ def _reads(column: exp.Column, relation: str | None, name: str) -> bool:
         return True
     if not text.endswith('.' + name):
         return False
-    prefix = text[: -len(name) - 1]
+    # A reading of the relation (``"orders#2"``) reads its columns.
+    prefix = split_reading(text[: -len(name) - 1])[0]
     return relation is None or relation == prefix or relation.endswith('.' + prefix)
 
 
@@ -838,7 +839,7 @@ class _Analysis:
     def resolve(self, column: exp.Column) -> Node | None:
         parts = [p.name for p in column.parts]
         for cut in range(len(parts) - 1, 0, -1):
-            relation = self.graph.node_for_relation('.'.join(parts[:cut]))
+            relation = self.graph.node_for_reading('.'.join(parts[:cut]))
             if relation is not None:
                 return self.graph.column(relation.id, '.'.join(parts[cut:]))
         return None
@@ -1341,7 +1342,7 @@ def joined_columns(graph: Graph, condition: str) -> list[tuple[Node, Node]]:
             return None
         parts = [p.name for p in node.parts]
         for cut in range(len(parts) - 1, 0, -1):
-            relation = graph.node_for_relation('.'.join(parts[:cut]))
+            relation = graph.node_for_reading('.'.join(parts[:cut]))
             if relation is not None:
                 return graph.column(relation.id, '.'.join(parts[cut:]))
         return None

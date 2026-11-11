@@ -440,3 +440,28 @@ def test_each_conflict_lists_the_copies_of_its_own_idea(tmp_path: Path) -> None:
     # Only the pairs of one column, as the gate compares them, give the same.
     [revenue] = find_conflicts(graph, touching={'table.main.other#revenue'}).conflicts
     assert revenue.a.carried_into == ['copy.revenue']
+
+
+JOINED_ON_TRUE = (
+    'create table main.pairs as select a.id, b.amount from raw.orders a left join raw.orders b on true '
+    'left join raw.orders c on c.customer_id = b.customer_id'
+)
+
+
+def _joined_on_true(root: Path) -> Path:
+    """A project whose model joins a reading on an ON that does not name it, which the build lists
+    once more naming the reading."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / 'konstruct.toml').write_text('dialect = "duckdb"\n')
+    (root / 'pairs.sql').write_text(JOINED_ON_TRUE)
+    assert main(['build', str(root), '--no-warehouse', '-q']) == 0
+    return root
+
+
+def test_a_join_named_for_its_reading_is_one_join(tmp_path: Path) -> None:
+    from konstruct.analysis.conflicts import _Finder
+
+    graph = Project(_joined_on_true(tmp_path / 'project')).graph
+    _, joins = _Finder(graph).conditions(graph.nodes['table.main.pairs'])
+    assert len(joins) == 2, joins
+    assert not any('"orders#1" ON' in text for _, text, _ in joins)

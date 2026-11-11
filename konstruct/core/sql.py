@@ -10,9 +10,10 @@ from __future__ import annotations
 import datetime
 import functools
 import re
-from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from collections import Counter, defaultdict
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple, TypeVar
 
 import sqlglot
 from sqlglot import exp
@@ -24,7 +25,7 @@ from sqlglot.optimizer.qualify import qualify
 from sqlglot.optimizer.scope import Scope, build_scope
 from sqlglot.schema import MappingSchema
 
-from konstruct.core.graph import relation_key
+from konstruct.core.graph import reading_key, relation_key, split_reading
 
 # What parsing SQL can raise: sqlglot's parse functions can fail with TypeError, ValueError,
 # AttributeError or RecursionError rather than a SqlglotError, for example on `->` in DuckDB, `#>`
@@ -492,13 +493,83 @@ def _column_lineage(
     )
     canon = Canonical(dialect, default_catalog, default_db)
     canon.tracer = tracer
+    canon.prepare(scope)
     for index, (name, node) in enumerate(nodes.items()):
         if name != '*':
             out_name = (out_names[index] if out_names else name).lower()
             result.expressions[out_name] = _unbracket(canon.node(node))
-    scopes = _scopes(scope, lambda t: table_key(t, default_catalog, default_db))
-    result.nullable, result.read_before, result.star_reads = scopes.nullable, scopes.read_before, scopes.stars
+
+    def key(table: exp.Table) -> str:
+        return table_key(table, default_catalog, default_db)
+
+    scopes = _scopes(scope, key)
     result.conditions = canon.conditions(scope, schema, scopes)
+    if canon.repeated:
+        scopes = _named_readings(canon, scope, key, result)
+    result.nullable, result.read_before, result.star_reads = scopes.nullable, scopes.read_before, scopes.stars
+
+
+def _named_readings(
+    canon: Canonical, root: Scope, key: Callable[[exp.Table], str], result: StatementLineage
+) -> _Scopes:
+    """Name every reading of a relation ``root`` reads more than once in ``result``'s conditions and
+    formulas (see :meth:`Canonical.name_readings`), and what the statement says of each reading
+    beyond them: ``o LEFT JOIN p`` is not ``o RIGHT JOIN p``, nor ``SELECT o.*`` ``SELECT p.*``.
+    The statement's scopes, with each table keyed by its reading."""
+
+    def reading(table: exp.Table) -> str:
+        return canon.relation(table) if id(table) in canon.repeated else key(table)
+
+    scopes = _scopes(root, reading)
+    # A star through a CTE referenced more than once passes on the columns of one reference.
+    scopes.stars = {}
+    _star_reads(
+        root,
+        lambda table, path: canon.relation(table, path) if id(table) in canon.repeated else key(table),
+        scopes.stars,
+        canon.segment,
+    )
+    canon.name_readings(
+        [
+            *result.conditions,
+            *(f'{k}: {v}' for k, v in result.expressions.items()),
+            *(f'NULLABLE {side}: {k}' for k, side in scopes.nullable.items()),
+            *(f'BEFORE {", ".join(steps)}: {k}' for k, steps in scopes.read_before.items()),
+            *(f'STAR {", ".join(sorted(left))}: {k}.*' for k, left in scopes.stars.items()),
+        ]
+    )
+    result.expressions = {k: canon.rename(v) for k, v in result.expressions.items()}
+    conditions = {canon.rename(c) for c in result.conditions}
+    readings: dict[str, set[str]] = defaultdict(set)
+    for (path, _), token in canon.tokens.items():
+        if not path:
+            readings[canon.relations[token]].add(canon.reading_of(token))
+    scopes.nullable = _by_relation({canon.reading_of(k): v for k, v in scopes.nullable.items()}, readings)
+    scopes.read_before = _by_relation(
+        {canon.reading_of(k): v for k, v in scopes.read_before.items()}, readings
+    )
+    scopes.stars = _by_relation({canon.reading_of(k): v for k, v in scopes.stars.items()}, readings)
+    # Which reading a star passes on is which rows' columns the statement returns.
+    for name, left in scopes.stars.items():
+        if split_reading(name)[1]:
+            except_ = f' EXCLUDE ({", ".join(sorted(left))})' if left else ''
+            conditions.add(f'SELECT: {_sql_name(name, canon.dialect)}.*{except_}')
+    result.conditions = sorted(conditions)
+    return scopes
+
+
+def _by_relation(found: dict[str, _V], readings: Mapping[str, set[str]]) -> dict[str, _V]:
+    """``found`` with what it says of each reading of a relation keyed by the relation where it
+    says the same of every reading, as of a relation read once: only a difference between
+    readings needs them."""
+    for relation, names in readings.items():
+        values = [found.get(name) for name in names]
+        first = values[0]
+        if first is not None and all(v == first for v in values):
+            for name in names:
+                del found[name]
+            found[relation] = first
+    return found
 
 
 def _name_unknown_columns(
@@ -867,8 +938,21 @@ class _Sources:
         subqueries, one of that subquery's or of a query around it (a correlated reference). As in
         SQL, a name is looked up in the scope that holds the column first, so a subquery's alias
         hides an outer relation's of the same name."""
+        found = self.found(column, scope)
+        return found[1] if found is not None else None
+
+    def reference(self, column: exp.Column, scope: Scope) -> exp.Expr | None:
+        """The table, subquery or other source in a FROM or JOIN that ``column`` names, such as one
+        of two references to the same CTE, which :meth:`of` gives as the one scope they share."""
+        found = self.found(column, scope)
+        selected = found[0].selected_sources.get(column.table) if found is not None else None
+        return selected[0] if selected is not None else None
+
+    def found(self, column: exp.Column, scope: Scope) -> tuple[Scope, exp.Table | Scope] | None:
+        """The scope whose name ``column`` reads, and the source it names there."""
         if not column.table:
-            return scope.sources.get(column.table)
+            source = scope.sources.get(column.table)
+            return (scope, source) if source is not None else None
         if self.owners is None:
             self.owners = {}
             for inner in self.root.traverse():
@@ -878,9 +962,10 @@ class _Sources:
         while owner is not None:
             source = owner.sources.get(column.table)
             if source is not None:
-                return source
+                return owner, source
             owner = owner.parent
-        return scope.sources.get(column.table)
+        source = scope.sources.get(column.table)
+        return (scope, source) if source is not None else None
 
 
 def _strip_fields(expression: exp.Expr) -> exp.Expr:
@@ -1171,7 +1256,281 @@ def _branch_items(query: exp.SetOperation, term: exp.Expr) -> dict[str, list[exp
     return found
 
 
-_ATOM = re.compile(r'[\w."`$]+(?:\.\*)?')
+_ATOM = re.compile(r'[\w."`$#\[\]]+(?:\.\*)?')
+
+
+_TOKEN = re.compile(r'__kreading\d+__')
+_V = TypeVar('_V')
+
+
+# The set operations whose branches are in no order: an EXCEPT takes its second from its first.
+_SET_OPERATION = re.compile(r'\b(?:UNION|INTERSECT)\(')
+
+
+def _sorted_branches(text: str) -> str:
+    """``text`` with the branches of each ``UNION(...)`` in it, as a set operation's column
+    prints, in order, inner ones first."""
+    if '(' not in text or not _SET_OPERATION.search(text):
+        return text
+    out: list[str] = []
+    index = 0
+    while (found := _SET_OPERATION.search(text, index)) is not None:
+        out.append(text[index : found.end()])
+        branches: list[str] = []
+        start = position = found.end()
+        depth, quote = 1, ''
+        while position < len(text):
+            char = text[position]
+            if quote:
+                quote = '' if char == quote else quote
+            elif char in '\'"`':
+                quote = char
+            elif char == '(':
+                depth += 1
+            elif char == ')':
+                depth -= 1
+                if depth == 0:
+                    branches.append(text[start:position])
+                    break
+            elif char == ',' and depth == 1 and text[position + 1 : position + 2] == ' ':
+                branches.append(text[start:position])
+                start = position + 2
+            position += 1
+        out.append(', '.join(sorted(_sorted_branches(b) for b in branches)) + ')')
+        index = position + 1
+    out.append(text[index:])
+    return ''.join(out)
+
+
+_DECIMAL = re.compile(r'(\d*)\.(\d*?)0+')
+
+# Each comparison, and the one that says the same with its operands the other way round.
+_MIRRORED: dict[type[exp.Expr], type[exp.Expr]] = {
+    exp.EQ: exp.EQ,
+    exp.NEQ: exp.NEQ,
+    exp.NullSafeEQ: exp.NullSafeEQ,
+    exp.NullSafeNEQ: exp.NullSafeNEQ,
+    exp.GT: exp.LT,
+    exp.LT: exp.GT,
+    exp.GTE: exp.LTE,
+    exp.LTE: exp.GTE,
+}
+
+
+def canonical_tree(tree: exp.Expr) -> exp.Expr:
+    """``tree`` without the differences in how it was written that do not change what it means:
+    the operands of a comparison in order (a constant, such as ``1`` or ``-1``, last, as it is
+    usually written; otherwise by their text), with the
+    comparison mirrored to match (``10 <= a`` is ``a >= 10``); the operands of ``AND`` and ``OR``
+    flattened through brackets, in order and each once; the items of an ``IN`` list in order and
+    each once; and decimals without trailing zeros (``1.10`` is ``1.1``; ``1.0`` stays a decimal).
+    Rewritten in place: the result is ``tree`` or what replaced it."""
+    # Reversed pre-order puts every node after its descendants, so each is ordered by the final
+    # text of its operands.
+    for node in reversed(list(tree.dfs())):
+        mirrored = _MIRRORED.get(type(node))
+        if mirrored is not None:
+            left, right = node.this, node.expression
+            if _order(right) < _order(left):
+                tree = _replace(tree, node, mirrored(this=right, expression=left))
+        elif isinstance(node, (exp.And, exp.Or)):
+            if not isinstance(node.parent, type(node)):
+                operands = {o.sql(): o for o in conjuncts(node)}
+                combine = exp.and_ if isinstance(node, exp.And) else exp.or_
+                tree = _replace(tree, node, combine(*(operands[k] for k in sorted(operands)), copy=False))
+        elif isinstance(node, exp.In) and node.expressions:
+            items = {e.sql(): e for e in node.expressions}
+            node.set('expressions', [items[k] for k in sorted(items)])
+        elif isinstance(node, exp.Literal) and not node.is_string:
+            match = _DECIMAL.fullmatch(node.this)
+            if match:
+                node.set('this', f'{match[1]}.{match[2] or "0"}')
+    return tree
+
+
+def conjuncts(node: exp.Expr) -> list[exp.Expr]:
+    """The operands of an ``AND`` (or an ``OR``), and of those it holds, in brackets or not."""
+    found: list[exp.Expr] = []
+    for operand in (node.this, node.expression):
+        operand = operand.unnest()
+        found += conjuncts(operand) if type(operand) is type(node) else [operand]
+    return found
+
+
+def _replace(tree: exp.Expr, node: exp.Expr, new: exp.Expr) -> exp.Expr:
+    if node is tree:
+        return new
+    node.replace(new)
+    return tree
+
+
+def _order(operand: exp.Expr) -> tuple[bool, str]:
+    """Constants (a literal, negated or not, NULL, TRUE, FALSE) sort last."""
+    constant = operand.this if isinstance(operand, exp.Neg) else operand
+    return isinstance(constant, (exp.Literal, exp.Null, exp.Boolean)), operand.sql()
+
+
+def canonical_condition(text: str, dialect: DialectType = None) -> str:
+    """A recorded condition (``JOIN ON: a = b``) in one form however it is written (see
+    :func:`canonical_tree`), for comparing two versions of it: the text itself where it does not
+    parse."""
+    label, sep, rest = text.partition(': ')
+    if not sep:
+        label, rest = '', text
+    try:
+        tree = sqlglot.parse_one(rest, read=dialect)
+    except PARSE_ERRORS:
+        return text
+    return f'{label}{sep}{canonical_tree(tree).sql(dialect=dialect)}'
+
+
+def without_readings(text: str, dialect: DialectType = None) -> str:
+    """``text``, canonical SQL, with each reading of a relation named by the relation (see
+    :func:`reading_key`), for comparing what is said of a relation whichever reading it is said of."""
+    if '#' not in text:
+        return text
+    try:
+        tree = sqlglot.parse_one(text, read=dialect)
+    except PARSE_ERRORS:
+        return text
+    # Only a relation's name is a reading's: a column may have a # in its own name.
+    names = [c.args.get('table') for c in tree.find_all(exp.Column)]
+    names += [t.this for t in tree.find_all(exp.Table)]
+    for identifier in names:
+        if not isinstance(identifier, exp.Identifier):
+            continue
+        relation, reading = split_reading(identifier.name)
+        if reading:
+            escaped = reading_key(relation)
+            identifier.set('this', escaped)
+            identifier.set('quoted', '#' in escaped)
+    return tree.sql(dialect=dialect)
+
+
+def _sql_name(name: str, dialect: DialectType) -> str:
+    """A name in canonical text (see :func:`reading_key`) as SQL: each part with a ``#`` quoted."""
+    if '#' not in name:
+        return name
+    return '.'.join(
+        exp.to_identifier(part, quoted=True).sql(dialect=dialect) if '#' in part else part
+        for part in name.split('.')
+    )
+
+
+def _unquoted(name: str) -> str:
+    """``db.main."orders#2"`` as the name it prints, ``db.main.orders#2``."""
+    return '.'.join(part.strip('"`[]') for part in name.split('.'))
+
+
+_MAX_LEAVES = 120
+"""How many labellings of readings nothing tells apart are compared at most (see
+:meth:`Canonical.name_readings`); beyond that, readings still tied are numbered in the order the
+statement names them."""
+
+_SET_OPERATIONS = ('UNION', 'INTERSECT')
+# What may have operands in no order: =, <>, IS [NOT] DISTINCT FROM, a comparison, AND, OR, an IN
+# list and a set operation's branches.
+_UNORDERED = re.compile(r'[=<>]|\b(?:AND|OR|IN|DISTINCT)\b|\b(?:UNION|INTERSECT)\(', re.IGNORECASE)
+
+# A text in which readings are to be named, as a tree of the parts that do not depend on what the
+# readings are named, already printed, and those that do: ``('t', token)`` a reading, ``('s',
+# parts)`` parts in a row, ``('c', name, operands)`` operands whose order does not matter, and
+# ``('b', template)`` text whose set operations' branches are put in order once printed.
+_Template = Any
+
+
+def _template(node: Any) -> _Template:
+    """The template of a parsed text (see ``_Template``): each node by its kind and arguments, the
+    operands of =, <>, AND, OR, a UNION or INTERSECT and an IN list in any order, and a comparison
+    by which side is the smaller, however it is written (``a < b`` is ``b > a``)."""
+    if isinstance(node, exp.Identifier):
+        return ('t', node.name) if _TOKEN.fullmatch(node.name) else f'`{node.name.lower()}`'
+    if not isinstance(node, exp.Expr):
+        return repr(node)
+    if isinstance(node, (exp.And, exp.Or)):
+        flat: list[exp.Expr] = []
+        stack = [node]
+        while stack:
+            item = stack.pop()
+            if type(item) is type(node):
+                stack += [item.expression, item.this]
+            else:
+                flat.append(item)
+        return _sealed(('c', node.key, tuple(_template(o) for o in flat)))
+    if isinstance(node, (exp.EQ, exp.NEQ, exp.NullSafeEQ, exp.NullSafeNEQ)):
+        return _sealed(('c', node.key, (_template(node.this), _template(node.expression))))
+    if isinstance(node, (exp.LT, exp.LTE, exp.GT, exp.GTE)):
+        low, high = (
+            (node.this, node.expression)
+            if isinstance(node, (exp.LT, exp.LTE))
+            else (node.expression, node.this)
+        )
+        operator = 'lte' if isinstance(node, (exp.LTE, exp.GTE)) else 'lt'
+        return _sealed(
+            ('c', operator, (_sealed(('s', ('<', _template(low)))), _sealed(('s', ('>', _template(high))))))
+        )
+    if isinstance(node, exp.In) and node.expressions and len(node.args) == 2:
+        items = _sealed(('c', 'items', tuple(_template(e) for e in node.expressions)))
+        return _sealed(('s', ('in(', _template(node.this), ',', items, ')')))
+    if isinstance(node, exp.Anonymous) and str(node.this).upper() in _SET_OPERATIONS:
+        return _sealed(('c', str(node.this).upper(), tuple(_template(e) for e in node.expressions)))
+    parts: list[_Template] = [f'{node.key}(']
+    for key in sorted(node.args):
+        value = node.args[key]
+        if value is None or value is False or (isinstance(value, list) and not value):
+            continue
+        parts.append(f'{key}=')
+        if isinstance(value, list):
+            for item in value:
+                parts += [_template(item), ',']
+        else:
+            parts.append(_template(value))
+        parts.append(';')
+    parts.append(')')
+    return _sealed(('s', tuple(parts)))
+
+
+def _sealed(template: _Template) -> _Template:
+    """``template`` printed where nothing in it is a reading, with its printed parts run together."""
+    tag = template[0]
+    if tag == 's':
+        parts: list[_Template] = []
+        for part in template[1]:
+            if isinstance(part, str) and parts and isinstance(parts[-1], str):
+                parts[-1] += part
+            else:
+                parts.append(part)
+        if len(parts) == 1 and isinstance(parts[0], str):
+            return parts[0]
+        return ('s', tuple(parts))
+    if tag == 'c' and all(isinstance(o, str) for o in template[2]):
+        return _rendered(template, str)
+    return template
+
+
+def _rendered(template: _Template, mark: Callable[[str], str]) -> str:
+    """``template`` printed with each reading as ``mark`` names it."""
+    if isinstance(template, str):
+        return template
+    tag = template[0]
+    if tag == 't':
+        return mark(template[1])
+    if tag == 's':
+        return ''.join(_rendered(p, mark) for p in template[1])
+    if tag == 'c':
+        return f'{template[1]}{{{",".join(sorted(_rendered(o, mark) for o in template[2]))}}}'
+    return _sorted_branches(_rendered(template[1], mark))
+
+
+def _raw_template(text: str) -> _Template:
+    """The template of a text that does not parse: as it is, its set operations' branches in order."""
+    parts: list[_Template] = []
+    last = 0
+    for match in _TOKEN.finditer(text):
+        parts += [text[last : match.start()], ('t', match.group())]
+        last = match.end()
+    parts.append(text[last:])
+    return ('b', _sealed(('s', tuple(parts))))
 
 
 def _inline(text: str) -> exp.Expr:
@@ -1294,7 +1653,7 @@ def _scopes(root: Scope, key: Callable[[exp.Table], str]) -> _Scopes:
     for join_id, source in list(found.folded.items()):
         if len(scope_reads.get(id(source), [])) != 1:
             del found.folded[join_id]
-    _star_reads(root, key, found.stars)
+    _star_reads(root, lambda table, _: key(table), found.stars)
     return found
 
 
@@ -1310,13 +1669,21 @@ def _filters_only(scope: Scope) -> bool:
     )
 
 
-def _star_reads(scope: Scope, key: Callable[[exp.Table], str], found: dict[str, list[str]]) -> None:
+def _star_reads(
+    scope: Scope,
+    key: Callable[[exp.Table, str], str],
+    found: dict[str, list[str]],
+    segment: Callable[[exp.Expr], str] | None = None,
+    path: str = '',
+) -> None:
     """The tables whose columns ``scope`` outputs through a ``SELECT *`` or ``t.*`` it could not
-    expand, through the CTEs and subqueries the star reads, each with the columns it leaves out."""
+    expand, through the CTEs and subqueries the star reads, each with the columns it leaves out:
+    each keyed by ``key`` from the table and the path of the CTE references it is read through,
+    each reference's part of it given by ``segment``."""
     select = scope.expression
     if isinstance(select, exp.SetOperation):
         for branch in scope.set_operation_scopes:
-            _star_reads(branch, key, found)
+            _star_reads(branch, key, found, segment, path)
         return
     if not isinstance(select, exp.Select):
         return
@@ -1327,14 +1694,14 @@ def _star_reads(scope: Scope, key: Callable[[exp.Table], str], found: dict[str, 
         left_out = star.args.get('except_') or star.args.get('except') or []
         excluded = [c.name.lower() for c in left_out if isinstance(c, exp.Column)]
         if isinstance(item, exp.Column) and item.table:
-            sources = [scope.selected_sources[item.table][1]] if item.table in scope.selected_sources else []
+            sources = [scope.selected_sources[item.table]] if item.table in scope.selected_sources else []
         else:
-            sources = [source for _, source in scope.selected_sources.values()]
-        for source in sources:
+            sources = list(scope.selected_sources.values())
+        for node, source in sources:
             if isinstance(source, exp.Table):
-                found.setdefault(key(source), excluded)
+                found.setdefault(key(source, path), excluded)
             elif isinstance(source, Scope):
-                _star_reads(source, key, found)
+                _star_reads(source, key, found, segment, path + (segment(node) if segment else ''))
 
 
 def _nullable_names(select: exp.Select, names: list[str]) -> dict[str, str]:
@@ -1422,27 +1789,267 @@ class Canonical:
         self.default_db = default_db
         # Keyed by id(), so each entry keeps its node alive: lineage nodes built for conditions are
         # temporary, and a freed node's id can be reused by the next one.
-        self.memo: dict[int, tuple[LineageNode, str]] = {}
+        self.memo: dict[tuple[int, str], tuple[LineageNode, str]] = {}
         self.sources: _Sources | None = None
         self.scopes: dict[int, Scope] = {}
         self.tracer = _Tracer(dialect)
+        # Readings of a relation the statement reads more than once are printed as tokens, and
+        # named once every condition and formula is printed (see :meth:`name_readings`).
+        self.repeated: set[int] = set()  # the ids of the tables of such relations
+        self.ctes: dict[str, int] = {}  # by path segment, the CTE a reference referenced twice names
+        self.tokens: dict[tuple[str, int], str] = {}  # by path through CTEs and id of the table
+        self.relations: dict[str, str] = {}  # the relation each token is a reading of
+        self.names: dict[str, str] = {}  # each token's name in SQL, once named
+        self.readings: dict[str, str] = {}  # each token's name as a key (db.main.orders#2)
+        # The conditions whose terms are in no order, with their terms: put in order again once
+        # their readings are named.
+        self.term_lists: dict[str, list[str]] = {}
+        self.star_lists: dict[str, list[str]] = {}  # a star over several relations, by its text
 
-    def node(self, node: LineageNode) -> str:
-        cached = self.memo.get(id(node))
+    def prepare(self, root: Scope) -> None:
+        """Find the relations ``root`` reads more than once: in two places, or in a CTE that two
+        references read."""
+        self.scopes = {id(inner.expression): inner for inner in root.traverse()}
+        referrers: dict[int, list[Scope]] = defaultdict(list)
+        references: dict[int, int] = {}  # by the id of each reference to a CTE, the CTE's scope
+        tables: dict[int, tuple[exp.Table, Scope]] = {}
+        for scope in root.traverse():
+            for table, source in scope.selected_sources.values():
+                if isinstance(source, Scope) and source.is_cte and isinstance(table, exp.Table):
+                    referrers[id(source)].append(scope)
+                    references[id(table)] = id(source)
+            for source in scope.sources.values():
+                if isinstance(source, exp.Table) and isinstance(source.this, exp.Identifier):
+                    tables.setdefault(id(source), (source, scope))
+        if not tables:
+            return
+        self.ctes = {f'/{r}': cte for r, cte in references.items() if len(referrers[cte]) > 1}
+        reach: dict[int, int] = {}
+
+        def reached(scope: Scope) -> int:
+            """How many times the statement reads the rows of ``scope``."""
+            if id(scope) not in reach:
+                reach[id(scope)] = 1  # a recursive CTE reads itself
+                if scope.is_cte:
+                    reach[id(scope)] = sum(reached(r) for r in referrers.get(id(scope), [])) or 1
+                elif scope.parent is not None:
+                    reach[id(scope)] = reached(scope.parent)
+            return reach[id(scope)]
+
+        keys = {i: table_key(t, self.default_catalog, self.default_db) for i, (t, _) in tables.items()}
+        totals: Counter[str] = Counter()
+        for i, (_, scope) in tables.items():
+            totals[keys[i]] += reached(scope)
+        self.repeated = {i for i in tables if totals[keys[i]] > 1}
+
+    def relation(self, table: exp.Table, path: str = '') -> str:
+        """How ``table``, read through the CTE references ``path`` names, is named in a canonical
+        expression: by its relation, or, where the statement reads that relation more than once,
+        by a token for this reading, named later (see :meth:`name_readings`)."""
+        key = table_key(table, self.default_catalog, self.default_db)
+        if id(table) not in self.repeated:
+            return _sql_name(reading_key(key), self.dialect) if '#' in key else key
+        token = self.tokens.get((path, id(table)))
+        if token is None:
+            token = self.tokens[path, id(table)] = f'__kreading{len(self.tokens)}__'
+            self.relations[token] = key
+        return token
+
+    def segment(self, reference: exp.Expr) -> str:
+        """The path segment of ``reference``, a reference to a CTE, if the CTE is referenced more
+        than once: each reference reads the relations in it once more."""
+        segment = f'/{id(reference)}'
+        return segment if segment in self.ctes else ''
+
+    def through(self, scope: Scope | None, column: exp.Column) -> str:
+        """The path segment of the reference to a CTE referenced more than once that ``column`` in
+        ``scope`` reads, if it reads one: each reference reads the relations in it once more."""
+        if scope is None or not column.table:
+            return ''
+        selected = scope.selected_sources.get(column.table)
+        segment = f'/{id(selected[0])}' if selected is not None else ''
+        return segment if segment in self.ctes else ''
+
+    def name_readings(self, texts: Iterable[str]) -> None:
+        """Name the tokens in ``texts``: the statement's conditions, its columns' formulas and what
+        it says of each reading besides (on the nullable side of a join, before a window or a
+        LIMIT, read through a star).
+
+        Every reading of a relation the statement reads more than once is named by a number,
+        ``db.main."orders#1"``, so that which reading each column is from, which is what a
+        self-join means, is in what the statement prints. The numbers are a canonical labelling:
+        of all the ways to number the readings, the one whose texts, printed with the operands of
+        =, <>, AND, OR and a set operation in order, come first. That does not depend on aliases,
+        on the order of select items, CTEs or union branches, nor on which side of an = a column
+        is written, and two statements print the same only where some numbering makes their texts
+        the same. Readings are first told apart by what is said of each, refined by what is said
+        of the readings it is said with, so only readings still tied are numbered every way; past
+        ``_MAX_LEAVES`` ways, the readings still tied are numbered in the order the statement
+        names them.
+
+        A CTE referenced more than once is read once more by each reference, numbered the same
+        way: ``"orders#2/1"`` is the CTE's second reading of orders through the CTE's first
+        reference."""
+        info: dict[str, tuple[tuple[str, int], tuple[tuple[str, str], ...]]] = {}
+        objects: list[tuple[str, Any]] = []
+        group: dict[tuple[str, Any], tuple[str, Any]] = {}
+        for (path, table), token in sorted(self.tokens.items(), key=lambda item: item[1]):
+            segments = tuple(('r', segment) for segment in re.findall(r'/\d+', path))
+            info[token] = (('t', table), segments)
+            for obj in (('t', table), *segments):
+                if obj not in group:
+                    objects.append(obj)
+                    group[obj] = ('t', self.relations[token]) if obj[0] == 't' else ('r', self.ctes[obj[1]])
+        templates: list[_Template] = []
+        texts_of: dict[tuple[str, Any], list[int]] = defaultdict(list)
+        for text in dict.fromkeys(texts):
+            tokens = set(_TOKEN.findall(text))
+            if not tokens:
+                continue
+            for obj in {o for token in tokens for o in (info[token][0], *info[token][1])}:
+                texts_of[obj].append(len(templates))
+            templates.append(self._template(text))
+
+        def marker(
+            colors: Mapping[tuple[str, Any], int], focus: tuple[str, Any] | None
+        ) -> Callable[[str], str]:
+            def mark(token: str) -> str:
+                table, segments = info[token]
+                return ''.join(f'{o[0]}{colors[o]}{"s" if o == focus else ""}' for o in (table, *segments))
+
+            return mark
+
+        def refine(colors: dict[tuple[str, Any], int]) -> dict[tuple[str, Any], int]:
+            """Split readings of the same colour by what is said of each, until nothing splits."""
+            while True:
+                sizes = Counter(colors.values())
+                said = {
+                    o: (
+                        colors[o],
+                        tuple(sorted(_rendered(templates[i], marker(colors, o)) for i in texts_of[o]))
+                        if sizes[colors[o]] > 1
+                        else (),
+                    )
+                    for o in objects
+                }
+                order = {value: rank for rank, value in enumerate(sorted(set(said.values())))}
+                refined = {o: order[said[o]] for o in objects}
+                if len(order) == len(sizes):
+                    return refined
+                colors = refined
+
+        best: list[tuple[tuple[str, ...], dict[str, str]]] = []
+        leaves = 0
+
+        def search(colors: dict[tuple[str, Any], int]) -> None:
+            nonlocal leaves
+            colors = refine(colors)
+            cells: dict[int, list[tuple[str, Any]]] = defaultdict(list)
+            for obj in objects:
+                cells[colors[obj]].append(obj)
+            tied = next((cells[c] for c in sorted(cells) if len(cells[c]) > 1), None)
+            if tied is None:
+                leaves += 1
+                names = self._numbered(colors, info, group)
+                printed = tuple(sorted(_rendered(t, names.__getitem__) for t in templates))
+                if not best or printed < best[0][0]:
+                    best[:] = [(printed, names)]
+                return
+            for obj in tied:
+                if leaves >= _MAX_LEAVES and best:
+                    return
+                # One of the tied readings is taken to come first, and the rest are told apart
+                # by what is said of them with it.
+                search({o: 2 * c + (1 if c == colors[obj] and o != obj else 0) for o, c in colors.items()})
+
+        # At first, readings are told apart only by their relations, and references not at all.
+        kinds = {o: f't|{group[o][1]}' if o[0] == 't' else 'r' for o in objects}
+        order = sorted(set(kinds.values()))
+        search({o: order.index(kind) for o, kind in kinds.items()})
+        for token, name in best[0][1].items():
+            self.readings[token] = name
+            self.names[token] = _sql_name(name, self.dialect)
+
+    def _numbered(
+        self,
+        colors: Mapping[tuple[str, Any], int],
+        info: Mapping[str, tuple[tuple[str, int], tuple[tuple[str, str], ...]]],
+        group: Mapping[tuple[str, Any], tuple[str, Any]],
+    ) -> dict[str, str]:
+        """The name of each token where each relation's readings, and each CTE's references, are
+        numbered in the order of their colours."""
+        members: dict[tuple[str, Any], list[tuple[str, Any]]] = defaultdict(list)
+        for obj, owner in group.items():
+            members[owner].append(obj)
+        number = {
+            obj: str(rank + 1)
+            for objs in members.values()
+            for rank, obj in enumerate(sorted(objs, key=colors.__getitem__))
+        }
+        return {
+            token: reading_key(
+                self.relations[token], number[table] + ''.join(f'/{number[s]}' for s in segments)
+            )
+            for token, (table, segments) in info.items()
+        }
+
+    def _template(self, text: str) -> _Template:
+        label, sep, rest = text.partition(': ')
+        if not sep:
+            label, rest = '', text
+        terms = self.term_lists.get(text)
+        if terms is None and not _UNORDERED.search(rest):
+            # Nothing in it is in no order: it is its template as it is, without parsing it.
+            return _raw_template(text)
+        try:
+            if terms is not None:
+                body: _Template = ('c', 'TERMS', tuple(self._parsed(t) for t in terms))
+            else:
+                body = self._parsed(rest)
+        except PARSE_ERRORS:
+            return _raw_template(text)
+        # A join's label can name the reading it joins.
+        return _sealed(('s', (_raw_template(label + sep)[1], body)))
+
+    def _parsed(self, text: str) -> _Template:
+        return _template(sqlglot.parse_one(text, read=self.dialect))
+
+    def rename(self, text: str) -> str:
+        """``text`` with each token in it named, and the branches of a set operation, and the terms
+        of a GROUP BY or another clause whose terms are in no order, in order by their names."""
+        if '__kreading' not in text:
+            return text
+        terms = self.term_lists.get(text)
+        if terms is not None:
+            label = text.partition(': ')[0]
+            return f'{label}: ' + ', '.join(sorted(self.rename(term) for term in terms))
+        return _sorted_branches(_TOKEN.sub(lambda m: self.names[m.group(0)], text))
+
+    def reading_of(self, token: str) -> str:
+        """The name of the reading ``token`` stands for, as the statement's nullable relations, the
+        relations it reads before a window or LIMIT, and its stars are keyed by: ``token`` itself
+        when it is no token."""
+        return self.readings.get(token, token)
+
+    def node(self, node: LineageNode, path: str = '') -> str:
+        """The canonical expression of ``node``, read through the CTE references ``path`` names."""
+        key = (id(node), path)
+        cached = self.memo.get(key)
         if cached is not None and cached[0] is node:
             return cached[1]
-        self.memo[id(node)] = (node, '...')  # guards against cycles while this node is expanded
-        text = self._expand(node)
-        self.memo[id(node)] = (node, text)
+        self.memo[key] = (node, '...')  # guards against cycles while this node is expanded
+        text = self._expand(node, path)
+        self.memo[key] = (node, text)
         return text
 
-    def _expand(self, node: LineageNode) -> str:
+    def _expand(self, node: LineageNode, path: str = '') -> str:
         expression = node.expression
         if isinstance(expression, exp.Table):
-            relation = table_key(expression, self.default_catalog, self.default_db)
-            return f'{relation}.{_plain(node.name.rsplit(".", 1)[-1])}'
+            return f'{self.relation(expression, path)}.{_plain(node.name.rsplit(".", 1)[-1])}'
         if isinstance(node.source, exp.SetOperation) and node.downstream:
-            branches = sorted(self.node(child) for child in node.downstream)
+            branches = [self.node(child, path) for child in node.downstream]
+            if not isinstance(node.source, exp.Except):
+                branches.sort()
             return f'{node.name}({", ".join(branches)})'
         if isinstance(expression, exp.Alias):
             expression = expression.this
@@ -1452,9 +2059,9 @@ class Canonical:
             # the column on as it is, so its formula keeps the relation's star.
             asked = '*' if _renames(node.source) else _plain(node.name.rsplit('.', 1)[-1])
             return ', '.join(
-                f'{table_key(child.expression, self.default_catalog, self.default_db)}.{asked}'
+                f'{self.relation(child.expression, path)}.{asked}'
                 if isinstance(child.expression, exp.Table) and child.name == '*'
-                else self.node(child)
+                else self.node(child, path)
                 for child in node.downstream
             )
         children = {_plain(child.name): child for child in node.downstream}
@@ -1468,9 +2075,9 @@ class Canonical:
             name = f'{item.table}.{item.name}' if item.table else item.name
             child = children.get(_plain(name))
             if child is not None:
-                return _inline(self.node(child))
+                return _inline(self.node(child, path + self.through(self.scopes.get(id(node.source)), item)))
             if len(star_tables) == 1 and isinstance(star_tables[0].expression, exp.Table):
-                relation = table_key(star_tables[0].expression, self.default_catalog, self.default_db)
+                relation = self.relation(star_tables[0].expression, path)
                 return exp.Var(this=f'{relation}.{item.name.lower()}')
             return item
 
@@ -1516,10 +2123,36 @@ class Canonical:
                             f'({t})' if re.search(r'\bOR\b', t, re.I) else t for t in (*terms, where)
                         )
                     ]
+                if inner is None:
+                    terms = [t for term in terms for t in self.star_lists.get(term, [term])]
                 text = ', '.join(terms if clause.ordered else sorted(terms))
                 steps = _steps_after(query, clause.label.split(' JOIN ')[-1])
-                found.add(in_context(f'{clause.label}: {text}', side, steps + before))
+                condition = in_context(f'{clause.label}: {text}', side, steps + before)
+                if not clause.ordered and len(terms) > 1 and '__kreading' in text:
+                    self.term_lists[condition] = terms
+                found.add(condition)
+                if clause.join is not None:
+                    # A join whose ON does not name the reading it joins, as ``ON TRUE`` does not,
+                    # names it in its label too: which reading it is is which rows it joins.
+                    joined = scope.selected_sources.get(clause.join.this.alias_or_name)
+                    readings = self._readings_in(joined[1], self.segment(joined[0])) if joined else []
+                    for reading in readings:
+                        if reading not in text:
+                            label = clause.label.replace('JOIN ON', f'JOIN {reading} ON')
+                            found.add(in_context(f'{label}: {text}', side, steps + before))
         return sorted(found)
+
+    def _readings_in(self, source: exp.Table | Scope, path: str) -> list[str]:
+        """The readings of relations the statement reads more than once that ``source``, read
+        through the CTE references ``path`` names, reads."""
+        if isinstance(source, exp.Table):
+            return [self.relation(source, path)] if id(source) in self.repeated else []
+        found: list[str] = []
+        for branch in source.set_operation_scopes if isinstance(source.expression, exp.SetOperation) else []:
+            found += self._readings_in(branch, path)
+        for node, inner in source.selected_sources.values():
+            found += self._readings_in(inner, path + (self.segment(node) if isinstance(inner, Scope) else ''))
+        return found
 
     def _term(
         self,
@@ -1600,18 +2233,19 @@ class Canonical:
         if _is_star(part):
             # A star it could not expand, as in DISTINCT *: every column of the relations it reads.
             # Through a CTE or subquery, those its own stars pass on.
-            key = functools.partial(
-                table_key, default_catalog=self.default_catalog, default_db=self.default_db
-            )
             tables: dict[str, list[str]] = {}
-            for name, (_, source) in scope.selected_sources.items():
+            for name, (node, source) in scope.selected_sources.items():
                 if isinstance(part, exp.Column) and name != part.table:
                     continue
                 if isinstance(source, exp.Table):
-                    tables.setdefault(key(source), [])
+                    tables.setdefault(self.relation(source), [])
                 elif isinstance(source, Scope):
-                    _star_reads(source, key, tables)
-            return ', '.join(f'{table}.*' for table in sorted(tables)) or '*'
+                    _star_reads(source, self.relation, tables, self.segment, self.segment(node))
+            items = [f'{table}.*' for table in sorted(tables)]
+            text = ', '.join(items) or '*'
+            if len(items) > 1:
+                self.star_lists[text] = items
+            return text
         # A bare name in a query that reads one relation is that relation's: qualify leaves it
         # bare when the relation's columns are unknown, and then the filters of a union's
         # branches, each over its own relation, would read the same.
@@ -1624,15 +2258,14 @@ class Canonical:
             resolver = self.sources or _Sources(scope)
             source = resolver.of(item, scope) if item.table else single
             if isinstance(source, exp.Table):
-                return exp.Var(
-                    this=f'{table_key(source, self.default_catalog, self.default_db)}.{item.name.lower()}'
-                )
+                return exp.Var(this=f'{self.relation(source)}.{item.name.lower()}')
             if isinstance(source, Scope):
                 try:
                     traced = self.tracer.trace(item.name, source, schema)
                 except (SqlglotError, ValueError, KeyError, IndexError, AttributeError):
                     return item
-                return _inline(self.node(traced))
+                found = resolver.found(item, scope)
+                return _inline(self.node(traced, self.through(found[0], item) if found is not None else ''))
             return item
 
         # In place, not on a copy: a column's own node says which scope it is in.
@@ -1641,6 +2274,7 @@ class Canonical:
         swapped: list[tuple[exp.Expr, exp.Expr]] = []
         # A table a subquery in it reads is named, and its columns are, by the relation, so its
         # alias, which is what it is called and not what it is, is left out.
+        # A reading of a relation the statement reads more than once is named as its columns are.
         aliased = [(t, t.args['alias']) for t in part.find_all(exp.Table) if t.args.get('alias')]
         try:
             for column in list(part.find_all(exp.Column)):
@@ -1650,6 +2284,11 @@ class Canonical:
                     swapped.append((new, column))
             for table, _ in aliased:
                 table.set('alias', None)
+            for table in list(part.find_all(exp.Table)):
+                if id(table) in self.repeated or '#' in table.name:
+                    named = exp.Var(this=self.relation(table))
+                    table.replace(named)
+                    swapped.append((named, table))
             return part.sql(dialect=self.dialect, copy=False)
         finally:
             for table, alias in aliased:

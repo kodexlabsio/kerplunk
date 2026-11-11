@@ -544,3 +544,53 @@ def test_a_condition_is_split_into_its_terms_one_way(
     found = condition_terms(text, parse_one)
     assert (found.label, found.clause) == (label, clause)
     assert (None if found.terms is None else [t.sql() for t in found.terms]) == terms
+
+
+def test_each_reading_of_a_model_read_twice_composes_down_as_its_own(tmp_path: Path) -> None:
+    """A self-join of a model reads two rows of it, so its formula says which reading each column is
+    from, and so does that formula composed down to the source the model reads once."""
+    (tmp_path / 'base.sql').write_text(
+        'create table main.base as select id, customer_id, amount * 2 as amount from raw.orders'
+    )
+    (tmp_path / 'pairs.sql').write_text(
+        'create table main.pairs as select o.id, max(o.amount - p.amount) as gap from main.base o '
+        'join main.base p on p.customer_id = o.id group by o.id'
+    )
+    project = Project(tmp_path)
+    project.build(warehouses=False, run_dbt=False)
+    result = project.explain('pairs.gap')
+    assert result.expression == 'MAX("base#1".amount - "base#2".amount)'
+    # Each reading of base reads orders once more: named through that reading, not as a reading the
+    # query makes of orders itself.
+    assert result.composed == 'MAX(("orders#(base#1)".amount * 2) - ("orders#(base#2)".amount * 2))'
+    assert result.sources == ['orders.amount']
+    [pairs] = [s for s in result.steps if s.label == 'pairs.gap']
+    assert pairs.conditions == ['GROUP BY: "base#1".id', 'JOIN ON: "base#2".customer_id = "base#1".id']
+
+
+JOINED_ON_TRUE = (
+    'create table main.pairs as select a.id, b.amount from raw.orders a left join raw.orders b on true '
+    'left join raw.orders c on c.customer_id = b.customer_id'
+)
+
+
+def _joined_on_true(root: Path) -> Path:
+    """A project whose model joins a reading on an ON that does not name it, which the build lists
+    once more naming the reading."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / 'konstruct.toml').write_text('dialect = "duckdb"\n')
+    (root / 'pairs.sql').write_text(JOINED_ON_TRUE)
+    assert main(['build', str(root), '--no-warehouse', '-q']) == 0
+    return root
+
+
+def test_a_join_named_for_its_reading_is_shortened_as_other_names_are(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _joined_on_true(tmp_path / 'project')
+    for args in (['describe', 'pairs'], ['explain', 'pairs.amount']):
+        capsys.readouterr()
+        assert main(['--no-color', '-C', str(root), *args]) == 0
+        out = capsys.readouterr().out
+        assert 'LEFT JOIN "orders#1" ON' in out, out
+        assert 'raw."orders#1" ON' not in out

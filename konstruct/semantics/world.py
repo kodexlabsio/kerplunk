@@ -37,7 +37,7 @@ import sqlglot
 from sqlglot import exp
 
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
-from konstruct.core.sql import PARSE_ERRORS, aggregate_sql
+from konstruct.core.sql import PARSE_ERRORS, aggregate_sql, without_readings
 from konstruct.semantics import definitions
 from konstruct.semantics.ontology import (
     CONFIDENCES,
@@ -558,11 +558,16 @@ def _grain(graph: Graph, relation: Node, holders: dict[str, str], entities: set[
     grouping column is named for."""
     if relation.id in holders:
         return holders[relation.id]
-    grouped = [
-        str(c).split(': ', 1)[1]
-        for c in relation.attrs.get('conditions') or []
-        if str(c).startswith('GROUP BY: ')
-    ]
+    # Two readings of a relation grouped by the same key, as two CTEs that each group it, group
+    # it by that key.
+    dialect = graph.meta.get('dialect')
+    grouped = sorted(
+        {
+            without_readings(str(c).split(': ', 1)[1], dialect if isinstance(dialect, str) else None)
+            for c in relation.attrs.get('conditions') or []
+            if str(c).startswith('GROUP BY: ')
+        }
+    )
     if len(grouped) == 1 and ',' not in grouped[0]:
         name = entity_name(grouped[0].rsplit('.', 1)[-1])
         if name in entities:

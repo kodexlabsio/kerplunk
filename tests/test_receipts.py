@@ -792,3 +792,112 @@ def test_a_receipt_issued_before_unnest_was_a_condition_still_holds(tmp_path: Pa
     [checked] = project.check_receipts(history=False).receipts
     assert checked.status == 'holds' and checked.changes == []
     assert 'issued with canonical form konstruct-2/sqlglot-30.30' in checked.notes[0]
+
+
+def test_a_self_join_turned_the_other_way_makes_a_receipt_stale(tmp_path: Path) -> None:
+    """Each reading of a relation a query reads twice has a name of its own, so turning a self-join
+    the other way is a change, and other aliases are not."""
+    root = tmp_path / 'pairs'
+    root.mkdir()
+    pairs = (
+        'create table main.pairs as select {o}.id, sum({p}.amount) as total from raw.orders {o} '
+        'join raw.orders {p} on {on} group by {o}.id\n'
+    )
+    (root / 'pairs.sql').write_text(pairs.format(o='o', p='p', on='p.customer_id = o.id'))
+    (root / '.gitignore').write_text('konstruct-out/\n')
+    git(root, 'init', '-q', '-b', 'main')
+    commit(root, 'Add the pairs')
+    project = Project(root)
+    rebuild(project)
+    project.receipt(['pairs.total'])
+    (root / 'pairs.sql').write_text(pairs.format(o='a', p='b', on='b.customer_id = a.id'))
+    rebuild(project)
+    assert project.check_receipts(history=False).passed
+    (root / 'pairs.sql').write_text(pairs.format(o='o', p='p', on='o.customer_id = p.id'))
+    rebuild(project)
+    [checked] = project.check_receipts(history=False).receipts
+    assert checked.status == 'stale'
+    [change] = checked.changes
+    assert change.reasons == ['conditions']
+    assert change.conditions_added == ['JOIN ON: "orders#1".customer_id = "orders#2".id']
+
+
+def test_a_self_join_turned_from_left_to_right_makes_a_receipt_stale(tmp_path: Path) -> None:
+    root = tmp_path / 'sided'
+    root.mkdir()
+    pairs = (
+        'create table main.pairs as select o.id, p.amount from raw.orders o {side} join raw.orders p '
+        'on p.customer_id = o.id\n'
+    )
+    (root / 'pairs.sql').write_text(pairs.format(side='left'))
+    (root / '.gitignore').write_text('konstruct-out/\n')
+    git(root, 'init', '-q', '-b', 'main')
+    commit(root, 'Add the pairs')
+    project = Project(root)
+    rebuild(project)
+    project.receipt(['pairs.amount'])
+    (root / 'pairs.sql').write_text(pairs.format(side='right'))
+    rebuild(project)
+    [checked] = project.check_receipts(history=False).receipts
+    assert checked.status == 'stale'
+
+
+def _stale(root: Path, before: dict[str, str], after: dict[str, str], column: str) -> str:
+    """The status of a receipt for ``column`` made with the files ``before`` and checked once
+    ``after`` is written over them."""
+    root.mkdir()
+    for name, sql in before.items():
+        (root / name).write_text(sql)
+    (root / '.gitignore').write_text('konstruct-out/\n')
+    git(root, 'init', '-q', '-b', 'main')
+    commit(root, 'Add the models')
+    project = Project(root)
+    rebuild(project)
+    project.receipt([column])
+    for name, sql in after.items():
+        (root / name).write_text(sql)
+    rebuild(project)
+    [checked] = project.check_receipts(history=False).receipts
+    return checked.status
+
+
+COUNTED = 'create table main.pairs as select count(*) as n from raw.orders a join raw.orders b on {on}\n'
+MODEL = 'create table main.m as select id, customer_id as parent_id, amount as v from raw.orders\n'
+COMPOSED = (
+    'create table main.d as select m.id, {x} as x from main.m m join raw.orders o on o.id = m.parent_id\n'
+)
+
+
+@pytest.mark.parametrize(
+    ('before', 'after', 'column'),
+    [
+        (
+            {'pairs.sql': COUNTED.format(on='a.status = b.status')},
+            {'pairs.sql': COUNTED.format(on='a.status = a.status')},
+            'pairs.n',
+        ),
+        (
+            {
+                'pairs.sql': COUNTED.format(
+                    on='b.customer_id = a.id join raw.orders c on c.customer_id = a.id'
+                )
+            },
+            {
+                'pairs.sql': COUNTED.format(
+                    on='b.customer_id = a.id join raw.orders c on b.customer_id = c.id'
+                )
+            },
+            'pairs.n',
+        ),
+        (
+            {'m.sql': MODEL, 'd.sql': COMPOSED.format(x='m.v - o.amount')},
+            {'d.sql': COMPOSED.format(x='o.amount - m.v')},
+            'd.x',
+        ),
+    ],
+    ids=['a symmetric join made a tautology', 'readings said the same of', 'a model read once and directly'],
+)
+def test_a_change_to_which_reading_is_read_makes_a_receipt_stale(
+    tmp_path: Path, before: dict[str, str], after: dict[str, str], column: str
+) -> None:
+    assert _stale(tmp_path / 'project', before, after, column) == 'stale'

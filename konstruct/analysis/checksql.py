@@ -67,6 +67,7 @@ from konstruct.core.sql import (
     normal_condition,
     split_conjuncts,
     table_key,
+    without_readings,
 )
 from konstruct.inputs.usage import HistoryQuery, QueryHistory
 from konstruct.semantics.ontology import Relationship, derivation, entity_name, id_like, name_matches
@@ -561,9 +562,14 @@ class Checker:
         """The output columns ``relation`` groups by, when it is built by one grouped query whose
         grouping columns all pass through. Grouping by a unique key of a source and other columns
         of that same source is grouping by the key."""
-        groups = [
-            str(c) for c in relation.attrs.get('conditions', []) or [] if str(c).startswith('GROUP BY: ')
-        ]
+        # Two readings of a relation grouped by the same key group it by that key.
+        groups = sorted(
+            {
+                'GROUP BY: ' + without_readings(str(c).removeprefix('GROUP BY: '), self.sqlglot)
+                for c in relation.attrs.get('conditions', []) or []
+                if str(c).startswith('GROUP BY: ')
+            }
+        )
         if len(groups) != 1:
             return None
         tree = self.parse(f'SELECT 1 GROUP BY {groups[0].removeprefix("GROUP BY: ")}')
@@ -606,7 +612,7 @@ class Checker:
     def column_at(self, parts: list[str]) -> Node | None:
         """The graph column a fully qualified name (relation key, then column) refers to."""
         for split in range(len(parts) - 1, 0, -1):
-            relation = self.graph.node_for_relation('.'.join(parts[:split]).lower())
+            relation = self.graph.node_for_reading('.'.join(parts[:split]).lower())
             if relation is not None:
                 return self.graph.column(relation.id, parts[split])
         return None

@@ -29,7 +29,7 @@ import sqlglot
 from sqlglot import exp
 
 from konstruct import _core
-from konstruct.analysis.explain import Explainer, short_sql
+from konstruct.analysis.explain import Explainer, joined_reading, short_sql
 from konstruct.analysis.identity import Formulas, Verdict, Witness
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
 from konstruct.core.sql import PARSE_ERRORS, condition_key
@@ -371,7 +371,8 @@ class _Finder:
                 entry = (self.graph.label(relation), text, self.where(relation))
                 if head.startswith(FILTER_HEADS):
                     filters.append(entry)
-                elif 'JOIN' in head:
+                elif 'JOIN' in head and joined_reading(text.split(': ', 1)[0])[1] is None:
+                    # A join the build lists once more to name the reading it joins is one join.
                     joins.append(entry)
             found = self._conditions[relation.id] = (filters, joins)
         return found

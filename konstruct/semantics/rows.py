@@ -100,7 +100,7 @@ class Rows:
         # only where they match, as through an inner join, and so do the rows joined through them.
         nullable = set()
         for name in relation.attrs.get('nullable') or {}:
-            node = graph.node_for_relation(str(name))
+            node = graph.node_for_reading(str(name))
             if node is not None:
                 nullable.add(node.id)
         reached = set(ours)

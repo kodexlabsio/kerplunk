@@ -73,7 +73,7 @@ from konstruct.analysis.verify import (
 from konstruct.core import formats, jsonio
 from konstruct.core.formats import FIELD, FormatError, document
 from konstruct.core.graph import Graph, Node
-from konstruct.core.sql import PARSE_ERRORS, build_schema, case_insensitive, table_key
+from konstruct.core.sql import PARSE_ERRORS, build_schema, case_insensitive, table_key, without_readings
 
 if TYPE_CHECKING:
     from konstruct.interfaces.layout import Style
@@ -1134,6 +1134,8 @@ class _Analyser:
             head, _, body = condition.partition(': ')
             if not head.endswith('JOIN ON'):
                 continue
+            # A self-join's readings are each the relation, whose keys are the same.
+            body = without_readings(body, self.dialect)
             equalities = [part.split(' = ') for part in body.split(' AND ')]
             if any(len(e) != 2 or not all(_PHYSICAL.match(side) for side in e) for e in equalities):
                 continue

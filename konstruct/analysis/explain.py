@@ -21,6 +21,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import re
+from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
@@ -30,7 +31,7 @@ from sqlglot import exp
 from sqlglot.dialects.dialect import Dialect
 
 from konstruct.core import jsonio
-from konstruct.core.graph import Graph, Node
+from konstruct.core.graph import RELATION_KINDS, Graph, Node, reading_key, split_reading
 from konstruct.core.sql import PARSE_ERRORS
 
 if TYPE_CHECKING:
@@ -158,22 +159,41 @@ class _Namer:
             self.cache[key] = self.graph.node_for_relation(key)
         return self.cache[key]
 
-    def column(self, name: str, relation: Node) -> exp.Column:
+    def column(self, name: str, relation: Node, reading: str = '') -> exp.Column:
         """``relation.name`` as a column: the relation's short label, or with ``qualified``, its full
-        relation key, which stays unambiguous where two relations share a label."""
+        relation key, which stays unambiguous where two relations share a label. ``reading`` names
+        one reading of a relation a query reads more than once (see :func:`split_reading`)."""
         if self.qualified and relation.relation:
             *prefix, table = relation.relation.split('.')
-            return exp.column(name, table, *reversed(prefix), quoted=False)
-        return exp.column(name, table=self.graph.label(relation), quoted=False)
+        else:
+            prefix, table = [], self.graph.label(relation)
+        named = reading_key(table, reading)
+        return exp.column(
+            name, exp.to_identifier(named, quoted='#' in named), *reversed(prefix), quoted=False
+        )
+
+    def path(self, relation: Node, reading: str) -> str:
+        """The part of a reading of a relation upstream of ``relation``'s reading ``reading`` that
+        says it is read through that reading (``(main.m#1)``): what a composed formula names the
+        readings of what it composes down to, apart from the readings the composing query makes
+        of the same relations itself."""
+        named = relation.relation if self.qualified and relation.relation else self.graph.label(relation)
+        return f'({reading_key(named, reading)})'
 
     def resolve(self, column: exp.Column) -> tuple[Node, str] | None:
         """The relation node and column name a qualified column refers to: the longest prefix of
         its parts that names a relation, so nested fields (``orders.customer.country``) work."""
+        found = self.locate(column)
+        return found[:2] if found is not None else None
+
+    def locate(self, column: exp.Column) -> tuple[Node, str, str] | None:
+        """What :meth:`resolve` gives, and the reading of the relation the column names, if any."""
         parts = [p.name for p in column.parts]
         for split in range(len(parts) - 1, 0, -1):
-            node = self.relation('.'.join(parts[:split]))
+            relation, reading = split_reading('.'.join(parts[:split]))
+            node = self.relation(relation)
             if node is not None:
-                return node, '.'.join(parts[split:])
+                return node, '.'.join(parts[split:]), reading
         return None
 
     def parse(self, sql: str) -> exp.Expr | None:
@@ -195,10 +215,9 @@ class _Namer:
     def short(self, tree: exp.Expr) -> str:
         def rename(node: exp.Expr) -> exp.Expr:
             if isinstance(node, exp.Column):
-                found = self.resolve(node)
+                found = self.locate(node)
                 if found is not None:
-                    relation, name = found
-                    return self.column(name, relation)
+                    return self.column(found[1], found[0], found[2])
             return node
 
         # The tree is the one text() just parsed, so it is renamed in place.
@@ -217,14 +236,40 @@ class _Namer:
         found = self.texts.get(text)
         if found is None:
             parts = condition_terms(text, self.parse)
-            if not parts.label:
+            label = parts.label
+            base, reading = joined_reading(label)
+            if reading is not None:
+                # The reading a join names in its label is shortened as every other name is.
+                named = self.parse(f'{reading}._')
+                if isinstance(named, exp.Column):
+                    short = self.short(named)
+                    label = base.replace(' ON', f' {short.removesuffix("._")} ON', 1)
+            if not label:
                 found = self.text(text)
             elif not parts.terms:
-                found = text
+                found = f'{label}: {parts.rest}'
             else:
-                found = f'{parts.label}: {", ".join(self.short(term) for term in parts.terms)}'
+                found = f'{label}: {", ".join(self.short(term) for term in parts.terms)}'
             self.texts[text] = found
         return found
+
+
+def _relation_key(relation: Node) -> str:
+    """How a relation is told apart from others: by its warehouse name, or without one its id."""
+    return relation.relation.lower() if relation.relation else relation.id
+
+
+def _read_as(tree: exp.Expr, path: str) -> exp.Expr:
+    """``tree``, the composed formula of a column of one reading of a relation, with each column
+    it reads named as read through that reading (``path``, see :meth:`_Namer.path`): the formulas of
+    the two readings of a self-join are over the same columns, and which reading each comes from
+    is what the join means."""
+    for column in tree.find_all(exp.Column):
+        table = column.args.get('table')
+        if table is not None:
+            relation, reading = split_reading(table.name)
+            column.set('table', exp.to_identifier(reading_key(relation, reading + path), quoted=True))
+    return tree
 
 
 class ConditionTerms(NamedTuple):
@@ -246,7 +291,7 @@ def condition_terms(text: str, parse: Callable[[str], exp.Expr | None]) -> Condi
     """``text``, a recorded condition, read into its terms with ``parse``: what explain, describe and
     the lockfile all split a condition into."""
     label, rest = split_condition(text)
-    clause = label.partition(' BEFORE ')[0].rsplit(' JOIN ', 1)[-1]
+    clause = joined_reading(label)[0].partition(' BEFORE ')[0].rsplit(' JOIN ', 1)[-1]
     if clause in _LITERAL_CLAUSES:
         return ConditionTerms(label, clause, rest, None)
     template = _TERM_LISTS.get(clause)
@@ -262,6 +307,20 @@ def condition_terms(text: str, parse: Callable[[str], exp.Expr | None]) -> Condi
     for term in terms:
         term.parent = None  # a term on its own, not an item of the query that parsed it
     return ConditionTerms(label, clause, rest, terms)
+
+
+_JOINED = re.compile(r'(.*\bJOIN) (.+) ON')
+
+
+def joined_reading(label: str) -> tuple[str, str | None]:
+    """A join's label without the reading it names, and that reading: the build names it where the
+    join's ON does not, as ``LEFT JOIN db.main."orders#2" ON: TRUE`` repeats ``LEFT JOIN ON: TRUE``
+    (see :meth:`konstruct.core.sql.Canonical.conditions`)."""
+    base, sep, before = label.partition(' BEFORE ')
+    match = _JOINED.fullmatch(base)
+    if match is None:
+        return label, None
+    return f'{match[1]} ON{sep}{before}', match[2]
 
 
 def split_condition(text: str) -> tuple[str, str]:
@@ -440,6 +499,8 @@ class Explainer:
         # composed nearer the top, the same column goes further.
         self.deep_memo: dict[tuple[str, int], _Composed] = {}
         self.deep_texts: dict[tuple[str, int], _Text] = {}
+        self.shared: dict[str, dict[str, frozenset[str]]] = {}
+        self.upstream: dict[str, frozenset[str]] = {}
 
     def _keep_text(self, node: Node, depth: int, result: _Text) -> _Text:
         if result.deep:
@@ -494,6 +555,7 @@ class Explainer:
         tree: exp.Expr = parsed
         self.writing.add(node.id)
         unsafe = False
+        shared = self._shared(graph.parent_of(node))
         by_name = {(u.parent or '', u.name.lower()): u for u in upstream}
         by_relation = {}
         for u in upstream:
@@ -510,10 +572,15 @@ class Explainer:
             nonlocal complete, deep, size, unsafe
             if not isinstance(item, exp.Column):
                 return item
-            found = self.namer.resolve(item)
+            found = self.namer.locate(item)
             if found is None:
                 return item
-            relation, name = found
+            relation, name, reading = found
+            if reading or _relation_key(relation) in shared:
+                # A reading of a relation read more than once, or reached another way too, names
+                # its inputs as read through it: compose the tree.
+                unsafe = True
+                return item
             short = self.namer.column(name, relation)
             target = (
                 by_name.get((relation.id, name.lower()))
@@ -662,18 +729,93 @@ class Explainer:
         # nothing else holds, can then be rewritten in place.
         original = self.namer.text(expression)
         self.active.add(node.id)
-        result = self._substituted(parsed, self.inputs(node, upstream), depth, len(expression))
+        result = self._substituted(
+            parsed, self.inputs(node, upstream), depth, len(expression), owner=self.graph.parent_of(node)
+        )
         self.active.discard(node.id)
         result.original = original
         return self._keep(node, depth, result)
 
-    def compose_sql(self, tree: exp.Expr, reads: Callable[[Node], None] | None = None) -> exp.Expr:
+    def _shared(self, owner: Node | None) -> dict[str, frozenset[str]]:
+        """For each relation ``owner`` is built from, the relations upstream of it that ``owner``
+        also reaches another way: read directly, or through another relation. A formula composed
+        through it names their columns as read through it (``"orders#(main.m)"``), apart from the
+        same columns reached the other way, which are other rows."""
+        if owner is None:
+            return {}
+        found = self.shared.get(owner.id)
+        if found is None:
+            inputs = {
+                _relation_key(self.graph.nodes[e.source])
+                for e in self.graph.in_edges(owner.id, 'feeds')
+                if e.source in self.graph.nodes and self.graph.nodes[e.source].kind in RELATION_KINDS
+            }
+            found = {}
+            if len(inputs) > 1:
+                reach = {key: self._upstream(key) | {key} for key in inputs}
+                counts = Counter(r for reached in reach.values() for r in reached)
+                for key, reached in reach.items():
+                    both = frozenset(r for r in reached if counts[r] > 1 and r != key)
+                    if both:
+                        found[key] = both
+            self.shared[owner.id] = found
+        return found
+
+    def _upstream(self, key: str) -> frozenset[str]:
+        """The relations upstream of the relation ``key``, by the relations each is built from."""
+        found = self.upstream.get(key)
+        if found is not None:
+            return found
+        graph = self.graph
+        seen: set[str] = set()
+        stack = [key]
+        while stack:
+            current = stack.pop()
+            nodes = graph.nodes_for_relation(current) or (
+                [graph.nodes[current]] if current in graph.nodes else []
+            )
+            for node in nodes:
+                for edge in graph.in_edges(node.id, 'feeds'):
+                    source = graph.nodes.get(edge.source)
+                    if source is None or source.kind not in RELATION_KINDS:
+                        continue
+                    upstream = _relation_key(source)
+                    if upstream not in seen and upstream != key:
+                        seen.add(upstream)
+                        known = self.upstream.get(upstream)
+                        if known is not None:
+                            seen |= known
+                        else:
+                            stack.append(upstream)
+        self.upstream[key] = frozenset(seen)
+        return self.upstream[key]
+
+    def _read_through(self, tree: exp.Expr, path: str, through: frozenset[str]) -> exp.Expr:
+        """``tree`` with each column of a relation in ``through`` named as read through ``path``."""
+        named = set()
+        for key in through:
+            node = self.graph.node_for_relation(key) or self.graph.nodes.get(key)
+            if node is not None:
+                short = self.namer.column('_', node)
+                named.add((short.catalog, short.db, split_reading(short.table)[0]))
+        for column in tree.find_all(exp.Column):
+            table = column.args.get('table')
+            if table is None:
+                continue
+            relation, reading = split_reading(table.name)
+            if (column.catalog, column.db, relation) in named:
+                column.set('table', exp.to_identifier(reading_key(relation, reading + path), quoted=True))
+        return tree
+
+    def compose_sql(
+        self, tree: exp.Expr, reads: Callable[[Node], None] | None = None, owner: Node | None = None
+    ) -> exp.Expr:
         """A free expression, such as one of a relation's conditions, with every column in it
         replaced by that column's composed formula, as :meth:`compose` replaces a column's
         inputs, with brackets tidied. ``tree`` is rewritten in place; ``reads`` is called with
-        each column of the graph it refers to."""
+        each column of the graph it refers to; ``owner`` is the relation whose expression it is."""
         size = len(tree.sql(dialect=self.namer.sqlglot))
-        composed = self._substituted(tree, self._resolver([]), -1, size, reads)
+        composed = self._substituted(tree, self._resolver([]), -1, size, reads, owner)
         return _unparen(composed.tree) if composed.tree is not None else tree
 
     def _substituted(
@@ -683,11 +825,14 @@ class Explainer:
         depth: int,
         size: int,
         reads: Callable[[Node], None] | None = None,
+        owner: Node | None = None,
     ) -> _Composed:
-        """``tree``, the expression of a column at ``depth``, with each column ``resolve`` finds
-        in the graph replaced by its composed formula. ``size`` is the expression's length:
-        formulas roughly double at each join, so the budget is checked before substituting, not
-        after, and an input too large to inline stays a column reference."""
+        """``tree``, the expression of a column at ``depth`` of the relation ``owner``, with each
+        column ``resolve`` finds in the graph replaced by its composed formula. ``size`` is the
+        expression's length: formulas roughly double at each join, so the budget is checked
+        before substituting, not after, and an input too large to inline stays a column
+        reference."""
+        shared = self._shared(owner)
         sources: set[str] = set()
         complete = True
         deep = False
@@ -700,8 +845,10 @@ class Explainer:
             if found is None:
                 return item
             relation, name, target = found
+            located = self.namer.locate(item)
+            reading = located[2] if located is not None else ''
             # Whatever happens next, a column that stays in the formula gets its short name.
-            short = self.namer.column(name, relation)
+            short = self.namer.column(name, relation, reading)
             if target is None:
                 return short
             if reads is not None:
@@ -716,9 +863,14 @@ class Explainer:
                 complete = False
                 return short
             size += inner.size
-            if isinstance(inner.tree, (exp.Column, exp.Literal, exp.Paren)) or _call(inner.tree):
-                return inner.tree.copy()
-            return exp.Paren(this=inner.tree.copy())
+            tree = inner.tree.copy()
+            if reading:
+                tree = _read_as(tree, self.namer.path(relation, reading))
+            elif (through := shared.get(_relation_key(relation))) is not None:
+                tree = self._read_through(tree, self.namer.path(relation, ''), through)
+            if isinstance(tree, (exp.Column, exp.Literal, exp.Paren)) or _call(tree):
+                return tree
+            return exp.Paren(this=tree)
 
         composed = tree.transform(substitute, copy=False)
         return _Composed(composed, frozenset(sources), complete, size, deep=deep)

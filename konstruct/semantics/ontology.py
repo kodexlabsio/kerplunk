@@ -342,7 +342,7 @@ def resolve_column(graph: Graph, column: exp.Column) -> Node | None:
     """The column node a fully qualified column in a stored condition names."""
     parts = [p.name for p in column.parts]
     for split in range(len(parts) - 1, 0, -1):
-        relation = graph.node_for_relation('.'.join(parts[:split]))
+        relation = graph.node_for_reading('.'.join(parts[:split]))
         if relation is not None:
             return graph.column(relation.id, '.'.join(parts[split:]))
     return None

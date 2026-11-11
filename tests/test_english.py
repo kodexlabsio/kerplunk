@@ -815,3 +815,30 @@ def test_no_two_columns_share_a_wording(sql: str) -> None:
     names = Names(column_keys([tree]))
     wordings = [n.wording for n in names.legend()]
     assert len(wordings) == len(set(wordings)) == len(set(column_keys([tree])))
+
+
+JOINED_ON_TRUE = (
+    'create table main.pairs as select a.id, b.amount from raw.orders a left join raw.orders b on true '
+    'left join raw.orders c on c.customer_id = b.customer_id'
+)
+
+
+def _joined_on_true(root: Path) -> Path:
+    """A project whose model joins a reading on an ON that does not name it, which the build lists
+    once more naming the reading."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / 'konstruct.toml').write_text('dialect = "duckdb"\n')
+    (root / 'pairs.sql').write_text(JOINED_ON_TRUE)
+    assert main(['build', str(root), '--no-warehouse', '-q']) == 0
+    return root
+
+
+def test_a_join_named_for_its_reading_has_a_wording(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _joined_on_true(tmp_path / 'project')
+    capsys.readouterr()
+    assert main(['--no-color', '-C', str(root), 'explain', 'pairs.amount', '--english']) == 0
+    out = capsys.readouterr().out
+    assert 'the rows of orders#1 are joined where true, keeping every row of the left side' in out, out
+    assert 'Quoted as SQL' not in out

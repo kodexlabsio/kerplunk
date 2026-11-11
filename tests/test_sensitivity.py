@@ -1524,3 +1524,17 @@ def test_erasure_finds_cast_keys_copies_without_the_key_and_joins(tmp_path: Path
     assert hows['mart.orders'] == [('mart.orders.person_id', 'copy')]
     assert 'counted' not in hows
     assert {h.relation: h.action for h in result.holdings}['raw.people'] == 'delete'
+
+
+def test_a_reading_of_a_relation_reads_its_columns() -> None:
+    """A query that reads a relation twice names each reading (``"orders#2"``): a count over one
+    reading of a key counts that key."""
+    import sqlglot
+    from sqlglot import exp
+
+    from konstruct.analysis.sensitivity import _reads
+
+    column = sqlglot.parse_one('main."orders#1/2".id')
+    assert isinstance(column, exp.Column)
+    assert _reads(column, 'db.main.orders', 'id')
+    assert not _reads(column, 'db.main.order_lines', 'id')

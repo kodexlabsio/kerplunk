@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import uuid
 from pathlib import Path
@@ -11,6 +12,7 @@ import duckdb
 import pytest
 
 from konstruct.analysis.diff import Context
+from konstruct.analysis.explain import Explainer
 from konstruct.analysis.lock import Pinner
 from konstruct.core.graph import Graph, Node
 from konstruct.engine.build import Cache, RelationIndex, build
@@ -1207,3 +1209,32 @@ def test_a_file_beside_an_input_is_read_again_only_when_it_changes_again(
     (dags / 'h07.py').write_text(DAG_TEXT.format(name='h07'))
     assert project.changed_inputs() == ['dags/h07.py']
     assert judged == ['dags/h07.py']
+
+
+def test_a_relation_named_with_a_hash_keeps_its_own_lineage(tmp_path: Path) -> None:
+    """A relation named ``events#2`` is that relation wherever it is named, never a reading of
+    ``events``."""
+    (tmp_path / 'a.sql').write_text(
+        'create table main.events as select id, kind from raw.web;\n'
+        'create table main."events#2" as select id, kind from raw.app;\n'
+    )
+    (tmp_path / 'b.sql').write_text('create table main.r as select e.kind from main."events#2" e')
+    graph = build(load_config(tmp_path)).graph
+    events = graph.node_for_relation('main.events#2')
+    assert events is not None and events.relation == 'main.events#2'
+    assert graph.node_for_relation('main.events#3') is None
+    [edge] = graph.out_edges('table.main.r#kind', 'derived_from')
+    assert graph.parent_of(graph.nodes[edge.target]) is events
+    assert Explainer(graph).explain(graph.nodes['table.main.r#kind']).sources == ['app.kind']
+
+
+def test_the_example_names_each_reading_of_a_cte_two_others_read(jaffle_graph: Graph) -> None:
+    """customers reads stg_orders through one CTE that two others read, each joined to customers:
+    its conditions name each reading through that CTE, as moving a filter from one to the other
+    changes its rows."""
+    customers = jaffle_graph.nodes['model.jaffle_shop.customers']
+    texts = [str(c) for c in customers.attrs['conditions']] + [
+        str(c.attrs.get('expression', '')) for c in jaffle_graph.columns_of(customers.id)
+    ]
+    readings = {m for t in texts for m in re.findall(r'stg_orders#[\d/]+', t)}
+    assert len(readings) == 2, texts

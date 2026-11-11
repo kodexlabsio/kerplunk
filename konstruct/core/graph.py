@@ -143,6 +143,34 @@ def column_id(parent_id: str, column: str) -> str:
     return f'{parent_id}#{column.lower()}'
 
 
+def reading_key(key: str, reading: str = '') -> str:
+    """How canonical text (a relation's conditions, a column's formula) names one reading of a
+    relation that a query reads more than once: the relation key with each ``#`` in it doubled,
+    then ``#`` and the reading (``db.main.orders#2``). A relation read once is its key, escaped
+    the same way, so a relation named ``events#2`` is never taken for a reading of ``events``."""
+    escaped = key.replace('#', '##')
+    return f'{escaped}#{reading}' if reading else escaped
+
+
+def split_reading(name: str) -> tuple[str, str]:
+    """The relation key and the reading a name in canonical text stands for (see
+    :func:`reading_key`): ``db.main.orders#2`` is reading ``2`` of ``db.main.orders``, and
+    ``main.events##2`` is the relation ``main.events#2``."""
+    if '#' not in name:
+        return name, ''
+    key: list[str] = []
+    index = 0
+    while index < len(name):
+        char = name[index]
+        if char == '#':
+            if name[index + 1 : index + 2] != '#':
+                return ''.join(key), name[index + 1 :]
+            index += 1
+        key.append(char)
+        index += 1
+    return ''.join(key), ''
+
+
 def relation_key(*parts: str | None) -> str:
     """Canonical, case-insensitive key for a warehouse relation, e.g. ``jaffle.main.orders``."""
     cleaned = (part.strip('"`[]').lower() for part in parts if part)
@@ -340,6 +368,11 @@ class Graph:
     def nodes_for_relation(self, key: str) -> list[Node]:
         """Every node that describes this relation, the preferred one first."""
         return [self.nodes[i] for i in self._relations.get(key.lower(), [])]
+
+    def node_for_reading(self, name: str) -> Node | None:
+        """The relation a name in canonical text stands for, whether the relation itself or one
+        reading of it (see :func:`split_reading`)."""
+        return self.node_for_relation(split_reading(name)[0])
 
     def shared_relations(self) -> Iterator[tuple[str, list[Node]]]:
         for key, ids in self._relations.items():

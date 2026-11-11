@@ -15,6 +15,7 @@ import duckdb
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from sqlglot.tokens import Tokenizer
 
 from konstruct import Project
 from konstruct.analysis.lock import (
@@ -600,7 +601,8 @@ CONDITIONS = [
 @settings(max_examples=40, deadline=None)
 @given(
     cte=st.from_regex(r'[a-z][a-z0-9_]{0,8}', fullmatch=True).filter(
-        lambda n: n not in ('as', 'by', 'or', 'on', 'in', 'c', 'o')
+        # A keyword (AND, END) is no name; c and o are the query's aliases.
+        lambda n: n.upper() not in Tokenizer.KEYWORDS and n not in ('c', 'o')
     ),
     space=st.sampled_from([' ', '\n', '  ', '\n\t']),
     upper=st.booleans(),
@@ -1418,10 +1420,10 @@ def test_a_negative_constant_is_a_constant() -> None:
     """``-1 = a`` is ``a = -1``, as ``1 = a`` is ``a = 1``."""
     import sqlglot
 
-    from konstruct.analysis.lock import _canonical
+    from konstruct.core.sql import canonical_tree
 
-    assert _canonical(sqlglot.parse_one('-1 = a')).sql() == 'a = -1'
-    assert _canonical(sqlglot.parse_one('-1 < a')).sql() == 'a > -1'
+    assert canonical_tree(sqlglot.parse_one('-1 = a')).sql() == 'a = -1'
+    assert canonical_tree(sqlglot.parse_one('-1 < a')).sql() == 'a > -1'
 
 
 # What the fourth review found
@@ -1842,3 +1844,181 @@ def test_a_condition_the_canonical_form_adds_fails_once_and_changes_nothing(
     assert 'written with canonical form konstruct-2/sqlglot-30.30' in result.summary()
     assert lock(graph, marketing, update=True).lockfile.canonical == CANONICAL
     assert check(graph, marketing, history=False).passed
+
+
+SELF_JOINED = (
+    'create table main.pairs as select {o}.id, sum({p}.amount) as total from raw.orders {o} '
+    'join raw.orders {p} on {on} group by {o}.id'
+)
+
+
+@pytest.mark.parametrize(
+    ('after', 'changed'),
+    [
+        (SELF_JOINED.format(o='o', p='p', on='o.customer_id = p.id'), True),
+        (SELF_JOINED.format(o='a', p='b', on='b.customer_id = a.id'), False),
+    ],
+    ids=['the other way', 'other aliases'],
+)
+def test_a_self_join_turned_the_other_way_breaks_the_pin(tmp_path: Path, after: str, changed: bool) -> None:
+    """Joining each order to the orders of its customer, or to the order its customer's id names,
+    reads the same columns of raw.orders, but not the same rows; other aliases change nothing."""
+    before = {'pairs.sql': SELF_JOINED.format(o='o', p='p', on='p.customer_id = o.id')}
+    result, same = _changes(tmp_path, before, {'pairs.sql': after}, 'pairs.total')
+    assert same is not changed
+    assert [c.reasons for c in result.changes] == ([['conditions']] if changed else [])
+
+
+def test_a_pin_of_a_self_join_names_each_reading(tmp_path: Path) -> None:
+    files = {'pairs.sql': SELF_JOINED.format(o='o', p='p', on='p.customer_id = o.id')}
+    pin = lock(build_with(tmp_path, files), tmp_path, ['pairs.total']).lockfile.pins[0]
+    [grouped] = [c for c in pin.conditions if c.startswith('GROUP BY: ')]
+    [joined] = [c for c in pin.conditions if c.startswith('JOIN ON: ')]
+    readings = re.findall(r'"orders#\d"', joined)
+    grouping = re.search(r'"orders#\d"', grouped)
+    assert len(set(readings)) == 2 and grouping is not None and grouping.group() in readings
+
+
+def test_a_reading_composed_through_a_model_read_twice_is_not_a_reading_of_its_own(tmp_path: Path) -> None:
+    """main.m reads raw.orders, and main.d reads both twice: what main.d reads of raw.orders through
+    each reading of main.m is named through it, apart from main.d's own readings of raw.orders."""
+    m = (
+        'create table main.m as select id, customer_id as parent_id, amount * 2 as v from raw.orders '
+        "where status = 'paid'"
+    )
+    d = (
+        'create table main.d as select o1.id, {x} as x from main.m m1 left join main.m m2 on m2.id = m1.parent_id '
+        'left join raw.orders o1 on o1.id = m1.id left join raw.orders o2 on o2.id = m1.parent_id'
+    )
+    before = {'m.sql': m, 'd.sql': d.format(x='m1.v - o2.amount')}
+    pin = lock(build_with(tmp_path / 'pin', before), tmp_path / 'pin', ['d.x']).lockfile.pins[0]
+    assert all(c.count('"orders#1"') < 2 for c in pin.conditions), pin.conditions
+    result, same = _changes(tmp_path / 'check', before, {'d.sql': d.format(x='o1.amount - m2.v')}, 'd.x')
+    assert not same
+    assert result.changes and result.changes[0].column == 'main.d.x'
+
+
+def test_a_self_join_turned_from_left_to_right_breaks_the_pin(tmp_path: Path) -> None:
+    """Which reading of a relation joined to itself keeps its unmatched rows is part of its rows,
+    though the relation is read on both sides."""
+    pairs = (
+        'create table main.pairs as select o.id, p.amount from raw.orders o {side} join raw.orders p '
+        'on p.customer_id = o.id'
+    )
+    before = {'pairs.sql': pairs.format(side='left')}
+    result, same = _changes(tmp_path, before, {'pairs.sql': pairs.format(side='right')}, 'pairs.amount')
+    assert not same
+    assert [c.reasons for c in result.changes] == [['conditions']]
+
+
+MODEL_READ_ONCE = 'create table main.m as select id, customer_id as parent_id, amount as v from raw.orders'
+
+
+@pytest.mark.parametrize(
+    ('before', 'after'),
+    [
+        ('m.v - o.amount', 'o.amount - m.v'),
+        ('m.v', 'o.amount'),
+    ],
+    ids=['swapped', 'the other route'],
+)
+def test_a_relation_reached_through_a_model_and_directly_is_two_readings(
+    tmp_path: Path, before: str, after: str
+) -> None:
+    """main.d reads raw.orders directly and through main.m, read once: a formula composed through
+    main.m reads raw.orders as other rows than main.d reads directly."""
+    d = 'create table main.d as select m.id, {x} as x from main.m m join raw.orders o on o.id = m.parent_id'
+    files = {'m.sql': MODEL_READ_ONCE, 'd.sql': d.format(x=before)}
+    result, same = _changes(tmp_path, files, {'d.sql': d.format(x=after)}, 'd.x')
+    assert not same
+    assert [c.column for c in result.changes] == ['main.d.x']
+
+
+def test_a_join_through_a_model_and_directly_turned_the_other_way_breaks_the_pin(tmp_path: Path) -> None:
+    d = 'create table main.d as select m.id, m.v from main.m m join raw.orders o on {on}'
+    files = {'m.sql': MODEL_READ_ONCE, 'd.sql': d.format(on='o.id = m.parent_id')}
+    result, same = _changes(tmp_path, files, {'d.sql': d.format(on='o.customer_id = m.id')}, 'd.v')
+    assert not same
+    assert [c.reasons for c in result.changes] == [['conditions']]
+
+
+@pytest.mark.parametrize(
+    ('before', 'after'),
+    [
+        (
+            'select count(*) as n from raw.orders a join raw.orders b on a.status = b.status',
+            'select count(*) as n from raw.orders a join raw.orders b on a.status = a.status',
+        ),
+        (
+            'select count(*) as n from raw.orders a join raw.orders b on b.customer_id = a.id '
+            'join raw.orders c on c.customer_id = a.id',
+            'select count(*) as n from raw.orders a join raw.orders b on b.customer_id = a.id '
+            'join raw.orders c on b.customer_id = c.id',
+        ),
+    ],
+    ids=['a symmetric join made a tautology', 'readings said the same of'],
+)
+def test_a_self_join_that_counts_other_rows_breaks_the_pin(tmp_path: Path, before: str, after: str) -> None:
+    files = {'pairs.sql': f'create table main.pairs as {before}'}
+    result, same = _changes(tmp_path, files, {'pairs.sql': f'create table main.pairs as {after}'}, 'pairs.n')
+    assert not same
+    assert [c.reasons for c in result.changes] == [['conditions']]
+
+
+@settings(max_examples=12, deadline=None)
+@given(
+    st.sampled_from(['m.v', 'o.amount', 'm.v - o.amount', 'o.amount - m.v', 'm.v + o.v']),
+    st.sampled_from(['m.v', 'o.amount', 'm.v - o.amount', 'o.amount - m.v', 'o.v + m.v']),
+    st.sampled_from(['o.id = m.parent_id', 'o.customer_id = m.id', 'o.id = m.id']),
+    st.sampled_from(['o.id = m.parent_id', 'o.customer_id = m.id', 'o.id = m.id']),
+)
+def test_a_model_read_once_and_composed_breaks_the_pin_when_the_rows_change(
+    before: str, after: str, joined: str, rejoined: str
+) -> None:
+    """main.d reads raw.orders directly and through main.m: whenever a change to which way it
+    reads it changes main.d's rows, the pin breaks."""
+    m = 'create table main.m as select id, customer_id as parent_id, amount as v from raw.orders'
+    d = 'create table main.d as select m.id, {x} as x from main.m m join raw.orders o on {on}'
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory) / 'project'
+        files = {'m.sql': m, 'd.sql': d.format(x=before, on=joined)}
+        result, same = _changes(root, files, {'d.sql': d.format(x=after, on=rejoined)}, 'd.x')
+        if not same:
+            assert result.changes, (before, joined, after, rejoined)
+
+
+@pytest.mark.parametrize(
+    ('before', 'after'),
+    [
+        (
+            'select a.id, b.amount from raw.orders a left join raw.orders b on true '
+            'left join raw.orders c on c.customer_id = b.customer_id and c.id <> b.id',
+            'select a.id, c.amount from raw.orders a left join raw.orders b on true '
+            'left join raw.orders c on c.customer_id = b.customer_id and c.id <> b.id',
+        ),
+        (
+            "select a.amount from raw.orders a where a.status = 'paid' except all select b.amount from raw.orders b",
+            "select b.amount from raw.orders b except all select a.amount from raw.orders a where a.status = 'paid'",
+        ),
+    ],
+    ids=['a join whose on does not name its reading', 'an except the other way round'],
+)
+def test_a_change_to_which_rows_a_self_join_keeps_breaks_the_pin(
+    tmp_path: Path, before: str, after: str
+) -> None:
+    files = {'pairs.sql': f'create table main.pairs as {before}'}
+    result, same = _changes(
+        tmp_path, files, {'pairs.sql': f'create table main.pairs as {after}'}, 'pairs.amount'
+    )
+    assert not same
+    assert result.changes
+
+
+def test_a_comparison_between_readings_written_the_other_way_round_keeps_the_pin(tmp_path: Path) -> None:
+    pairs = 'create table main.pairs as select a.id, b.amount from raw.orders a join raw.orders b on {on}'
+    files = {'pairs.sql': pairs.format(on='a.amount < b.amount')}
+    result, same = _changes(
+        tmp_path, files, {'pairs.sql': pairs.format(on='b.amount > a.amount')}, 'pairs.amount'
+    )
+    assert same
+    assert not result.changes

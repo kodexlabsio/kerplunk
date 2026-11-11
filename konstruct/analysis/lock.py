@@ -39,7 +39,7 @@ relations it relies on, with the outer join it reaches a relation through, if an
 
     # Konstruct lockfile: the upstream columns this project reads, pinned by meaning.
     format = 1
-    canonical = "konstruct-3/sqlglot-30.30"
+    canonical = "konstruct-4/sqlglot-30.30"
     reads = []
 
     [[pin]]
@@ -108,8 +108,8 @@ from konstruct.analysis.explain import Explainer, composed_from, condition_terms
 from konstruct.analysis.history import defining_file, history, utc
 from konstruct.analysis.query import QueryError, resolve_one
 from konstruct.core import jsonio
-from konstruct.core.graph import RELATION_KINDS, Graph, Node
-from konstruct.core.sql import OUTER_SIDES, in_context
+from konstruct.core.graph import RELATION_KINDS, Graph, Node, split_reading
+from konstruct.core.sql import OUTER_SIDES, canonical_tree, conjuncts, in_context
 
 if TYPE_CHECKING:
     from konstruct.interfaces.layout import Style
@@ -117,7 +117,7 @@ if TYPE_CHECKING:
 FILE_NAME = 'konstruct.lock'
 FORMAT = 1
 """The layout of the file: which keys it has and what they hold."""
-CANONICAL_FORM = 3
+CANONICAL_FORM = 4
 """How Konstruct prints the formulas and conditions it fingerprints. Raise it with any change
 that prints one differently (a new normalisation, a core that is not sqlglot's printer)."""
 CANONICAL = f'konstruct-{CANONICAL_FORM}/sqlglot-{".".join(package_version("sqlglot").split(".")[:2])}'
@@ -138,7 +138,6 @@ _PRINTED = ('formula', 'conditions', 'upstream')
 # Where the canonical form can differ from the composed text: a comparison, an IN list, AND and
 # OR, a decimal.
 _NORMALISED = re.compile(r'=|<|>|\bIN\b|\bOR\b|\bAND\b|\d\.\d*0\b', re.IGNORECASE)
-_DECIMAL = re.compile(r'(\d*)\.(\d*?)0+')
 
 
 class LockError(QueryError):
@@ -558,70 +557,6 @@ def _fingerprint(
     return 'sha256:' + hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
-# Each comparison, and the one that says the same with its operands the other way round.
-_MIRRORED: dict[type[exp.Expr], type[exp.Expr]] = {
-    exp.EQ: exp.EQ,
-    exp.NEQ: exp.NEQ,
-    exp.GT: exp.LT,
-    exp.LT: exp.GT,
-    exp.GTE: exp.LTE,
-    exp.LTE: exp.GTE,
-}
-
-
-def _canonical(tree: exp.Expr) -> exp.Expr:
-    """``tree`` without the differences in how it was written that do not change what it means:
-    the operands of a comparison in order (a constant, such as ``1`` or ``-1``, last, as it is
-    usually written; otherwise by their text), with the
-    comparison mirrored to match (``10 <= a`` is ``a >= 10``); the operands of ``AND`` and ``OR``
-    flattened through brackets, in order and each once; the items of an ``IN`` list in order and
-    each once; and decimals without trailing zeros (``1.10`` is ``1.1``; ``1.0`` stays a decimal).
-    Rewritten in place: the result is ``tree`` or what replaced it."""
-    # Reversed pre-order puts every node after its descendants, so each is ordered by the final
-    # text of its operands.
-    for node in reversed(list(tree.dfs())):
-        mirrored = _MIRRORED.get(type(node))
-        if mirrored is not None:
-            left, right = node.this, node.expression
-            if _order(right) < _order(left):
-                tree = _replace(tree, node, mirrored(this=right, expression=left))
-        elif isinstance(node, (exp.And, exp.Or)):
-            if not isinstance(node.parent, type(node)):
-                operands = {o.sql(): o for o in _operands(node)}
-                combine = exp.and_ if isinstance(node, exp.And) else exp.or_
-                tree = _replace(tree, node, combine(*(operands[k] for k in sorted(operands)), copy=False))
-        elif isinstance(node, exp.In) and node.expressions:
-            items = {e.sql(): e for e in node.expressions}
-            node.set('expressions', [items[k] for k in sorted(items)])
-        elif isinstance(node, exp.Literal) and not node.is_string:
-            match = _DECIMAL.fullmatch(node.this)
-            if match:
-                node.set('this', f'{match[1]}.{match[2] or "0"}')
-    return tree
-
-
-def _operands(node: exp.Expr) -> list[exp.Expr]:
-    """The operands of an ``AND`` (or an ``OR``), and of those it holds, in brackets or not."""
-    found: list[exp.Expr] = []
-    for operand in (node.this, node.expression):
-        operand = operand.unnest()
-        found += _operands(operand) if type(operand) is type(node) else [operand]
-    return found
-
-
-def _replace(tree: exp.Expr, node: exp.Expr, new: exp.Expr) -> exp.Expr:
-    if node is tree:
-        return new
-    node.replace(new)
-    return tree
-
-
-def _order(operand: exp.Expr) -> tuple[bool, str]:
-    """Constants (a literal, negated or not, NULL, TRUE, FALSE) sort last."""
-    constant = operand.this if isinstance(operand, exp.Neg) else operand
-    return isinstance(constant, (exp.Literal, exp.Null, exp.Boolean)), operand.sql()
-
-
 def _label(label: str) -> str:
     """A condition's label without the words that do not change it: ``LEFT OUTER JOIN ON`` is
     ``LEFT JOIN ON``, ``INNER JOIN ON`` is ``JOIN ON``, and a RIGHT JOIN is the LEFT JOIN of its
@@ -706,8 +641,10 @@ def _lookup(where: dict[str, _Place], key: str | None) -> _Place | None:
         return None
     if key in where:
         return where[key]
-    for name, place in where.items():
-        if key.endswith('.' + name) or name.endswith('.' + key):
+    for named, place in where.items():
+        # A reading of the relation (``raw.orders#2``) says it of the relation too.
+        name = split_reading(named)[0]
+        if name == key or key.endswith('.' + name) or name.endswith('.' + key):
             return place
     return None
 
@@ -1003,14 +940,14 @@ class Pinner:
         found: list[str] = []
         for part in parts:
             part.parent = None
-            composed = self.explainer.compose_sql(self.qualify(owner, part), read.append)
+            composed = self.explainer.compose_sql(self.qualify(owner, part), read.append, owner)
             if isinstance(composed, exp.Tuple):
                 printed = ', '.join(e.sql(dialect=self.namer.sqlglot) for e in composed.expressions)
                 found.append(f'{prefix}: {printed}')
                 continue
-            composed = _canonical(composed).unnest()
-            conjuncts = _operands(composed) if split and isinstance(composed, exp.And) else [composed]
-            for conjunct in conjuncts:
+            composed = canonical_tree(composed).unnest()
+            pieces = conjuncts(composed) if split and isinstance(composed, exp.And) else [composed]
+            for conjunct in pieces:
                 printed = conjunct.unnest().sql(dialect=self.namer.sqlglot)
                 found.append(f'{prefix}: {printed}' if prefix else printed)
         return found, read
@@ -1150,7 +1087,7 @@ class Pinner:
         found = self.canonical_texts.get(text)
         if found is None:
             tree = self.namer.parse(text) if _NORMALISED.search(text) else None
-            found = _canonical(tree).sql(dialect=self.namer.sqlglot) if tree is not None else text
+            found = canonical_tree(tree).sql(dialect=self.namer.sqlglot) if tree is not None else text
             self.canonical_texts[text] = found
         return found
 

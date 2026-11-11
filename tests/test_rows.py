@@ -40,6 +40,8 @@ create table main.both_sides as select o.id, o.amount_cents as order_cents, p.am
     o.amount_cents + p.amount_cents as combined from raw.orders o
 left join raw.payments p on p.order_id = o.id;
 create table main.excepted as select amount_cents from raw.orders except select amount_cents from raw.refunds;
+create table main.paid_again as select c.customer_id, p.amount_cents, (select count(*) from raw.payments x) as n
+from raw.customers c left join raw.payments p on p.customer_id = c.customer_id;
 """
 
 
@@ -143,6 +145,14 @@ def test_rows_joined_through_the_nullable_side_must_match_all_the_way(graph: Gra
     _test(graph, 'not_null', 'table.raw.orders#customer_id')
     _test(graph, 'relationships', 'table.raw.orders#customer_id', 'table.raw.customers#customer_id')
     assert _changed(graph, 'through') is None
+
+
+def test_a_reading_on_the_nullable_side_is_checked_as_a_relation_on_it(graph: Graph) -> None:
+    """main.paid_again reads payments twice: the reading it passes on is on the nullable side of
+    the left join, which the relation records by its reading, and the other is not."""
+    assert 'an outer join in main.paid_again that keeps payments.customer_id only where it matches' in str(
+        _changed(graph, 'paid_again')
+    )
 
 
 def test_a_self_join_is_checked(graph: Graph) -> None:

@@ -896,3 +896,19 @@ def test_a_row_step_is_as_trusted_as_its_two_key_columns() -> None:
     connection = relate(g, 'order', 'invoice')
     [hop] = connection.hops
     assert (hop.same_row, hop.cardinality, hop.check, connection.check) == (True, None, 'failed', 'failed')
+
+
+def test_a_relation_grouped_in_two_readings_by_one_key_keeps_its_grain() -> None:
+    """Two CTEs that each group a relation by the same key, joined to each other, group two readings
+    of it by that key: what is built of them holds one row per that key's entity."""
+    g = _shop()
+    spend = _relation(g, 'spend', ['customer_id', 'total'])
+    spend.attrs['conditions'] = [
+        'GROUP BY: db.main."orders#1".customer_id',
+        'GROUP BY: db.main."orders#2".customer_id',
+    ]
+    total = g.nodes[f'{spend.id}#total']
+    total.attrs['expression'] = 'SUM(db.main."orders#1".amount)'
+    g.add_edge(total.id, 'model.shop.orders#amount', 'derived_from', transform='transformed')
+    [proposed] = [m for m in metrics(g).metrics if [c.column for c in m.columns] == ['spend.total']]
+    assert proposed.grain == 'one row per customer'

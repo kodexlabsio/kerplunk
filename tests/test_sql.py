@@ -2,13 +2,24 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import subprocess
 import sys
 from typing import Any
 
+import duckdb
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from konstruct.core.sql import ColumnSource, StatementLineage, analyse, dialect_for, strip_templating
+from konstruct.core.sql import (
+    ColumnSource,
+    StatementLineage,
+    analyse,
+    canonical_condition,
+    dialect_for,
+    strip_templating,
+)
 
 SCHEMA = {
     'db.main.orders': {
@@ -691,11 +702,11 @@ def test_canonical_expansion_leaves_the_statement_as_it_was() -> None:
         real = failing.node
         calls: list[int] = []
 
-        def flaky(child: Any, real: Any = real, calls: list[int] = calls) -> str:
+        def flaky(child: Any, *args: Any, real: Any = real, calls: list[int] = calls) -> str:
             calls.append(1)
             if len(calls) == 2:
                 raise RecursionError('deep')
-            return str(real(child))
+            return str(real(child, *args))
 
         failing.node = flaky  # type: ignore[assignment]
         with contextlib.suppress(RecursionError):
@@ -856,7 +867,10 @@ def test_the_nullable_sides_of_right_and_full_joins_and_a_relation_read_twice() 
         'left join (select order_id from db.main.payments where amount > 0 group by order_id) q '
         'on q.order_id = o.id'
     )
-    assert twice.nullable == {'db.main.payments': 'LEFT'}
+    # The joined reading of orders is on the nullable side, though orders is read on the other too.
+    [joined] = [k for k in twice.nullable if k.startswith('db.main.orders#')]
+    assert twice.nullable == {joined: 'LEFT', 'db.main.payments': 'LEFT'}
+    assert joined.split('#')[1] not in twice.expressions['id']
     # A subquery in the joined side's filter, and a union's branches, are on that side too.
     inner = one(
         'select o.id from db.main.orders o left join (select id from db.main.customers '
@@ -864,7 +878,9 @@ def test_the_nullable_sides_of_right_and_full_joins_and_a_relation_read_twice() 
         'union all select id from db.main.customers where first_name is null) c on c.id = o.customer_id'
     )
     assert 'LEFT JOIN WHERE: db.main.payments.amount > 0' in inner.conditions
-    assert 'LEFT JOIN WHERE: db.main.customers.first_name IS NULL' in inner.conditions
+    # Each branch reads customers: the filter is one reading's.
+    filters = [c for c in inner.conditions if c.endswith('first_name IS NULL')]
+    assert len(filters) == 1 and filters[0].startswith('LEFT JOIN WHERE: db.main."customers#')
     assert inner.nullable == {'db.main.customers': 'LEFT', 'db.main.payments': 'LEFT'}
 
 
@@ -1013,6 +1029,154 @@ def test_a_subquery_that_reuses_a_lateral_alias_reads_its_own_relation() -> None
     )
     assert set(result.references) == {(ORDERS, 'id'), (PAYMENTS, 'order_id'), (CUSTOMERS, 'id')}
     assert f'WHERE: {ORDERS}.id IN (SELECT {CUSTOMERS}.id AS id FROM {CUSTOMERS})' in result.conditions
+
+
+TREE = {ORDERS: {'id': 'int', 'parent_id': 'int', 'amount': 'int', 'status': 'text'}}
+# Each pair reads one relation twice and differs only in which reading each column is from; the
+# third of each is the first with other aliases.
+SELF_JOINS = {
+    'join': (
+        'select o.id from orders o join orders p on p.parent_id = o.id',
+        'select o.id from orders o join orders p on o.parent_id = p.id',
+        'select a.id from orders a join orders b on b.parent_id = a.id',
+    ),
+    'exists': (
+        'select o.id from orders o where exists (select 1 from orders p where p.parent_id = o.id)',
+        'select o.id from orders o where exists (select 1 from orders p where o.parent_id = p.id)',
+        'select x.id from orders x where exists (select 1 from orders y where y.parent_id = x.id)',
+    ),
+    'in': (
+        'select o.id from orders o where o.id in (select p.parent_id from orders p where p.amount > o.amount)',
+        'select o.id from orders o where o.id in (select p.parent_id from orders p where o.amount > p.amount)',
+        'select c.id from orders c where c.id in (select d.parent_id from orders d where d.amount > c.amount)',
+    ),
+    'cte': (
+        'with t as (select o.id from orders o join orders p on p.parent_id = o.id) select id from t',
+        'with t as (select o.id from orders o join orders p on o.parent_id = p.id) select id from t',
+        'with t as (select k.id from orders k join orders m on m.parent_id = k.id) select id from t',
+    ),
+    'cte read twice': (
+        'with t as (select * from orders) select x.id from t x join t y on y.parent_id = x.id',
+        'with t as (select * from orders) select x.id from t x join t y on x.parent_id = y.id',
+        'with t as (select * from orders) select a.id from t a join t b on b.parent_id = a.id',
+    ),
+    'cte read twice in exists': (
+        'with t as (select * from orders) select x.id from t x where exists (select 1 from t y where y.parent_id = x.id)',
+        'with t as (select * from orders) select x.id from t x where exists (select 1 from t y where x.parent_id = y.id)',
+        'with t as (select * from orders) select a.id from t a where exists (select 1 from t b where b.parent_id = a.id)',
+    ),
+}
+
+
+@pytest.mark.parametrize('schema', [TREE, {}], ids=['known', 'unknown'])
+@pytest.mark.parametrize('case', SELF_JOINS)
+def test_each_reading_of_a_relation_read_twice_has_a_name_of_its_own(
+    case: str, schema: dict[str, Any]
+) -> None:
+    """A self-join that follows the parent rather than the child reads the same columns but means
+    something else, so its conditions print differently; other aliases print the same."""
+    child, parent, renamed = (
+        (result.conditions, result.expressions)
+        for result in (one(sql, schema=schema) for sql in SELF_JOINS[case])
+    )
+    assert child != parent
+    assert child == renamed
+
+
+def test_the_readings_of_a_relation_read_twice_are_numbered_in_order() -> None:
+    result = one('select o.id from orders o join orders p on p.parent_id = o.id', schema=TREE)
+    assert result.conditions == ['JOIN ON: db.main."orders#1".parent_id = db.main."orders#2".id']
+    assert result.expressions == {'id': 'db.main."orders#2".id'}
+    # The columns the rows depend on are the relation's own, whichever reading they are from.
+    assert set(result.references) == {(ORDERS, 'id'), (ORDERS, 'parent_id')}
+
+
+def test_a_cte_read_twice_names_the_readings_of_what_it_reads() -> None:
+    """Each reference to a CTE reads the relations it reads once more, so a self-join in a CTE that
+    is itself joined to itself has four readings, told apart by what is said of each."""
+    sql = (
+        'with t as (select o.id, p.amount from orders o join orders p on p.parent_id = o.id) '
+        'select x.id, x.amount - y.amount as gap from t x join t y on y.id > x.id'
+    )
+    gap = one(sql, schema=TREE).expressions['gap']
+    assert len(set(re.findall(r'orders#[\d/]+', gap))) == 2
+    assert (
+        one(sql.replace('x.amount - y.amount', 'y.amount - x.amount'), schema=TREE).expressions['gap'] != gap
+    )
+    assert (
+        one(sql.replace('x.', 'a.').replace(' x ', ' a ').replace('= x', '= a'), schema=TREE).expressions[
+            'gap'
+        ]
+        == gap
+    )
+
+
+def test_a_relation_whose_name_has_a_hash_is_not_a_reading() -> None:
+    """Canonical text doubles a ``#`` in a relation's name, so ``events#2`` is never read back as
+    the second reading of ``events``."""
+    result = one(
+        'select e.id, f.id as other from main."events#2" e join main.events f on f.id = e.id', schema={}
+    )
+    assert result.expressions == {'id': 'db.main."events##2".id', 'other': 'db.main.events.id'}
+    assert result.conditions == ['JOIN ON: db.main.events.id = db.main."events##2".id']
+
+
+def test_a_cte_read_by_two_others_names_each_reference_and_moving_a_filter_between_them_shows() -> None:
+    """jaffle_shop's customers reads stg_orders through one CTE that two others read, each joined to
+    customers on its own: the two readings meet through customers, so each is named, and a filter
+    moved from one to the other, which changes the rows, changes what is printed. Putting the two
+    CTEs the other way round changes nothing."""
+    orders = 'orders as (select * from stg_orders)'
+
+    def customers(counted_where: str, paid_where: str, swap: bool = False) -> StatementLineage:
+        counted = (
+            f'counted as (select customer_id, count(*) as n from orders {counted_where} group by customer_id)'
+        )
+        paid = (
+            'paid as (select orders.customer_id, sum(p.amount) as total from payments p '
+            f'left join orders on p.order_id = orders.order_id {paid_where} group by orders.customer_id)'
+        )
+        ctes = [orders, paid, counted] if swap else [orders, counted, paid]
+        final = (
+            'select c.id, counted.n, paid.total from customers c left join counted on counted.customer_id = c.id '
+            'left join paid on paid.customer_id = c.id'
+        )
+        return one(f'with {", ".join(ctes)} {final}', schema={})
+
+    def printed(result: StatementLineage) -> tuple[list[str], dict[str, str]]:
+        return result.conditions, result.expressions
+
+    first = customers("where status = 'done'", '')
+    assert any('stg_orders#' in c for c in first.conditions)
+    assert printed(first) == printed(customers("where status = 'done'", '', swap=True))
+    assert printed(first) != printed(customers('', "where orders.status = 'done'"))
+
+
+def test_the_order_of_scalar_subqueries_over_one_relation_does_not_matter() -> None:
+    top = '(select max(p.amount) from orders p where p.parent_id = o.id) as top'
+    low = '(select min(p.amount) from orders p where p.id = o.parent_id) as low'
+    first, second = (
+        one(f'select o.id, {x}, {y} from orders o', schema=TREE) for x, y in ((top, low), (low, top))
+    )
+    assert (first.conditions, first.expressions) == (second.conditions, second.expressions)
+
+
+def test_a_self_join_in_t_sql_prints_each_reading_once_bracketed() -> None:
+    gap = one(
+        'select o.amount - p.amount as gap from orders o join orders p on p.id = o.parent_id',
+        schema=TREE,
+        dialect='tsql',
+    ).expressions['gap']
+    assert re.fullmatch(r'db\.main\.\[orders#\d\]\.amount - db\.main\.\[orders#\d\]\.amount', gap), gap
+
+
+def test_a_formula_over_a_relation_read_twice_names_each_reading() -> None:
+    sql = 'select o.amount - p.amount as gap from orders o join orders p on p.id = o.parent_id'
+    gap = one(sql, schema=TREE).expressions['gap']
+    swapped = one(sql.replace('o.amount - p.amount', 'p.amount - o.amount'), schema=TREE).expressions['gap']
+    assert gap == 'db.main."orders#1".amount - db.main."orders#2".amount' and swapped != gap
+    # A relation read once keeps its plain name.
+    assert one('select o.amount from orders o', schema=TREE).expressions['amount'] == 'db.main.orders.amount'
 
 
 def test_a_correlated_subquery_names_the_outer_column() -> None:
@@ -1530,3 +1694,341 @@ def check_sql_stripe(tmp_path_factory: pytest.TempPathFactory) -> Any:
 def test_check_sql_finds_each_rule(check_sql_shop: Any, check_sql_stripe: Any, rule: str, sql: str) -> None:
     result = (check_sql_stripe if rule in PACK_RULES else check_sql_shop).check(sql)
     assert [f.rule for f in result.findings] == [rule], str(result)
+
+
+# Self-joins of two small tables, two or three readings of them, to check the readings' names
+# against what DuckDB returns.
+PAIRS_TABLE = {
+    'db.main.t': {'id': 'int', 'parent_id': 'int', 'amount': 'int', 'kind': 'text'},
+    'db.main.u': {'id': 'int', 'region': 'text', 'score': 'int'},
+}
+PAIRS_ROWS = (
+    "create table t as select * from (values (1, null, 10, 'x'), (2, 1, 20, 'y'), (3, 1, 30, 'x'), "
+    "(4, 2, 15, 'y'), (5, 3, 30, 'x'), (6, 2, 5, 'y')) v(id, parent_id, amount, kind); "
+    "create table u as select * from (values (1, 'n', 10), (2, 's', 25), (3, 'n', 30)) v(id, region, score)"
+)
+# The conditions joining reading Y to an earlier reading X, by their relations: X and Y the same
+# relation or not, tautologies among them, and ONs that do not name the reading they join.
+JOINS = {
+    ('t', 't'): [
+        'TRUE',
+        "X.kind = 'x'",
+        'Y.parent_id = X.id',
+        'X.parent_id = Y.id',
+        'X.kind = Y.kind',
+        'Y.amount > X.amount',
+        'Y.parent_id = X.parent_id',
+        'X.kind = X.kind',
+        'Y.kind = Y.kind',
+    ],
+    ('t', 'u'): ['TRUE', 'X.amount > 10', 'Y.id = X.parent_id', 'Y.id = X.id', 'Y.score > X.amount'],
+    ('u', 't'): ['Y.parent_id = X.id', 'Y.amount < X.score'],
+    ('u', 'u'): ['TRUE', "X.region = 'n'", 'X.region = Y.region', 'Y.id = X.id', 'X.region = X.region'],
+}
+FILTERS = {'t': ["R.kind = 'x'", 'R.amount > 10'], 'u': ["R.region = 'n'"]}
+COLUMNS = {'t': ['id', 'amount', 'parent_id'], 'u': ['id', 'score']}
+ALIASES = 'abc'
+_ALIAS = re.compile(r'\b([abc])\.')
+
+
+@st.composite
+def self_joins(draw: st.DrawFn) -> dict[str, Any]:
+    """Two or three readings of t and u, the first of t, each joined to an earlier one, with a
+    filter, and as output two of their columns or a difference, COUNT(*) alone, or a star."""
+    relations = ['t', *draw(st.lists(st.sampled_from('tu'), min_size=1, max_size=2))]
+    readings = list(zip(ALIASES, relations, strict=False))
+    joins = []
+    for index, (alias, relation) in enumerate(readings[1:], 1):
+        earlier, kind = draw(st.sampled_from(readings[:index]))
+        condition = draw(st.sampled_from(JOINS[kind, relation]))
+        joins.append(
+            (
+                draw(st.sampled_from(['', 'left '])),
+                condition.replace('X.', f'{earlier}.').replace('Y.', f'{alias}.'),
+            )
+        )
+    filtered, kind = draw(st.sampled_from(readings))
+    filter_ = draw(st.sampled_from(['', *FILTERS[kind]])).replace('R.', f'{filtered}.')
+    pool = [f'{alias}.{c}' for alias, relation in readings for c in COLUMNS[relation]]
+    pool += [
+        f'{x}.amount - {y}.amount' for x, rx in readings for y, ry in readings if x != y and rx == ry == 't'
+    ]
+    output = draw(st.sampled_from(['columns', 'count', 'star']))
+    if output == 'count':
+        items = ['count(*)']
+    elif output == 'star':
+        items = [f'{draw(st.sampled_from(readings))[0]}.*']
+    else:
+        items = draw(st.lists(st.sampled_from(pool), min_size=1, max_size=2, unique=True))
+    return {
+        'relations': relations,
+        'joins': joins,
+        'filter': filter_,
+        'items': items,
+        'form': draw(st.sampled_from(['plain', 'one cte', 'two ctes'])),
+        'unknown': draw(st.booleans()),
+    }
+
+
+@st.composite
+def changed(draw: st.DrawFn, spec: dict[str, Any]) -> dict[str, Any]:
+    """``spec`` with one of its parts reading another reading of the same relation."""
+    readings = list(zip(ALIASES, spec['relations'], strict=False))
+    pairs = [(x, y) for x, rx in readings for y, ry in readings if x != y and rx == ry]
+    if not pairs:
+        return spec
+    x, y = draw(st.sampled_from(pairs))
+    swap = draw(st.booleans())
+
+    def moved(text: str) -> str:
+        return _ALIAS.sub(lambda m: (y if m[1] == x else x if swap and m[1] == y else m[1]) + '.', text)
+
+    parts = [('join', i) for i in range(len(spec['joins']))] + [('filter', 0), ('items', 0)]
+    part, index = draw(st.sampled_from(parts))
+    other = {**spec, 'joins': list(spec['joins']), 'items': list(spec['items'])}
+    if part == 'join':
+        side, condition = other['joins'][index]
+        condition = moved(condition)
+        if any(ALIASES.index(m[1]) > index + 1 for m in _ALIAS.finditer(condition)):
+            return spec  # a reading joined later is not there yet
+        other['joins'][index] = (draw(st.sampled_from([side, 'left ' if not side else ''])), condition)
+    elif part == 'filter':
+        other['filter'] = moved(spec['filter'])
+    else:
+        other['items'] = [moved(item) for item in spec['items']]
+    return other
+
+
+def _self_join(spec: dict[str, Any], *, reorder: bool = False) -> str:
+    """The SQL of ``spec``; with ``reorder``, with other aliases and its select items and CTEs the
+    other way round."""
+    names = dict(zip(ALIASES, 'zyx' if reorder else ALIASES, strict=True))
+
+    def aliased(text: str) -> str:
+        return _ALIAS.sub(lambda m: names[m[1]] + '.', text)
+
+    items = [
+        f'{aliased(item)} as c{i}' if '*' not in item else aliased(item)
+        for i, item in enumerate(spec['items'])
+    ]
+    if reorder:
+        items.reverse()
+    ctes = {'plain': [], 'one cte': ['r'], 'two ctes': ['ra', 'rb']}[spec['form']]
+    sources = []
+    t_readings = 0
+    for relation in spec['relations']:
+        if relation == 't' and ctes:
+            sources.append(ctes[t_readings % len(ctes)])
+            t_readings += 1
+        else:
+            sources.append(relation)
+    first = f'{sources[0]} {names["a"]}'
+    joined = ''.join(
+        f' {side}join {source} {names[alias]} on {aliased(condition)}'
+        for (side, condition), source, alias in zip(spec['joins'], sources[1:], ALIASES[1:], strict=False)
+    )
+    where = f' where {aliased(spec["filter"])}' if spec['filter'] else ''
+    body = f'select {", ".join(items)} from {first}{joined}{where}'
+    defined = [f'{name} as (select * from t)' for name in ctes]
+    if reorder:
+        defined.reverse()
+    return f'with {", ".join(defined)} {body}' if defined else body
+
+
+def _printed(sql: str, unknown: bool = False) -> tuple[Any, ...]:
+    """What the build records of a statement's rows and columns, its conditions in the form diff
+    and the lockfile compare them in."""
+    result = one(sql, schema={} if unknown else PAIRS_TABLE)
+    conditions = sorted(canonical_condition(c, 'duckdb') for c in result.conditions)
+    return conditions, result.expressions, result.nullable, result.star_reads
+
+
+def _rows(sql: str) -> list[tuple[Any, ...]]:
+    connection = duckdb.connect()
+    connection.execute(PAIRS_ROWS)
+    cursor = connection.execute(sql)
+    names = [d[0] for d in cursor.description]
+    rows = [tuple(sorted(zip(names, row, strict=True), key=lambda p: p[0])) for row in cursor.fetchall()]
+    return sorted(rows, key=repr)
+
+
+@settings(max_examples=200, deadline=None)
+@given(self_joins())
+def test_a_self_join_prints_the_same_whatever_its_aliases_and_the_order_of_its_items_and_ctes(
+    spec: dict[str, Any],
+) -> None:
+    assert _printed(_self_join(spec), spec['unknown']) == _printed(
+        _self_join(spec, reorder=True), spec['unknown']
+    )
+
+
+@settings(max_examples=150, deadline=None)
+@given(self_joins(), st.sampled_from(['a', 'b']))
+def test_the_branches_of_a_union_print_the_same_either_way_round(spec: dict[str, Any], kept: str) -> None:
+    spec = {**spec, 'items': ['a.id', 'a.amount']}
+    other = f"select {kept}.id as c0, {kept}.amount as c1 from t {kept} where {kept}.kind = 'y'"
+    first = _self_join(spec)
+    assert _printed(f'{first} union all {other}') == _printed(f'{other} union all {first}')
+
+
+@settings(max_examples=400, deadline=None)
+@given(st.data())
+def test_self_joins_that_return_other_rows_print_differently(data: st.DataObject) -> None:
+    """A change to which reading a self-join's parts read, or another self-join of the same
+    readings, that changes its rows is a change to what it prints."""
+    spec = data.draw(self_joins())
+    other = data.draw(st.one_of(changed(spec), self_joins().map(lambda o: {**o, 'form': spec['form']})))
+    other = {**other, 'unknown': spec['unknown']}
+    first, second = _self_join(spec), _self_join(other)
+    if _rows(first) != _rows(second):
+        assert _printed(first, spec['unknown']) != _printed(second, spec['unknown']), (first, second)
+
+
+def test_a_symmetric_self_join_is_not_a_tautology() -> None:
+    """``on a.k = b.k`` joins each order to every order of its kind, ``on a.k = a.k`` to every
+    order: 19 rows against 56 of PAIRS_ROWS's 6 orders, which the readings' names tell apart. The
+    symmetric join prints the same whichever way round it is written."""
+    sql = 'select count(*) from t a join t b on {on}'
+    symmetric, tautology = (_printed(sql.format(on=on)) for on in ('a.kind = b.kind', 'a.kind = a.kind'))
+    assert _rows(sql.format(on='a.kind = b.kind')) != _rows(sql.format(on='a.kind = a.kind'))
+    assert symmetric != tautology
+    assert symmetric == _printed(sql.format(on='b.kind = a.kind'))
+
+
+def test_readings_said_the_same_of_are_still_numbered_apart() -> None:
+    """Joined to the same order, b and c are said the same of; joined to each other, they are not:
+    each reading has a number of its own either way."""
+    first = 'select count(*) from t a join t b on b.parent_id = a.id join t c on c.parent_id = a.id'
+    second = first.replace('on c.parent_id = a.id', 'on b.parent_id = c.id')
+    assert _rows(first) != _rows(second)
+    assert _printed(first) != _printed(second)
+    assert len(set(re.findall(r't#\d', ' '.join(_printed(first)[0])))) == 3
+
+
+@pytest.mark.parametrize(
+    ('before', 'after'),
+    [
+        ("o.region = 'n'", "d.region = 'n'"),
+        ('o.score', 'd.score'),
+    ],
+    ids=['a filter', 'a column'],
+)
+def test_a_relation_read_twice_through_another_has_two_readings(before: str, after: str) -> None:
+    """A flight's origin and destination are two readings of the airports, joined through the
+    flights: moving a filter, or a column, from one to the other changes the rows."""
+    sql = 'select f.id, {x} as x from t f join u o on o.id = f.parent_id join u d on d.id = f.id where f.amount > 0'
+    first, second = sql.format(x=before), sql.format(x=after)
+    if 'region' in before:
+        first = sql.format(x='f.amount') + f' and {before}'
+        second = sql.format(x='f.amount') + f' and {after}'
+    assert _rows(first) != _rows(second)
+    assert _printed(first) != _printed(second)
+
+
+@pytest.mark.parametrize('cte', [False, True], ids=['plain', 'through a cte'])
+def test_which_reading_a_star_passes_on_is_printed(cte: bool) -> None:
+    sql = 'select {s}.* from t a join t b on b.parent_id = a.id'
+    if cte:
+        sql = 'with r as (select * from t) ' + sql.replace(' t ', ' r ')
+    one_way, other_way = (_printed(sql.format(s=s), unknown=True) for s in 'ab')
+    assert _rows(sql.format(s='a')) != _rows(sql.format(s='b'))
+    assert one_way != other_way
+    assert any(c.startswith('SELECT: ') for c in one_way[0])
+
+
+def test_a_distinct_star_through_a_cte_names_the_reference_it_passes_on() -> None:
+    sql = 'with r as (select * from t) select distinct {s}.* from r x join r y on y.parent_id = x.id'
+    assert _rows(sql.format(s='x')) != _rows(sql.format(s='y'))
+    assert _printed(sql.format(s='x'), unknown=True) != _printed(sql.format(s='y'), unknown=True)
+
+
+def test_without_readings_touches_only_relation_names_and_keeps_their_escapes() -> None:
+    from konstruct.core.sql import without_readings
+
+    assert (
+        without_readings('db.main."orders#2".id = db.main.t."acct#2"')
+        == 'db.main.orders.id = db.main.t."acct#2"'
+    )
+    assert without_readings('db.main."events##2#1".id') == 'db.main."events##2".id'
+    assert (
+        without_readings('EXISTS(SELECT 1 FROM db.main."orders#1/2")')
+        == 'EXISTS(SELECT 1 FROM db.main.orders)'
+    )
+
+
+@pytest.mark.parametrize(
+    ('first', 'second'),
+    [
+        (
+            'select amount from t except select score as amount from u',
+            'select score as amount from u except select amount from t',
+        ),
+        (
+            "select amount from t where kind = 'x' except all select amount from t where kind = 'y'",
+            "select amount from t where kind = 'y' except all select amount from t where kind = 'x'",
+        ),
+        (
+            'with r as (select a.amount from t a join t b on b.parent_id = a.id) '
+            'select amount from r except select amount from t where amount > 10',
+            'with r as (select a.amount from t a join t b on b.parent_id = a.id) '
+            'select amount from t where amount > 10 except select amount from r',
+        ),
+    ],
+    ids=['two relations', 'except all over one relation', 'a self-join in a cte'],
+)
+def test_the_branches_of_an_except_are_in_their_order(first: str, second: str) -> None:
+    """An EXCEPT takes the rows of its second branch from those of its first: the other way
+    round, it returns other rows."""
+    assert _rows(first) != _rows(second)
+    assert _printed(first) != _printed(second)
+
+
+@pytest.mark.parametrize('on', ['TRUE', "a.kind = 'x'"])
+def test_a_join_whose_on_does_not_name_its_reading_names_it_in_its_label(on: str) -> None:
+    """``b`` is joined on an ON that does not name it and ``c`` on one that names both the same way:
+    which of them a column is from is which rows it has, as a ``b`` with no parent has no ``c``."""
+    sql = f'select a.id, {{x}}.amount as amount from t a left join t b on {on} left join t c on c.parent_id = b.parent_id'
+    assert _rows(sql.format(x='b')) != _rows(sql.format(x='c'))
+    assert _printed(sql.format(x='b')) != _printed(sql.format(x='c'))
+
+
+def test_a_comparison_between_readings_written_the_other_way_round_is_the_same() -> None:
+    sql = 'select a.id, b.id as other from t a join t b on {on} where a.kind = {k}'
+    for k in ("'x'", 'b.kind'):
+        one_way, other_way = (
+            _printed(sql.format(on=on, k=k)) for on in ('a.amount < b.amount', 'b.amount > a.amount')
+        )
+        assert one_way == other_way
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    st.sampled_from(['TRUE', "a.kind = 'x'", 'a.amount > 10', 'a.parent_id IS NULL']),
+    st.sampled_from([*JOINS['t', 't'], "b.kind = 'y'"]),
+    st.sampled_from(['left ', '', 'full ']),
+    st.sampled_from(['amount', 'id', 'parent_id']),
+    st.booleans(),
+)
+def test_outer_joins_whose_on_does_not_name_the_reading_they_join_print_their_rows(
+    on: str, then: str, side: str, column: str, also_a: bool
+) -> None:
+    """``b`` is joined on an ON that names only ``a``, ``c`` on one that names ``b``: which of
+    the readings a column is from changes the rows, and so what is printed."""
+    then = then.replace('X.', 'b.').replace('Y.', 'c.')
+    outputs = {x: f'{"a.id, " if also_a else ""}{x}.{column} as v' for x in 'bc'}
+    sql = 'select {o} from t a left join t b on ' + on + f' {side}join t c on {then}'
+    first, second = (sql.format(o=outputs[x]) for x in 'bc')
+    if _rows(first) != _rows(second):
+        assert _printed(first) != _printed(second), (first, second)
+
+
+@pytest.mark.parametrize('operator', ['IS DISTINCT FROM', 'IS NOT DISTINCT FROM'])
+def test_a_null_safe_comparison_between_readings_written_the_other_way_round_is_the_same(
+    operator: str,
+) -> None:
+    sql = 'select a.id, b.id as other from t a join t b on {on} and a.amount < b.amount'
+    one_way, other_way = (
+        _printed(sql.format(on=on))
+        for on in (f'a.parent_id {operator} b.parent_id', f'b.parent_id {operator} a.parent_id')
+    )
+    assert one_way == other_way

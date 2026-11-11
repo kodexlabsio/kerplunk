@@ -513,3 +513,34 @@ def test_diff_takes_the_columns_the_build_only_guessed_as_the_build_did(tmp_path
         ('raw.src', 'label'),
         ('raw.other', 'label'),
     }
+
+
+PAIRS = (
+    'create table main.pairs as select {o}.id, sum({p}.amount) as total from raw.orders {o} '
+    'join raw.orders {p} on {on} group by {o}.id'
+)
+
+
+def test_a_self_join_turned_the_other_way_is_a_row_change(repo: Path) -> None:
+    (repo / 'sql' / 'pairs.sql').write_text(PAIRS.format(o='o', p='p', on='p.customer_id = o.id'))
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'pairs')
+    (repo / 'sql' / 'pairs.sql').write_text(PAIRS.format(o='a', p='b', on='b.customer_id = a.id'))
+    assert not [r for r in Project(repo).diff(base='HEAD').relations if r.changed]
+    (repo / 'sql' / 'pairs.sql').write_text(PAIRS.format(o='o', p='p', on='o.customer_id = p.id'))
+    [relation] = [r for r in Project(repo).diff(base='HEAD').relations if r.changed]
+    assert relation.conditions_removed == [
+        'JOIN ON: shop.raw."orders#2".customer_id = shop.raw."orders#1".id'
+    ]
+    assert relation.conditions_added == ['JOIN ON: shop.raw."orders#1".customer_id = shop.raw."orders#2".id']
+
+
+@pytest.mark.parametrize('on', ['p.customer_id = o.id', 'o.id = p.customer_id'])
+def test_the_sides_of_an_equality_written_the_other_way_round_are_no_change(repo: Path, on: str) -> None:
+    (repo / 'sql' / 'pairs.sql').write_text(
+        PAIRS.format(o='o', p='p', on='p.customer_id = o.id and o.id > 0')
+    )
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'pairs')
+    (repo / 'sql' / 'pairs.sql').write_text(PAIRS.format(o='o', p='p', on=f'0 < o.id and {on}'))
+    assert not [r for r in Project(repo).diff(base='HEAD').relations if r.changed]

@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 from konstruct.analysis.query import Walk, impact
 from konstruct.analysis.verify import defining_sql_file
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
-from konstruct.core.sql import StatementLineage, analyse, strip_templating
+from konstruct.core.sql import StatementLineage, analyse, canonical_condition, strip_templating
 from konstruct.inputs import airflow, dbt
 from konstruct.inputs.jinja import Renderer, render_model
 from konstruct.semantics.definitions import FILE_NAMES as DEFINITION_FILES
@@ -1092,8 +1092,13 @@ def _compare_statements(
                 entry.impact = _walk(graph, node, column)
             change.columns.append(entry)
     if old is not None and new is not None:
-        change.conditions_added = sorted(set(new.conditions) - set(old.conditions))
-        change.conditions_removed = sorted(set(old.conditions) - set(new.conditions))
+        # Compared in one form however each is written: ``a = b`` is ``b = a``.
+        dialect = graph.meta.get('dialect')
+        dialect = dialect if isinstance(dialect, str) else None
+        was = {canonical_condition(c, dialect): c for c in old.conditions}
+        now = {canonical_condition(c, dialect): c for c in new.conditions}
+        change.conditions_added = sorted(now[k] for k in set(now) - set(was))
+        change.conditions_removed = sorted(was[k] for k in set(was) - set(now))
         if (change.conditions_added or change.conditions_removed) and node is not None:
             change.rows_impact = impact(graph, node.id).to_dict()
     if change.status == 'removed' and node is not None:

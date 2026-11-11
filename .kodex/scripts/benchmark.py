@@ -356,6 +356,41 @@ def measure_star_chains() -> dict[int, float]:
     }
 
 
+def self_joins() -> dict[str, tuple[str, dict[str, dict[str, str]]]]:
+    """Statements that read one relation twice, with their schemas: the scale test's model template
+    over one model joined to itself, and 400 columns of one table set against its parent row's."""
+    model = {f'c{j:02}': 'int' for j in range(COLUMNS)}
+    picks = ', '.join(
+        f'a.{c}' if j % 3 == 0 else (f'b.{c} * 2 as {c}' if j % 3 == 1 else f'coalesce(a.{c}, b.{c}) as {c}')
+        for j, c in enumerate(model)
+    )
+    template = (
+        'with a as (select * from wh.analytics.m), b as (select * from wh.analytics.m), '
+        f'joined as (select {picks} from a join b on a.c00 = b.c00 where b.c01 > 0) select * from joined'
+    )
+    wide = {'id': 'int', 'parent_id': 'int', **{f'c{j}': 'int' for j in range(400)}}
+    differences = ', '.join(f'a.c{j} - b.c{j} as d{j}' for j in range(400))
+    return {
+        'template': (template, {'wh.analytics.m': model}),
+        'wide': (
+            f'select a.id, {differences} from raw.wide a join raw.wide b on b.parent_id = a.id',
+            {'raw.wide': wide},
+        ),
+    }
+
+
+def measure_self_joins() -> dict[str, float]:
+    """Milliseconds to analyse each statement of :func:`self_joins`."""
+    from konstruct.core.sql import analyse
+
+    return {
+        name: round(
+            1000 * median_time(lambda s, known: analyse(s, dialect='duckdb', schema=known), sql, schema), 1
+        )
+        for name, (sql, schema) in self_joins().items()
+    }
+
+
 def sql_files_project(root: Path, files: int = 400) -> None:
     """``files`` SQL files and no warehouse: each table joins the one before to a raw relation,
     filters it, and every tenth selects through a star, so the columns the build lists grow as the
@@ -485,6 +520,7 @@ def main() -> int:
         print(f'{tables} tables: {row}', file=sys.stderr)
     # SQL over unknown columns is measured with the model sizes, as it was before --tables.
     chains = measure_star_chains() if rows else {}
+    joined = measure_self_joins() if rows else {}
     sql_files = measure_sql_files() if rows else {}
     machine = (
         f'{platform.machine()}, {platform.system()} {platform.release()}, Python {platform.python_version()}'
@@ -497,6 +533,10 @@ def main() -> int:
             '\nA chain of CTEs, each a SELECT * of the one before, over unknown columns: '
             + ', '.join(f'{length} CTEs {ms} ms' for length, ms in chains.items())
             + '.'
+        )
+        print(
+            f'A model of the scale test joined to itself: {joined["template"]} ms; 400 columns of a table set '
+            f"against its parent row's: {joined['wide']} ms."
         )
         print(
             f'{sql_files["sql_files"]} SQL files and no warehouse: cold build {sql_files["sql_cold_build_s"]} s, '
@@ -517,6 +557,7 @@ def main() -> int:
             'results': rows,
             'tables': measured,
             'star_chains_ms': chains,
+            'self_joins_ms': joined,
             **sql_files,
         }
         args.json.write_text(json.dumps(data, indent=1))
