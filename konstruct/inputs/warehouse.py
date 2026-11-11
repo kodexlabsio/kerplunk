@@ -3,6 +3,12 @@
 Each connector returns `RelationMeta` records; `konstruct.engine.build` merges them into the graph.
 Connections are read only. Credentials come from configuration or environment variables and
 are never written to the graph.
+
+Where a warehouse says how a column is governed, its column records it: ``warehouse_tags``, the
+tags on the column by name with their values (Snowflake object tags, Databricks column tags), and
+``masking_policy``, the policy that masks it (a Snowflake masking policy, a Databricks column mask,
+BigQuery policy tags). :mod:`konstruct.analysis.sensitivity` reads them; reading them needs a
+privilege the connection may lack, and then the columns carry none.
 """
 
 from __future__ import annotations
@@ -193,7 +199,7 @@ class PostgresConnector:
                        case c.relkind when 'v' then 'view' when 'm' then 'view' else 'table' end,
                        obj_description(c.oid, 'pg_class'),
                        case when c.relkind in ('v', 'm') then pg_get_viewdef(c.oid, true) end,
-                       c.oid
+                       c.oid, c.relkind = 'm'
                 from pg_class c
                 join pg_namespace n on n.oid = c.relnamespace
                 where c.relkind in ('r', 'p', 'v', 'm', 'f')
@@ -233,7 +239,7 @@ class PostgresConnector:
             primary_keys: dict[int, list[str]] = {oid: list(names) for oid, names in cur.fetchall()}
 
         relations = []
-        for database, schema, table, kind, comment, view_sql, oid in tables:
+        for database, schema, table, kind, comment, view_sql, oid, materialised in tables:
             if wanted and schema.lower() not in wanted:
                 continue
             relations.append(
@@ -245,7 +251,10 @@ class PostgresConnector:
                     view_sql=f'create view {_quote_pg(schema)}.{_quote_pg(table)} as {view_sql}'
                     if view_sql
                     else None,
-                    attrs=_primary_key_attrs(primary_keys.get(oid)),
+                    attrs={
+                        **_primary_key_attrs(primary_keys.get(oid)),
+                        **({'materialized_view': True} if materialised else {}),
+                    },
                 )
             )
         return relations
@@ -253,6 +262,68 @@ class PostgresConnector:
 
 def _primary_key_attrs(columns: list[str] | None) -> dict[str, Any]:
     return {'primary_key': columns} if columns else {}
+
+
+Governance = dict[tuple[str, str], dict[str, Any]]
+"""Per relation key and lower-case column name, the governance attributes of the column; the
+column name ``''`` holds the tags on the relation itself, which each of its columns inherits."""
+
+
+def _govern(relations: list[RelationMeta], governance: Governance) -> list[RelationMeta]:
+    """``relations`` with each column's tags and masking policy from ``governance``: the tags on
+    the relation, then the column's own, which win where both name a tag."""
+    if governance:
+        for relation in relations:
+            inherited = governance.get((relation.key, ''), {}).get('warehouse_tags', {})
+            for column in relation.columns:
+                found = governance.get((relation.key, column.name.lower()), {})
+                tags = {**inherited, **found.get('warehouse_tags', {})}
+                if tags:
+                    column.attrs['warehouse_tags'] = tags
+                if 'masking_policy' in found:
+                    column.attrs['masking_policy'] = found['masking_policy']
+    return relations
+
+
+def _tagged(governance: Governance, rows: list[tuple[Any, ...]], *, tables: bool = False) -> None:
+    """Add tag rows ``(catalog, schema, table, column, tag, value)`` to ``governance``; with
+    ``tables``, a row with no column is a tag on the table."""
+    for row in rows:
+        if len(row) != 6 or row[4] is None or (row[3] is None and not tables):
+            continue
+        catalog, schema, table, column, tag, value = row
+        name = '' if column is None else str(column).lower()
+        found = governance.setdefault((relation_key(catalog, schema, table), name), {})
+        found.setdefault('warehouse_tags', {})[str(tag)] = '' if value is None else str(value)
+
+
+def _masked(governance: Governance, rows: list[tuple[Any, ...]]) -> None:
+    """Add masking rows ``(catalog, schema, table, column, policy...)`` to ``governance``, the
+    policy's name in one part or in several (catalogue, schema and name)."""
+    for row in rows:
+        if len(row) < 5:
+            continue
+        catalog, schema, table, column = row[:4]
+        policy = '.'.join(str(part) for part in row[4:] if part)
+        if column is not None and policy:
+            key = (relation_key(catalog, schema, table), str(column).lower())
+            governance.setdefault(key, {})['masking_policy'] = policy
+
+
+def _optional_rows(cursor: Any, sql: str, what: str, notes: list[str]) -> list[tuple[Any, ...]]:
+    """The rows of a metadata query a role may not be allowed to run; none, with a note of
+    ``what`` was not read, when it fails."""
+    try:
+        cursor.execute(sql)
+        return list(cursor.fetchall())
+    except Exception as error:  # the role lacks the privilege, or the warehouse has no such view
+        first = str(error).strip().splitlines()[0][:160] if str(error).strip() else type(error).__name__
+        notes.append(f'cannot read {what}, so no column is marked by them ({first})')
+        return []
+
+
+def _literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
 
 
 def _quote_pg(name: str) -> str:
@@ -421,9 +492,15 @@ def _information_schema(
                 comment=comment or None,
                 columns=columns.get(key, []),
                 view_sql=_view_statement(key, view),
+                attrs=_materialised(table_type),
             )
         )
     return relations
+
+
+def _materialised(table_type: Any) -> dict[str, Any]:
+    """``materialized_view`` for a view that holds rows of its own, as a table does."""
+    return {'materialized_view': True} if 'MATERIALIZED' in str(table_type or '').upper() else {}
 
 
 def _view_statement(parts: tuple[str, ...], definition: Any) -> str | None:
@@ -447,6 +524,8 @@ class SnowflakeConnector:
     label: str = 'snowflake'
     dialect: str | None = 'snowflake'
     default_schema: str | None = None
+    notes: list[str] = field(default_factory=list)
+    """What the last fetch could not read, such as the tags a role may not see."""
 
     def fetch(self) -> list[RelationMeta]:
         connector = driver('snowflake.connector', 'snowflake')
@@ -455,13 +534,50 @@ class SnowflakeConnector:
             cursor = connection.cursor()
             databases = self.databases or [str(self.options.get('database') or '')]
             relations = []
+            governance: Governance = {}
             for database in databases:
                 relations += _information_schema(cursor, database, _schemas_filter(self.schemas), 'snowflake')
+                governance.update(_snowflake_governance(cursor, database, self.notes))
             if relations:
                 self.default_schema = str(self.options.get('schema') or 'public')
-            return relations
+            return _govern(relations, governance)
         finally:
             connection.close()
+
+
+def _snowflake_governance(cursor: Any, database: str, notes: list[str] | None = None) -> Governance:
+    """The tags and masking policies on one database's columns, and the tags on its tables, which
+    their columns inherit, from the account usage views. They need the role to have been granted
+    the SNOWFLAKE database's imported privileges, and lag the account by up to two hours. Tags a
+    column inherits from its schema or database are not read."""
+    notes = notes if notes is not None else []
+    where = f'upper(object_database) = upper({_literal(database)})' if database else 'true'
+    governance: Governance = {}
+    _tagged(
+        governance,
+        _optional_rows(
+            cursor,
+            'select object_database, object_schema, object_name, column_name, tag_name, tag_value '
+            f"from snowflake.account_usage.tag_references where domain in ('COLUMN', 'TABLE') and {where} "
+            'and object_deleted is null',
+            'the tags in snowflake.account_usage.tag_references',
+            notes,
+        ),
+        tables=True,
+    )
+    ref = where.replace('object_database', 'ref_database_name')
+    _masked(
+        governance,
+        _optional_rows(
+            cursor,
+            'select ref_database_name, ref_schema_name, ref_entity_name, ref_column_name, policy_name '
+            "from snowflake.account_usage.policy_references where policy_kind = 'MASKING_POLICY' "
+            f'and ref_column_name is not null and {ref}',
+            'the masking policies in snowflake.account_usage.policy_references',
+            notes,
+        ),
+    )
+    return governance
 
 
 @dataclass
@@ -475,6 +591,8 @@ class DatabricksConnector:
     label: str = 'databricks'
     dialect: str | None = 'databricks'
     default_schema: str | None = None
+    notes: list[str] = field(default_factory=list)
+    """What the last fetch could not read, such as the column tags a role may not see."""
 
     def fetch(self) -> list[RelationMeta]:
         sql = driver('databricks.sql', 'databricks')
@@ -483,13 +601,35 @@ class DatabricksConnector:
             cursor = connection.cursor()
             catalogs = self.catalogs or [str(self.options.get('catalog') or 'main')]
             relations = []
+            governance: Governance = {}
             for catalog in catalogs:
                 relations += _information_schema(
                     cursor, catalog, _schemas_filter(self.schemas), 'databricks', column_type='full_data_type'
                 )
+                schema = f'{catalog}.information_schema'
+                _tagged(
+                    governance,
+                    _optional_rows(
+                        cursor,
+                        'select catalog_name, schema_name, table_name, column_name, tag_name, tag_value '
+                        f'from {schema}.column_tags',
+                        f'the column tags in {schema}.column_tags',
+                        self.notes,
+                    ),
+                )
+                _masked(
+                    governance,
+                    _optional_rows(
+                        cursor,
+                        'select catalog_name, schema_name, table_name, column_name, mask_catalog, '
+                        f'mask_schema, mask_name from {schema}.column_masks',
+                        f'the column masks in {schema}.column_masks',
+                        self.notes,
+                    ),
+                )
             if relations:
                 self.default_schema = str(self.options.get('schema') or 'default')
-            return relations
+            return _govern(relations, governance)
         finally:
             connection.close()
 
@@ -598,6 +738,7 @@ def _trino_catalog(cursor: Any, catalog: str, schemas: set[str] | None) -> list[
             RelationMeta(
                 parts=parts,
                 kind='view' if 'VIEW' in str(table_type).upper() else 'table',
+                attrs=_materialised(table_type),
                 comment=comments.get(key) or None,
                 columns=columns.get(key, []),
                 view_sql=_view_statement(parts, views.get(key)),
@@ -642,6 +783,7 @@ class BigQueryConnector:
             for item in client.list_tables(dataset.reference):
                 table = client.get_table(item.reference)
                 kind = 'view' if table.table_type in ('VIEW', 'MATERIALIZED_VIEW') else 'table'
+                materialised = _materialised(table.table_type)
                 parts = (table.project, table.dataset_id, table.table_id)
                 relations.append(
                     RelationMeta(
@@ -652,6 +794,7 @@ class BigQueryConnector:
                         view_sql=f'create view `{".".join(parts)}` as {table.view_query}'
                         if table.view_query
                         else None,
+                        attrs=materialised,
                     )
                 )
         return relations
@@ -664,6 +807,12 @@ def _bigquery_fields(fields: Any, prefix: str) -> Iterator[ColumnMeta]:
         attrs: dict[str, Any] = {'nested': True} if prefix else {}
         if field_def.mode == 'REQUIRED':
             attrs['required'] = True
+        policy_tags = getattr(field_def, 'policy_tags', None)
+        names = [str(n) for n in getattr(policy_tags, 'names', None) or []]
+        if names:
+            # Column-level access control: readers without the fine-grained reader role see the
+            # column masked, or not at all.
+            attrs['masking_policy'] = ', '.join(names)
         yield ColumnMeta(name, dtype, field_def.description or None, attrs)
         if field_def.field_type in ('RECORD', 'STRUCT') and field_def.fields:
             yield from _bigquery_fields(field_def.fields, f'{name}.')

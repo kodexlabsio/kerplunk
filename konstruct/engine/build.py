@@ -539,6 +539,9 @@ class Builder:
                 )
                 continue
             count += 1
+            for note in getattr(connector, 'notes', None) or []:
+                # Governance the role cannot read leaves columns unmarked: say so, as for any input.
+                self.graph.warn(f'warehouse {warehouse.describe(self.config.root)}: {note}')
             self.usage_connectors.append((warehouse, connector))
             self.warehouse_relations.append((connector, relations))
             self.sources.append(
