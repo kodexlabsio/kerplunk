@@ -62,8 +62,9 @@ For a whole task, follow the focused skill:
 - `impact` and `trace` draw a tree under Lineage, from the column or table asked about. Each line
   is one node, indented under the node it is reached from, followed by how it is reached:
   `transformed` (computed from the line above), `direct` (passed through or renamed) or
-  `reference` (the line above is used in a JOIN, WHERE, GROUP BY, HAVING or QUALIFY of it, so a
-  change alters which rows it returns, though no output column is derived from it). `confirmed`
+  `reference` (the line above is used in a JOIN, WHERE, GROUP BY, HAVING, QUALIFY or DISTINCT
+  of it, compared by a UNION, INTERSECT or EXCEPT, or in an ORDER BY that a LIMIT picks rows by,
+  so a change alters which rows it returns, though no output column is derived from it). `confirmed`
   means `konstruct verify` observed the edge in the data; `via` names the task whose SQL made it.
 - Tests, exposures, orchestration tasks and business terms follow in their own sections, each
   with its file. The number before a test or task is how many steps away it is. Business terms

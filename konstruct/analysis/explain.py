@@ -23,7 +23,7 @@ import hashlib
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
 
 import sqlglot
 from sqlglot import exp
@@ -36,6 +36,16 @@ from konstruct.core.sql import PARSE_ERRORS
 if TYPE_CHECKING:
     from konstruct.interfaces.layout import Style
 
+# Conditions whose text is a list of terms, and a query that parses one as its items.
+_TERM_LISTS = {
+    'GROUP BY': 'SELECT {}',
+    'DISTINCT': 'SELECT {}',
+    'DISTINCT ON': 'SELECT {}',
+    'ORDER BY': 'SELECT 1 ORDER BY {}',
+}
+# Conditions whose text names no column: what a set operation does, a number of rows, or the SQL
+# that makes rows.
+_LITERAL_CLAUSES = ('UNION', 'INTERSECT', 'EXCEPT', 'LIMIT', 'OFFSET', 'ROWS FROM')
 _QUALIFIED_COLUMN = re.compile(r'[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*){1,3}')
 MAX_COMPOSED = 4000
 """Stop substituting once the composed formula is longer than this many characters."""
@@ -204,8 +214,54 @@ class _Namer:
         return found
 
     def condition(self, text: str) -> str:
-        clause, rest = split_condition(text)
-        return f'{clause}: {self.text(rest)}' if clause else self.text(text)
+        found = self.texts.get(text)
+        if found is None:
+            parts = condition_terms(text, self.parse)
+            if not parts.label:
+                found = self.text(text)
+            elif not parts.terms:
+                found = text
+            else:
+                found = f'{parts.label}: {", ".join(self.short(term) for term in parts.terms)}'
+            self.texts[text] = found
+        return found
+
+
+class ConditionTerms(NamedTuple):
+    """A recorded condition, read: its label, the clause the label names, its SQL, and its terms."""
+
+    label: str
+    """``LEFT JOIN WHERE BEFORE LIMIT``, or empty for a condition with no label."""
+    clause: str
+    """What kind of condition it is, without where it applies: ``WHERE``, ``ON``, ``ORDER BY``."""
+    rest: str
+    """Its SQL."""
+    terms: list[exp.Expr] | None
+    """A GROUP BY, DISTINCT, DISTINCT ON or ORDER BY list item by item (an ORDER BY item with its
+    direction), any other condition as one expression, empty if it does not parse, and None for one
+    whose text names no column (a set operation, LIMIT, OFFSET or ROWS FROM)."""
+
+
+def condition_terms(text: str, parse: Callable[[str], exp.Expr | None]) -> ConditionTerms:
+    """``text``, a recorded condition, read into its terms with ``parse``: what explain, describe and
+    the lockfile all split a condition into."""
+    label, rest = split_condition(text)
+    clause = label.partition(' BEFORE ')[0].rsplit(' JOIN ', 1)[-1]
+    if clause in _LITERAL_CLAUSES:
+        return ConditionTerms(label, clause, rest, None)
+    template = _TERM_LISTS.get(clause)
+    tree = parse(template.format(rest) if template else rest)
+    terms: list[exp.Expr]
+    if template is None:
+        terms = [tree] if tree is not None else []
+    elif clause == 'ORDER BY':
+        order = tree.args.get('order') if isinstance(tree, exp.Select) else None
+        terms = list(order.expressions) if isinstance(order, exp.Order) else []
+    else:
+        terms = list(tree.selects) if isinstance(tree, exp.Select) else []
+    for term in terms:
+        term.parent = None  # a term on its own, not an item of the query that parsed it
+    return ConditionTerms(label, clause, rest, terms)
 
 
 def split_condition(text: str) -> tuple[str, str]:

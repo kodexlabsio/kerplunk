@@ -39,7 +39,7 @@ relations it relies on, with the outer join it reaches a relation through, if an
 
     # Konstruct lockfile: the upstream columns this project reads, pinned by meaning.
     format = 1
-    canonical = "konstruct-1/sqlglot-30.30"
+    canonical = "konstruct-2/sqlglot-30.30"
     reads = []
 
     [[pin]]
@@ -104,7 +104,7 @@ from sqlglot.dialects.dialect import Dialect
 from sqlglot.errors import SqlglotError
 
 from konstruct.analysis.diff import run_git
-from konstruct.analysis.explain import Explainer, composed_from
+from konstruct.analysis.explain import Explainer, composed_from, condition_terms
 from konstruct.analysis.history import defining_file, history, utc
 from konstruct.analysis.query import QueryError, resolve_one
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
@@ -113,7 +113,7 @@ from konstruct.core.sql import OUTER_SIDES, in_context
 FILE_NAME = 'konstruct.lock'
 FORMAT = 1
 """The layout of the file: which keys it has and what they hold."""
-CANONICAL_FORM = 1
+CANONICAL_FORM = 2
 """How Konstruct prints the formulas and conditions it fingerprints. Raise it with any change
 that prints one differently (a new normalisation, a core that is not sqlglot's printer)."""
 CANONICAL = f'konstruct-{CANONICAL_FORM}/sqlglot-{".".join(package_version("sqlglot").split(".")[:2])}'
@@ -969,25 +969,15 @@ class Pinner:
         return found
 
     def _condition(self, owner: Node, text: str) -> tuple[list[str], list[Node]]:
-        prefix, sep, rest = text.partition(': ')
-        if not sep:
-            prefix, rest = '', text
-        prefix = _label(prefix)
+        read_terms = condition_terms(text, self.namer.parse)
+        prefix = _label(read_terms.label)
         base = prefix.partition(' BEFORE ')[0]
-        clause = base.rsplit(' JOIN ', 1)[-1]
-        if clause in ('UNION', 'INTERSECT', 'EXCEPT', 'LIMIT', 'OFFSET', 'ROWS FROM'):
-            return [f'{prefix}: {rest}'], []
-        parts: list[exp.Expr] = []
-        if clause in ('GROUP BY', 'DISTINCT', 'DISTINCT ON'):
-            parsed = self.namer.parse(f'SELECT {rest}')
-            parts = list(parsed.expressions) if isinstance(parsed, exp.Select) else []
-        elif clause == 'ORDER BY':
-            parsed = self.namer.parse(f'SELECT 1 ORDER BY {rest}')
-            order = parsed.args.get('order') if isinstance(parsed, exp.Select) else None
-            parts = [exp.Tuple(expressions=list(order.expressions))] if isinstance(order, exp.Order) else []
-        else:
-            tree = self.namer.parse(rest)
-            parts = [tree] if tree is not None else []
+        clause = read_terms.clause
+        if read_terms.terms is None:
+            return [f'{prefix}: {read_terms.rest}'], []
+        parts = read_terms.terms
+        if clause == 'ORDER BY' and parts:
+            parts = [exp.Tuple(expressions=list(parts))]
         if not parts:
             return [text], []
         # The conjuncts of an outer join's ON stay together: moved to another join's ON, one

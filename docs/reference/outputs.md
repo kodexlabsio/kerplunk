@@ -13,7 +13,7 @@
 | Edge | Direction | Meaning |
 |------|-----------|---------|
 | `contains` | relation to column | The column belongs to the relation |
-| `feeds` | upstream to downstream | Relation to relation, task to the table it writes, table to the task that reads it. With `role: reference`, a column the target uses in a JOIN, WHERE, GROUP BY, HAVING or QUALIFY |
+| `feeds` | upstream to downstream | Relation to relation, task to the table it writes, table to the task that reads it. With `role: reference`, a column the target uses in a JOIN, WHERE, GROUP BY, HAVING, QUALIFY, DISTINCT or DISTINCT ON, a column a UNION, INTERSECT or EXCEPT that removes duplicates compares rows by, or a column in an ORDER BY that a LIMIT, an OFFSET or a DISTINCT ON picks rows by |
 | `derived_from` | column to the column it comes from | Column-level lineage, with `transform: direct` or `transformed` |
 | `runs` | DAG to task, task to dbt node | What a DAG or task executes |
 | `precedes` | task to task | Airflow ordering, Dagster op and asset ordering, and sensors that start one job after another |

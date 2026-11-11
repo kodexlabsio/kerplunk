@@ -979,6 +979,104 @@ def test_unqualified_columns_of_a_relation_with_unknown_columns_are_references()
     assert result.references == [(ORDERS, 'status'), (ORDERS, 'id')]
 
 
+def test_what_distinct_on_and_a_limit_pick_rows_by_are_references() -> None:
+    picked = one(
+        'select distinct on (customer_id) id from orders order by customer_id, ordered_at desc',
+        dialect='postgres',
+    )
+    assert set(picked.references) == {(ORDERS, 'customer_id'), (ORDERS, 'ordered_at')}
+    assert one('select id from orders order by amount desc limit 3').references == [(ORDERS, 'amount')]
+    # A name an ORDER BY gives a select item is that item.
+    named = one('select id, amount * 2 as doubled from orders order by doubled desc limit 3')
+    assert named.references == [(ORDERS, 'amount')]
+    assert one('select id from orders order by amount').references == []
+
+
+@pytest.mark.parametrize('schema', [SCHEMA, {}], ids=['known columns', 'unknown columns'])
+@pytest.mark.parametrize(
+    ('sql', 'references'),
+    [
+        (
+            'with d as (select distinct customer_id, upper(status) as s from orders) select count(*) as n from d',
+            {(ORDERS, 'customer_id'), (ORDERS, 'status')},
+        ),
+        (
+            'select id, amount from orders union select id, amount from payments',
+            {(ORDERS, 'id'), (ORDERS, 'amount'), (PAYMENTS, 'id'), (PAYMENTS, 'amount')},
+        ),
+        (
+            'select id from orders intersect all select order_id from payments',
+            {(ORDERS, 'id'), (PAYMENTS, 'order_id')},
+        ),
+        (
+            'select id from orders except select order_id from payments',
+            {(ORDERS, 'id'), (PAYMENTS, 'order_id')},
+        ),
+        ('select id from orders union all select id from payments', set()),
+    ],
+)
+def test_the_columns_that_distinct_and_a_union_compare_rows_by_are_references(
+    sql: str, references: set[tuple[str, str]], schema: dict[str, Any]
+) -> None:
+    assert set(one(sql, schema=schema).references) == references
+
+
+@pytest.mark.parametrize('schema', [SCHEMA, {}], ids=['known columns', 'unknown columns'])
+def test_a_distinct_star_is_the_same_condition_whatever_is_selected_from_it(schema: dict[str, Any]) -> None:
+    def distinct(columns: str) -> tuple[list[str], set[tuple[str, str]]]:
+        result = one(f'with x as (select distinct * from orders) select {columns} from x', schema=schema)
+        return result.conditions, set(result.references)
+
+    assert distinct('amount') == distinct('amount, status') == distinct('count(*) as n')
+    if not schema:
+        assert distinct('amount') == (['DISTINCT: db.main.orders.*'], set())
+
+
+@pytest.mark.parametrize('schema', [SCHEMA, {}], ids=['known columns', 'unknown columns'])
+@pytest.mark.parametrize(
+    ('sql', 'condition'),
+    [
+        (
+            'select id, amount from orders union all select id, amount from payments order by amount desc limit 5',
+            'ORDER BY: UNION(db.main.orders.amount, db.main.payments.amount) DESC',
+        ),
+        (
+            'with u as (select id, amount from orders union all select id, amount from payments order by 2 limit 5) '
+            'select id from u',
+            'ORDER BY: UNION(db.main.orders.amount, db.main.payments.amount)',
+        ),
+    ],
+)
+def test_the_order_by_of_a_set_operation_names_the_items_of_every_branch(
+    sql: str, condition: str, schema: dict[str, Any]
+) -> None:
+    result = one(sql, schema=schema)
+    assert set(result.references) == {(ORDERS, 'amount'), (PAYMENTS, 'amount')}
+    assert result.conditions == ['LIMIT: 5', condition]
+
+
+def test_a_distinct_star_through_a_cte_names_the_relation_it_reads() -> None:
+    def distinct(relation: str) -> list[str]:
+        return one(f'with s as (select * from {relation}) select distinct * from s', schema={}).conditions
+
+    assert distinct('raw.a') == ['DISTINCT: db.raw.a.*']
+    assert distinct('raw.b') == ['DISTINCT: db.raw.b.*']
+
+
+def test_an_expression_a_set_operation_orders_by_names_the_items_of_every_branch() -> None:
+    schema = {'db.main.t1': {'a': 'int', 'b': 'int'}, 'db.main.t2': {'c': 'int', 'd': 'int'}}
+    result = one('select a, b from t1 union all select c, d from t2 order by a + b limit 5', schema=schema)
+    assert set(result.references) == {
+        ('db.main.t1', 'a'),
+        ('db.main.t1', 'b'),
+        ('db.main.t2', 'c'),
+        ('db.main.t2', 'd'),
+    }
+    assert (
+        'ORDER BY: UNION(db.main.t1.a, db.main.t2.c) + UNION(db.main.t1.b, db.main.t2.d)' in result.conditions
+    )
+
+
 def test_the_relations_a_star_it_could_not_expand_reads() -> None:
     """Every column of a relation with unknown columns reaches the output of a ``SELECT *`` over it,
     beside any other item and through a CTE, except those it leaves out."""

@@ -491,3 +491,56 @@ def test_a_cycle_through_a_context_composed_as_a_tree_stops_where_the_text_does(
     for ref in columns:
         node = graph.nodes[f'table.db.s.{ref.replace(".", "#")}']
         assert Explainer(graph).composed_text(node) == _tree_text(Explainer(graph), node), ref
+
+
+def test_distinct_limit_and_order_conditions_have_short_names(tmp_path: Path) -> None:
+    con = duckdb.connect(str(tmp_path / 'w.duckdb'))
+    con.execute('create schema raw')
+    con.execute('create schema mart')
+    con.execute('create table raw.events (customer_id int, amount int)')
+    con.execute(
+        'create view mart.top_amounts as select distinct customer_id, amount from raw.events'
+        ' order by amount desc, customer_id limit 10 offset 5'
+    )
+    con.close()
+    project = Project(tmp_path)
+    project.build()
+    assert project.explain('top_amounts.amount').steps[0].conditions == [
+        'DISTINCT BEFORE LIMIT: events.amount, events.customer_id',
+        'LIMIT: 10',
+        'OFFSET: 5',
+        'ORDER BY: events.amount DESC, events.customer_id',
+    ]
+
+
+@pytest.mark.parametrize(
+    ('text', 'label', 'clause', 'terms'),
+    [
+        (
+            'ORDER BY BEFORE LIMIT: db.t.a DESC, db.t.b',
+            'ORDER BY BEFORE LIMIT',
+            'ORDER BY',
+            ['db.t.a DESC', 'db.t.b'],
+        ),
+        ('GROUP BY: db.t.a, UPPER(db.t.b)', 'GROUP BY', 'GROUP BY', ['db.t.a', 'UPPER(db.t.b)']),
+        (
+            'LEFT JOIN WHERE: db.t.a > 1 AND db.t.b = 2',
+            'LEFT JOIN WHERE',
+            'WHERE',
+            ['db.t.a > 1 AND db.t.b = 2'],
+        ),
+        ('UNION: DISTINCT', 'UNION', 'UNION', None),
+        ('LIMIT: 10', 'LIMIT', 'LIMIT', None),
+        ('db.t.a = 1', '', '', ['db.t.a = 1']),
+    ],
+)
+def test_a_condition_is_split_into_its_terms_one_way(
+    text: str, label: str, clause: str, terms: list[str] | None
+) -> None:
+    from sqlglot import parse_one
+
+    from konstruct.analysis.explain import condition_terms
+
+    found = condition_terms(text, parse_one)
+    assert (found.label, found.clause) == (label, clause)
+    assert (None if found.terms is None else [t.sql() for t in found.terms]) == terms

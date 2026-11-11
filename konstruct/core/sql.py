@@ -12,7 +12,7 @@ import functools
 import re
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 import sqlglot
 from sqlglot import exp
@@ -41,6 +41,8 @@ Transform = Literal['direct', 'transformed']
 
 STAR_UNKNOWN = 'SELECT * over relations with unknown columns'
 LINEAGE_FAILED = 'column lineage failed'
+# Marks a select item added so that a star passes a column on by name.
+PASSED_ON = 'konstruct_passed_on'
 PARTIAL_COLUMNS = (STAR_UNKNOWN, LINEAGE_FAILED)
 """How the errors of a statement whose columns may not be all its relation has begin."""
 
@@ -452,8 +454,12 @@ def _column_lineage(
     if star_tables:
         result.errors.append(f'{STAR_UNKNOWN}: ' + ', '.join(sorted(set(star_tables))))
 
-    result.references = _references(scope, _Sources(scope), dialect, schema, default_catalog, default_db)
+    tracer = _Tracer(dialect)
+    result.references = _references(
+        scope, _Sources(scope), tracer, dialect, schema, default_catalog, default_db
+    )
     canon = Canonical(dialect, default_catalog, default_db)
+    canon.tracer = tracer
     for index, (name, node) in enumerate(nodes.items()):
         if name != '*':
             out_name = (out_names[index] if out_names else name).lower()
@@ -625,6 +631,7 @@ def _name_unknown_columns(
                     this=exp.Column(this=_renamed(column.this), table=_renamed(identifier)),
                     alias=_renamed(column.this),
                 )
+                new.meta[PASSED_ON] = True
                 # First, so that a union's branches stay aligned and lineage finds it before the star.
                 branch.expression.set('expressions', [new, *branch.expression.expressions])
                 selected(branch).add(name)
@@ -960,7 +967,139 @@ def _unexpanded_star_tables(scope: Scope) -> Iterator[exp.Table]:
                 yield source
 
 
-_REFERENCE_CLAUSES = ('joins', 'where', 'group', 'having', 'qualify')
+class _Printed(NamedTuple):
+    """A term of a condition printed as SQL as it is, rather than in terms of physical columns."""
+
+    expression: exp.Expr
+    unbracket: bool = False
+
+
+class _Clause(NamedTuple):
+    """A clause that decides which rows a query returns."""
+
+    label: str | None
+    """How its condition is labelled, such as ``LEFT JOIN ON``; None if it records no condition."""
+    terms: list[exp.Expr | _Printed | str]
+    """What its condition says, in order: an expression over the query's columns, SQL printed as it
+    is, or text."""
+    parts: list[exp.Expr]
+    """The parts of the query whose columns are references."""
+    ordered: bool = False
+    """Whether the order of the terms matters (ORDER BY), or they are sorted (GROUP BY)."""
+    union: exp.SetOperation | None = None
+    """For an ORDER BY of a set operation, the set operation, whose branches its terms name."""
+    join: exp.Join | None = None
+    """The join, for a join's ON."""
+
+
+def _row_clauses(query: exp.Query, scope: Scope, folded: Collection[int] = ()) -> Iterator[_Clause]:
+    """The joins, filters and grouping of ``query``, its DISTINCT and DISTINCT ON, LIMIT and OFFSET,
+    the ORDER BY those pick rows by, the rows a set operation that removes duplicates compares, and
+    the rows it makes from a table function or VALUES. One walk gives both the conditions and the
+    references; the WHERE of a scope in ``folded`` (by id) is part of a join's ON instead."""
+    args = query.args
+    for join in args.get('joins') or []:
+        on = join.args.get('on')
+        label = ' '.join(x for x in (join.side, join.kind, 'JOIN ON') if x).upper()
+        # The columns an UNNEST, FLATTEN or table function joined expands decide the rows too; a
+        # joined subquery's own columns belong to its scope.
+        expanded = [
+            n for n in join.this.walk(prune=lambda n: isinstance(n, exp.Query)) if isinstance(n, exp.Column)
+        ]
+        matched = [on] if isinstance(on, exp.Expr) else []
+        yield _Clause(
+            label if matched else None,
+            list(matched),
+            [*matched, *(join.args.get('using') or []), *expanded],
+            join=join,
+        )
+    for key, label in (('where', 'WHERE'), ('having', 'HAVING'), ('qualify', 'QUALIFY')):
+        clause = args.get(key)
+        if isinstance(clause, exp.Expr):
+            here = not (key == 'where' and id(scope) in folded)
+            yield _Clause(label if here else None, [clause.this], [clause])
+    group = args.get('group')
+    if isinstance(group, exp.Group) and group.expressions:
+        yield _Clause('GROUP BY', list(group.expressions), [group])
+    distinct = args.get('distinct')
+    on = distinct.args.get('on') if isinstance(distinct, exp.Distinct) else None
+    if isinstance(distinct, exp.Distinct) and isinstance(query, exp.Select):
+        if isinstance(on, exp.Expr):
+            keys = [_named(query, k) for k in (on.expressions if isinstance(on, exp.Tuple) else [on])]
+            yield _Clause('DISTINCT ON', list(keys), list(keys))
+        else:
+            items = [s.unalias() for s in query.selects if not s.meta.get(PASSED_ON)]
+            yield _Clause('DISTINCT', list(items), _selected(query))
+    limit, offset = args.get('limit'), args.get('offset')
+    if isinstance(limit, exp.Limit) and isinstance(limit.expression, exp.Expr):
+        yield _Clause('LIMIT', [_Printed(limit.expression)], [])
+    elif isinstance(limit, exp.Fetch):
+        count = limit.args.get('count')
+        yield _Clause('LIMIT', [_Printed(count) if isinstance(count, exp.Expr) else '1'], [])
+    if isinstance(offset, exp.Offset) and isinstance(offset.expression, exp.Expr):
+        yield _Clause('OFFSET', [_Printed(offset.expression)], [])
+    order = args.get('order')
+    if isinstance(order, exp.Order) and (limit or offset or isinstance(on, exp.Expr)):
+        terms = list(order.expressions)
+        if isinstance(query, exp.SetOperation):
+            items = [
+                item for term in terms for items in _branch_items(query, term).values() for item in items
+            ]
+            yield _Clause('ORDER BY', list(terms), items, ordered=True, union=query)
+        else:
+            named = [_named(query, term) for term in terms]
+            yield _Clause('ORDER BY', list(named), list(named), ordered=True)
+    if isinstance(query, exp.SetOperation):
+        kind = type(query).__name__.upper()
+        if query.args.get('distinct') or kind != 'UNION':
+            items = [item for select in _branches(query) for item in _selected(select)]
+            yield _Clause(kind, ['DISTINCT' if query.args.get('distinct') else 'ALL'], items)
+    # Rows the query makes itself, from a table function or VALUES, which no column of a relation
+    # describes: what they are is in the SQL.
+    for _, source in scope.selected_sources.values():
+        if isinstance(source, exp.Table) and not isinstance(source.this, exp.Identifier):
+            yield _Clause('ROWS FROM', [_Printed(source.this)], [])
+        elif isinstance(source, Scope) and isinstance(source.expression, exp.Values):
+            values = source.expression.copy()
+            values.set('alias', None)  # what it is called is not what it holds
+            yield _Clause('ROWS FROM', [_Printed(values, unbracket=True)], [])
+
+
+def _selected(select: exp.Select) -> list[exp.Expr]:
+    """The items of ``select`` that name columns, leaving out stars and the columns a star was made to
+    pass on by name, which depend on what other queries read from it."""
+    return [item.unalias() for item in select.selects if not _is_star(item) and not item.meta.get(PASSED_ON)]
+
+
+def _branches(query: exp.Expr) -> Iterator[exp.Select]:
+    """The SELECTs a set operation combines, through nested set operations and brackets."""
+    while isinstance(query, exp.Subquery):
+        query = query.this
+    if isinstance(query, exp.SetOperation):
+        yield from _branches(query.this)
+        yield from _branches(query.expression)
+    elif isinstance(query, exp.Select):
+        yield query
+
+
+def _branch_items(query: exp.SetOperation, term: exp.Expr) -> dict[str, list[exp.Expr]]:
+    """The items of every branch of ``query`` that an ORDER BY ``term`` orders by, by the name or
+    position it uses for them: a name or position is an item of the first branch, and so the item
+    at the same place in every branch. ``a + b`` uses two names; a position is the whole term."""
+    key = term.this if isinstance(term, exp.Ordered) else term
+    branches = list(_branches(query))
+    names = [name.lower() for name in branches[0].named_selects] if branches else []
+
+    def at(index: int) -> list[exp.Expr]:
+        return [b.selects[index].unalias() for b in branches if 0 <= index < len(b.selects)]
+
+    if isinstance(key, exp.Literal) and not key.is_string and str(key.this).isdigit():
+        return {key.sql(): at(int(str(key.this)) - 1)}
+    found: dict[str, list[exp.Expr]] = {}
+    for column in [key] if isinstance(key, exp.Column) else list(key.find_all(exp.Column)):
+        if not column.table and column.name.lower() in names:
+            found[column.name.lower()] = at(names.index(column.name.lower()))
+    return found
 
 
 _ATOM = re.compile(r'[\w."`$]+(?:\.\*)?')
@@ -1193,6 +1332,8 @@ class Canonical:
         # temporary, and a freed node's id can be reused by the next one.
         self.memo: dict[int, tuple[LineageNode, str]] = {}
         self.sources: _Sources | None = None
+        self.scopes: dict[int, Scope] = {}
+        self.tracer = _Tracer(dialect)
 
     def node(self, node: LineageNode) -> str:
         cached = self.memo.get(id(node))
@@ -1265,91 +1406,97 @@ class Canonical:
         found: set[str] = set()
         folded = {id(s) for s in scopes.folded.values()}
         self.sources = _Sources(root)
+        self.scopes = {id(inner.expression): inner for inner in root.traverse()}
         for scope in root.traverse():
             query = scope.expression
-            side, before = scopes.sides.get(id(scope)), scopes.before.get(id(scope), [])
-
-            def add(
-                label: str,
-                text: str,
-                scope: Scope = scope,
-                side: str | None = side,
-                before: list[str] = before,
-            ) -> None:
-                steps = _steps_after(scope.expression, label.split(' JOIN ')[-1])
-                found.add(in_context(f'{label}: {text}', side, steps + before))
-
-            if isinstance(query, exp.SetOperation):
-                kind = type(query).__name__.upper()
-                if query.args.get('distinct') or kind != 'UNION':
-                    add(kind, 'DISTINCT' if query.args.get('distinct') else 'ALL')
             if not isinstance(query, exp.Query):
                 continue
-            # Rows the query makes itself, from a table function or VALUES, which no column of
-            # a relation describes: what they are is in the SQL.
-            for _, source in scope.selected_sources.values():
-                if isinstance(source, exp.Table) and not isinstance(source.this, exp.Identifier):
-                    add('ROWS FROM', source.this.sql(dialect=self.dialect))
-                elif isinstance(source, Scope) and isinstance(source.expression, exp.Values):
-                    values = source.expression.copy()
-                    values.set('alias', None)  # what it is called is not what it holds
-                    add('ROWS FROM', _unbracket(values.sql(dialect=self.dialect)))
-            for label, terms, ordered in self._clauses(query, scope, schema, scopes, folded):
-                add(label, ', '.join(terms if ordered else sorted(terms)))
+            side, before = scopes.sides.get(id(scope)), scopes.before.get(id(scope), [])
+            for clause in _row_clauses(query, scope, folded):
+                if clause.label is None:
+                    continue
+                terms = [self._term(term, scope, schema, clause.union) for term in clause.terms]
+                inner = scopes.folded.get(id(clause.join)) if clause.join is not None else None
+                if inner is not None:
+                    where = self.expression(inner.expression.args['where'].this, inner, schema)
+                    terms = [
+                        ' AND '.join(
+                            f'({t})' if re.search(r'\bOR\b', t, re.I) else t for t in (*terms, where)
+                        )
+                    ]
+                text = ', '.join(terms if clause.ordered else sorted(terms))
+                steps = _steps_after(query, clause.label.split(' JOIN ')[-1])
+                found.add(in_context(f'{clause.label}: {text}', side, steps + before))
         return sorted(found)
 
-    def _clauses(
-        self, query: exp.Query, scope: Scope, schema: MappingSchema, scopes: _Scopes, folded: set[int]
-    ) -> Iterator[tuple[str, list[str], bool]]:
-        """Each clause of ``query`` that decides its rows, as (label, terms, whether their order
-        matters)."""
-        args = query.args
-        for join in args.get('joins') or []:
-            on = join.args.get('on')
-            if not isinstance(on, exp.Expr):
-                continue
-            label = ' '.join(x for x in (join.side, join.kind, 'JOIN ON') if x).upper()
-            text = self.expression(on, scope, schema)
-            inner = scopes.folded.get(id(join))
-            if inner is not None:
-                where = self.expression(inner.expression.args['where'].this, inner, schema)
-                text = ' AND '.join(f'({t})' if re.search(r'\bOR\b', t, re.I) else t for t in (text, where))
-            yield label, [text], False
-        for key, label in (('where', 'WHERE'), ('having', 'HAVING'), ('qualify', 'QUALIFY')):
-            clause = args.get(key)
-            if isinstance(clause, exp.Expr) and not (key == 'where' and id(scope) in folded):
-                yield label, [self.expression(clause.this, scope, schema)], False
-        group = args.get('group')
-        if isinstance(group, exp.Group) and group.expressions:
-            yield 'GROUP BY', [self.expression(e, scope, schema) for e in group.expressions], False
-        distinct = args.get('distinct')
-        if isinstance(distinct, exp.Distinct) and isinstance(query, exp.Select):
-            on = distinct.args.get('on')
-            if isinstance(on, exp.Expr):
-                keys = list(on.expressions) if isinstance(on, exp.Tuple) else [on]
-                yield 'DISTINCT ON', [self.expression(_named(query, k), scope, schema) for k in keys], False
-            else:
-                yield 'DISTINCT', [self.expression(s.unalias(), scope, schema) for s in query.selects], False
-        limit, offset = args.get('limit'), args.get('offset')
-        if isinstance(limit, exp.Limit) and isinstance(limit.expression, exp.Expr):
-            yield 'LIMIT', [limit.expression.sql(dialect=self.dialect)], False
-        elif isinstance(limit, exp.Fetch):
-            count = limit.args.get('count')
-            yield 'LIMIT', [count.sql(dialect=self.dialect) if isinstance(count, exp.Expr) else '1'], False
-        if isinstance(offset, exp.Offset) and isinstance(offset.expression, exp.Expr):
-            yield 'OFFSET', [offset.expression.sql(dialect=self.dialect)], False
-        order = args.get('order')
-        picks = limit or offset or (isinstance(distinct, exp.Distinct) and distinct.args.get('on'))
-        if isinstance(order, exp.Order) and picks:
-            yield (
-                'ORDER BY',
-                [self.expression(_named(query, o), scope, schema) for o in order.expressions],
-                True,
+    def _term(
+        self,
+        term: exp.Expr | _Printed | str,
+        scope: Scope,
+        schema: MappingSchema,
+        union: exp.SetOperation | None,
+    ) -> str:
+        if isinstance(term, str):
+            return term
+        if isinstance(term, _Printed):
+            text = term.expression.sql(dialect=self.dialect)
+            return _unbracket(text) if term.unbracket else text
+        if union is not None:
+            return self._union_term(union, term, schema)
+        return self.expression(term, scope, schema)
+
+    def _union_term(self, query: exp.SetOperation, term: exp.Expr, schema: MappingSchema) -> str:
+        """An ORDER BY term of a set operation, with each item it names as the items of every branch
+        at its place, in the form of a set operation's column."""
+        items = _branch_items(query, term)
+        if not items:
+            return term.sql(dialect=self.dialect)
+
+        def union(found: list[exp.Expr]) -> exp.Expr:
+            texts = []
+            for item in found:
+                branch = self.scopes.get(id(item.find_ancestor(exp.Select)))
+                texts.append(
+                    self.expression(item, branch, schema) if branch else item.sql(dialect=self.dialect)
+                )
+            return exp.Var(this=f'UNION({", ".join(sorted(texts))})')
+
+        key = term.this if isinstance(term, exp.Ordered) else term
+        if isinstance(key, exp.Literal):
+            replaced: exp.Expr = union(next(iter(items.values())))
+        else:
+
+            def replace(node: exp.Expr) -> exp.Expr:
+                if isinstance(node, exp.Column) and not node.table and node.name.lower() in items:
+                    return union(items[node.name.lower()])
+                return node
+
+            replaced = key.transform(replace)
+        if isinstance(term, exp.Ordered):
+            ordered = exp.Ordered(
+                this=replaced, desc=term.args.get('desc'), nulls_first=term.args.get('nulls_first')
             )
+            return ordered.sql(dialect=self.dialect)
+        return replaced.sql(dialect=self.dialect)
 
     def expression(self, part: exp.Expr, scope: Scope, schema: MappingSchema) -> str:
         """``part``, an expression of the qualified query that ``scope`` belongs to, in canonical
         form; ``part`` itself is left as it was."""
+        if _is_star(part):
+            # A star it could not expand, as in DISTINCT *: every column of the relations it reads.
+            # Through a CTE or subquery, those its own stars pass on.
+            key = functools.partial(
+                table_key, default_catalog=self.default_catalog, default_db=self.default_db
+            )
+            tables: dict[str, list[str]] = {}
+            for name, (_, source) in scope.selected_sources.items():
+                if isinstance(part, exp.Column) and name != part.table:
+                    continue
+                if isinstance(source, exp.Table):
+                    tables.setdefault(key(source), [])
+                elif isinstance(source, Scope):
+                    _star_reads(source, key, tables)
+            return ', '.join(f'{table}.*' for table in sorted(tables)) or '*'
         # A bare name in a query that reads one relation is that relation's: qualify leaves it
         # bare when the relation's columns are unknown, and then the filters of a union's
         # branches, each over its own relation, would read the same.
@@ -1367,9 +1514,7 @@ class Canonical:
                 )
             if isinstance(source, Scope):
                 try:
-                    traced = to_node(
-                        item.name, scope=source, dialect=self.dialect, schema=schema, trim_selects=False
-                    )
+                    traced = self.tracer.trace(item.name, source, schema)
                 except (SqlglotError, ValueError, KeyError, IndexError, AttributeError):
                     return item
                 return _inline(self.node(traced))
@@ -1391,15 +1536,38 @@ class Canonical:
                 new.replace(old)
 
 
+class _Tracer:
+    """Lineage of the columns a statement's conditions and references read, with each step shared
+    between them: a chain of CTEs is otherwise walked again for every column that reaches it."""
+
+    def __init__(self, dialect: DialectType) -> None:
+        self.dialect = dialect
+        self.cache: dict[tuple[Any, ...], LineageNode] = {}
+        self.meta: dict[int, Any] = {}
+
+    def trace(self, name: str, scope: Scope, schema: MappingSchema) -> LineageNode:
+        # trim_selects only tidies node labels, at the cost of copying the query for every node.
+        return to_node(
+            name,
+            scope=scope,
+            dialect=self.dialect,
+            schema=schema,
+            trim_selects=False,
+            _cache=self.cache,
+            _scope_meta=self.meta,
+        )
+
+
 def _references(
     root: Scope,
     sources: _Sources,
+    tracer: _Tracer,
     dialect: DialectType,
     schema: MappingSchema,
     default_catalog: str | None,
     default_db: str | None,
 ) -> list[tuple[str, str]]:
-    """Physical columns used in joins, filters, GROUP BY, HAVING and QUALIFY."""
+    """Physical columns that decide which rows a query returns (see :func:`_row_clauses`)."""
     found: list[tuple[str, str]] = []
 
     def add(relation: str, column: str) -> None:
@@ -1408,27 +1576,14 @@ def _references(
             found.append(item)
 
     for scope in root.traverse():
-        select = scope.expression
-        if not isinstance(select, exp.Select):
+        if not isinstance(scope.expression, exp.Query):
             continue
-        columns: list[exp.Column] = []
-        for key in _REFERENCE_CLAUSES:
-            value = select.args.get(key)
-            for part in value if isinstance(value, list) else [value]:
-                # What a join matches on, and the columns an UNNEST, FLATTEN or table function it
-                # joins expands: a joined subquery's own columns belong to its scope.
-                if isinstance(part, exp.Join):
-                    columns += [
-                        n
-                        for n in part.this.walk(prune=lambda n: isinstance(n, exp.Query))
-                        if isinstance(n, exp.Column)
-                    ]
-                    parts = [part.args.get('on'), *(part.args.get('using') or [])]
-                else:
-                    parts = [part]
-                for piece in parts:
-                    if isinstance(piece, exp.Expr):
-                        columns.extend(piece.find_all(exp.Column))
+        columns = [
+            c
+            for clause in _row_clauses(scope.expression, scope)
+            for part in clause.parts
+            for c in part.find_all(exp.Column)
+        ]
         for column in columns:
             source = sources.of(column, scope)
             fields = _fields_read(column)
@@ -1436,9 +1591,7 @@ def _references(
                 add(table_key(source, default_catalog, default_db), '.'.join((column.name, *fields)))
             elif isinstance(source, Scope):
                 try:
-                    traced = to_node(
-                        column.name, scope=source, dialect=dialect, schema=schema, trim_selects=False
-                    )
+                    traced = tracer.trace(column.name, source, schema)
                 except (SqlglotError, ValueError, KeyError, IndexError, AttributeError):
                     continue
                 for leaf, _, asked_for, path in _leaves(traced):
