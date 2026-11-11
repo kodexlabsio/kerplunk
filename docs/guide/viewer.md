@@ -116,6 +116,8 @@ The same page can be served by an HTTP server instead of being written with the 
 
 Without `explain.json` the page shows the graph, its descriptions and tests, but no formulas, SQL, ontology or conflicts. On each message the page fetches both files again and redraws in place, keeping the page, the selection, the zoom and the scroll position.
 
+`konstruct serve` is such a server, on this machine: it builds the graph, serves the page at its root with `explain.json` beside `graph.json`, and sends a message whenever a build replaces them, so open pages follow each build. With `--watch` it rebuilds when the project's files change, so a page follows edits as they are saved (see the [Command Line](../reference/cli.md) and the [HTTP API](../reference/http-api.md)).
+
 ## Size and Performance
 
 The page itself is about 715 kB (240 kB compressed), of which about 290 kB is the translations; the graph and its SQL are added to that. On the generated projects of [Performance](../performance.md), a 1,000-model page shows its overview in about a second and draws its full lineage graph in about 2.5 seconds. Themes are dark and light, following the system setting, switchable from the top bar.
