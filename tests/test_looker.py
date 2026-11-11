@@ -150,6 +150,15 @@ def test_a_view_is_an_exposure_of_the_columns_it_reads(tmp_path: Path) -> None:
         if e.source.endswith('#amount_cents')
     )
     assert fields == ['amount', 'doubled', 'revenue']
+    # Each measure as SQL where its type is an aggregate, for the ontology's metrics, with the
+    # filters a measure applies kept beside it, so that nothing it says is lost.
+    assert exposure.attrs['measure_filters'] == {'completed': 'status: "complete"'}
+    assert exposure.attrs['measures'] == {
+        'completed': 'COUNT(*)',
+        'loop_a': 'number: ${loop_b}',
+        'loop_b': 'number: ${loop_a}',
+        'revenue': 'SUM(${amount})',
+    }
     # A column no field reads, upstream or not, reaches no Looker view built on its table.
     assert 'orders' not in {e.label for e in project.impact('raw.orders.notes').exposures}
     assert 'orders' not in {e.label for e in project.impact('main.orders.notes').exposures}

@@ -628,6 +628,8 @@ entry-point group, and what Konstruct gives it. Everything here is imported from
 
 .. autodata:: konstruct.plugins.api.PLUGIN_LIST_ATTRS
 
+.. autodata:: konstruct.plugins.api.PLUGIN_MAP_ATTRS
+
 .. autodata:: konstruct.plugins.api.RESERVED_EDGE_ATTRS
    :no-value:
 

@@ -35,13 +35,13 @@ configuration says. Konstruct's own components always run.
 
 ```text
 $ konstruct plugins
-Plugins (plugin API 1.0)
+Plugins (plugin API 1.1)
 
 konstruct-yaml-pipelines 0.1.0: enabled
-  inputs     pipelines                API 1.0
-  checks     pipelines                API 1.0
+  inputs     pipelines                API 1.1
+  checks     pipelines                API 1.1
   packs      pipelines                API 1.0
-  mcp_tools  pipelines                API 1.0
+  mcp_tools  pipelines                API 1.1
 
 Built in: inputs looker; exports openlineage, mermaid, dot, csv, ossie; checks breaking, approved-definition-changed, conflicting-definition; packs konstruct.
 ```
@@ -129,7 +129,7 @@ plugin that targets its own major and a minor no higher than its own, so a plugi
 1.0 runs on a Konstruct that runs 1.2, but not on one that runs 2.0, and a plugin for 1.2 is
 refused by a Konstruct that runs only 1.0. A refused plugin is reported with the version it
 targets and the versions Konstruct runs, rather than being run against types it was not written
-for. `konstruct plugins` prints the version a release runs (plugin API 1.0 at present). The
+for. `konstruct plugins` prints the version a release runs (plugin API 1.1 at present). The
 plugin API is the `konstruct.plugins` module: the protocols and types below, documented in the
 [Python API](../reference/python-api.md#plugins).
 
@@ -184,7 +184,10 @@ an edge, so that what it claims about lineage, usage and the warehouse comes onl
 `owner`, and those the graph viewer shows: `schedule`, `operator`, `orchestrator` and
 `bash_command` on a DAG or task, and `type`, `maturity`, `label` and `url` on an exposure. A node or
 an edge may set `fields` ({data}`~konstruct.plugins.api.PLUGIN_LIST_ATTRS`), a list of the field names
-a BI view shows, as the Looker input does. Other
+a BI view shows, as the Looker input does, and a node may set `measures` and `measure_filters`
+({data}`~konstruct.plugins.api.PLUGIN_MAP_ATTRS`, added in plugin API 1.1), maps from each measure a
+BI view defines to its formula and to the filters every answer from it applies, which the ontology's
+metrics read. Other
 names, such as `team` or `region`, are the plugin's own. An `Sql` dialect must be one sqlglot knows.
 
 ```python
@@ -302,7 +305,7 @@ it the same way (`"konstruct @ git+https://github.com/kodexlabsio/konstruct"`, w
 ```bash
 uv venv && uv pip install "konstruct @ git+https://github.com/kodexlabsio/konstruct" -e path/to/plugin
 printf '[plugins]\nenabled = ["konstruct-yaml-pipelines"]\n' > project/konstruct.toml
-uv run konstruct plugins -C project     # enabled, API 1.0
+uv run konstruct plugins -C project     # enabled, with the API each part targets
 uv run konstruct build project --json   # the plugin's sources and counts, and no warnings
 ```
 

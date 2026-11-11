@@ -308,3 +308,49 @@ def test_dbt_runs_with_its_usage_statistics_off(tmp_path: Path, monkeypatch: pyt
         dbt.ensure_artefacts(project, run_dbt=True, graph=Graph())
     assert seen[0]['DBT_SEND_ANONYMOUS_USAGE_STATS'] == 'false'
     assert seen[0]['DO_NOT_TRACK'] == '1'
+
+
+def test_dbt_semantic_layer_metrics_are_read_from_the_manifest() -> None:
+    manifest = {
+        'semantic_models': {
+            'semantic_model.shop.orders': {
+                'name': 'orders',
+                'original_file_path': 'models/semantic.yml',
+                'depends_on': {'nodes': ['model.shop.orders']},
+                'measures': [
+                    {'name': 'order_total', 'agg': 'sum', 'expr': 'amount'},
+                    {'name': 'orders', 'agg': 'count'},
+                ],
+            }
+        },
+        'metrics': {
+            'metric.shop.revenue': {
+                'name': 'revenue',
+                'label': 'Revenue',
+                'type': 'simple',
+                'original_file_path': 'models/semantic.yml',
+                'type_params': {
+                    'measure': {'name': 'order_total'},
+                    'input_measures': [{'name': 'order_total'}],
+                },
+                'filter': {
+                    'where_filters': [{'where_sql_template': "{{ Dimension('order__status') }} = 'done'"}]
+                },
+            }
+        },
+    }
+    found = dbt.semantic_metrics(manifest, lambda item: item.get('original_file_path'))
+    # The measure no metric names is not listed.
+    assert found == [
+        {
+            'name': 'revenue',
+            'label': 'Revenue',
+            'type': 'simple',
+            'agg': 'sum',
+            'expr': 'amount',
+            'model': 'model.shop.orders',
+            'filters': ["{{ Dimension('order__status') }} = 'done'"],
+            'path': 'models/semantic.yml',
+        },
+    ]
+    assert dbt.semantic_metrics({}, lambda item: None) == []

@@ -65,6 +65,26 @@ DIALECTS: dict[str, str] = {
 SchemaColumns = Mapping[str, Mapping[str, str]]
 
 
+_AGGREGATE_SQL = {
+    'sum': 'SUM({})',
+    'sum_boolean': 'SUM(CASE WHEN {} THEN 1 ELSE 0 END)',
+    'count': 'COUNT({})',
+    'count_distinct': 'COUNT(DISTINCT {})',
+    'average': 'AVG({})',
+    'min': 'MIN({})',
+    'max': 'MAX({})',
+    'median': 'MEDIAN({})',
+}
+
+
+def aggregate_sql(kind: str, expression: str) -> str | None:
+    """A semantic layer's aggregation (``sum``, ``count_distinct``, ``average``, as dbt's semantic
+    models and LookML name them) applied to ``expression``, as SQL; None for one that SQL cannot
+    state without more than the expression, such as a percentile or a sum over distinct keys."""
+    template = _AGGREGATE_SQL.get(kind)
+    return template.format(expression) if template else None
+
+
 def dialect_for(name: str | None) -> str | None:
     if not name:
         return None

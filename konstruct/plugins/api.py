@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from konstruct.core.graph import Graph, Node
     from konstruct.interfaces.project import Project
 
-API_VERSION: tuple[int, int] = (1, 0)
+API_VERSION: tuple[int, int] = (1, 1)
 """The version of the plugin API this release of Konstruct runs, as ``(major, minor)``. The minor
 grows when the API gains something a plugin may use; the major only when a type or protocol
 here changes incompatibly. Konstruct runs a plugin that targets the same major and a minor no
@@ -100,7 +100,14 @@ PLUGIN_LIST_ATTRS = frozenset({'fields'})
 the meaning Konstruct gives it: ``fields``, the fields a BI view or explore shows, which the Looker
 input sets and search by meaning reads."""
 
-RESERVED_NODE_ATTRS = _KONSTRUCT_ATTRS - PLUGIN_NODE_ATTRS - PLUGIN_LIST_ATTRS
+PLUGIN_MAP_ATTRS = frozenset({'measures', 'measure_filters'})
+"""The attribute names Konstruct reads that a plugin's node may set as a map from strings to
+strings, with the meaning Konstruct gives them: ``measures``, each measure a BI view or model
+defines with its formula, and ``measure_filters``, a measure's filters as the tool writes them,
+which every answer from it applies. The Looker input sets both and the ontology's metrics read
+them. Added in plugin API 1.1."""
+
+RESERVED_NODE_ATTRS = _KONSTRUCT_ATTRS - PLUGIN_NODE_ATTRS - PLUGIN_LIST_ATTRS - PLUGIN_MAP_ATTRS
 """The attribute names a plugin's node may not set, which are every name Konstruct reads from
 attributes bar :data:`PLUGIN_NODE_ATTRS`; ``sorted(RESERVED_NODE_ATTRS)`` lists them."""
 
@@ -109,6 +116,15 @@ RESERVED_EDGE_ATTRS = (_KONSTRUCT_ATTRS - PLUGIN_LIST_ATTRS) | {'origin', 'sourc
 (``origin``, ``source``, ``target``, ``kind``) and every name Konstruct reads from attributes,
 such as ``verified``, ``transform``, ``expression``, ``via`` and ``role``, which carry its own
 lineage claims; ``sorted(RESERVED_EDGE_ATTRS)`` lists them."""
+
+
+def _map_problems(where: str, attrs: Mapping[str, Any]) -> list[str]:
+    return [
+        f'{where}: {key} must be a map of strings to strings'
+        for key in sorted(PLUGIN_MAP_ATTRS & set(attrs))
+        if type(attrs[key]) is not dict
+        or not all(type(k) is str and type(v) is str for k, v in attrs[key].items())
+    ]
 
 
 def _list_problems(where: str, attrs: Mapping[str, Any]) -> list[str]:
@@ -364,11 +380,15 @@ def _node_problems(node: Any, ids: dict[str, str]) -> list[str]:
         found.append(f'{where}: path may not contain a line break')
     attrs = _attrs_problems(where, node.attrs, RESERVED_NODE_ATTRS)
     if not attrs:
-        attrs = [
-            f'{where}: {key} must be a string'
-            for key in sorted(PLUGIN_NODE_ATTRS & set(node.attrs))
-            if type(node.attrs[key]) is not str
-        ] + _list_problems(where, node.attrs)
+        attrs = (
+            [
+                f'{where}: {key} must be a string'
+                for key in sorted(PLUGIN_NODE_ATTRS & set(node.attrs))
+                if type(node.attrs[key]) is not str
+            ]
+            + _list_problems(where, node.attrs)
+            + _map_problems(where, node.attrs)
+        )
     if attrs:
         return found + attrs
     # As graph.json nests it: the node's own fields with its attributes inside.
@@ -701,6 +721,7 @@ __all__ = [
     'MAX_DEPTH',
     'PLUGIN_EDGE_KINDS',
     'PLUGIN_LIST_ATTRS',
+    'PLUGIN_MAP_ATTRS',
     'PLUGIN_NODE_ATTRS',
     'PLUGIN_NODE_KINDS',
     'RESERVED_EDGE_ATTRS',

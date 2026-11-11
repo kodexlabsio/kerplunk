@@ -1735,6 +1735,7 @@ class Builder:
                         'type': 'power bi table',
                         'model': table.model,
                         'fields': sorted([c.name for c in table.columns] + list(table.measures)),
+                        **({'measures': dict(sorted(table.measures.items()))} if table.measures else {}),
                     },
                 )
             )

@@ -484,6 +484,10 @@ def load(
         if item.get('resource_type') == 'test':
             _add_test(graph, item, rel_path(item))
 
+    semantic = semantic_metrics(manifest, rel_path)
+    if semantic:
+        graph.meta.setdefault('dbt_metrics', []).extend(semantic)
+
     default_catalog, default_schema = max(schemas, key=lambda k: schemas[k]) if schemas else (None, None)
     return DbtLoad(
         project=project,
@@ -505,6 +509,60 @@ def load(
             )
         },
     )
+
+
+def semantic_metrics(
+    manifest: dict[str, Any], rel_path: Callable[[dict[str, Any]], str | None]
+) -> list[dict[str, Any]]:
+    """The metrics of dbt's semantic layer (MetricFlow), each with the aggregation, expression,
+    model and non-additive dimension of the measure a simple metric names, and every filter the
+    metric and its measure input apply. A measure no metric names is not a metric, so it is not
+    listed. Only read, never run: the ontology's metrics show them with what they read."""
+    measures: dict[str, dict[str, Any]] = {}
+    for model in (manifest.get('semantic_models') or {}).values():
+        if not isinstance(model, dict):
+            continue
+        nodes = (model.get('depends_on') or {}).get('nodes') or []
+        for measure in model.get('measures') or []:
+            if isinstance(measure, dict) and measure.get('name'):
+                dimension = measure.get('non_additive_dimension')
+                measures[str(measure['name'])] = {
+                    'agg': measure.get('agg'),
+                    'expr': str(measure.get('expr') or measure['name']),
+                    'model': nodes[0] if nodes else None,
+                    'non_additive': str(dimension.get('name'))
+                    if isinstance(dimension, dict) and dimension.get('name')
+                    else None,
+                }
+    found: list[dict[str, Any]] = []
+    for metric in (manifest.get('metrics') or {}).values():
+        if not isinstance(metric, dict) or not metric.get('name'):
+            continue
+        params = metric.get('type_params') or {}
+        measure = params.get('measure') or {}
+        base = measures.get(str(measure.get('name'))) if isinstance(measure, dict) else None
+        entry = {
+            'name': str(metric['name']),
+            'label': metric.get('label'),
+            'description': _description(metric.get('description')),
+            'type': str(metric.get('type') or 'metric'),
+            **(base or {'expr': params.get('expr')}),
+            'filters': _where_filters(metric.get('filter'))
+            + (_where_filters(measure.get('filter')) if isinstance(measure, dict) else []),
+            'path': rel_path(metric),
+        }
+        found.append({k: v for k, v in entry.items() if v not in (None, '', [])})
+    return sorted(found, key=lambda m: str(m['name']))
+
+
+def _where_filters(value: Any) -> list[str]:
+    """The SQL templates of a semantic-layer filter, as dbt writes them."""
+    wheres = value.get('where_filters') if isinstance(value, dict) else None
+    return [
+        str(w['where_sql_template'])
+        for w in wheres or []
+        if isinstance(w, dict) and w.get('where_sql_template')
+    ]
 
 
 def _add_test(graph: Graph, item: dict[str, Any], path: str | None) -> None:

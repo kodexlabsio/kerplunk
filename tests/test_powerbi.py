@@ -336,6 +336,9 @@ def test_tables_are_exposures_of_the_columns_they_use(tmp_path: Path) -> None:
         'Revenue',
         'Status',
     ]
+    # Each measure with its DAX, for the ontology's metrics.
+    assert orders.attrs['measures']['Revenue'] == 'SUM(Orders[Amount])'
+    assert set(orders.attrs['measures']) == {'Big Orders', 'Revenue'}
 
     def feeds(node_id: str) -> dict[str, Any]:
         return {

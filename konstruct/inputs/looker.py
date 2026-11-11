@@ -24,7 +24,7 @@ import lkml
 import sqlglot
 from sqlglot import exp
 
-from konstruct.core.sql import PARSE_ERRORS
+from konstruct.core.sql import PARSE_ERRORS, aggregate_sql
 from konstruct.plugins.api import (
     API_VERSION,
     Column,
@@ -55,6 +55,10 @@ class LookerField:
     """The table columns it reads, through other fields of the view too."""
     label: str | None = None
     description: str | None = None
+    formula: str | None = None
+    """For a measure, its type applied to its SQL (``SUM(${TABLE}.amount)``)."""
+    filters: str | None = None
+    """For a measure, its LookML ``filters`` as written, which every answer from it applies."""
 
 
 @dataclass
@@ -246,9 +250,43 @@ def _view(raw: dict[str, Any], path: str, dialect: str | None, problems: list[st
                 _columns_of(name, view.name, items, kinds, aliases) if view.table else [],
                 item.get('label'),
                 item.get('description'),
+                _measure_formula(item) if kind == 'measure' else None,
+                _measure_filters(item) if kind == 'measure' else None,
             )
         )
     return view
+
+
+def _measure_formula(item: dict[str, Any]) -> str:
+    """A measure as SQL where its type is an aggregate SQL can state (``SUM(${TABLE}.amount)``,
+    ``COUNT(*)`` for a bare count), else as its type and SQL as LookML gives them, so nothing is
+    lost: its ``filters`` are kept apart, by :func:`_measure_filters`."""
+    kind = str(item.get('type') or 'count')
+    sql = str(item.get('sql') or '').strip().rstrip(';').strip()
+    found = aggregate_sql(kind, sql or '*') if kind in ('count', 'count_distinct') or sql else None
+    if found is not None:
+        return found
+    return f'{kind}: {sql}' if sql else kind
+
+
+def _measure_filters(item: dict[str, Any]) -> str | None:
+    """A measure's LookML ``filters``, as written (``status: "complete"``), which every answer
+    from the measure applies."""
+    found: list[Any] = []
+    pending = [item.get(key) for key in ('filters__all', 'filters')]
+    while pending:
+        entry = pending.pop(0)
+        if isinstance(entry, list):
+            pending[:0] = entry
+        elif isinstance(entry, dict):
+            found.append(entry)
+    parts = []
+    for entry in found:
+        if 'field' in entry:
+            parts.append(f'{entry["field"]}: "{entry.get("value", "")}"')
+        else:
+            parts += [f'{k}: "{v}"' for k, v in entry.items()]
+    return ', '.join(parts) or None
 
 
 def _columns_of(
@@ -321,6 +359,8 @@ class LookerInput:
                             'type': 'looker view',
                             'label': view.label,
                             'fields': sorted(f.name for f in view.fields),
+                            'measures': {f.name: f.formula for f in view.fields if f.formula is not None},
+                            'measure_filters': {f.name: f.filters for f in view.fields if f.filters},
                         }.items()
                         if v
                     },

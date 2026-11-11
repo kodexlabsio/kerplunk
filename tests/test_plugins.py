@@ -46,6 +46,10 @@ from konstruct.plugins.registry import normalise
 
 ROOT = Path(__file__).resolve().parents[1]
 OURS = f'{API_VERSION[0]}.{API_VERSION[1]}'
+# The versions this Konstruct runs, as a refusal names them: every minor of its major up to its own.
+RUNS = OURS if not API_VERSION[1] else f'{API_VERSION[0]}.0 to {OURS}'
+PACKS = '1.0'
+"""The API the example's packs target: their plugin.toml says ``api_version = 1``."""
 EXAMPLE = ROOT / 'examples' / 'plugin'
 DIST = 'konstruct-yaml-pipelines'
 
@@ -356,8 +360,9 @@ def test_the_plugins_command_lists_each_plugin(
     assert main(['plugins', '-C', str(root)]) == 0
     out = capsys.readouterr().out
     assert f'{DIST} 0.1.0: enabled' in out
-    for group in ('inputs', 'checks', 'packs', 'mcp_tools'):
+    for group in ('inputs', 'checks', 'mcp_tools'):
         assert f'  {group:<10} {"pipelines":<24} API {OURS}' in out
+    assert f'  {"packs":<10} {"pipelines":<24} API {PACKS}' in out
     assert 'konstruct-absent: enabled in konstruct.toml, but not installed' in out
     assert 'Built in: inputs looker; exports openlineage, mermaid, dot, csv, ossie;' in out
     assert main(['plugins', '-C', str(root), '--json']) == 0
@@ -365,7 +370,8 @@ def test_the_plugins_command_lists_each_plugin(
     assert data['api_version'] == OURS
     mine = [p for p in data['plugins'] if p['distribution'] == DIST]
     assert {(p['group'], p['enabled'], p['api_version']) for p in mine} == {
-        (g, True, OURS) for g in ('inputs', 'checks', 'packs', 'mcp_tools')
+        *((g, True, OURS) for g in ('inputs', 'checks', 'mcp_tools')),
+        ('packs', True, PACKS),
     }
     assert data['problems'] == ["konstruct.toml enables 'konstruct-absent', which is not installed"]
     graph = build(root)
@@ -532,11 +538,11 @@ def test_an_invalid_fragment_merges_nothing(
     [
         (
             'misbehaving:FUTURE',
-            f'it targets plugin API {API_VERSION[0] + 1}.0; this Konstruct runs API {OURS}',
+            f'it targets plugin API {API_VERSION[0] + 1}.0; this Konstruct runs API {RUNS}',
         ),
         (
             'misbehaving:NEWER',
-            f'it targets plugin API {API_VERSION[0]}.{API_VERSION[1] + 1}; this Konstruct runs API {OURS}',
+            f'it targets plugin API {API_VERSION[0]}.{API_VERSION[1] + 1}; this Konstruct runs API {RUNS}',
         ),
         ('misbehaving:UNVERSIONED', 'it declares no api_version'),
         ('misbehaving:INCOMPLETE', 'it has no patterns, read'),
@@ -679,7 +685,7 @@ def test_a_gate_check_that_fails_fails_the_gate(misbehaving: Path, tmp_path: Pat
         (
             'future.failed',
             'the gate check from konstruct-misbehaving 1.0 cannot run: '
-            f'it targets plugin API {API_VERSION[0] + 1}.0; this Konstruct runs API {OURS}',
+            f'it targets plugin API {API_VERSION[0] + 1}.0; this Konstruct runs API {RUNS}',
         ),
     ]
     assert all(f.fix.startswith('Fix or upgrade the plugin') for f in result.findings)
@@ -737,7 +743,7 @@ def test_a_data_only_pack_is_read_without_running_code(site: Path, tmp_path: Pat
         ({'manifest': None}, 'cannot be loaded: PluginError: '),
         (
             {'manifest': 'api_version = 7\n'},
-            f'it targets plugin API 7.0; this Konstruct runs API {OURS}',
+            f'it targets plugin API 7.0; this Konstruct runs API {RUNS}',
         ),
         ({'pack': 'name: stripe\n'}, "pack 'stripe' is already provided by konstruct"),
         ({'pack': 'name: [unclosed\n'}, 'cannot read helpdesk.yml'),
@@ -1679,6 +1685,7 @@ def test_attributes_konstruct_reads_are_reserved() -> None:
     reads any more."""
     from konstruct.plugins.api import (
         PLUGIN_LIST_ATTRS,
+        PLUGIN_MAP_ATTRS,
         PLUGIN_NODE_ATTRS,
         RESERVED_EDGE_ATTRS,
         RESERVED_NODE_ATTRS,
@@ -1697,7 +1704,7 @@ def test_attributes_konstruct_reads_are_reserved() -> None:
     assert {'role', 'verified', 'sql_path', 'usage', 'sensors', 'line'} <= from_viewer
     read |= from_viewer
     assert {'conditions', 'expression', 'usage', 'role', 'command', 'primary_key'} <= read
-    assert read - PLUGIN_NODE_ATTRS - PLUGIN_LIST_ATTRS == RESERVED_NODE_ATTRS
+    assert read - PLUGIN_NODE_ATTRS - PLUGIN_LIST_ATTRS - PLUGIN_MAP_ATTRS == RESERVED_NODE_ATTRS
     assert (read - PLUGIN_LIST_ATTRS) | {'origin', 'source', 'target', 'kind'} == RESERVED_EDGE_ATTRS
 
 
@@ -2282,3 +2289,12 @@ def test_konstruct_reads_no_attribute_it_does_not_reserve(
     # Graph.add_edge merges an edge added twice by setdefault of each attribute it brings, which
     # reads origin too: Konstruct sets it on every edge, and a plugin's edge may not.
     assert read - _KONSTRUCT_ATTRS == {'origin'}
+
+
+def test_a_plugin_node_may_set_its_measures_as_a_map_of_strings() -> None:
+    from konstruct.plugins.api import Fragment, PluginNode
+
+    good = Fragment(nodes=[PluginNode('view.a', 'exposure', 'a', attrs={'measures': {'total': 'SUM(x)'}})])
+    assert good.problems() == []
+    bad = Fragment(nodes=[PluginNode('view.a', 'exposure', 'a', attrs={'measures': {'total': 3}})])
+    assert bad.problems() == ["node 'view.a': measures must be a map of strings to strings"]
