@@ -1506,8 +1506,9 @@ def test_laws_on_a_large_project(tmp_path: Path, tested: bool) -> None:
     """``KONSTRUCT_SCALE_MODELS`` sets the size (300 by default). With ``tested``, every model has a
     uniqueness test on the key it is joined on, so every model's SQL is read in full rather than
     stopped at an untested join. The CPU bound is the start-up, measured on a project of one model
-    (which also warms the parser), and three to four times the cost per model measured at 300 and
-    at 2000 models on a loaded machine."""
+    (which also warms the parser), and a cost per model with room for slow runners: untested joins
+    cost about 0.2 ms a model at 300 and 1000 models on a quiet machine and 1 ms on a hosted
+    runner, and the bound is 2 ms."""
     from .test_scale import make_project
 
     one = tmp_path / 'one'
@@ -1543,7 +1544,7 @@ def test_laws_on_a_large_project(tmp_path: Path, tested: bool) -> None:
     laws = propose(graph, tmp_path)
     wall, cpu = time.perf_counter() - started, time.process_time() - cpu
     assert laws.totals()['laws'] >= 10
-    bound = startup + models * (0.015 if tested else 0.001)
+    bound = startup + models * (0.015 if tested else 0.002)
     assert cpu < bound, f'propose took {cpu:.2f}s of CPU, more than {bound:.2f}s'
     started = time.perf_counter()
     head = propose(graph, tmp_path, models=laws.models())
