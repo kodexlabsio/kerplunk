@@ -182,8 +182,9 @@ class PinnedTerm:
     status: str
     """``draft``, ``agreed``, ``approved`` or ``retired``."""
     version: str
-    """A hash of the term's meaning: its definition, grain, columns, filters, unit, currency and
-    exceptions. Rewording any of them is a new version; a new approval date alone is not."""
+    """A hash of the term's meaning: its definition, grain, columns, filters, unit, currency,
+    exceptions and, for a measure with one, its formula. Rewording any of them is a new version;
+    a new approval date alone is not."""
     approved: str | None = None
     """The approval date."""
     owner: str | None = None
@@ -194,6 +195,8 @@ class PinnedTerm:
     unit: str | None = None
     currency: str | None = None
     exceptions: str | None = None
+    formula: str | None = None
+    """For a measure defined by a formula (an Ossie metric), the formula."""
 
     def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if v not in (None, [], '')}
@@ -216,6 +219,7 @@ class PinnedTerm:
             unit=_text(data, 'unit'),
             currency=_text(data, 'currency'),
             exceptions=_text(data, 'exceptions'),
+            formula=_text(data, 'formula'),
         )
 
 
@@ -643,6 +647,10 @@ def _relations_named(graph: Graph, column: str) -> list[Node]:
 def _term_version(attrs: dict[str, Any], description: str | None) -> str:
     meaning = {k: attrs.get(k) for k in _MEANING if k != 'definition'}
     meaning['definition'] = description
+    # A measure's formula (an Ossie metric's) is part of what it means; a term without one keeps
+    # the version it had before formulas counted.
+    if attrs.get('formula'):
+        meaning['formula'] = str(attrs['formula'])
     payload = json.dumps(meaning, sort_keys=True, default=str)
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()[:12]
 
@@ -1387,6 +1395,7 @@ def pinned_term(term: Node) -> PinnedTerm:
         unit=optional_text(attrs.get('unit')),
         currency=optional_text(attrs.get('currency')),
         exceptions=optional_text(attrs.get('exceptions')),
+        formula=optional_text(attrs.get('formula')),
     )
 
 
@@ -1944,8 +1953,11 @@ def _repository_named(graph: Graph, relative: str) -> str | None:
 def term_changes(
     old: list[PinnedTerm], new: list[PinnedTerm], label: str, notes: list[str], when: str = 'locked'
 ) -> list[str]:
-    """Lines for each change to an approved term bound to the column; other changes are notes."""
+    """Lines for each change to an approved term bound to the column, and to the formula of any
+    term (a measure's formula is what it computes, whatever its status: an Ossie metric is always
+    a draft); other changes are notes."""
     lines: list[str] = []
+    prefix = f'{label}: ' if label else ''
     now = {t.name: t for t in new}
     for was in old:
         current = now.get(was.name)
@@ -1957,21 +1969,23 @@ def term_changes(
             if was.status != current.status:
                 found.append(f'{was.name!r} status {was.status} -> {current.status}')
             if was.version != current.version:
-                found += [f'{was.name!r} {line}' for line in _meaning_changes(was, current)]
+                for key, line in _meaning_changes(was, current):
+                    (lines if key == 'formula' else found).append(f'{was.name!r} {line}')
             elif was.approved != current.approved and current.status == 'approved':
-                notes.append(f'{label}: {was.name!r} re-approved ({was.approved} -> {current.approved})')
+                notes.append(f'{prefix}{was.name!r} re-approved ({was.approved} -> {current.approved})')
         if relied:
             lines += found
         else:
-            notes += [f'{label}: {line} (not approved when {when})' for line in found]
+            notes += [f'{prefix}{line} (not approved when {when})' for line in found]
     for name in sorted(set(now) - {t.name for t in old}):
-        notes.append(f'{label}: now bound to {name!r} ({now[name].status}), which was not when {when}')
+        notes.append(f'{prefix}now bound to {name!r} ({now[name].status}), which was not when {when}')
     return lines
 
 
-def _meaning_changes(was: PinnedTerm, now: PinnedTerm) -> list[str]:
+def _meaning_changes(was: PinnedTerm, now: PinnedTerm) -> list[tuple[str, str]]:
+    """What changed in a term's meaning, each line with the field it is about."""
     lines = []
-    for key in _MEANING:
+    for key in (*_MEANING, 'formula'):
         before, after = getattr(was, key), getattr(now, key)
         if before == after:
             continue
@@ -1980,11 +1994,14 @@ def _meaning_changes(was: PinnedTerm, now: PinnedTerm) -> list[str]:
         else:
             shown_before, shown_after = before or 'none', after or 'none'
         lines.append(
-            f'{key}: {shown_before!r} -> {shown_after!r}'
-            if key == 'definition'
-            else f'{key}: {shown_before} -> {shown_after}'
+            (
+                key,
+                f'{key}: {shown_before!r} -> {shown_after!r}'
+                if key == 'definition'
+                else f'{key}: {shown_before} -> {shown_after}',
+            )
         )
-    return lines or ['meaning changed']
+    return lines or [('meaning', 'meaning changed')]
 
 
 def _difference(before: str, after: str, dialect: str | None = None) -> str | None:

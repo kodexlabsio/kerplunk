@@ -1566,3 +1566,36 @@ def test_rows_from_a_table_function_or_values_are_pinned(
     assert not same
     [change] = result.changes
     assert change.reasons == ['conditions'] and change.conditions_added[0].startswith('ROWS FROM: ')
+
+
+def test_a_measure_formula_is_part_of_a_terms_meaning() -> None:
+    """An Ossie metric is defined by its formula, so a new formula is a new version of the term;
+    a term with none keeps the version it had before formulas counted."""
+    from konstruct.analysis.lock import pinned_term, term_changes
+
+    measure = Node('term.revenue', 'term', 'Revenue', attrs={'kind': 'measure', 'formula': 'SUM(amount)'})
+    measure.attrs['status'] = 'approved'
+    before = pinned_term(measure)
+    assert before.formula == 'SUM(amount)'
+    measure.attrs['formula'] = 'SUM(amount) - SUM(refunded)'
+    after = pinned_term(measure)
+    assert before.version != after.version
+    assert term_changes([before], [after], 'x', []) == [
+        "'Revenue' formula: SUM(amount) -> SUM(amount) - SUM(refunded)"
+    ]
+    assert PinnedTerm.from_dict(after.to_dict()) == after
+    # A formula is what a measure computes, so a draft measure's new formula is a change too; its
+    # other changes are notes.
+    measure.attrs.update(status='draft')
+    draft = pinned_term(measure)
+    measure.attrs.update(formula='AVG(amount)', grain='day')
+    notes: list[str] = []
+    assert term_changes([draft], [pinned_term(measure)], 'x', notes) == [
+        "'Revenue' formula: SUM(amount) - SUM(refunded) -> AVG(amount)"
+    ]
+    assert notes == ["x: 'Revenue' grain: none -> day (not approved when locked)"]
+    plain = Node('term.ltv', 'term', 'LTV', description='Paid.', attrs={'status': 'approved'})
+    meaning = dict.fromkeys(('grain', 'columns', 'filters', 'unit', 'currency', 'exceptions'))
+    payload = json.dumps(meaning | {'definition': 'Paid.'}, sort_keys=True).encode()
+    assert pinned_term(plain).version == hashlib.sha256(payload).hexdigest()[:12]
+    assert 'formula' not in pinned_term(plain).to_dict()
