@@ -2582,19 +2582,6 @@ def repository_name(config: Config, path: Path, taken: Iterable[str]) -> str:
     return f'{path.name}-{number}'
 
 
-def _real_directory(base: Path, *parts: str) -> Path:
-    """``base`` joined with ``parts``, made as real directories: a symbolic link in the way is
-    removed first, so one committed inside the output directory cannot send outputs elsewhere."""
-    current = base
-    current.mkdir(parents=True, exist_ok=True)
-    for part in parts:
-        current = current / part
-        if current.is_symlink():
-            current.unlink()
-        current.mkdir(exist_ok=True)
-    return current
-
-
 def merge_repository(
     graph: Graph,
     config: Config,
@@ -2613,7 +2600,7 @@ def merge_repository(
         graph.warn(f'repositories: {os.path.relpath(path, config.root)} is not a directory')
         return None
     # The project's trust covers the repositories it lists: its fingerprint includes theirs.
-    sub_out = _real_directory(config.out_dir, 'repositories', name)
+    sub_out = jsonio.real_directory(config.out_dir, 'repositories', name)
     try:
         sub_config = load_config(path, sub_out, trusted=config.trusted)
     except UntrustedConfig as error:

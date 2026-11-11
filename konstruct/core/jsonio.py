@@ -79,3 +79,16 @@ def write_text(path: Path, text: str) -> None:
     except BaseException:
         Path(temporary).unlink(missing_ok=True)
         raise
+
+
+def real_directory(base: Path, *parts: str) -> Path:
+    """``base`` joined with ``parts``, made as real directories: a symbolic link in the way is
+    removed first, so one committed inside the output directory cannot send outputs elsewhere."""
+    current = base
+    current.mkdir(parents=True, exist_ok=True)
+    for part in parts:
+        current = current / part
+        if current.is_symlink():
+            current.unlink()
+        current.mkdir(exist_ok=True)
+    return current
