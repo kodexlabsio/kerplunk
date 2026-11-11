@@ -109,6 +109,7 @@ PUBLIC_RESULTS = {
     ],
     'core/mutate.py': ['Mutant', 'MutantSet'],
     'analysis/why.py': ['SourceRow', 'Contribution', 'Exclusion', 'Aggregate', 'Why'],
+    'analysis/receipts.py': ['Build', 'Receipt', 'CheckedReceipt', 'ReceiptCheck'],
     'engine/build.py': ['BuildResult'],
     'engine/trust.py': ['Trust'],
     'core/graph.py': ['Node', 'Edge', 'Step'],

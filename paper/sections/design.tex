@@ -298,7 +298,10 @@ query} walk and find it; \cmd{konstruct explain} and \cmd{konstruct history} giv
 formula and when it changed; \cmd{konstruct verify} checks lineage against data, and with
 \cmd{--mutate} whether a model's dbt tests fail on small changes to its SQL, and with
 \cmd{--why} the source rows behind one value with each row's share;
-\cmd{konstruct diff} and \cmd{konstruct gate} review changes; \cmd{konstruct define},
+\cmd{konstruct diff} and \cmd{konstruct gate} review changes; \cmd{konstruct receipts} records
+what an answer rests on (each column's composed formula, row conditions, sources, bound terms and
+verification state) and later reports the answers whose basis has changed;
+\cmd{konstruct define},
 \cmd{konstruct ontology} and \cmd{konstruct conflicts} answer what things mean, and
 \cmd{konstruct check-sql} checks a query against them without running it;
 \cmd{konstruct export} writes OpenLineage events (\cmd{openlineage}), Mermaid (\cmd{mermaid}),

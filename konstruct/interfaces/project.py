@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.gate import Gate
     from konstruct.analysis.history import History
     from konstruct.analysis.mutation import MutationTesting
+    from konstruct.analysis.receipts import Receipt, ReceiptCheck
     from konstruct.analysis.verify import Engine, Verification
     from konstruct.analysis.why import Why
     from konstruct.engine.build import BuildResult
@@ -614,6 +615,112 @@ class Project:
                 f'{ref!r} is a {node.kind}; explain takes a column such as {self.graph.label(node)}.<column>'
             )
         return explain(self.graph, node)
+
+    def receipt(
+        self,
+        refs: Sequence[str],
+        *,
+        question: str | None = None,
+        answer: str | None = None,
+        write: bool = True,
+    ) -> Receipt:
+        """A receipt for an answer: what it rests on, recorded so that :meth:`check_receipts` can
+        say later whether that still holds.
+
+        For each column ``refs`` names (directly, or through a relation, an exposure or a business
+        term), the receipt records its formula composed down to source columns, the joins,
+        filters and grouping that decide its rows, its source columns, its type, the terms bound
+        to it with their status and owner, and whether ``konstruct verify`` confirmed its
+        lineage; and the build it answered from. It is appended to
+        ``konstruct-out/receipts/<date>.jsonl`` with a digest of its contents.
+
+        Args:
+            refs: What the answer rests on: columns, relations, exposures or business terms.
+            question: The question answered, recorded as given.
+            answer: The answer given, recorded as given.
+            write: False to make the receipt without recording it.
+
+        Returns:
+            The receipt, with ``citation``, a paragraph to put under the answer.
+
+        Raises:
+            konstruct.QueryError: A name matches nothing or several things, or names something
+                an answer cannot rest on, or ``refs`` is empty.
+
+        Example::
+
+            receipt = project.receipt(['customers.customer_lifetime_value'], question='LTV of 3?')
+            print(receipt.citation)
+        """
+        from konstruct.analysis.receipts import DIRECTORY, issue
+
+        return issue(
+            self.graph,
+            self.root,
+            self.out_dir / DIRECTORY,
+            list(refs),
+            graph_file=self.graph_path,
+            question=question,
+            answer=answer,
+            write=write,
+        )
+
+    def receipts(self, ids: Sequence[str] | None = None) -> list[Receipt]:
+        """The receipts issued for this project, in the order issued, or those ``ids`` name
+        (each an id, or the start of one, such as ``r-7f3a``).
+
+        Raises:
+            konstruct.QueryError: An id names no receipt, or several, or a receipt it names does
+                not match its digest or cannot be read.
+        """
+        from konstruct.analysis.receipts import DIRECTORY, read
+
+        return read(self.out_dir / DIRECTORY, list(ids) if ids else None, root=self.root)
+
+    def check_receipts(
+        self, ids: Sequence[str] | None = None, *, history: bool = True, refresh: bool = True
+    ) -> ReceiptCheck:
+        """Whether what each receipt's answer rests on still holds in the current graph.
+
+        A receipt is stale when a column it rests on was removed, or its formula, row conditions,
+        sources or type changed, or an approved term it rests on changed its meaning or status;
+        tampered when its record does not match its digest. A rebuild that changes none of these
+        leaves it holding. A graph older than its inputs cannot say a receipt holds, so the graph
+        is brought up to date first, as ``build(update=True)`` does; with ``refresh`` False, a
+        receipt it would say holds is unchecked instead.
+
+        Args:
+            ids: Only these receipts (each an id or the start of one); by default, every one.
+            history: Read git history to say which commit changed what.
+            refresh: Update the graph first when inputs changed since it was built.
+
+        Returns:
+            Each receipt with its status, what changed and who changed it; ``passed`` is True
+            when every one holds.
+
+        Raises:
+            konstruct.QueryError: An id names no receipt, or several.
+
+        Example::
+
+            result = project.check_receipts()
+            [(r.id, r.status, [c.reasons for c in r.changes]) for r in result.receipts]
+        """
+        from konstruct.analysis.receipts import DIRECTORY, check
+
+        changed = self.changed_inputs()
+        if changed and refresh:
+            self.build(update=True)
+            changed = self.changed_inputs()
+        return check(
+            self.graph,
+            self.root,
+            self.out_dir / DIRECTORY,
+            list(ids) if ids else None,
+            graph_file=self.graph_path,
+            history=history,
+            changed_inputs=changed,
+        )
 
     def export(
         self,

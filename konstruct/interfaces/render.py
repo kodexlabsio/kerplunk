@@ -56,6 +56,7 @@ if TYPE_CHECKING:
         TermDefinition,
         Walk,
     )
+    from konstruct.analysis.receipts import Receipt, ReceiptCheck
     from konstruct.analysis.semantic import SimilarResult
     from konstruct.analysis.verify import Verification
     from konstruct.analysis.why import Why
@@ -783,6 +784,100 @@ def why_lines(result: Why, style: Style) -> Lines:
             shown = f'  showing {len(result.excluded)} of {result.exclusions}; raise the limit to see more'
             lines.append(Text((shown, 'dim')))
     lines += [blank(), Text((f'Run read-only against {result.warehouse} in {result.seconds:.2f}s.', 'dim'))]
+    return lines
+
+
+# Receipts
+
+_RECEIPT_ROLES = {
+    'holds': 'good',
+    'stale': 'bad',
+    'unchecked': 'warn',
+    'tampered': 'bad',
+    'unreadable': 'warn',
+}
+
+
+def receipt_lines(result: Receipt, style: Style) -> Lines:
+    from konstruct.analysis.receipts import term_summary, verification
+
+    build = result.build
+    facts = [f'issued {result.issued}', f'commit {build.commit[:7]}' if build.commit else 'outside git']
+    lines = [header('Receipt', result.id, *facts, f'graph {build.graph[:19]}')]
+    lines += pairs(style, [('question', result.question or ''), ('answer', result.answer or '')], indent=2)
+    lines += [blank(), *_summary(style, result.citation)]
+    for pin in result.pins:
+        lines += [blank(), Text((pin.column, 'strong'))]
+        if pin.formula:
+            lines += formula(style, pin.formula)
+        facts_: list[tuple[str, Cell]] = [('rows', c) for c in pin.conditions]
+        facts_ += [
+            ('sources', ', '.join(pin.sources)),
+            ('type', pin.type or ''),
+            ('verified', verification(pin)),
+        ]
+        if not pin.complete:
+            facts_.append(
+                ('formula', Text(('incomplete: a column on the way has no recorded expression', 'warn')))
+            )
+        facts_ += [('term', term_summary(t)) for t in pin.terms]
+        lines += pairs(style, facts_, width=7)
+    for term in result.terms:
+        lines += [blank(), Text(('term ', 'dim'), (term_summary(term), 'strong'))]
+        lines += _note(style, term.definition)
+    notes = []
+    if build.changed_inputs:
+        notes.append(
+            f'The graph was older than {_plural(len(build.changed_inputs), "changed input")} when it was '
+            f'issued: {", ".join(build.changed_inputs[:5])}.'
+        )
+    if build.uncommitted:
+        notes.append('Tracked files had uncommitted changes when it was issued.')
+    if notes:
+        lines.append(blank())
+        for note in notes:
+            lines += _summary(style, Text((note, 'warn')))
+    return lines
+
+
+def receipt_check_lines(result: ReceiptCheck, style: Style) -> Lines:
+    lines = _summary(style, Text((result.summary(), 'good' if result.passed else 'bad')))
+    for receipt in result.receipts:
+        lead = Text((receipt.id, 'strong'), '  ', (receipt.status, _RECEIPT_ROLES[receipt.status]))
+        if receipt.problem:
+            lines += [blank(), *wrap(style, Text((receipt.problem, 'dim')), first=lead + '  ', hanging=4)]
+            where = f'{receipt.file}, line {receipt.line}' if receipt.line else receipt.file
+            lines.append(Text('    ', (where, 'dim')))
+            continue
+        about = [f'issued {receipt.issued}', 'graph rebuilt since' if receipt.rebuilt else 'same graph']
+        lines += [blank(), lead + Text((f'  ({", ".join(about)})', 'dim'))]
+        rows: list[tuple[str, Cell]] = [
+            ('question', receipt.question or ''),
+            ('rests on', ', '.join(receipt.refs)),
+        ]
+        lines += pairs(style, rows, indent=4)
+        for change in receipt.changes:
+            lines += [Text('    ', (change.label, 'accent'), (f'  {", ".join(change.reasons)}', 'warn'))]
+            if change.removed:
+                lines += paragraph(style, Text(('removed  ', 'dim'), change.removed), indent=6)
+            for word, value in (('was', change.formula_before), ('now', change.formula_after)):
+                if value and ('formula' in change.reasons or word == 'was'):
+                    lines += formula(style, value, indent=6, lead=f'{word}  ')
+            facts: list[tuple[str, Cell]] = [('condition +', c) for c in change.conditions_added]
+            facts += [('condition -', c) for c in change.conditions_removed]
+            facts += [('source +', c) for c in change.sources_added]
+            facts += [('source -', c) for c in change.sources_removed]
+            facts += [
+                ('file', f'{f} changed, and its columns have no formula to compare') for f in change.files
+            ]
+            if change.type_before:
+                facts.append(('type', f'{change.type_before} -> {change.type_after}'))
+            facts += [('definition', t) for t in change.terms]
+            facts += [('changed by', str(a)) for a in change.changed_by]
+            lines += pairs(style, facts, indent=6, width=11)
+        lines += pairs(style, [('definition', t) for t in receipt.terms], indent=4, width=11)
+        for note in receipt.notes:
+            lines += paragraph(style, Text(('note: ', 'dim'), note), indent=4, hanging=6)
     return lines
 
 

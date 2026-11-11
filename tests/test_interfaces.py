@@ -450,6 +450,31 @@ def checked(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return root
 
 
+def _receipted(root: Path, add: Any) -> None:
+    """A shop with receipts issued (each passed to ``add``), and then a formula and a filter
+    changed, terms reworded and a column removed, committed and rebuilt, with one receipt edited
+    by hand and a line that is not JSON: receipts that hold, are stale, tampered and unreadable."""
+    from tests.test_receipts import commit, edit, make_shop, rebuild
+
+    project = make_shop(root)
+    base = ['-C', str(root), 'receipts']
+    for refs in (['report.doubled', 'Churn'], ['Lifetime value'], ['ltv.orders'], ['ltv.customer_id']):
+        add('receipts issue', *base, 'issue', *refs, '--question', 'How much?', '--answer', '70', '--json')
+    [path] = (root / 'konstruct-out' / 'receipts').glob('*.jsonl')
+    first = json.loads(path.read_text().splitlines()[0])
+    add('receipts show', *base, 'show', first['id'], '--json')
+    edit(root / 'ltv.sql', 'sum(amount)', 'sum(amount * 1.2)')
+    edit(root / 'ltv.sql', "status <> 'returned'", "status not in ('returned', 'void')")
+    edit(root / 'ltv.sql', ', count(*) as orders', '')
+    edit(root / 'definitions.yml', 'What a customer has paid.', 'What a customer has paid, net of refunds.')
+    edit(root / 'definitions.yml', 'A customer who stopped ordering.', 'A customer with no order in 90 days.')
+    commit(root, 'Change the lifetime value')
+    rebuild(project)
+    lines = path.read_text().splitlines()
+    lines[-1] = lines[-1].replace('"How much?"', '"How many?"')
+    path.write_text('\n'.join([*lines, '{"not": "closed"']) + '\n')
+
+
 # Exit statuses
 
 
@@ -545,9 +570,28 @@ def test_exit_statuses(
         'check-sql --history --strict with a shadow metric of an approved term': recorded(
             'check-sql', '--history', '--strict'
         ),
+        **_receipt_statuses(tmp_path, status),
     }
     capsys.readouterr()
     check('exit', outcomes)
+
+
+def _receipt_statuses(tmp_path: Path, status: Any) -> dict[str, int]:
+    from tests.test_receipts import edit, make_shop
+
+    root = tmp_path / 'receipts'
+    make_shop(root)
+    base = ['-C', str(root), 'receipts']
+    outcomes = {
+        'receipts issue': status(*base, 'issue', 'ltv.total'),
+        'receipts issue names nothing': status(*base, 'issue', 'no_such_column'),
+        'receipts show finds no such receipt': status(*base, 'show', 'r-none'),
+        'receipts check passes': status(*base, 'check'),
+    }
+    edit(root / 'ltv.sql', 'sum(amount)', 'sum(amount * 2)')
+    outcomes['receipts check with a graph older than its inputs'] = status(*base, 'check', '--no-refresh')
+    outcomes['receipts check finds a stale receipt'] = status(*base, 'check', '--no-history')
+    return outcomes
 
 
 # JSON documents
@@ -760,6 +804,8 @@ def test_json_documents(
         add('check-sql', '-C', str(checked), 'check-sql', str(checked / f'{name}.sql'), '--json')
     _recorded_history(monkeypatch)
     add('check-sql --history', '-C', str(checked), 'check-sql', '--history', '--json')
+    _receipted(tmp_path / 'receipts', add)
+    add('receipts check', '-C', str(tmp_path / 'receipts'), 'receipts', 'check', '--json')
     entries: dict[str, Any] = {}
     for name, runs in documents.items():
         versions = {run.get('format_version') for run in runs}

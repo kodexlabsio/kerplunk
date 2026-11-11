@@ -478,6 +478,25 @@ def cmd_open(args: argparse.Namespace, console: Console) -> int:
 # Agents
 
 
+def cmd_receipts(args: argparse.Namespace, console: Console) -> int:
+    if args.action == 'show':
+        # A receipt is read as it was recorded: no graph is needed, and none is built.
+        _emit(console, _project(args).receipts([args.id])[0], args.json)
+        return 0
+    # check refreshes a graph older than its inputs itself, and says so if told not to.
+    project = _ready(_project(args), args, console, warn_stale=args.action == 'issue')
+    if args.action == 'issue':
+        receipt = project.receipt(args.ref, question=args.question, answer=args.answer)
+        _emit(console, receipt, args.json)
+        if not args.json:
+            where = _relative(project.out_dir / 'receipts')
+            console.print('\n' + console.ui.line(Text((f'Recorded in {where}.', 'dim'))))
+        return 0
+    result = project.check_receipts(args.id, history=not args.no_history, refresh=not args.no_refresh)
+    _emit(console, result, args.json)
+    return 0 if result.passed else 1
+
+
 class _StoreGiven(argparse._StoreAction):
     """An option whose default depends on the mode it is used in: setting it records its name in
     ``given``, so a mode with another default (see :func:`_rows`) knows it was not given."""
@@ -573,7 +592,7 @@ GROUPS = (
     ('Explore', ('search', 'describe', 'list', 'query', 'export')),
     ('Business meaning', ('define', 'ontology', 'conflicts', 'check-sql')),
     ('Changes', ('diff', 'gate', 'verify')),
-    ('Agents', ('install', 'mcp', 'hook')),
+    ('Agents', ('install', 'mcp', 'receipts', 'hook')),
     ('Plugins', ('plugins',)),
 )
 """The commands in ``konstruct --help``, grouped by what they are for."""
@@ -698,6 +717,23 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ('konstruct serve --no-build --port 0', 'the graph as it is, on any free port'),
     ),
     'mcp': (('konstruct mcp', 'run by an agent from its configuration, not by hand'),),
+    'receipts': (
+        (
+            'konstruct receipts issue customer_ltv.lifetime_value --question "LTV of customer 3?"',
+            'record what an answer rests on',
+        ),
+        ('konstruct receipts show r-7f3a', 'one receipt, by its id or the start of it'),
+        ('konstruct receipts check', 'which answers rest on something that has changed since'),
+    ),
+    'receipts issue': (
+        ('konstruct receipts issue customers.customer_lifetime_value', 'what an answer about it rests on'),
+        ('konstruct receipts issue "Customer lifetime value" --json', 'a term and its columns, as JSON'),
+    ),
+    'receipts show': (('konstruct receipts show r-7f3a', 'one receipt, by its id or the start of it'),),
+    'receipts check': (
+        ('konstruct receipts check', 'every receipt; exit 1 when one does not hold'),
+        ('konstruct receipts check r-7f3a --json', 'one receipt, as JSON'),
+    ),
     'plugins': (
         ('konstruct plugins', 'installed plugins, and whether each runs for this project'),
         ('konstruct plugins --json', 'the same as JSON'),
@@ -1333,6 +1369,58 @@ def parser() -> argparse.ArgumentParser:
     serving.add_argument('--open', action='store_true', help='open the viewer in a browser')
     serving.add_argument('--no-build', action='store_true', help='serve the graph as it is, if there is one')
     serving.set_defaults(func=cmd_serve)
+
+    receipting = add('receipts', 'record what an answer rests on, and check later whether it still holds')
+    actions = receipting.add_subparsers(
+        dest='action', metavar='<action>', title='actions', parser_class=_Parser, required=True
+    )
+
+    def action(name: str, help_text: str) -> argparse.ArgumentParser:
+        key = f'receipts {name}'
+        return actions.add_parser(
+            name,
+            help=help_text,
+            description=help_text[:1].upper() + help_text[1:] + '.',
+            epilog=_examples(key) if key in EXAMPLES else None,
+            formatter_class=_Help,
+            parents=[common],
+        )
+
+    issuing = action('issue', 'record what an answer rests on, and print a citation for it')
+    issuing.add_argument(
+        'ref',
+        nargs='+',
+        metavar='NAME',
+        help='a column, relation, exposure or business term the answer rests on',
+    )
+    issuing.add_argument('--question', metavar='TEXT', help='the question answered, recorded as given')
+    issuing.add_argument('--answer', metavar='TEXT', help='the answer given, recorded as given')
+    _query_options(issuing)
+    showing = action('show', 'print one receipt as it was issued')
+    showing.add_argument('id', metavar='ID', help='a receipt id, or the start of one')
+    showing.add_argument('--json', action='store_true', help='print JSON instead of text')
+    showing.add_argument(
+        '--graph',
+        metavar='FILE',
+        help='use the receipts beside this graph.json instead of finding konstruct-out',
+    )
+    checking = action('check', 'whether what each receipt rests on still holds (exits 1 when one does not)')
+    checking.add_argument('id', nargs='*', metavar='ID', help='only these receipts (default: every one)')
+    checking.add_argument(
+        '--no-history', action='store_true', help='do not read git history to say who changed what'
+    )
+    checking.add_argument(
+        '--no-refresh',
+        action='store_true',
+        help='do not update a graph older than its inputs first; receipts are then unchecked',
+    )
+    checking.add_argument('--json', action='store_true', help='print JSON instead of text')
+    checking.add_argument(
+        '--graph', metavar='FILE', help='use this graph.json instead of finding konstruct-out'
+    )
+    checking.add_argument('--no-build', action='store_true', help='fail rather than build a missing graph')
+    checking.set_defaults(refresh=False)
+    receipting.set_defaults(func=cmd_receipts)
 
     mcp = add('mcp', 'run the MCP server on stdio (for agent configuration, not interactive use)')
     mcp.add_argument(

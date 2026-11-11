@@ -32,7 +32,7 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 | `konstruct.inputs` | `dbt`, `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `ingestion`, `hcl`, `warehouse`, `usage` |
 | `konstruct.engine` | `build`, `config`, `worker` |
 | `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `ossie`, `registry` |
-| `konstruct.analysis` | `query`, `semantic`, `explain`, `conflicts`, `diff`, `gate`, `verify`, `mutation`, `why`, `laws`, `history` |
+| `konstruct.analysis` | `query`, `semantic`, `explain`, `conflicts`, `diff`, `gate`, `verify`, `mutation`, `why`, `laws`, `history`, `receipts` |
 | `konstruct.outputs` | `report`, `html`, `export` |
 | `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
 | `konstruct.plugins` | `api` (the plugin API: protocols and types), `registry` (finding, enabling and loading plugins) |
@@ -174,6 +174,10 @@ for survivor in tests.models[0].survivors:
 
 rows = project.why('customer_ltv.lifetime_value', {'customer_id': '3'})
 print(rows.value, [c.values for c in rows.contributions])
+
+receipt = project.receipt(['customer_ltv.lifetime_value'], question='LTV of customer 3?')
+print(receipt.citation)
+print([(r.id, r.status) for r in project.check_receipts().receipts])
 ```
 
 ```{eval-rst}
@@ -182,6 +186,9 @@ print(rows.value, [c.values for c in rows.contributions])
 .. automethod:: konstruct.Project.verify
 .. automethod:: konstruct.Project.mutate
 .. automethod:: konstruct.Project.why
+.. automethod:: konstruct.Project.receipt
+.. automethod:: konstruct.Project.receipts
+.. automethod:: konstruct.Project.check_receipts
 .. automethod:: konstruct.Project.export
 ```
 
@@ -426,6 +433,22 @@ print(rows.value, [c.values for c in rows.contributions])
    :members:
 
 .. autoclass:: konstruct.analysis.laws.Violation
+   :members:
+```
+
+### Answer Receipts
+
+```{eval-rst}
+.. autoclass:: konstruct.analysis.receipts.Receipt
+   :members:
+
+.. autoclass:: konstruct.analysis.receipts.Build
+   :members:
+
+.. autoclass:: konstruct.analysis.receipts.ReceiptCheck
+   :members:
+
+.. autoclass:: konstruct.analysis.receipts.CheckedReceipt
    :members:
 ```
 

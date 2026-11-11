@@ -56,6 +56,7 @@ guide/conflicts
 guide/usage
 guide/exporting
 guide/agents
+guide/receipts
 guide/plugins
 ```
 
