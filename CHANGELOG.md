@@ -1,3 +1,20 @@
+## v0.13.9 (2026-11-11)
+
+### Feat
+
+- **query**: Work through the ontology with entity, metric and relate, each fact with its trust
+- **plugins**: Record the metrics dbt's semantic layer, Looker and Power BI define
+
+### Fix
+
+- **query**: Say when a check-sql finding rests on a key an ontology pack presumes
+- **query**: Trust only unique columns when check-sql looks for a fan-out
+- **definitions**: Count only confirmed edges as verified in the ontology
+
+### Refactor
+
+- **query**: Keep one set of unique columns for the ontology and its derivation
+
 ## v0.13.8 (2026-11-11)
 
 ### Feat
