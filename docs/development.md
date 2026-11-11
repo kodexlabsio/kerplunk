@@ -98,7 +98,7 @@ in which case the release shares that folder. When `test_compat` then finds an o
 answer changed, the change is either a regression to fix or a deliberate one to list in
 `tests/compat/allowed.yml` with its reason.
 
-The dev dependencies include dbt-core and dbt-duckdb, so the dbt and end-to-end tests build a copy of the example project for real. In CI, `KONSTRUCT_REQUIRE_SERVICES=1` turns a missing service or browser into a failure rather than a skip, and `HYPOTHESIS_PROFILE=ci` runs more generated examples.
+The dev dependencies include dbt-core and dbt-duckdb, so the dbt and end-to-end tests build a copy of the example project for real. In CI, `KONSTRUCT_REQUIRE_SERVICES=1` turns a missing service or browser into a failure rather than a skip, and `HYPOTHESIS_PROFILE=ci` runs more generated examples. `KONSTRUCT_BROWSER_CHANNEL=chrome` runs the browser and map tests in an installed Google Chrome, and `KONSTRUCT_BROWSER_EXECUTABLE` in the Chromium binary at that path instead of the one Playwright downloads for its version.
 
 ## The Rust Core
 

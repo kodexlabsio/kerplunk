@@ -31,8 +31,12 @@ def browser() -> Iterator[Any]:
         pytest.skip('playwright is not installed')
     with sync_playwright() as playwright:
         try:
-            # KONSTRUCT_BROWSER_CHANNEL=chrome uses an installed Google Chrome instead of Playwright's.
-            instance = playwright.chromium.launch(channel=os.environ.get('KONSTRUCT_BROWSER_CHANNEL') or None)
+            # KONSTRUCT_BROWSER_CHANNEL=chrome uses an installed Google Chrome instead of Playwright's, and
+            # KONSTRUCT_BROWSER_EXECUTABLE a Chromium binary Playwright did not download for this version.
+            instance = playwright.chromium.launch(
+                channel=os.environ.get('KONSTRUCT_BROWSER_CHANNEL') or None,
+                executable_path=os.environ.get('KONSTRUCT_BROWSER_EXECUTABLE') or None,
+            )
         except Error as error:
             if os.environ.get('KONSTRUCT_REQUIRE_SERVICES'):
                 raise

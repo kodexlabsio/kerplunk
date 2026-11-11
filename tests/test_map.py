@@ -64,7 +64,9 @@ def gpu_browser() -> Iterator[Any]:
     with sync_playwright() as playwright:
         try:
             instance = playwright.chromium.launch(
-                channel=os.environ.get('KONSTRUCT_BROWSER_CHANNEL') or None, args=WEBGPU
+                channel=os.environ.get('KONSTRUCT_BROWSER_CHANNEL') or None,
+                executable_path=os.environ.get('KONSTRUCT_BROWSER_EXECUTABLE') or None,
+                args=WEBGPU,
             )
         except Error as error:
             if os.environ.get('KONSTRUCT_REQUIRE_SERVICES'):
