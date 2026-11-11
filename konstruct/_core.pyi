@@ -1,11 +1,13 @@
 """Konstruct's native core (the Rust crate in src/): graph traversal, name resolution, search,
-search by meaning and formula identity. ``konstruct.core.graph``, ``konstruct.analysis.query``,
-``konstruct.analysis.semantic`` and ``konstruct.analysis.identity`` are its callers; nodes, edges
-and relations are passed in, and come back, as ordinals into the lists given. Any string may hold
-lone surrogates (a file name decoded with ``surrogateescape``), and an id comes back exactly as it
-was given."""
+search by meaning, formula identity and the server. ``konstruct.core.graph``,
+``konstruct.analysis.query``, ``konstruct.analysis.semantic`` and ``konstruct.analysis.identity``
+are its callers; nodes, edges and relations are passed in, and come back, as ordinals into the
+lists given. Any string may hold lone surrogates (a file name decoded with ``surrogateescape``),
+and an id comes back exactly as it was given. ``konstruct.interfaces.serve`` starts the server,
+which reads the graph files itself and asks ``konstruct.interfaces.http_api`` for every answer."""
 
-from typing import final
+from collections.abc import Callable
+from typing import Any, final
 
 @final
 class GraphIndex:
@@ -147,3 +149,36 @@ def terms(text: str) -> list[str]:
 def concept(word: str) -> str | None:
     """The concept a word from :func:`terms` belongs to (``sale`` and ``turnover`` to
     ``revenue``), or None."""
+
+@final
+class Server:
+    """``konstruct serve``: the viewer and a read-only JSON API over the graph in ``out_dir``."""
+
+    def __init__(
+        self,
+        out_dir: str,
+        host: str,
+        port: int,
+        page: str,
+        token: str | None = None,
+        api: Callable[[str, dict[str, Any]], tuple[str, str, str, str]] | None = None,
+    ) -> None:
+        """Load ``out_dir/graph.json`` and bind ``host:port`` (0 for any free port). With
+        ``token``, every request must carry it. ``api`` answers every operation of the API
+        (``konstruct.interfaces.http_api.Api``). Raises ``OSError`` when there is no graph or the
+        port is taken."""
+    @property
+    def host(self) -> str:
+        """The address bound."""
+    @property
+    def port(self) -> int:
+        """The port bound."""
+    def run(self) -> None:
+        """Serve until interrupted (``KeyboardInterrupt``), without holding the GIL."""
+
+def graph_version(data: bytes) -> str:
+    """The version ``konstruct serve`` gives a ``graph.json`` with these bytes (FNV-1a 64, in
+    hexadecimal); ``konstruct.interfaces.http_api.Api`` reports the graph each answer came from by it."""
+
+def openapi() -> str:
+    """The OpenAPI 3.1 document of ``konstruct serve``'s API, as it is served."""

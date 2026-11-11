@@ -1,15 +1,20 @@
 //! The `konstruct._core` extension module: thin wrappers that convert between Python values and
 //! the indexes in this crate. `konstruct/_core.pyi` describes it to type checkers.
 
-use pyo3::exceptions::PyValueError;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+use pyo3::exceptions::{PyOSError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedStr;
-use pyo3::types::{PyList, PyString};
+use pyo3::types::{PyDict, PyList, PyString};
 
 use crate::graph::{self, EdgeKind, Flow, NodeKind, Visit};
 use crate::keys;
 use crate::names::{self, Relation};
 use crate::search::{self, Document, Standing};
+use crate::serve::api::{self, Argument};
+use crate::serve::{self, Outcome};
 
 /// A visit as Python receives it: node ordinal, depth, edge ordinal and previous node ordinal.
 type VisitTuple = (u32, u32, Option<u32>, Option<u32>);
@@ -363,15 +368,153 @@ impl SearchIndex {
     }
 }
 
-/// Konstruct's native core: graph traversal, name resolution, search, search by meaning and
-/// formula identity.
+/// The Python function that answers the API's operations: called with the operation id and its
+/// arguments, it returns `("ok", media type, body, graph version)` or
+/// `(problem type, "", detail, graph version)`.
+struct PythonBackend {
+    function: Py<PyAny>,
+}
+
+impl serve::Backend for PythonBackend {
+    fn answer(&self, operation: &str, arguments: &[(&'static str, Argument)]) -> Outcome {
+        // The error is the operator's, on the server's terminal; a client is not told where
+        // this machine keeps the project.
+        let failed = |error: PyErr| {
+            eprintln!("konstruct: {operation} failed: {error}");
+            Outcome::Problem {
+                kind: "internal-error".to_owned(),
+                detail: format!("{operation} failed; the server's output says why"),
+            }
+        };
+        Python::attach(|py| {
+            let keywords = PyDict::new(py);
+            for (name, argument) in arguments {
+                let set = match argument {
+                    Argument::Text(text) => keywords.set_item(name, text),
+                    Argument::Integer(number) => keywords.set_item(name, number),
+                    Argument::Boolean(flag) => keywords.set_item(name, flag),
+                    Argument::TextList(items) => keywords.set_item(name, items),
+                };
+                if let Err(error) = set {
+                    return failed(error);
+                }
+            }
+            let result = match self.function.call1(py, (operation, keywords)) {
+                Ok(result) => result,
+                Err(error) => return failed(error),
+            };
+            match result.extract::<(String, String, String, String)>(py) {
+                Ok((kind, media, body, version)) if kind == "ok" => Outcome::Answer {
+                    version,
+                    media,
+                    body: body.into_bytes(),
+                },
+                Ok((kind, _, detail, _)) => Outcome::Problem { kind, detail },
+                Err(error) => failed(error),
+            }
+        })
+    }
+}
+
+/// The version `konstruct serve` gives a graph.json with these bytes.
+#[pyfunction]
+fn graph_version(data: &[u8]) -> String {
+    serve::graph_version(data)
+}
+
+/// The OpenAPI 3.1 document of `konstruct serve`'s API, as it is served.
+#[pyfunction]
+fn openapi() -> String {
+    api::openapi_text()
+}
+
+/// `konstruct serve`: the viewer and the JSON API over the graph in an output directory.
+#[pyclass(frozen, module = "konstruct._core")]
+struct Server {
+    inner: Mutex<Option<serve::Server>>,
+    host: String,
+    port: u16,
+}
+
+#[pymethods]
+impl Server {
+    /// Load `out_dir/graph.json` and bind `host:port` (0 for any free port). Raises OSError when
+    /// there is no graph or the port is taken.
+    #[new]
+    #[pyo3(signature = (out_dir, host, port, page, token=None, api=None))]
+    fn new(
+        py: Python<'_>,
+        out_dir: PathBuf,
+        host: &str,
+        port: u16,
+        page: String,
+        token: Option<String>,
+        api: Option<Py<PyAny>>,
+    ) -> PyResult<Self> {
+        let mut options = serve::Options::new(out_dir, host, port, page);
+        options.token = token;
+        options.backend =
+            api.map(|function| Arc::new(PythonBackend { function }) as Arc<dyn serve::Backend>);
+        let server = py
+            .detach(|| serve::Server::bind(options))
+            .map_err(|error| PyOSError::new_err(error.to_string()))?;
+        let address = server.address();
+        Ok(Self {
+            inner: Mutex::new(Some(server)),
+            host: address.ip().to_string(),
+            port: address.port(),
+        })
+    }
+
+    /// The address bound.
+    #[getter]
+    fn host(&self) -> &str {
+        &self.host
+    }
+
+    /// The port bound, which is the one asked for unless that was 0.
+    #[getter]
+    fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// Serve until interrupted, without holding the GIL. Signals are checked every 100 ms, so
+    /// Ctrl-C raises KeyboardInterrupt here, after open connections have been closed.
+    fn run(&self, py: Python<'_>) -> PyResult<()> {
+        let server = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("the server failed"))?
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("the server has already run"))?;
+        let mut interrupted: Option<PyErr> = None;
+        let result = py.detach(|| {
+            server.run(|| {
+                Python::attach(|py| match py.check_signals() {
+                    Ok(()) => false,
+                    Err(error) => {
+                        interrupted = Some(error);
+                        true
+                    }
+                })
+            })
+        });
+        if let Some(error) = interrupted {
+            return Err(error);
+        }
+        result.map_err(|error| PyOSError::new_err(error.to_string()))
+    }
+}
+
+/// Konstruct's native core: graph traversal, name resolution, search, search by meaning,
+/// formula identity and the server.
 #[pymodule(name = "_core")]
 mod core_module {
     use pyo3::exceptions::PyImportError;
     use pyo3::prelude::*;
 
     #[pymodule_export]
-    use super::{GraphIndex, RelationNames, SearchIndex};
+    use super::{GraphIndex, RelationNames, SearchIndex, Server, graph_version, openapi};
     #[pymodule_export]
     use crate::identity::python::FormulaSet;
     #[pymodule_export]

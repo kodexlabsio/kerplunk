@@ -66,6 +66,7 @@ guide/plugins
 reference/cli
 reference/python-api
 reference/mcp
+reference/http-api
 reference/configuration
 reference/outputs
 reference/limitations

@@ -1,0 +1,2471 @@
+{
+  "components": {
+    "schemas": {
+      "Conflicts": {
+        "properties": {
+          "conflicts": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "conflicts",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "Definitions": {
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "terms": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "query",
+          "terms"
+        ],
+        "type": "object"
+      },
+      "Description": {
+        "properties": {
+          "attrs": {
+            "type": "object"
+          },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "conditions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "downstream": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "origins": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tests": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "upstream": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "name",
+          "origins",
+          "attrs",
+          "upstream",
+          "downstream"
+        ],
+        "type": "object"
+      },
+      "Diff": {
+        "properties": {
+          "base": {
+            "type": "string"
+          },
+          "breaking": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "relations": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "base",
+          "relations",
+          "breaking"
+        ],
+        "type": "object"
+      },
+      "Edge": {
+        "properties": {
+          "attrs": {
+            "type": "object"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "target",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "Explanation": {
+        "properties": {
+          "column": {
+            "type": "string"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "composed": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expression": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "column",
+          "label",
+          "complete",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "Export": {
+        "type": "string"
+      },
+      "Gate": {
+        "properties": {
+          "findings": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "passed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "passed",
+          "findings"
+        ],
+        "type": "object"
+      },
+      "History": {
+        "properties": {
+          "column": {
+            "type": "string"
+          },
+          "formulas": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "terms": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "column",
+          "formulas",
+          "terms"
+        ],
+        "type": "object"
+      },
+      "Item": {
+        "properties": {
+          "command": {},
+          "data_type": {
+            "type": "string"
+          },
+          "depth": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "forward",
+              "backward"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "relation_kind": {
+            "type": "string"
+          },
+          "role": {},
+          "score": {
+            "type": "number"
+          },
+          "status": {},
+          "through": {
+            "type": "string"
+          },
+          "transform": {},
+          "verified": {},
+          "via": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "name"
+        ],
+        "type": "object"
+      },
+      "Listing": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kinds",
+          "items",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "NodeEntry": {
+        "properties": {
+          "incoming": {
+            "items": {
+              "$ref": "#/components/schemas/Edge"
+            },
+            "type": "array"
+          },
+          "label": {
+            "type": "string"
+          },
+          "node": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "name"
+            ],
+            "type": "object"
+          },
+          "outgoing": {
+            "items": {
+              "$ref": "#/components/schemas/Edge"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "node",
+          "label",
+          "incoming",
+          "outgoing"
+        ],
+        "type": "object"
+      },
+      "Ontology": {
+        "properties": {
+          "entities": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "measures": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "relationships": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "rules": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities",
+          "measures",
+          "relationships",
+          "rules"
+        ],
+        "type": "object"
+      },
+      "PathResult": {
+        "properties": {
+          "found": {
+            "type": "boolean"
+          },
+          "from": {
+            "$ref": "#/components/schemas/Item"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "to": {
+            "$ref": "#/components/schemas/Item"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "found",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "Problem": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "QueryResult": {
+        "properties": {
+          "definitions": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "edges": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "impact": {
+            "$ref": "#/components/schemas/Walk"
+          },
+          "lineage": {
+            "$ref": "#/components/schemas/Walk"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "neighbours": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "question": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "matches",
+          "edges",
+          "neighbours"
+        ],
+        "type": "object"
+      },
+      "Report": {
+        "properties": {
+          "documented_missing": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "edges": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "hubs": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "lineage": {
+            "properties": {
+              "columns": {
+                "type": "integer"
+              },
+              "covered": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "covered",
+              "columns"
+            ],
+            "type": "object"
+          },
+          "no_lineage": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "nodes": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "orphans": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "untested": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodes",
+          "edges",
+          "lineage",
+          "hubs",
+          "orphans",
+          "untested",
+          "no_lineage",
+          "documented_missing",
+          "warnings"
+        ],
+        "type": "object"
+      },
+      "Resolution": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "nodes"
+        ],
+        "type": "object"
+      },
+      "SearchResult": {
+        "properties": {
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "query",
+          "results",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "Status": {
+        "properties": {
+          "config_file": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dbt_projects": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "graph": {
+            "type": "object"
+          },
+          "root": {
+            "type": "string"
+          },
+          "warehouses": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "root",
+          "config_file",
+          "dbt_projects",
+          "warehouses",
+          "graph"
+        ],
+        "type": "object"
+      },
+      "Walk": {
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "direction": {
+            "enum": [
+              "downstream",
+              "upstream"
+            ]
+          },
+          "entities": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          },
+          "exposures": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "filtered_by": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "joins_and_filters": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Item"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "terms": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "tests": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "direction",
+          "target",
+          "columns",
+          "relations",
+          "joins_and_filters",
+          "filtered_by",
+          "tests",
+          "exposures",
+          "tasks",
+          "terms",
+          "entities",
+          "total",
+          "summary"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Read-only answers about a Konstruct graph, from `konstruct serve`. Nodes are named by id in the routes that take `{id}`, `from` and `to`, and by any name the command line takes in the others. Errors are RFC 9457 problem details; the problem types are listed in `x-konstruct-problems`. When the server listens beyond this machine, every request needs `Authorization: Bearer <token>`.",
+    "license": {
+      "identifier": "MIT",
+      "name": "MIT"
+    },
+    "title": "Konstruct HTTP API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/conflicts": {
+      "get": {
+        "description": "Pairs of columns that mean the same by name, synonym or term but differ in sources, filters, joins or aggregation, ranked by what depends on them.",
+        "operationId": "conflicts",
+        "parameters": [
+          {
+            "description": "The most items in one page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The `next_cursor` of the previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflicts"
+                }
+              }
+            },
+            "description": "Columns that compute one business idea in different ways"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The graph changed since the cursor was made"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "Columns that compute one business idea in different ways",
+        "tags": [
+          "meaning"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/define": {
+      "get": {
+        "description": "By term name or synonym, or by column or relation for the terms that define it; approved terms first.",
+        "operationId": "define",
+        "parameters": [
+          {
+            "description": "A term, a synonym or a column.",
+            "in": "query",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Definitions"
+                }
+              }
+            },
+            "description": "A business term, or the terms bound to a column"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No node has this id, or nothing matches the name"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "A business term, or the terms bound to a column",
+        "tags": [
+          "meaning"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/describe/{ref}": {
+      "get": {
+        "description": "For a relation, its columns, tests, conditions and neighbours; for a column, its expression and terms; for a task, what it runs; for a term, its definition and columns.",
+        "operationId": "describe",
+        "parameters": [
+          {
+            "description": "A name as the command line takes it (`orders`, `orders.amount`, `dag_id.task_id`) or a node id.",
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Description"
+                }
+              }
+            },
+            "description": "One node in detail"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No node has this id, or nothing matches the name"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "One node in detail",
+        "tags": [
+          "graph"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/diff": {
+      "get": {
+        "description": "The working tree (or `head`) compared with `base` (default: the merge base with main), read from git each time.",
+        "operationId": "diff",
+        "parameters": [
+          {
+            "description": "A commit, or a date, to compare with.",
+            "in": "query",
+            "name": "base",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A commit, or a date, to compare (default: the working tree).",
+            "in": "query",
+            "name": "head",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Diff"
+                }
+              }
+            },
+            "description": "What a change does, column by column"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "What a change does, column by column",
+        "tags": [
+          "change"
+        ],
+        "x-konstruct-cached": false
+      }
+    },
+    "/api/v1/explain/{ref}": {
+      "get": {
+        "description": "The column's expression with CTEs and aliases inlined, the formula composed down to source columns, and each column on the way with the joins, filters and grouping of its relation.",
+        "operationId": "explain",
+        "parameters": [
+          {
+            "description": "A name as the command line takes it (`orders`, `orders.amount`, `dag_id.task_id`) or a node id.",
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Explanation"
+                }
+              }
+            },
+            "description": "How a column is calculated"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No node has this id, or nothing matches the name"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "How a column is calculated",
+        "tags": [
+          "lineage"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/export/{format}": {
+      "get": {
+        "description": "OpenLineage events (JSON lines), Mermaid, Graphviz DOT, CSV, or the ontology as an Apache Ossie model.",
+        "operationId": "export",
+        "parameters": [
+          {
+            "description": "The format.",
+            "in": "path",
+            "name": "format",
+            "required": true,
+            "schema": {
+              "enum": [
+                "openlineage",
+                "mermaid",
+                "dot",
+                "csv",
+                "ossie"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lineage of this table or column, both directions (not for ossie).",
+            "in": "query",
+            "name": "select",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "For mermaid and dot, draw columns and column lineage.",
+            "in": "query",
+            "name": "columns",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "For openlineage, the dataset namespace.",
+            "in": "query",
+            "name": "namespace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/Export"
+                }
+              },
+              "application/yaml": {
+                "schema": {
+                  "$ref": "#/components/schemas/Export"
+                }
+              },
+              "text/csv; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/Export"
+                }
+              },
+              "text/plain; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/Export"
+                }
+              },
+              "text/vnd.graphviz; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/Export"
+                }
+              }
+            },
+            "description": "The graph in another tool's format"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No node has this id, or nothing matches the name"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "The graph in another tool's format",
+        "tags": [
+          "project"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/gate": {
+      "get": {
+        "description": "As `konstruct gate --no-update`: the graph as served, compared with `base`, and what stops the change.",
+        "operationId": "gate",
+        "parameters": [
+          {
+            "description": "A commit, or a date, to compare with.",
+            "in": "query",
+            "name": "base",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Gate"
+                }
+              }
+            },
+            "description": "The gate's findings for the change against a base"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "The gate's findings for the change against a base",
+        "tags": [
+          "change"
+        ],
+        "x-konstruct-cached": false
+      }
+    },
+    "/api/v1/history/{ref}": {
+      "get": {
+        "description": "From the git history of the files that define the column and its terms; read each time, as commits do not change the graph.",
+        "operationId": "history",
+        "parameters": [
+          {
+            "description": "A name as the command line takes it (`orders`, `orders.amount`, `dag_id.task_id`) or a node id.",
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The most commits to read for each file (default 50).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/History"
+                }
+              }
+            },
+            "description": "When a column's formula changed"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No node has this id, or nothing matches the name"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "When a column's formula changed",
+        "tags": [
+          "change"
+        ],
+        "x-konstruct-cached": false
+      }
+    },
+    "/api/v1/impact/{id}": {
+      "get": {
+        "description": "What a change to the node affects: derived columns, relations, the relations that join, filter or group on it, tests, exposures, tasks, business terms and entities.",
+        "operationId": "impact",
+        "parameters": [
+          {
+            "description": "A node id, such as `model.shop.orders#amount` (percent-encode `#` as `%23`).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stop after this many steps.",
+            "in": "query",
+            "name": "depth",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Walk"
+                }
+              }
+            },
+            "description": "Everything downstream of a node"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No node has this id, or nothing matches the name"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "Everything downstream of a node",
+        "tags": [
+          "lineage"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/nodes": {
+      "get": {
+        "description": "Every node of the kinds given (by default tables, models, sources, seeds and snapshots), in label order.",
+        "operationId": "listNodes",
+        "parameters": [
+          {
+            "description": "Only nodes of this kind; repeat for several.",
+            "explode": true,
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "style": "form"
+          },
+          {
+            "description": "The most items in one page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The `next_cursor` of the previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Listing"
+                }
+              }
+            },
+            "description": "Nodes by kind"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The graph changed since the cursor was made"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "Nodes by kind",
+        "tags": [
+          "graph"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/nodes/{id}": {
+      "get": {
+        "description": "The node's entry in graph.json, its label, and the edges into and out of it in the graph's order.",
+        "operationId": "getNode",
+        "parameters": [
+          {
+            "description": "A node id, such as `model.shop.orders#amount` (percent-encode `#` as `%23`).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeEntry"
+                }
+              }
+            },
+            "description": "One node, as graph.json holds it"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No node has this id, or nothing matches the name"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "One node, as graph.json holds it",
+        "tags": [
+          "graph"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/ontology": {
+      "get": {
+        "description": "Entities with their keys, measures with their composed formulas, relationships and the rules that are broken.",
+        "operationId": "ontology",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ontology"
+                }
+              }
+            },
+            "description": "The ontology derived from the graph"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "The ontology derived from the graph",
+        "tags": [
+          "meaning"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": {
+        "description": "The OpenAPI 3.1 document of the API.",
+        "operationId": "openapi",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This document"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "This document",
+        "tags": [
+          "project"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/path": {
+      "get": {
+        "description": "Along data flow downstream if there is a path that way, else upstream, else through containment and task order.",
+        "operationId": "path",
+        "parameters": [
+          {
+            "description": "The node id it starts at.",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The node id it ends at.",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PathResult"
+                }
+              }
+            },
+            "description": "The shortest connection between two nodes"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No node has this id, or nothing matches the name"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "The shortest connection between two nodes",
+        "tags": [
+          "lineage"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/query": {
+      "get": {
+        "description": "The nodes the question's words match, with their connections, and impact or lineage when it asks for them.",
+        "operationId": "query",
+        "parameters": [
+          {
+            "description": "The question.",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Steps of connections around each match (default 1).",
+            "in": "query",
+            "name": "depth",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResult"
+                }
+              }
+            },
+            "description": "A question in words"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "A question in words",
+        "tags": [
+          "graph"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/report": {
+      "get": {
+        "description": "What REPORT.md summarises: node and edge counts, lineage coverage, the most used columns, orphans, untested models, columns with no lineage and warnings.",
+        "operationId": "report",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Report"
+                }
+              }
+            },
+            "description": "The report's summary"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "The report's summary",
+        "tags": [
+          "project"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/resolve": {
+      "get": {
+        "description": "Resolve a name as the command line does: a table, `table.column`, a dbt source as `source.table`, a task as `dag.task`, or a node id. Several nodes come back when the name is ambiguous.",
+        "operationId": "resolve",
+        "parameters": [
+          {
+            "description": "The name to resolve.",
+            "in": "query",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Resolution"
+                }
+              }
+            },
+            "description": "The nodes a name refers to"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "The nodes a name refers to",
+        "tags": [
+          "graph"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/search": {
+      "get": {
+        "description": "Words in a name count for more than words in a description, rarer words for more than common ones, and business terms rank above columns with the same words.",
+        "operationId": "search",
+        "parameters": [
+          {
+            "description": "The words to look for.",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only nodes of this kind; repeat for several.",
+            "explode": true,
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "style": "form"
+          },
+          {
+            "description": "The most items in one page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The `next_cursor` of the previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResult"
+                }
+              }
+            },
+            "description": "Nodes ranked by the words of a query"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The graph changed since the cursor was made"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "Nodes ranked by the words of a query",
+        "tags": [
+          "graph"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/status": {
+      "get": {
+        "description": "Configuration, dbt projects, warehouses configured, DAG, SQL and definitions files, and whether the graph is older than its inputs; read each time.",
+        "operationId": "status",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            },
+            "description": "What Konstruct finds in the project"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "What Konstruct finds in the project",
+        "tags": [
+          "project"
+        ],
+        "x-konstruct-cached": false
+      }
+    },
+    "/api/v1/terms": {
+      "get": {
+        "description": "The business terms in the graph, from definitions files, vocabularies and ontology packs, in label order.",
+        "operationId": "listTerms",
+        "parameters": [
+          {
+            "description": "The most items in one page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The `next_cursor` of the previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Listing"
+                }
+              }
+            },
+            "description": "Every business term"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The graph changed since the cursor was made"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "Every business term",
+        "tags": [
+          "meaning"
+        ],
+        "x-konstruct-cached": true
+      }
+    },
+    "/api/v1/trace/{id}": {
+      "get": {
+        "description": "Where the node's data comes from, each column step marked direct or transformed, with the columns that filter or join its relation and the tasks that build it.",
+        "operationId": "trace",
+        "parameters": [
+          {
+            "description": "A node id, such as `model.shop.orders#amount` (percent-encode `#` as `%23`).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stop after this many steps.",
+            "in": "query",
+            "name": "depth",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Walk"
+                }
+              }
+            },
+            "description": "Everything upstream of a node"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A parameter is missing or not valid"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No node has this id, or nothing matches the name"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The question cannot be answered from this graph"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Any other problem: bad-request (400), unauthorised (401), host-not-allowed or cross-site (403), method-not-allowed (405), internal-error (500), busy or too-many-streams (503)"
+          }
+        },
+        "summary": "Everything upstream of a node",
+        "tags": [
+          "lineage"
+        ],
+        "x-konstruct-cached": true
+      }
+    }
+  },
+  "security": [
+    {},
+    {
+      "bearer": []
+    }
+  ],
+  "servers": [
+    {
+      "description": "konstruct serve, by default",
+      "url": "http://127.0.0.1:8000"
+    }
+  ],
+  "tags": [
+    {
+      "description": "Nodes, names and search",
+      "name": "graph"
+    },
+    {
+      "description": "Impact, trace, paths and formulas",
+      "name": "lineage"
+    },
+    {
+      "description": "Business terms, the ontology and conflicts",
+      "name": "meaning"
+    },
+    {
+      "description": "Changes in git",
+      "name": "change"
+    },
+    {
+      "description": "The project, its report and exports",
+      "name": "project"
+    }
+  ],
+  "x-konstruct-problems": [
+    {
+      "status": 400,
+      "title": "The request is malformed",
+      "type": "https://kodexlabsio.github.io/konstruct/reference/http-api.html#bad-request"
+    },
+    {
+      "status": 400,
+      "title": "A parameter is missing or not valid",
+      "type": "https://kodexlabsio.github.io/konstruct/reference/http-api.html#invalid-parameter"
+    },
+    {
+      "status": 401,
+      "title": "A token is required",
+      "type": "https://kodexlabsio.github.io/konstruct/reference/http-api.html#unauthorised"
+    },
+    {
+      "status": 403,
+      "title": "The Host header does not name this server",
+      "type": "https://kodexlabsio.github.io/konstruct/reference/http-api.html#host-not-allowed"
+    },
+    {
+      "status": 403,
+      "title": "Requests from other sites are refused",
+      "type": "https://kodexlabsio.github.io/konstruct/reference/http-api.html#cross-site"
+    },
+    {
+      "status": 404,
+      "title": "No such route",
+      "type": "https://kodexlabsio.github.io/konstruct/reference/http-api.html#not-found"
+    },
+    {
+      "status": 404,
+      "title": "Nothing in the graph has this id or name",
+      "type": "https://kodexlabsio.github.io/konstruct/reference/http-api.html#no-such-node"
+    },
+    {
+      "status": 405,
+      "title": "Only GET and HEAD are allowed",
+      "type": "https://kodexlabsio.github.io/konstruct/reference/http-api.html#method-not-allowed"
+    },
+    {
+      "status": 409,
+      "title": "The graph changed since this cursor was made",
+      "type": "https://kodexlabsio.github.io/konstruct/reference/http-api.html#stale-cursor"
+    },
+    {
+      "status": 422,
+      "title": "The question cannot be answered from this graph",
+      "type": "https://kodexlabsio.github.io/konstruct/reference/http-api.html#not-answerable"
+    },
+    {
+      "status": 500,
+      "title": "The answer failed",
+      "type": "https://kodexlabsio.github.io/konstruct/reference/http-api.html#internal-error"
+    },
+    {
+      "status": 503,
+      "title": "The server is answering too many questions",
+      "type": "https://kodexlabsio.github.io/konstruct/reference/http-api.html#busy"
+    },
+    {
+      "status": 503,
+      "title": "Too many event streams are open",
+      "type": "https://kodexlabsio.github.io/konstruct/reference/http-api.html#too-many-streams"
+    }
+  ]
+}

@@ -306,7 +306,9 @@ lists the installed plugins, which add inputs, export formats, gate checks, onto
 MCP tools, and whether each runs; and \cmd{konstruct install}, \cmd{konstruct mcp} and
 \cmd{konstruct hook} connect coding agents. The Python API, \cmd{konstruct.Project}, returns
 typed results for each question, and \cmd{graph.html} is one offline file with the lineage,
-formulas, terms, verification results and usage.
+formulas, terms, verification results and usage. \cmd{konstruct serve} sends the same viewer from
+a local server, which reloads open pages when a build replaces the graph, beside a read-only HTTP
+API, described by an OpenAPI document, whose answers come from the Python API's own functions.
 With \cmd{--meaning}, \cmd{konstruct search} also finds a node by what it is rather than what it
 is called: identifiers are read as words, with the abbreviations and synonyms of data work, and
 each node is scored, with no trained model, on the words, formula tokens and lineage it shares

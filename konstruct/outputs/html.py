@@ -10,8 +10,9 @@ tasks (and dbt's compiled SQL when ``target/compiled`` has it), the ontology fro
 :mod:`konstruct.semantics.ontology` and the conflicts from :mod:`konstruct.analysis.conflicts`.
 The page loads nothing from the network.
 
-The build also writes the second placeholder's object (:func:`viewer_data`) as ``explain.json``
-beside ``graph.json``, for a page that loads both from a server rather than from itself.
+``konstruct serve`` sends the same page unchanged but for one element in its head, which makes it
+load ``graph.json`` and ``explain.json`` from the server instead; the build writes
+``explain.json``, the object the page embeds (:func:`viewer_data`), beside ``graph.json`` for it.
 """
 
 from __future__ import annotations
@@ -316,7 +317,23 @@ def write_html(
 
 
 def write_viewer_data(data: dict[str, Any], path: Path) -> Path:
-    """Write :func:`viewer_data` to ``path`` (``explain.json``), which a served viewer loads, and
-    return ``path``."""
+    """Write :func:`viewer_data` to ``path`` (``explain.json``), which the viewer loads when
+    ``konstruct serve`` serves it, and return ``path``."""
     jsonio.write_text(path, jsonio.dumps(data))
     return path
+
+
+SERVED = '<meta name="konstruct-serve" content="">'
+"""The element that tells the viewer it is served (``viewer/src/lib/source.ts``): its content is
+the path the server's files are under, here the root, so the page loads ``/graph.json`` and
+``/explain.json`` and follows ``/events``, all on its own origin."""
+
+SERVED_SELECTOR = 'meta[name="konstruct-serve"]'
+"""What a viewer build that can be served looks for; a build without it cannot load a graph from
+a server."""
+
+
+def served_page() -> str:
+    """The viewer page ``konstruct serve`` sends: the built page unchanged except for the
+    :data:`SERVED` element at the start of its head."""
+    return template().replace('<head>', f'<head>{SERVED}', 1)

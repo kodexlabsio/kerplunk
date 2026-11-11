@@ -492,6 +492,12 @@ def cmd_hook(args: argparse.Namespace, console: Console) -> int:
     return hook.main(args.event, remind=args.remind)
 
 
+def cmd_serve(args: argparse.Namespace, console: Console) -> int:
+    from konstruct.interfaces.serve import run
+
+    return run(args, console)
+
+
 def cmd_mcp(args: argparse.Namespace, console: Console) -> int:
     from konstruct.interfaces.mcp_server import serve
 
@@ -524,7 +530,7 @@ class _ExportFormats:
 # Parser
 
 GROUPS = (
-    ('Build', ('build', 'status', 'trust', 'init', 'open')),
+    ('Build', ('build', 'status', 'trust', 'init', 'open', 'serve')),
     ('Lineage', ('impact', 'trace', 'path', 'explain', 'history')),
     ('Explore', ('search', 'describe', 'list', 'query', 'export')),
     ('Business meaning', ('define', 'ontology', 'conflicts')),
@@ -642,6 +648,11 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ('konstruct install', 'the skills for Claude Code and Cursor, in your home directory'),
         ('konstruct install --target . --mcp', 'into this repository, with the MCP server'),
         ('konstruct install --target . --agent all', 'for every agent: Codex, Copilot, Gemini CLI too'),
+    ),
+    'serve': (
+        ('konstruct serve', 'build, then serve the viewer and the HTTP API on 127.0.0.1:8000'),
+        ('konstruct serve --watch --open', 'rebuild as inputs change, and open the browser'),
+        ('konstruct serve --no-build --port 0', 'the graph as it is, on any free port'),
     ),
     'mcp': (('konstruct mcp', 'run by an agent from its configuration, not by hand'),),
     'plugins': (
@@ -1221,6 +1232,17 @@ def parser() -> argparse.ArgumentParser:
         '--remind', action='store_true', help='only remind the agent to run the gate, without running it'
     )
     hooking.set_defaults(func=cmd_hook)
+
+    serving = add('serve', 'serve the viewer and a JSON API over the graph, reloading after each build')
+    serving.add_argument('path', nargs='?', metavar='PROJECT', help='project directory (default: -C or .)')
+    serving.add_argument('--port', type=int, default=8000, help='port (default 8000; 0 for any free port)')
+    serving.add_argument(
+        '--host', default='127.0.0.1', help='address to listen on (default 127.0.0.1: this machine only)'
+    )
+    serving.add_argument('--watch', action='store_true', help='rebuild the graph when its inputs change')
+    serving.add_argument('--open', action='store_true', help='open the viewer in a browser')
+    serving.add_argument('--no-build', action='store_true', help='serve the graph as it is, if there is one')
+    serving.set_defaults(func=cmd_serve)
 
     mcp = add('mcp', 'run the MCP server on stdio (for agent configuration, not interactive use)')
     mcp.add_argument(
