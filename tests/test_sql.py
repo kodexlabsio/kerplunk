@@ -760,7 +760,8 @@ def test_patterns_and_untyped_times_keep_their_meaning() -> None:
     )
 
 
-# check-sql: one small case for each finding, against the shop of tests/test_checksql.py
+# check-sql: one small case for each finding, against the shop of tests/test_checksql.py (or, for
+# a rule about ontology packs, its Stripe warehouse)
 
 CHECK_SQL_CASES = [
     (
@@ -785,6 +786,11 @@ CHECK_SQL_CASES = [
         'select o.order_id, c.name from raw.orders o join raw.customers c on o.order_id = c.customer_id',
     ),
     ('unknown-join', 'select o.order_id from raw.orders o join raw.payments p on o.status = p.method'),
+    # Against Stripe's tables, which an ontology pack binds: its ids are presumed unique.
+    (
+        'presumed-key',
+        'select sum(c.amount) from stripe.charge c join stripe.customer u on u.id = c.customer_id',
+    ),
     ('unknown-relation', 'select * from raw.orderz'),
     ('unknown-column', 'select amount_total from raw.orders'),
     ('unparsed', 'select sum(amount from raw.orders'),
@@ -809,7 +815,26 @@ def test_every_check_sql_rule_has_a_case() -> None:
     assert sorted({rule for rule, _ in CHECK_SQL_CASES}) == sorted(RULES)
 
 
+PACK_RULES = frozenset({'presumed-key'})
+"""The rules whose case runs against tables an ontology pack binds."""
+
+
+@pytest.fixture(scope='module')
+def check_sql_stripe(tmp_path_factory: pytest.TempPathFactory) -> Any:
+    import duckdb
+
+    from konstruct import Project
+    from konstruct.analysis.checksql import Checker
+    from tests.test_checksql import STRIPE
+
+    root = tmp_path_factory.mktemp('check_sql_stripe')
+    con = duckdb.connect(str(root / 'warehouse.duckdb'))
+    con.execute(STRIPE)
+    con.close()
+    return Checker(Project(root).build(run_dbt=False).graph)
+
+
 @pytest.mark.parametrize(('rule', 'sql'), CHECK_SQL_CASES)
-def test_check_sql_finds_each_rule(check_sql_shop: Any, rule: str, sql: str) -> None:
-    result = check_sql_shop.check(sql)
+def test_check_sql_finds_each_rule(check_sql_shop: Any, check_sql_stripe: Any, rule: str, sql: str) -> None:
+    result = (check_sql_stripe if rule in PACK_RULES else check_sql_shop).check(sql)
     assert [f.rule for f in result.findings] == [rule], str(result)

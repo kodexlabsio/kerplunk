@@ -369,10 +369,12 @@ class Derivation:
     """Each relation's graph id, to the column names of the composite keys it declares (a primary
     key or identifier fields of more than one column), which are unique only together."""
     graph: Graph = field(repr=False)
-    presumed: frozenset[str] = frozenset()
+    presumed: dict[str, str] = field(default_factory=dict)
     """The key columns an ontology pack binds as its source system's own identifier (Stripe's
-    ``customer.id``). Nothing has tested them, so they are not in ``unique`` and give no
-    cardinality; a tool looking for rows a join repeats may still take them as unique."""
+    ``customer.id``), each with the pack. Nothing has tested them, so they are not in ``unique``
+    and give no cardinality; a tool looking for rows a join repeats may still take them as unique,
+    and says so. A table its loader lands with a row per version or per sync (Fivetran's history
+    mode, a loader's raw tables) has none, as its identifier repeats there."""
 
     @property
     def unique(self) -> frozenset[str]:
@@ -389,7 +391,7 @@ def derivation(graph: Graph) -> Derivation:
     """The ontology of ``graph`` with the keys and unique columns it was derived from."""
     deriver = _Deriver(graph)
     ontology = deriver.run()
-    return Derivation(ontology, dict(deriver.keys), deriver.composite, graph, frozenset(deriver.presumed))
+    return Derivation(ontology, dict(deriver.keys), deriver.composite, graph, dict(deriver.presumed))
 
 
 def _entity_of(graph: Graph, keys: dict[str, str], relation: Node) -> str | None:
@@ -411,7 +413,7 @@ class _Deriver:
         self.keys: dict[str, str] = {}  # column id of a key -> entity name
         self.entities: dict[str, Entity] = {}
         self.unique: set[str] = set()  # column ids with a uniqueness guarantee
-        self.presumed: set[str] = set()  # keys a pack binds as its source's own identifier
+        self.presumed: dict[str, str] = {}  # key a pack binds as its source's own identifier -> pack
         self.composite: dict[str, list[tuple[str, ...]]] = {}  # relation id -> composite keys
         self.terms = sorted(
             (n for n in graph.nodes.values() if n.kind == 'term'), key=lambda n: (n.name.lower(), n.id)
@@ -628,7 +630,8 @@ class _Deriver:
             # definitions.yml names these the keys of an entity; a pack's binding is only a match.
             self.stated.update(c.id for c in columns)
         else:
-            self.presumed.update(c.id for c in columns)
+            pack = str(term.attrs['registry'])
+            self.presumed.update((c.id, pack) for c in columns if not self.versioned(c))
         for column in columns:
             if column.id in self.keys:
                 continue
@@ -643,6 +646,18 @@ class _Deriver:
         entity.term, entity.description = term.name, term.description
         entity.evidence.append(f'term {term.name!r} ({where})')
         self.declared[name] = term.name
+
+    def versioned(self, column: Node) -> bool:
+        """Whether the column's table holds a row per version or per sync of each object, where
+        an identifier repeats: Fivetran's history mode, or a loader's raw or metadata tables."""
+        from konstruct.semantics.registry import VERSIONED
+
+        relation = self.graph.parent_of(column)
+        if relation is None:
+            return False
+        if relation.attrs.get('loader_role') not in (None, 'landed'):
+            return True
+        return any(c.name.lower() in VERSIONED for c in self.graph.columns_of(relation.id))
 
     def resolve(self, name: str) -> str | None:
         """The entity that a grain's or a request's ``name`` refers to."""

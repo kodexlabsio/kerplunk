@@ -101,10 +101,11 @@ The query is read in the graph's dialect. Each output column that aggregates is 
 | `mixed-grain` | A measure of a coarser grain repeated on every row of a finer one |
 | `join-off-relationship` | Two related relations joined on columns their relationship does not use |
 | `unknown-join` | A join that no relationship or unique key vouches for |
+| `presumed-key` | A join taken as safe because an [ontology pack](ontology-packs.md) presumes a column unique, which nothing in the project tests (an `info` note) |
 | `unknown-relation`, `unknown-column` | A relation or column the project does not have |
 | `unparsed`, `unchecked` | SQL that could not be parsed, or a statement that parses but could not be analysed |
 
-A finding is an `error` when the query breaks an approved definition or cannot be parsed, and otherwise a `warning` or an `info` note; a match by name alone is never an error. Each finding says how to fix it, with the evidence it rests on: the definitions, keys, tests and relationships. The check passes when every statement was analysed and no finding is an error, so a statement it could not analyse does not pass; `--strict` fails on a warning too.
+A finding is an `error` when the query breaks an approved definition or cannot be parsed, and otherwise a `warning` or an `info` note; a match by name alone is never an error. Each finding says how to fix it, with the evidence it rests on: the definitions, keys, tests and relationships. A source system's identifier that an ontology pack binds (Stripe's `customer.id`) is taken as unique, though nothing in the project tests it, except in a table its loader lands with a row per version or per sync; evidence that rests on one says `presumed unique by the stripe pack`, and a relationship only a pack gives says so. The check passes when every statement was analysed and no finding is an error, so a statement it could not analyse does not pass; `--strict` fails on a warning too.
 
 Where a fix changes the measure and no other column of the result, the result also carries the corrected SQL: a missing filter is added to the WHERE clause when only the measure reads the rows it removes, and otherwise to the measure's aggregate (as `FILTER (WHERE ...)`, or `IFF` or `IF` in a dialect without it); a join is put back on its relationship's columns; a retired column is swapped for its replacement under the same output name. No filter is added to a measure that ranks or limits rows (QUALIFY, ORDER BY with LIMIT, a window over it), since the rows kept would change too.
 

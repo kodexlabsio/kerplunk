@@ -85,6 +85,7 @@ RULES: dict[str, str] = {
     'mixed-grain': 'The result repeats a measure of a coarser grain on every row of a finer one.',
     'join-off-relationship': 'Two related relations are joined on columns their relationship does not use.',
     'unknown-join': 'A join that no relationship or unique key in the project vouches for.',
+    'presumed-key': 'A join the check took as safe because an ontology pack presumes a column unique.',
     'unknown-relation': 'The query reads a relation the project does not have.',
     'unknown-column': 'The query reads a column its relation does not have.',
     'unparsed': 'The SQL could not be parsed.',
@@ -376,6 +377,17 @@ class _Site:
     """The graph columns the aggregate's value reads."""
 
 
+def _from_pack(relationship: Relationship) -> str:
+    """Where a relationship comes from, when an ontology pack alone gives it: the pack bound it by
+    the names of the tables, and nothing in the project shows it."""
+    packs = [
+        e.removeprefix('ontology pack ') for e in relationship.evidence if e.startswith('ontology pack ')
+    ]
+    if not packs or len(packs) != len(relationship.evidence):
+        return ''
+    return f', as the {", ".join(sorted(packs))} pack gives it'
+
+
 class Checker:
     """Checks SQL against one graph; built once, so that many queries (query history) share the
     derived ontology and composed formulas."""
@@ -395,7 +407,7 @@ class Checker:
         # What a test, a key or an identifier field shows unique, and the identifiers a pack binds
         # as its source's own; never every entity key, which can be a referring column a definition
         # merely lists, shared by many rows.
-        self.unique: frozenset[str] = self.derived.unique | self.derived.presumed
+        self.unique: frozenset[str] = self.derived.unique | frozenset(self.derived.presumed)
         self.explainer = Explainer(graph)
         self.composer = Explainer(graph, qualified=True)
         self.relationships = self.ontology.relationships
@@ -2045,6 +2057,7 @@ class _Run:
             if fan is not None:
                 fans[alias] = fan
         self.relationships(scope, equalities, unique)
+        self.presumptions(scope, kept)
         info = _ScopeInfo()
         for expression in select.expressions:
             value = _output(expression)
@@ -2280,7 +2293,6 @@ class _Run:
                 continue
             columns = sorted({theirs for _, theirs in pairs})
             mine = {m for m, _ in pairs}
-            keyed = any(k and k <= mine for k in unique.get(alias, []))
             for _, theirs in pairs:
                 node = self.physical(scope, exp.column(theirs, table=other))
                 if node is None:
@@ -2292,7 +2304,7 @@ class _Run:
                     return _Fan(
                         names[alias],
                         names[other],
-                        f'{graph.label(node)} refers to {rel.target} ({rel.via}), so many '
+                        f'{graph.label(node)} refers to {rel.target} ({rel.via}){_from_pack(rel)}, so many '
                         f'{names[other]} rows can match one {names[alias]} row',
                         f'{names[other]} to one row per {", ".join(columns)}',
                     )
@@ -2302,20 +2314,68 @@ class _Run:
                 return _Fan(
                     names[alias],
                     names[other],
-                    f'{names[other]} has one row per {key}, not per {", ".join(columns)}, so many of its '
-                    f'rows can match one {names[alias]} row',
+                    f'{names[other]} has one row per {key}{self.presumption(scope, other, keys[0])}, not per '
+                    f'{", ".join(columns)}, so many of its rows can match one {names[alias]} row',
                     f'{names[other]} to one row per {", ".join(columns)}',
                 )
-            if keyed:
+            matched = next((k for k in unique.get(alias, []) if k and k <= mine), None)
+            if matched is not None:
                 return _Fan(
                     names[alias],
                     names[other],
-                    f'{names[alias]} is joined on its key, and nothing says {names[other]} has one row per '
-                    f'{", ".join(columns)}',
+                    f'{names[alias]} is joined on its key{self.presumption(scope, alias, sorted(matched))}, and '
+                    f'nothing says {names[other]} has one row per {", ".join(columns)}',
                     f'{names[other]} to one row per {", ".join(columns)}',
                     severity='info',
                 )
         return None
+
+    def presumed(self, scope: Scope, alias: str, column: str) -> tuple[Node, str] | None:
+        """The column ``alias.column`` with the pack that presumes it unique, when only a pack
+        does: no test, primary key or identifier field says so."""
+        node = self.physical(scope, exp.column(column, table=alias))
+        if node is None:
+            return None
+        pack = self.checker.derived.presumed.get(node.id)
+        if pack is None or node.id in self.checker.derived.unique:
+            return None
+        return node, pack
+
+    def presumption(self, scope: Scope, alias: str, key: list[str]) -> str:
+        """What a key that decides a finding rests on, when a pack presumes it rather than a test
+        showing it: `` (id presumed unique by the stripe pack)``."""
+        found = [(name, p[1]) for name in key if (p := self.presumed(scope, alias, name)) is not None]
+        if not found:
+            return ''
+        packs = sorted({pack for _, pack in found})
+        names = ', '.join(name for name, _ in found)
+        return f' ({names} presumed unique by the {", ".join(packs)} pack{"s" if len(packs) > 1 else ""})'
+
+    def presumptions(self, scope: Scope, equalities: list[_Join]) -> None:
+        """A note for each join the check took as safe on a column only a pack presumes unique, so
+        a passing check says what it assumed."""
+        for eq in equalities:
+            for alias, column, other, other_column in (
+                (eq.left, eq.left_column, eq.right, eq.right_column),
+                (eq.right, eq.right_column, eq.left, eq.left_column),
+            ):
+                found = self.presumed(scope, alias, column)
+                theirs = self.physical(scope, exp.column(other_column, table=other))
+                if found is None or (theirs is not None and theirs.id in self.checker.unique):
+                    continue
+                node, pack = found
+                label = self.graph.label(node)
+                self.add(
+                    Finding(
+                        'presumed-key',
+                        'info',
+                        f'the join {eq.node.sql(dialect=self.checker.sqlglot)} is taken not to repeat rows '
+                        f'because the {pack} ontology pack presumes {label} unique; nothing has tested it',
+                        f'Add a unique test or a primary key on {label}, so the check rests on it.',
+                        evidence=[f'{label}: the identifier of the source system the {pack} pack describes'],
+                    ),
+                    node.id,
+                )
 
     def aggregate(
         self, scope: Scope, select: exp.Select, agg: exp.AggFunc, fans: dict[str, _Fan], preserved: list[str]

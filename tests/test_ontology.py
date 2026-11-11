@@ -772,3 +772,18 @@ def test_lineage_never_verifies_a_pack_binding_an_expression_or_a_conflict() -> 
     revenue = derive(g).measures[0]
     assert revenue.confidence == 'declared'
     assert 'its columns compute it in different ways (one-formula-per-measure)' in revenue.evidence
+
+
+@pytest.mark.parametrize('marked', ['history', 'raw'])
+def test_a_pack_presumes_no_key_where_its_identifier_repeats(marked: str) -> None:
+    from konstruct.semantics.ontology import derivation
+
+    g = Graph()
+    charges = _relation(g, 'charges', ['id', 'amount'], kind='source')
+    _term(g, 'Stripe charge', [f'{charges.id}#id'], kind='entity', registry='stripe')
+    assert derivation(g).presumed == {f'{charges.id}#id': 'stripe'}
+    if marked == 'history':
+        g.add_column(charges, '_fivetran_active')  # a row for each version of a charge
+    else:
+        charges.attrs['loader_role'] = 'raw'
+    assert derivation(g).presumed == {}

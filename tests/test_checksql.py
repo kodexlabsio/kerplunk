@@ -1679,8 +1679,8 @@ def test_an_ontology_pack_gives_keys_and_terms_to_a_project_without_definitions(
     )
     finding = only(result, 'fan-out')
     assert finding.evidence == [
-        'invoice.customer_id refers to stripe_customer (invoice.customer_id = customer.id), so many invoice '
-        'rows can match one charge row'
+        'invoice.customer_id refers to stripe_customer (invoice.customer_id = customer.id), as the stripe '
+        'pack gives it, so many invoice rows can match one charge row'
     ]
     assert result.terms == ['Stripe charge amount']
 
@@ -2073,3 +2073,50 @@ def test_a_key_a_definition_lists_without_a_test_does_not_hide_a_fan_out(tmp_pat
     assert any(i.endswith('payments#order_id') for i in order.key_ids)
     sql = 'select sum(o.amount) as total from raw.orders o join raw.payments p on p.order_id = o.order_id'
     assert only(checker.check(sql), 'fan-out').column == 'total'
+
+
+@pytest.fixture(scope='module')
+def stripe(tmp_path_factory: pytest.TempPathFactory) -> Graph:
+    root = tmp_path_factory.mktemp('stripe')
+    con = duckdb.connect(str(root / 'warehouse.duckdb'))
+    con.execute(STRIPE)
+    con.close()
+    return Project(root).build(run_dbt=False).graph
+
+
+def test_a_finding_says_when_it_rests_on_a_key_a_pack_presumes(stripe: Graph) -> None:
+    """Stripe's ids are unique in Stripe, which the pack presumes and nothing in the project tests:
+    a finding that rests on one says so."""
+    sql = 'select u.email, sum(i.amount_due) from stripe.invoice i join stripe.customer u on u.email = i.id group by 1'
+    assert only(check_sql(stripe, sql), 'fan-out').evidence == [
+        'customer has one row per id (id presumed unique by the stripe pack), not per email, so many of its '
+        'rows can match one invoice row'
+    ]
+    keyed = 'select sum(c.amount) from stripe.charge c join (select email from stripe.customer) x on x.email = c.id'
+    assert only(check_sql(stripe, keyed), 'fan-out').evidence == [
+        'charge is joined on its key (id presumed unique by the stripe pack), and nothing says the subquery '
+        'x has one row per email'
+    ]
+
+
+def test_a_join_a_presumed_key_makes_safe_is_noted(stripe: Graph) -> None:
+    result = check_sql(
+        stripe, 'select sum(c.amount) from stripe.charge c join stripe.customer u on u.id = c.customer_id'
+    )
+    assert rules(result) == ['presumed-key']
+    [note] = result.findings
+    assert note.severity == 'info'
+    assert note.message == (
+        'the join u.id = c.customer_id is taken not to repeat rows because the stripe ontology pack '
+        'presumes customer.id unique; nothing has tested it'
+    )
+
+
+def test_a_relationship_only_a_pack_gives_is_labelled_so(stripe: Graph) -> None:
+    sql = (
+        'select sum(i.amount_due) from stripe.invoice i join stripe.charge c on c.customer_id = i.customer_id'
+    )
+    assert only(check_sql(stripe, sql), 'fan-out').evidence == [
+        'charge.customer_id refers to stripe_customer (charge.customer_id = customer.id), as the stripe pack '
+        'gives it, so many charge rows can match one invoice row'
+    ]
