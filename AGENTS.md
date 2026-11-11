@@ -75,8 +75,11 @@ change; `make check` runs all of them.
   Rust, with assembly for the high-throughput paths (scanning, parsing, hashing and numeric
   kernels). Python is the surface only: `konstruct.Project`, the names `konstruct/__init__.py`
   exports, the CLI, the MCP server and the plugin API keep their signatures and behaviour while
-  the work beneath them moves to Rust. New engine code is written in Rust. A Python module moves
-  whole: its Rust replacement passes the module's existing tests, and its Python is then deleted.
+  the work beneath them moves to Rust. New engine code is written in Rust, or in C where a
+  measurement shows C is the fastest choice for that component. Konstruct aims to be the fastest
+  tool of its kind, so a claim of speed comes with a benchmark against the other tools. A Python
+  module moves whole: its replacement passes the module's existing tests, and its Python is then
+  deleted.
 - **One implementation per component, never a fallback.** Code written in Rust or assembly has no
   Python, Rust or other twin: when a component moves to Rust its Python version is deleted, and an
   assembly routine has no Rust version. Konstruct supports every modern architecture (x86_64,
