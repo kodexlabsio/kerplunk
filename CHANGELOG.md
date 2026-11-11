@@ -1,3 +1,14 @@
+## v0.13.12 (2026-11-11)
+
+### Feat
+
+- **cli**: Pin upstream meaning with konstruct lock and lock --check
+- **cli**: Check data laws with verify --laws, the laws MCP tool and the gate
+
+### Fix
+
+- **cli**: Say in the hook's pass when no data law was checked
+
 ## v0.13.11 (2026-11-11)
 
 ### Fix
