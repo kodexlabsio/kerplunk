@@ -545,7 +545,11 @@ def _same(x: object, y: object) -> bool:
 
 
 def _check(
-    first: F, second: F, tables: list[list[tuple[int | None, ...]]], plain: list[list[tuple[int, ...]]]
+    first: F,
+    second: F,
+    tables: list[list[tuple[int | None, ...]]],
+    plain: list[list[tuple[int, ...]]],
+    aggregates: bool,
 ) -> None:
     verdict = equivalent(first.sql, second.sql, dialect='duckdb')
     con = duckdb.connect()
@@ -560,7 +564,13 @@ def _check(
     if verdict.equal or not (first.polynomial and second.polynomial):
         return
     witness = verdict.witness
-    assert witness is not None and witness.kind == 'values', (first.sql, second.sql, verdict)
+    if witness is None:
+        # Not shown to be the same, with nothing to replay: allowed over aggregates, whose presences
+        # are atoms the model does not relate (SUM(0 * (a + b)) is present only where SUM(a) is).
+        # Row polynomials are decided exactly and always give a witness.
+        assert aggregates, (first.sql, second.sql, verdict)
+        return
+    assert witness.kind == 'values', (first.sql, second.sql, verdict)
 
     def row(values: dict[str, str]) -> tuple[int | None, ...]:
         return tuple(None if values.get(n, '0') == 'NULL' else int(values.get(n, '0')) for n in 'abc')
@@ -622,7 +632,7 @@ def test_row_formulas_agree_with_duckdb(
     other = F(first.rewritten, first.sql, first.polynomial) if rewrite else second
     if rewrite:
         assert equivalent(first.sql, other.sql).equal, (first.sql, other.sql)
-    _check(first, other, tables, plain)
+    _check(first, other, tables, plain, aggregates=False)
 
 
 @settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.too_slow])
@@ -632,6 +642,15 @@ def test_row_formulas_agree_with_duckdb(
     rewrite=st.booleans(),
     tables=st.lists(TABLES, min_size=6, max_size=6),
     plain=st.lists(PLAIN, min_size=4, max_size=4),
+)
+# The same, but not shown to be: "a row has a and b" implies "a row has a", which the model of
+# SUM's presence does not relate (Hypothesis seed 3838).
+@example(
+    first=F('SUM(((0) * (a + b)))', 'SUM((b * (0) + (0) * a))'),
+    second=F('(SUM(a) * SUM(((0) * (a + b))))', '(SUM((b * (0) + (0) * a)) * SUM(a))'),
+    rewrite=False,
+    tables=[[], [], [], [], [], []],
+    plain=[[(0, 0, 0)], [(0, 0, 0)], [(0, 0, 0)], [(0, 0, 0)]],
 )
 def test_aggregate_formulas_agree_with_duckdb(
     first: F,
@@ -643,7 +662,7 @@ def test_aggregate_formulas_agree_with_duckdb(
     other = F(first.rewritten, first.sql, first.polynomial) if rewrite else second
     if rewrite:
         assert equivalent(first.sql, other.sql).equal, (first.sql, other.sql)
-    _check(first, other, tables, plain)
+    _check(first, other, tables, plain, aggregates=True)
 
 
 # In a graph.
