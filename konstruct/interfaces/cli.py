@@ -1,7 +1,8 @@
 """The Konstruct command line.
 
 Exit status: 0 on success, 1 on an error (or, with ``build --strict``, on warnings), 2 on a usage
-error, 3 when ``path`` finds no connection.
+error, 3 when ``path`` or ``relate`` finds no connection, or ``define``, ``entity``, ``metric`` or
+``relate`` finds nothing by that name.
 """
 
 from __future__ import annotations
@@ -299,6 +300,46 @@ def cmd_ontology(args: argparse.Namespace, console: Console) -> int:
     return 1 if args.strict and result.violations else 0
 
 
+def _found(console: Console, question: Any) -> Any:
+    """``question()``'s answer, or None after saying what it did not find: like ``define``, a
+    name that matches nothing exits with status 3."""
+    from konstruct.analysis.query import QueryError
+
+    try:
+        return question()
+    except QueryError as error:
+        console.error(str(error), hint=error.hint, suggestions=error.suggestions)
+        return None
+
+
+def cmd_entity(args: argparse.Namespace, console: Console) -> int:
+    project = _ready(_project(args), args, console)
+    result = _found(console, lambda: project.entity(' '.join(args.name)))
+    if result is None:
+        return 3
+    _emit(console, result, args.json)
+    return 0
+
+
+def cmd_metric(args: argparse.Namespace, console: Console) -> int:
+    project = _ready(_project(args), args, console)
+    name = ' '.join(args.name) if args.name else None
+    result = _found(console, lambda: project.metric(name, limit=args.limit))
+    if result is None:
+        return 3
+    _emit(console, result, args.json)
+    return 0
+
+
+def cmd_relate(args: argparse.Namespace, console: Console) -> int:
+    project = _ready(_project(args), args, console)
+    result = _found(console, lambda: project.relate(args.start, args.end))
+    if result is None:
+        return 3
+    _emit(console, result, args.json)
+    return 0 if result.found else 3
+
+
 def cmd_history(args: argparse.Namespace, console: Console) -> int:
     project = _ready(_project(args), args, console)
     _emit(console, project.history(args.ref, limit=args.limit), args.json)
@@ -387,7 +428,11 @@ def cmd_verify(args: argparse.Namespace, console: Console) -> int:
         )
     with console.progress('Verifying the lineage against the data'):
         result = project.verify(
-            warehouse=args.warehouse, seed=args.seed, max_rows=args.rows or 10000, models=args.model
+            warehouse=args.warehouse,
+            seed=args.seed,
+            max_rows=args.rows or 10000,
+            models=args.model,
+            ontology=not args.no_ontology,
         )
     _emit(console, result, args.json)
     if not args.json:
@@ -648,7 +693,7 @@ GROUPS = (
     ('Build', ('build', 'status', 'trust', 'init', 'open', 'serve')),
     ('Lineage', ('impact', 'trace', 'path', 'explain', 'history')),
     ('Explore', ('search', 'describe', 'list', 'query', 'export')),
-    ('Business meaning', ('define', 'ontology', 'conflicts', 'check-sql')),
+    ('Business meaning', ('define', 'ontology', 'entity', 'metric', 'relate', 'conflicts', 'check-sql')),
     ('Changes', ('diff', 'gate', 'release-notes', 'verify')),
     ('Agents', ('install', 'mcp', 'receipts', 'hook')),
     ('Plugins', ('plugins',)),
@@ -722,6 +767,19 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ('konstruct ontology', 'entities, measures and relationships'),
         ('konstruct ontology --format yaml', 'the ontology.yml the build writes'),
         ('konstruct ontology --strict', 'exit 1 on a rule violation'),
+    ),
+    'entity': (
+        ('konstruct entity customer', 'its key, properties, relationships and metrics'),
+        ('konstruct entity customer --json', 'the same as JSON, for an agent'),
+    ),
+    'metric': (
+        ('konstruct metric', 'every metric, defined and proposed'),
+        ('konstruct metric lifetime value', 'one metric: definition, formula, grain and trust'),
+        ('konstruct metric orders.amount', 'the metric a column holds'),
+    ),
+    'relate': (
+        ('konstruct relate customer payment', 'the relationships between them and the joins'),
+        ('konstruct relate order customer --json', 'the same as JSON'),
     ),
     'explain': (
         ('konstruct explain customers.lifetime_value', 'its formula, down to source columns'),
@@ -1212,6 +1270,25 @@ def parser() -> argparse.ArgumentParser:
     _query_options(ontological)
     ontological.set_defaults(func=cmd_ontology)
 
+    entity = add('entity', 'one business entity: its key, properties, relationships and metrics')
+    entity.add_argument('name', nargs='+', metavar='NAME', help='an entity, or the term naming it')
+    _query_options(entity)
+    entity.set_defaults(func=cmd_entity)
+
+    metric = add('metric', 'business metrics, defined and proposed, with formula, grain and confidence')
+    metric.add_argument(
+        'name', nargs='*', metavar='NAME', help='a metric or a column holding one; all of them if left out'
+    )
+    metric.add_argument('-n', '--limit', type=int, metavar='N', help='at most N metrics')
+    _query_options(metric)
+    metric.set_defaults(func=cmd_metric)
+
+    relating = add('relate', 'how two entities connect: relationships, cardinality and joins')
+    relating.add_argument('start', metavar='FROM', help='an entity, such as customer')
+    relating.add_argument('end', metavar='TO', help='another entity, such as payment')
+    _query_options(relating)
+    relating.set_defaults(func=cmd_relate)
+
     explaining = add('explain', "a column's formula, composed down to its source columns")
     explaining.add_argument('ref', metavar='COLUMN', help='e.g. orders.amount')
     explaining.add_argument(
@@ -1369,6 +1446,11 @@ def parser() -> argparse.ArgumentParser:
     )
     verify.add_argument(
         '--strict', action='store_true', help='exit with status 1 if any influence is unexplained'
+    )
+    verify.add_argument(
+        '--no-ontology',
+        action='store_true',
+        help="do not check the ontology's keys and relationships over whole tables",
     )
     mutating = verify.add_argument_group(
         'mutation testing', 'with --mutate: would the dbt tests fail if a model were wrong?'

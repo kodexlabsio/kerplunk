@@ -290,13 +290,14 @@ def test_the_skills_describe_real_output(jaffle_repo: Path, capsys: pytest.Captu
     claims.hold(
         'write-query',
         out,
-        'order -> customer  many-to-one  orders.customer_id = customers.customer_id   tested',
+        'order -> customer  many-to-one  orders.customer_id = customers.customer_id   declared  tested',
     )
     assert re.search(r'verified \d+/\d+', out)
     # Each measure with its status, owner and grain.
     assert 'each with its status, owner and grain' in ' '.join(toolkit.skill('write-query').split())
     assert re.search(
-        r'Customer lifetime value +approved +Priya Shah \(Head of Finance\), one row per customer', out
+        r'Customer lifetime value +approved +declared +Priya Shah \(Head of Finance\), one row per customer',
+        out,
     )
 
     _, out = claims.run('conflicts', '--no-write')

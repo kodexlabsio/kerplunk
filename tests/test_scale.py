@@ -126,6 +126,25 @@ def test_large_project(tmp_path: Path) -> None:
     print(f'\n{MODELS} models: full build {full:.1f}s, --update {incremental:.1f}s, {lineage} lineage edges')
 
 
+def test_the_world_model_at_scale(tmp_path: Path) -> None:
+    """Every metric, one entity and a relate on the generated project, once each model has an
+    entity and a measure (as .kodex/scripts/benchmark.py gives them)."""
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[1] / '.kodex' / 'scripts' / 'benchmark.py'
+    spec = importlib.util.spec_from_file_location('benchmark', script)
+    assert spec is not None and spec.loader is not None
+    benchmark = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(benchmark)
+    make_project(tmp_path)
+    graph = Project(tmp_path).build(run_dbt=False, warehouses=False).graph
+    found = benchmark.world_model(graph, MODELS)
+    assert found['entities'] == MODELS and found['metrics'] == 2 * MODELS
+    assert found['relate_hops'] > 1
+    assert found['metrics_s'] < 10 and found['entity_ms'] < 1000 and found['relate_ms'] < 500, found
+    print(f'\n{MODELS} models: {found}')
+
+
 def _graph(root: Path) -> str:
     data = json.loads((root / 'konstruct-out' / 'graph.json').read_text())
     data['meta'] = {

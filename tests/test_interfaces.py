@@ -393,6 +393,89 @@ def landed(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope='module')
+def measured(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A dbt project whose manifest has a semantic layer, and a Looker view and a Power BI table
+    over its model with measures, one of them filtered: the metrics people define in tools."""
+    root = tmp_path_factory.mktemp('interfaces') / 'measured'
+    (root / 'models').mkdir(parents=True)
+    (root / 'dbt_project.yml').write_text('name: shop\nprofile: shop\n')
+    sql = 'select 1 as order_id, 2.0 as amount'
+    (root / 'models' / 'orders.sql').write_text(sql)
+    model = {
+        'unique_id': 'model.shop.orders',
+        'resource_type': 'model',
+        'name': 'orders',
+        'alias': 'orders',
+        'package_name': 'shop',
+        'database': 'wh',
+        'schema': 'mart',
+        'relation_name': '"wh"."mart"."orders"',
+        'original_file_path': 'models/orders.sql',
+        'fqn': ['shop', 'orders'],
+        'raw_code': sql,
+        'compiled_code': sql,
+        'language': 'sql',
+        'depends_on': {'nodes': [], 'macros': []},
+        'config': {'materialized': 'table'},
+        'columns': {},
+        'checksum': {'checksum': '1'},
+    }
+    semantic = {
+        'name': 'orders',
+        'original_file_path': 'models/semantic.yml',
+        'depends_on': {'nodes': ['model.shop.orders']},
+        'measures': [
+            {'name': 'order_total', 'agg': 'sum', 'expr': 'amount', 'non_additive_dimension': {'name': 'day'}}
+        ],
+    }
+    revenue = {
+        'name': 'revenue',
+        'label': 'Revenue',
+        'description': 'Every payment.',
+        'type': 'simple',
+        'original_file_path': 'models/semantic.yml',
+        'type_params': {'measure': {'name': 'order_total'}},
+        'filter': {'where_filters': [{'where_sql_template': "{{ Dimension('order__status') }} = 'done'"}]},
+    }
+    manifest = {
+        'metadata': {'adapter_type': 'duckdb'},
+        'nodes': {model['unique_id']: model},
+        'sources': {},
+        'exposures': {},
+        'semantic_models': {'semantic_model.shop.orders': semantic},
+        'metrics': {'metric.shop.revenue': revenue},
+    }
+    (root / 'target').mkdir()
+    (root / 'target' / 'manifest.json').write_text(json.dumps(manifest))
+    (root / 'views.lkml').write_text(
+        'view: orders {\n  sql_table_name: wh.mart.orders ;;\n'
+        '  measure: total { type: sum sql: ${TABLE}.amount ;; }\n'
+        '  measure: big { type: count filters: [amount: ">1"] }\n}\n'
+    )
+    Project(root).build(run_dbt=False, warehouses=False)
+    return root
+
+
+@pytest.fixture(scope='module')
+def emptied(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Keyed tables with no rows: verify checks no key or relationship, and says why."""
+    import duckdb
+
+    root = tmp_path_factory.mktemp('interfaces') / 'emptied'
+    root.mkdir()
+    con = duckdb.connect(str(root / 'shop.duckdb'))
+    con.execute('create table main.customers (customer_id integer primary key)')
+    con.execute('create table main.orders (order_id integer primary key, customer_id integer)')
+    con.close()
+    (root / 'report.sql').write_text(
+        'create table main.report as select o.order_id from main.orders o '
+        'join main.customers c on o.customer_id = c.customer_id'
+    )
+    Project(root).build()
+    return root
+
+
+@pytest.fixture(scope='module')
 def misbound(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """An entity whose key has no uniqueness test: an ontology rule broken."""
     from tests.test_ontology import _sql_project
@@ -499,6 +582,14 @@ def test_exit_statuses(
     (newer / 'konstruct-out' / 'graph.json').write_text(json.dumps({**graph, 'format_version': 99}))
     copy = tmp_path / 'unexplained'
     shutil.copytree(unexplained, copy)
+    apart = tmp_path / 'apart'  # two entities, keyed by primary keys, that nothing joins
+    apart.mkdir()
+    import duckdb
+
+    con = duckdb.connect(str(apart / 'shop.duckdb'))
+    con.execute('create table main.stores (store_id integer primary key)')
+    con.execute('create table main.regions (region_id integer primary key)')
+    con.close()
 
     def status(*args: str) -> int:
         try:
@@ -525,6 +616,9 @@ def test_exit_statuses(
         'question answered': status('-C', str(small), 'describe', 'orders'),
         'name matches nothing': status('-C', str(small), 'describe', 'no_such_table'),
         'path finds no connection': status('-C', str(small), 'path', 'orders', 'refunds'),
+        'entity matches nothing': status('-C', str(small), 'entity', 'no such entity'),
+        'relate finds no connection': status('-C', str(apart), 'relate', 'store', 'region'),
+        'metric matches nothing': status('-C', str(small), 'metric', 'no such metric'),
         'define matches nothing': status('-C', str(small), 'define', 'no such term'),
         'define finds no term on a column': status('-C', str(small), 'define', 'orders.amount'),
         'list with an unknown kind': status('-C', str(small), 'list', 'widgets'),
@@ -604,7 +698,16 @@ def _type(value: Any) -> str:
 
 
 # Objects keyed by data (entity names, node kinds, input names) rather than by field names.
-MAPS = ('build .nodes', 'build .edges', 'graph.json .meta.inputs', 'check-sql --history .rules')
+MAPS = (
+    'build .nodes',
+    'build .edges',
+    'graph.json .meta.inputs',
+    'graph.json .meta.integrity.keys',
+    'graph.json .meta.integrity.links',
+    'graph.json .nodes[].attrs.measures',
+    'graph.json .nodes[].attrs.measure_filters',
+    'check-sql --history .rules',
+)
 
 
 def shape(document: str, value: Any) -> dict[str, str]:
@@ -662,6 +765,9 @@ QUESTIONS: dict[str, list[list[str]]] = {
         ['define', 'completed', 'order'],
     ],
     'ontology': [['ontology']],
+    'entity': [['entity', 'customer'], ['entity', 'order']],
+    'metric': [['metric'], ['metric', 'lifetime', 'value']],
+    'relate': [['relate', 'customer', 'payment'], ['relate', 'payment', 'customer']],
     'explain': [
         ['explain', 'customers.customer_lifetime_value'],
         ['explain', 'customer_ltv.lifetime_value'],
@@ -756,6 +862,8 @@ def test_json_documents(
     inputs: Path,
     landed: Path,
     checked: Path,
+    measured: Path,
+    emptied: Path,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -789,6 +897,11 @@ def test_json_documents(
     shutil.copytree(small, tmp_path / 'small')
     add('build', 'build', str(tmp_path / 'small'), '--no-warehouse', '--json')
     add('verify', '-C', str(copy), 'verify', '--json')
+    # Verified, the ontology's keys and relationships carry what verify found.
+    add('ontology', '-C', str(copy), 'ontology', '--json')
+    add('entity', '-C', str(copy), 'entity', 'customer', '--json')
+    add('relate', '-C', str(copy), 'relate', 'customer', 'payment', '--json')
+    add('verify', '-C', str(copy), 'verify', '-m', 'orders', '--json')  # a run limited to one model
     add('verify', '-C', str(unexplained), 'verify', '--json')
     from tests.test_verify import make_project
 
@@ -797,7 +910,9 @@ def test_json_documents(
         tmp_path / 'noisy', 'create table main.noisy as select id, random() as r from raw.orders'
     )
     add('verify', '-C', str(noisy.root), 'verify', '--json')  # a model verify skips, and why
-    for root in (copy, small, revenue, unexplained, landed):
+    add('verify', '-C', str(emptied), 'verify', '--json')  # keys and relationships it cannot check
+    add('metric', '-C', str(measured), 'metric', '--json')
+    for root in (copy, small, revenue, unexplained, landed, measured):
         documents.setdefault('graph.json', []).append(
             json.loads((root / 'konstruct-out' / 'graph.json').read_text())
         )

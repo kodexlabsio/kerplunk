@@ -1,26 +1,26 @@
 # The Ontology
 
-Konstruct derives an ontology of the data stack from its graph: the business objects (entities), what is measured about them (measures), how they relate, where each measure comes from and how far to trust it, and the rules the build holds it to. Most of it is read from the code and the tests rather than declared; `definitions.yml` names what code cannot say. Every build writes it to `konstruct-out/ontology.yml`, and agents read it through the `ontology` MCP tool.
+Konstruct derives an ontology of the data stack from its graph: the business objects (entities), what is measured about them (measures), how they relate, where each measure comes from and how far to trust it, and the rules the build holds it to. Most of it is read from the code and the tests rather than declared; `definitions.yml` names what code cannot say. Every build writes it to `konstruct-out/ontology.yml`, and agents read it through the `ontology`, `entity`, `metric` and `relate` MCP tools.
 
 ```text
 $ konstruct ontology
 Ontology: 3 entities, 2 measures, 2 relationships and no rule violations.
 
 Entities (3)
-  customer  key customer_id  customers, stg_customers  term 'Customer'
-  order     key order_id     orders, stg_orders
-  payment   key payment_id   stg_payments
+  customer  key customer_id  customers, stg_customers  declared  term 'Customer'
+  order     key order_id     orders, stg_orders        declared
+  payment   key payment_id   stg_payments              declared
 
 Measures (2)
-  Customer lifetime value  approved  Priya Shah (Head of Finance), one row per customer
+  Customer lifetime value  approved  verified  Priya Shah (Head of Finance), one row per customer
     customer_ltv.lifetime_value        = SUM(raw_payments.amount / 100)  verified 3/3
     customers.customer_lifetime_value  = SUM(raw_payments.amount / 100)  verified 2/2
-  Order amount  approved  Priya Shah (Head of Finance), one row per order
+  Order amount  approved  verified  Priya Shah (Head of Finance), one row per order
     orders.amount  = SUM(raw_payments.amount / 100)  verified 2/2
 
 Relationships (2)
-  order → customer  many-to-one  orders.customer_id = customers.customer_id   tested
-  payment → order   many-to-one  stg_payments.order_id = stg_orders.order_id
+  order → customer  many-to-one  orders.customer_id = customers.customer_id   declared  tested
+  payment → order   many-to-one  stg_payments.order_id = stg_orders.order_id  inferred
 ```
 
 ## What It Contains
@@ -33,6 +33,62 @@ Relationships (2)
 | **Provenance and trust** | For each measure column: its sources, whether its formula reaches source, its verified edges and its usage; for each measure: its status, owner and approval date |
 | **Concepts** | The hierarchy of business terms: each term's `broader` terms in `definitions.yml` or a SKOS or OWL [vocabulary](definitions.md#vocabularies), with the terms that are kinds of it, so *net revenue* is a kind of *revenue* and *revenue* a kind of *measure* |
 | **Rules** | What the build holds the ontology to. A violation is a build warning, so `konstruct build --strict` fails on it |
+
+## Confidence
+
+Every entity, measure and relationship carries a `confidence`: the strongest its evidence supports, and never more. Its `evidence` lists what supports it.
+
+| Confidence | Means | Entity | Relationship | Measure |
+|------------|-------|--------|--------------|---------|
+| `verified` | [`konstruct verify`](verify.md) checked it against the warehouse's data | Every one of its key columns is unique and never null | Every value of the referring column is found in the key and the key is unique; a one-to-one relationship whose referring column verify finds repeated is many-to-one | It is declared, its columns compute it one way, and every lineage edge from them to source is confirmed |
+| `declared` | A person stated it | Every one of its keys has a `unique` test, a primary key, an identifier field, an Ossie primary key or a term in `definitions.yml` | A dbt `relationships` test or an Ossie relationship | A term in `definitions.yml`, a vocabulary or an Ossie model |
+| `inferred` | Konstruct read it from the code alone | A key that only a grain or an ontology pack's binding shows | A join in SQL, or an ontology pack | An ontology pack's term, whatever its lineage |
+
+An entity is only as trusted as its least trusted key: one key from a pack makes it inferred, and verify confirming some of its keys but not the others leaves it declared, with evidence naming the keys it did not check. Lineage confirms a measure's SQL, not a pack's binding by table names or an Ossie metric's own expression, so neither becomes verified.
+
+A check that fails never raises a confidence: the entity or relationship keeps the confidence its other evidence gives, `check` is `failed`, and the text output shows `check failed` beside it. A key verify finds repeated also takes away the cardinality it gave: a relationship to it has its cardinality left out and its `check` failed, and one claimed one-to-one whose referring column repeats becomes many-to-one, which does not fail it.
+
+## Entities, Metrics and Relationships
+
+Three commands, and the MCP tools of the same names, work through the ontology one question at a time, so a person or an agent can reason about customers, orders and revenue rather than about tables. Every fact they give keeps its confidence and evidence.
+
+`konstruct entity <name>` gives one entity: its key, the relations holding one row per instance, its confidence and evidence, its properties (the other columns of those relations, gathered by name across them, with their types, descriptions and business terms, and for a referring column the entity it refers to), the relationships it takes part in and the metrics whose grain it is.
+
+`konstruct relate <from> <to>` gives how two entities connect. When one relation holds one row per instance of two entities (orders keyed by both `order_id` and `invoice_id`, each unique there by a test, a primary key or an identifier field, or as verify confirmed), each of its rows is one of both, so a step between them along that row is one-to-one, as trusted as the less trusted of those two key columns, joins nothing and counts no relationship, whether it is the whole answer or a step in the middle: a payment reaches its own order's invoice through the order's row, not through the customer's latest invoice. A key column with no uniqueness guarantee there, such as a referring column a definition also lists, gives no such step, and one verify found repeated gives a step whose check failed. It gives the path with the fewest relationships verify found the data contradicting, then the fewest relationships, then the most trusted, each walked with its cardinality in that direction, its columns, its confidence and its check; the cardinality of the whole path (`one-to-many` means one row of the first can match several of the second, so aggregate before joining); its confidence, the weakest of the relationships on the way, so a path through an inferred join is inferred however many verified ones it also crosses; its `check`, `failed` when verify contradicted a relationship on the way, which the text output says can lose or repeat rows; and the SQL joins that follow it, over the warehouse's relation names, with an alias each time a relation is joined (`orders`, then `orders_2` when the path comes back to it). Each join is on the columns of a relationship; where the next relationship starts from another relation holding the same entity, that relation is joined first on the entity's key in both, never on a column's name alone:
+
+```text
+$ konstruct relate customer payment
+How customer → payment (2 relationships)
+
+  cardinality  one-to-many
+  confidence   inferred
+  One customer can match several payment rows: aggregate them before joining.
+
+Path (2)
+  customer → order  one-to-many  orders.customer_id = customers.customer_id   declared
+  order → payment   one-to-many  stg_payments.order_id = stg_orders.order_id  inferred
+
+Join
+  FROM jaffle_shop.main.customers AS customers
+  JOIN jaffle_shop.main.orders AS orders ON orders.customer_id = customers.customer_id
+  JOIN jaffle_shop.main.stg_orders AS stg_orders ON stg_orders.order_id = orders.order_id
+  JOIN jaffle_shop.main.stg_payments AS stg_payments ON stg_payments.order_id = stg_orders.order_id
+```
+
+It exits with status 3 when either name is no entity or no relationship connects them; `konstruct path` then shows how their relations connect in the lineage.
+
+`konstruct metric` lists every metric (`-n` for at most so many, with the number found), and `konstruct metric <name>` gives the metrics a name, a synonym or a column holding one finds, each with its definition, formula, aggregation and whether it adds up across groups (a sum or a count does; an average, a distinct count or a measure its definition makes non-additive does not; for a price or a balance it cannot be said), grain, required filters, unit, owner, status, source, columns with their verified edges, confidence and evidence. A metric's grain and entity are `declared` (`grain_confidence`) only when its own definition states the grain (a pack's grain, written for the source system's table, is inferred); otherwise Konstruct read them from the relation that holds it, and the text output says `inferred` beside the grain. Like `define`, it exits with status 3 when a name finds nothing, as `konstruct entity` does. Metrics come from:
+
+| Source | Confidence |
+|--------|------------|
+| The ontology's measures: `definitions.yml`, a vocabulary, an Ossie model | `declared`, or `verified` as above |
+| An ontology pack's measures | `inferred` |
+| dbt's semantic layer: each metric, with the aggregation, expression and model of the measure a simple metric names, its filters and its measure input's, and whether the measure is non-additive. A measure no metric names is not listed | `declared` |
+| The measures of Looker views and Power BI semantic models, with the warehouse columns each reads and, for Looker, its `filters` as required filters | `declared` |
+| The measures a plugin's input gives an exposure, named for that input | `inferred` |
+| Proposals, read from the code where nothing defines a metric | `inferred` |
+
+A formula is written as it is defined (an Ossie expression, a DAX measure, a LookML type over its SQL) or composed from SQL; an aggregation SQL cannot state without more, such as a percentile, has no formula rather than a wrong one. A column a business term, a dbt metric or a BI measure already reads is not proposed again. A proposal is one of: a column whose SQL aggregates with `SUM`, `COUNT` or `AVG` (through a `COALESCE`, cast or rounding) in a relation with a grain, either one that holds an entity or one grouped by a single column named for an entity; a numeric column of an entity's relation named as a measure (`amount`, `price`, `quantity`, `total`, `fee` and the like) whose SQL holds one value per row, with no aggregate or window, and whose lineage reaches no relation held at another entity's grain, since a value read from an order onto each of its payments is repeated and double counts when summed; and the count of each entity's instances by its key. A minimum, a maximum, a median, a rate, a ratio, a share, a date or a flag is not proposed, and nor is a key or a column described only in YAML. A proposal is marked `proposed`, has no status and no owner, and is never approved: the text output says `proposed` where a defined metric shows its status. On the example built without its `definitions.yml`, Konstruct proposes the customer lifetime value, the order amount and its parts by payment method, the number of orders per customer, the payment amount, and the counts of customers, orders and payments, each `inferred` with its formula and grain.
 
 ## Rules
 
@@ -84,6 +140,8 @@ Every pack that matches a schema binds, so one schema that a loader fills from s
 |-----------|-----|
 | `konstruct ontology` | The summary above. `--format yaml` for the file's contents, `--json` for structured output, `--strict` to exit 1 when a rule is broken |
 | `ontology.yml` | Written by every build beside `graph.json`, and refreshed by `konstruct verify`. Its order is fixed, so it diffs cleanly in version control |
+| `konstruct entity`, `metric` and `relate` | One entity, the metrics, and how two entities connect, as above; `--json` for structured output |
+| MCP `entity`, `metric` and `relate` | The same, for an agent to learn an entity, take a metric's approved definition or see a proposal for what it is, and join two entities along their relationships |
 | MCP `ontology` | The whole ontology, or with `name` one entity (by its name or its term's) or measure and the relationships that touch it, for an agent to learn the shape of the business before it writes a query that joins or aggregates. Case, spaces and underscores are not told apart, and a plural finds the singular |
 | `impact` and `trace` | Each lists the business entities whose relations the walk reaches, with those relations, so a change to `stg_payments.amount` says it touches customers, orders and payments. A relation that holds one row per instance of an entity records it in its `entities` attribute in `graph.json` (a relation can hold the keys of more than one), which `describe` shows. A bridge table with a composite key names no entity |
-| Python | `Project.ontology()` returns an `Ontology` with `entities`, `measures`, `relationships`, `rules` and `violations`; `entity(name)` and `measure(name)` match names as the MCP tool does |
+| Python | `Project.ontology()` returns an `Ontology` with `entities`, `measures`, `relationships`, `rules` and `violations`; `entity(name)` and `measure(name)` match names as the MCP tool does. `Project.entity(name)`, `Project.metric(name)` and `Project.relate(start, end)` give an `EntityDetail`, `Metrics` and a `Connection` |

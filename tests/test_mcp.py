@@ -40,6 +40,9 @@ async def _exercise(client: Client) -> None:
         'conflicts',
         'define',
         'ontology',
+        'entity',
+        'metric',
+        'relate',
         'explain',
         'history',
         'path',
@@ -104,6 +107,22 @@ async def _exercise(client: Client) -> None:
     measure = structured(await client.call_tool('ontology', {'name': 'order amount'}))
     assert measure['measures'][0]['columns'][0]['formula'] == 'SUM(raw_payments.amount / 100)'
     assert (await client.call_tool('ontology', {'name': 'nothing'})).is_error
+    customer = structured(await client.call_tool('entity', {'name': 'customers'}))
+    assert (customer['name'], customer['key']) == ('customer', 'customer_id')
+    assert 'first_name' in {p['name'] for p in customer['properties']}
+    ltv = structured(await client.call_tool('metric', {'name': 'lifetime value'}))['metrics']
+    assert [(m['name'], m['status'], m['proposed']) for m in ltv] == [
+        ('Customer lifetime value', 'approved', False)
+    ]
+    first = structured(await client.call_tool('metric', {'limit': 1}))
+    assert len(first['metrics']) == 1 and first['total'] > 1
+    every = structured(await client.call_tool('metric', {}))['metrics']
+    assert all(m['confidence'] == 'inferred' and 'status' not in m for m in every if m['proposed'])
+    joined = structured(await client.call_tool('relate', {'start': 'customer', 'end': 'payment'}))
+    assert (joined['found'], joined['cardinality']) == (True, 'one-to-many')
+    assert joined['join'].startswith('FROM jaffle_shop.main.customers AS customers\nJOIN ')
+    error = await client.call_tool('entity', {'name': 'nothing'})
+    assert error.is_error and UNTRUSTED_CONTENT in str(error.content)
     explained = structured(await client.call_tool('explain', {'ref': 'customer_ltv.lifetime_value'}))
     assert explained['composed'] == 'SUM(raw_payments.amount / 100)' and 'english' not in explained
     worded = structured(
@@ -208,6 +227,10 @@ def test_marks_repository_text_as_untrusted(jaffle_built_graph: Path) -> None:
         ('define', {'ref': 'lifetime value'}),
         ('ontology', {}),
         ('ontology', {'name': 'Customer'}),
+        ('entity', {'name': 'customer'}),
+        ('metric', {}),
+        ('metric', {'name': 'lifetime value'}),
+        ('relate', {'start': 'customer', 'end': 'payment'}),
         ('explain', {'ref': 'customer_ltv.lifetime_value'}),
         ('path', {'start': 'raw_orders', 'end': 'orders'}),
         ('query', {'question': 'what breaks if stg_payments.amount changes'}),

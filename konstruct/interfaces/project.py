@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from konstruct.engine.trust import Trust
     from konstruct.plugins.registry import Plugins
     from konstruct.semantics.ontology import Ontology
+    from konstruct.semantics.world import Connection, EntityDetail, Metrics
 
 OUT_DIR = 'konstruct-out'
 
@@ -105,7 +106,8 @@ class Project:
             found = find_out_dir(self.path)
             self.out_dir = found if (found / 'graph.json').is_file() else self.path / OUT_DIR
         self._graph: Graph | None = None
-        self._stamp: tuple[float, int] | None = None
+        self._stamp: tuple[int, ...] | None = None
+        self._derived: tuple[tuple[int, int, bytes], Ontology] | None = None
 
     def __repr__(self) -> str:
         return f'Project({str(self.path)!r})'
@@ -219,12 +221,14 @@ class Project:
         self._stamp = self._file_stamp()
         return result
 
-    def _file_stamp(self) -> tuple[float, int] | None:
+    def _file_stamp(self) -> tuple[int, ...] | None:
         try:
             stat = self.graph_path.stat()
         except OSError:
             return None
-        return (stat.st_mtime, stat.st_size)
+        # The change time too: a rewrite that keeps the size and resets the modification time
+        # still moves it, as nothing but the system can set it.
+        return (stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns, stat.st_ino)
 
     @property
     def graph(self) -> Graph:
@@ -510,6 +514,9 @@ class Project:
         down to source and how many edges on the way are verified; relationships come from dbt
         ``relationships`` tests and from joins that match a column to an entity's key. The rules
         list what breaks the ontology now. ``konstruct build`` writes the same to ``ontology.yml``.
+        It is derived once and kept, for :meth:`entity`, :meth:`metric` and :meth:`relate` too,
+        until the graph is reread, gains a node or an edge, or its ``meta`` changes; after editing
+        a node or an edge in place, call ``graph.changed()``. Each call returns a copy of its own.
 
         Returns:
             The entities, measures, relationships and rules.
@@ -521,9 +528,106 @@ class Project:
             ontology.measure('customer lifetime value').columns[0].formula
             ontology.violations  # [] when every rule holds
         """
+        import copy
+
+        return copy.deepcopy(self._world())
+
+    def entity(self, name: str) -> EntityDetail:
+        """One business entity: how it is identified, what describes it, how it relates to the
+        others and what is measured about it.
+
+        Args:
+            name: The entity's name or its term's (``customer``, ``Customer``, ``customers``);
+                case, spaces and underscores are not told apart, and a plural finds the singular.
+
+        Returns:
+            The entity with its key, the relations holding it, its confidence and evidence; its
+            properties (the columns that describe it, with their descriptions, types and terms);
+            the relationships it takes part in; and the metrics whose grain it is.
+
+        Raises:
+            konstruct.QueryError: No entity has that name.
+
+        Example::
+
+            customer = project.entity('customer')
+            customer.entity.confidence  # 'verified' once konstruct verify confirmed its key
+            [p.name for p in customer.properties]
+        """
+        from konstruct.semantics.world import entity
+
+        return entity(self.graph, name, self._world())
+
+    def _world(self) -> Ontology:
+        """The ontology of the current graph, derived once and kept while the graph and its
+        ``meta`` are unchanged, so the MCP server and a script asking many questions derive it
+        once; callers get copies, never the kept one. A graph reread from ``graph.json``, a node or
+        edge added, or a change to ``meta`` (verify's checks) derives it again. A node or edge
+        edited in place is seen once ``graph.changed()`` is called, as every query's index needs."""
+        import hashlib
+
         from konstruct.semantics.ontology import derive
 
-        return derive(self.graph)
+        graph = self.graph
+        meta = hashlib.blake2b(jsonio.dumps(graph.meta).encode('utf-8'), digest_size=16).digest()
+        key = (id(graph), graph._versions['graph'], meta)
+        if self._derived is None or self._derived[0] != key:
+            self._derived = (key, derive(graph))
+        return self._derived[1]
+
+    def metric(self, name: str | None = None, limit: int | None = None) -> Metrics:
+        """The business metrics, or those a name finds, each with its definition, formula, grain,
+        filters, owner, status and confidence.
+
+        Metrics are the ontology's measures, those dbt's semantic layer, Looker and Power BI
+        define, and proposals Konstruct reads from the code where nothing defines one: aggregate
+        columns with a grain, numeric columns named as measures and the count of each entity. A
+        proposal is ``inferred``, has no status and is never approved.
+
+        Args:
+            name: A metric's name, or a column that holds it (``orders.amount``); all of them when
+                left out.
+            limit: At most this many metrics; ``total`` still counts every one found.
+
+        Returns:
+            The metrics found: defined ones first, then proposals.
+
+        Raises:
+            konstruct.QueryError: ``name`` finds no metric.
+
+        Example::
+
+            [m.name for m in project.metric().metrics if m.proposed]
+            project.metric('lifetime value').metrics[0].formula
+        """
+        from konstruct.semantics.world import metrics
+
+        return metrics(self.graph, name, self._world(), limit)
+
+    def relate(self, start: str, end: str) -> Connection:
+        """How two business entities connect: the relationships between them, the cardinality
+        and confidence of the path, and the SQL joins that follow it.
+
+        Args:
+            start: The entity to start from, named as :meth:`entity` takes it.
+            end: The entity to reach.
+
+        Returns:
+            The shortest path of relationships, the most trusted of the shortest, with whether it
+            fans out (``one-to-many``: aggregate before joining) and the joins; ``found`` is
+            false when no relationship connects them.
+
+        Raises:
+            konstruct.QueryError: ``start`` or ``end`` is no entity.
+
+        Example::
+
+            connection = project.relate('customer', 'payment')
+            print(connection.join)  # FROM ... AS customers JOIN ... AS orders ON ...
+        """
+        from konstruct.semantics.world import relate
+
+        return relate(self.graph, start, end, self._world())
 
     def define(self, ref: str) -> query.Definitions:
         """The business definition of a term, or the terms that define a column.
@@ -821,6 +925,7 @@ class Project:
         max_rows: int = 10000,
         models: Sequence[str] | None = None,
         write: bool = True,
+        ontology: bool = True,
     ) -> Verification:
         """Check the graph's column lineage against the data.
 
@@ -837,9 +942,12 @@ class Project:
                 the DuckDB or Postgres warehouse the build read.
             seed: The random seed, so a run can be repeated exactly.
             max_rows: The most rows sampled from any input.
-            models: Only these models or tables.
+            models: Only these models or tables; the ontology's keys and relationships are
+                checked only where all their tables are among them.
             write: Write ``VERIFY.md`` and ``verify.json``, and mark verified edges in
                 ``graph.json``, ``graph.html``, ``explain.json`` and ``ontology.yml``.
+            ontology: Also check each key and relationship of the ontology over its whole tables,
+                on DuckDB and Postgres; ``False`` reads only what the lineage check needs.
 
         Returns:
             One result per model, with ``totals()`` across them.
@@ -859,15 +967,21 @@ class Project:
         graph = self.graph
         target = self._target(warehouse)
         result = verify(
-            graph, self.root, target, seed=seed, max_rows=max_rows, only=list(models) if models else None
+            graph,
+            self.root,
+            target,
+            seed=seed,
+            max_rows=max_rows,
+            only=list(models) if models else None,
+            ontology=ontology,
         )
         result.warehouse = self._shown(target, result.warehouse)
         if write:
             annotate(graph, result)
             page, explain = self.out_dir / 'graph.html', self.out_dir / 'explain.json'
             shown = page.is_file() or explain.is_file()
-            ontology = derive_ontology(graph) if shown or (self.out_dir / 'ontology.yml').is_file() else None
-            data = viewer_data(graph, self.out_dir, ontology=ontology) if shown else None
+            derived = derive_ontology(graph) if shown or (self.out_dir / 'ontology.yml').is_file() else None
+            data = viewer_data(graph, self.out_dir, ontology=derived) if shown else None
             if data is not None:
                 # Before graph.json, as the build writes it: `konstruct serve` reloads explain.json
                 # when graph.json changes.
@@ -876,8 +990,8 @@ class Project:
             self._stamp = self._file_stamp()
             if data is not None and page.is_file():
                 write_html(graph, page, data=data)
-            if ontology is not None and (self.out_dir / 'ontology.yml').is_file():
-                ontology.write(self.out_dir / 'ontology.yml')
+            if derived is not None and (self.out_dir / 'ontology.yml').is_file():
+                derived.write(self.out_dir / 'ontology.yml')
             jsonio.write_text(self.out_dir / 'VERIFY.md', result.markdown())
             jsonio.write_text(self.out_dir / 'verify.json', json.dumps(document(result), indent=1) + '\n')
         return result

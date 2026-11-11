@@ -19,12 +19,24 @@ Most of it is read from the code rather than declared:
 - **Rules** are what the build holds the ontology to; a violation is a build warning, so
   ``konstruct build --strict`` fails on it.
 
+Every entity, measure and relationship carries a confidence, the strongest that its evidence
+supports and never more:
+
+- ``verified``: ``konstruct verify`` checked it against the warehouse's data (every key column of
+  an entity unique and never null, every value of a relationship's referring column found in the
+  key it refers to, every lineage edge of a measure's columns confirmed);
+- ``declared``: a person stated it, in a dbt test or constraint, a primary key or identifier
+  field, ``definitions.yml``, a vocabulary or an Ossie model;
+- ``inferred``: Konstruct read it from the code alone: an identifier's name and a grain, a join
+  in SQL, or an ontology pack bound to tables by their names.
+
 ``konstruct build`` writes the result to ``ontology.yml`` beside the graph.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -38,9 +50,13 @@ from konstruct.core.graph import RELATION_KINDS, Graph, Node
 from konstruct.core.sql import PARSE_ERRORS
 
 if TYPE_CHECKING:
+    from konstruct.analysis.explain import Explainer
     from konstruct.interfaces.layout import Style
 
 ONTOLOGY_VERSION = 1
+
+CONFIDENCES = ('verified', 'declared', 'inferred')
+"""The confidences a fact can carry, strongest first."""
 
 # An identifier suffix: ``_id``, ``_key``, ``_pk`` or ``_sk`` in any case, or camelCase ``Id``/``Key``.
 # A bare lower-case ``id`` ending a word (``paid``, ``valid``, ``uuid``) is not one.
@@ -73,6 +89,14 @@ class Entity:
     """The business term that names it, if one does."""
     description: str | None = None
     """The term's definition, if one names it."""
+    confidence: str = 'inferred'
+    """As trusted as its least trusted key: ``verified`` when ``konstruct verify`` found every one
+    of its key columns unique and never null; ``declared`` when a test, constraint, primary key,
+    identifier field, Ossie model or term of kind entity states every one of them; ``inferred``
+    when only names, a grain or an ontology pack show one of them."""
+    check: str | None = None
+    """``confirmed`` or ``failed``: what ``konstruct verify`` found of its key columns in the
+    warehouse, with the detail in ``evidence``; left out when it checked none."""
     key_ids: list[str] = field(default_factory=list, repr=False)
     """The graph ids of the key columns, for tools; not written to ``ontology.yml``."""
 
@@ -130,6 +154,12 @@ class Measure:
     expression: str | None = None
     """For a measure defined as a metric in an Apache Ossie model, the metric's own expression; its
     columns are then the columns the expression reads."""
+    confidence: str = 'inferred'
+    """``verified`` when ``konstruct verify`` confirmed every lineage edge from its columns to
+    source; ``declared`` when ``definitions.yml``, a vocabulary or an Ossie model defines it;
+    ``inferred`` when an ontology pack bound it to the project's tables by their names."""
+    evidence: list[str] = field(default_factory=list)
+    """Where it comes from and what checked it."""
 
 
 @dataclass
@@ -148,7 +178,14 @@ class Relationship:
     tested: bool = False
     """Whether a dbt ``relationships`` test vouches for it, rather than only a join."""
     evidence: list[str] = field(default_factory=list)
-    """The tests and joins that show it."""
+    """The tests and joins that show it, and what ``konstruct verify`` found."""
+    confidence: str = 'inferred'
+    """``verified`` when ``konstruct verify`` found every value of the referring column in the
+    key it refers to, and that key unique; ``declared`` when a dbt ``relationships`` test or an
+    Ossie model states it; ``inferred`` when only a join or an ontology pack shows it."""
+    check: str | None = None
+    """``confirmed`` or ``failed``: what ``konstruct verify`` found in the warehouse, with the
+    detail in ``evidence``; left out when it did not check it."""
     columns: tuple[str, str] | None = field(default=None, repr=False)
     """The graph ids of the joining columns in ``via``, for tools; not written to ``ontology.yml``."""
 
@@ -191,6 +228,9 @@ class Ontology:
     """The rules and their violations."""
     concepts: list[Concept] = field(default_factory=list)
     """The concept hierarchy: each term with a broader or narrower term."""
+    unique_ids: frozenset[str] = field(default_factory=frozenset, repr=False)
+    """The graph ids of the columns a test, a primary key or an identifier field shows unique,
+    for tools; not written to ``ontology.yml``."""
 
     @property
     def violations(self) -> list[str]:
@@ -210,16 +250,16 @@ class Ontology:
     def to_dict(self) -> dict[str, Any]:
         return {
             'version': ONTOLOGY_VERSION,
-            'entities': [_compact(asdict(e)) for e in self.entities],
+            'entities': [compact(asdict(e)) for e in self.entities],
             'measures': [
                 {
-                    **_compact({k: v for k, v in asdict(m).items() if k != 'columns'}),
-                    'columns': [_compact(asdict(c)) for c in m.columns],
+                    **compact({k: v for k, v in asdict(m).items() if k != 'columns'}),
+                    'columns': [compact(asdict(c)) for c in m.columns],
                 }
                 for m in self.measures
             ],
-            'relationships': [_compact(asdict(r)) for r in self.relationships],
-            **({'concepts': [_compact(asdict(c)) for c in self.concepts]} if self.concepts else {}),
+            'relationships': [compact(asdict(r)) for r in self.relationships],
+            **({'concepts': [compact(asdict(c)) for c in self.concepts]} if self.concepts else {}),
             'rules': [
                 {'name': r.name, 'description': r.description, 'violations': r.violations} for r in self.rules
             ],
@@ -248,8 +288,15 @@ class Ontology:
 def name_matches(wanted: str, *names: str | None) -> bool:
     """Whether ``wanted`` names any of ``names``, ignoring case, the difference between spaces,
     hyphens and underscores, and a plural."""
+    return any(n is not None and matcher(wanted)(n) for n in names)
+
+
+def matcher(wanted: str) -> Callable[[str], bool]:
+    """A test of whether a name is the one ``wanted`` names, as :func:`name_matches` decides,
+    with ``wanted`` read once for the many names a search tries."""
     target = _normal(wanted)
-    return any(n is not None and _normal(n) in (target, _singular(target)) for n in names)
+    targets = {target, _singular(target)}
+    return lambda name: _normal(name) in targets
 
 
 def _normal(name: str) -> str:
@@ -259,7 +306,7 @@ def _normal(name: str) -> str:
 _INTERNAL = frozenset({'key_ids', 'id', 'columns'})
 
 
-def _compact(data: dict[str, Any]) -> dict[str, Any]:
+def compact(data: dict[str, Any]) -> dict[str, Any]:
     """Leave out empty and default values and graph ids, so the YAML stays readable."""
     return {
         k: v
@@ -362,6 +409,9 @@ class _Deriver:
         )
         self.kinds: dict[str, str] = {}
         self.declared: dict[str, str] = {}  # entity name -> the declared term that named it
+        self.stated: set[str] = set()  # key column ids a person declared, not Konstruct inferred
+        checks = graph.meta.get('integrity')
+        self.checks: dict[str, dict[str, dict[str, Any]]] = checks if isinstance(checks, dict) else {}
         self.rules = {
             'one-formula-per-measure': Rule(
                 'one-formula-per-measure',
@@ -407,6 +457,7 @@ class _Deriver:
             names = [self.graph.nodes[i].name.lower() for i in entity.key_ids if i in self.graph.nodes]
             names = names or [entity.key]
             entity.key = min(set(names), key=lambda n: (-names.count(n), n))
+            self.entity_confidence(entity)
         relationships = self.relationships()
         for rule in self.rules.values():
             rule.violations.sort()
@@ -416,7 +467,29 @@ class _Deriver:
             relationships=relationships,
             rules=list(self.rules.values()),
             concepts=self.concepts(),
+            unique_ids=frozenset(self.unique),
         )
+
+    def entity_confidence(self, entity: Entity) -> None:
+        """An entity is as trustworthy as its least trustworthy key: declared when a person states
+        every one of its keys, verified when verify confirmed every one, and failed when verify
+        found any one repeated or null."""
+        ids = entity.key_ids
+        if ids and all(i in self.stated for i in ids):
+            entity.confidence = 'declared'
+        found = {i: self.checks.get('keys', {}).get(i) for i in ids}
+        checked = {i: c for i, c in found.items() if isinstance(c, dict)}
+        entity.evidence += [f'konstruct verify: {c.get("detail")}' for c in checked.values()]
+        unchecked = [
+            self.graph.label(self.graph.nodes[i]) for i in ids if i not in checked and i in self.graph.nodes
+        ]
+        if any(c.get('state') != 'confirmed' for c in checked.values()):
+            entity.check = 'failed'
+        elif checked and unchecked:
+            entity.evidence.append(f'konstruct verify did not check {", ".join(sorted(unchecked))}')
+        elif checked:
+            entity.check = 'confirmed'
+            entity.confidence = 'verified'
 
     def concepts(self) -> list[Concept]:
         """The concept hierarchy, from the ``broader`` terms each term names."""
@@ -476,6 +549,8 @@ class _Deriver:
         for column_id in sorted(found):
             for evidence in found[column_id]:
                 self.add_key(graph.nodes[column_id], evidence)
+        # A unique test, a primary key and an identifier field are each stated by a person.
+        self.stated.update(found)
 
     def add_key(self, column: Node, evidence: str, name: str | None = None) -> Entity:
         owner = self.graph.parent_of(column)
@@ -540,6 +615,9 @@ class _Deriver:
             return
         for existing in bound:
             self.merge(existing, name)
+        if not term.attrs.get('registry'):
+            # definitions.yml names these the keys of an entity; a pack's binding is only a match.
+            self.stated.update(c.id for c in columns)
         for column in columns:
             if column.id in self.keys:
                 continue
@@ -621,31 +699,47 @@ class _Deriver:
             expression=term.attrs.get('formula'),
         )
         columns = self.bound_columns(term)
-        for column in columns:
-            composed = explainer.compose(column) if isinstance(column.attrs.get('expression'), str) else None
-            verified, edges = _verification(graph, column)
-            usage = column.attrs.get('usage')
-            result.columns.append(
-                MeasureColumn(
-                    column=graph.label(column),
-                    formula=explainer.composed_text(column) if composed is not None else None,
-                    sources=sorted(graph.label(graph.nodes[s]) for s in composed.sources) if composed else [],
-                    complete=composed.complete if composed else False,
-                    verified=verified,
-                    edges=edges,
-                    usage=int(usage['score']) if isinstance(usage, dict) and 'score' in usage else None,
-                    id=column.id,
-                )
-            )
+        result.columns = sorted(
+            (measure_column(graph, explainer, c) for c in columns), key=lambda c: c.column
+        )
         # A metric's columns are its inputs, not columns that each hold the measure.
         compared = [] if result.expression else columns
-        result.columns.sort(key=lambda c: c.column)
-        for conflict in measure_conflicts(graph, term.name, compared):
+        conflicts = measure_conflicts(graph, term.name, compared)
+        for conflict in conflicts:
             differences = '; '.join(f'{d.kind} {d.detail}' for d in conflict.differences[:3])
             self.rules['one-formula-per-measure'].violations.append(
                 f'{term.name!r} ({result.path}): {conflict.a.label} and {conflict.b.label} differ ({differences})'
             )
+        self.measure_confidence(term, result, consistent=not conflicts)
         return result
+
+    def measure_confidence(self, term: Node, result: Measure, *, consistent: bool) -> None:
+        """Declared when a person defines the measure; verified only when, besides, verify
+        confirmed the lineage of every column that holds it and they compute it one way. Lineage
+        confirms the SQL, not a pack's binding by table names nor a metric's own expression, so
+        neither of those becomes verified."""
+        pack = term.attrs.get('registry')
+        if pack:
+            result.evidence.append(f'ontology pack {pack}, bound by the names of the tables')
+        else:
+            result.evidence.append(f'term in {result.path}')
+            result.confidence = 'declared'
+        formulas = [c for c in result.columns if c.formula]
+        if formulas:
+            result.evidence.append(f'formula composed from the SQL of {_plural(len(formulas), "column")}')
+        edges = sum(c.edges for c in result.columns)
+        verified = sum(c.verified for c in result.columns)
+        if edges:
+            result.evidence.append(
+                f'konstruct verify: {verified} of {_plural(edges, "lineage edge")} confirmed'
+            )
+        if not consistent:
+            result.evidence.append('its columns compute it in different ways (one-formula-per-measure)')
+        if result.expression:
+            result.evidence.append('its own expression is not checked by konstruct verify')
+        confirmed = bool(result.columns) and all(c.edges and c.verified == c.edges for c in result.columns)
+        if confirmed and consistent and not pack and not result.expression:
+            result.confidence = 'verified'
 
     # Relationships
 
@@ -653,8 +747,11 @@ class _Deriver:
         graph = self.graph
         # (source entity, target entity, column names) -> candidate joins and their evidence
         found: dict[tuple[str, str, str], tuple[list[tuple[bool, str, str, str]], set[str]]] = {}
+        stated: set[tuple[str, str, str]] = set()  # the keys a test, a constraint or a model states
 
-        def add(source_col: Node, target_col: Node, evidence: str, tested: bool) -> None:
+        def add(
+            source_col: Node, target_col: Node, evidence: str, tested: bool, declared: bool | None = None
+        ) -> None:
             source_rel = graph.parent_of(source_col)
             target_entity = self.keys.get(target_col.id)
             source_entity = self.entity_of(source_rel) if source_rel else None
@@ -665,6 +762,8 @@ class _Deriver:
             candidates, evidences = found.setdefault(key, ([], set()))
             candidates.append((tested, via, source_col.id, target_col.id))
             evidences.add(evidence)
+            if tested if declared is None else declared:
+                stated.add(key)
 
         for node in graph.nodes.values():
             if node.kind == 'test' and node.attrs.get('test') == 'relationships':
@@ -687,29 +786,63 @@ class _Deriver:
         for item in graph.meta.get('ossie_relationships', []) or []:
             many, one = graph.nodes.get(item.get('from', '')), graph.nodes.get(item.get('to', ''))
             if many is not None and one is not None:
-                add(many, one, f'Ossie relationship {item.get("name")} ({item.get("path")})', False)
+                add(many, one, f'Ossie relationship {item.get("name")} ({item.get("path")})', False, True)
         for item in graph.meta.get('pack_relationships', []) or []:
             many, one = graph.nodes.get(item.get('from', '')), graph.nodes.get(item.get('to', ''))
             if many is not None and one is not None:
                 add(many, one, f'ontology pack {item.get("name")}', False)
         result = []
-        for (source_entity, target_entity, _), (candidates, evidences) in found.items():
+        for key, (candidates, evidences) in found.items():
+            source_entity, target_entity, _ = key
             # The columns a relationships test vouches for come first, then the shortest join.
             tested, via, source_id, target_id = min(candidates, key=lambda c: (not c[0], len(c[1]), c[1]))
+            # Uniqueness a test or key declares counts only until verify finds the column repeated.
+            keys = self.checks.get('keys', {})
+            refuted = {i for i in (source_id, target_id) if (keys.get(i) or {}).get('state') == 'failed'}
             cardinality = None
-            if target_id in self.unique:
-                cardinality = 'one-to-one' if source_id in self.unique else 'many-to-one'
-            result.append(
-                Relationship(
-                    source_entity,
-                    target_entity,
-                    via,
-                    cardinality,
-                    tested,
-                    sorted(evidences),
-                    columns=(source_id, target_id),
-                )
+            if target_id in self.unique and target_id not in refuted:
+                unique = source_id in self.unique and source_id not in refuted
+                cardinality = 'one-to-one' if unique else 'many-to-one'
+            relationship = Relationship(
+                source_entity,
+                target_entity,
+                via,
+                cardinality,
+                tested,
+                sorted(evidences),
+                confidence='declared' if key in stated else 'inferred',
+                columns=(source_id, target_id),
             )
+            if target_id in refuted:
+                detail = keys[target_id].get('detail')
+                relationship.evidence.append(f'konstruct verify: {detail}, so its cardinality is unknown')
+                relationship.check = 'failed'
+            if source_id in refuted and target_id not in refuted and source_id in self.unique:
+                detail = keys[source_id].get('detail')
+                relationship.evidence.append(
+                    f'konstruct verify: {detail}, so it is many-to-one, not one-to-one'
+                )
+            checked = self.checks.get('links', {}).get(link_key(source_id, target_id))
+            if isinstance(checked, dict):
+                passed = checked.get('state') == 'confirmed' and relationship.check != 'failed'
+                relationship.check = 'confirmed' if passed else 'failed'
+                relationship.evidence.append(f'konstruct verify: {checked.get("detail")}')
+                # A repeated referring column corrects one-to-one to many-to-one; it does not fail
+                # a relationship whose every value is found.
+                if checked.get('one_to_one') == 'failed' and relationship.cardinality == 'one-to-one':
+                    relationship.cardinality = 'many-to-one'
+                elif relationship.cardinality == 'one-to-one' and checked.get('one_to_one') != 'confirmed':
+                    # Verified is what verify found: that every value has its key, not that the
+                    # referring column is unique, which only its tests say.
+                    referring = self.graph.nodes.get(source_id)
+                    shown = self.graph.label(referring) if referring is not None else 'the referring column'
+                    relationship.evidence.append(
+                        f'konstruct verify did not check that {shown} is unique: one-to-one is declared, '
+                        'not verified'
+                    )
+                if passed:
+                    relationship.confidence = 'verified'
+            result.append(relationship)
         return sorted(result, key=lambda r: (r.source, r.target, r.via))
 
     def entity_of(self, relation: Node) -> str | None:
@@ -769,7 +902,28 @@ def _computed(graph: Graph, column: Node) -> bool:
     return bool(inputs) and any(e.attrs.get('transform') != 'direct' for e in inputs)
 
 
-def _verification(graph: Graph, column: Node) -> tuple[int, int]:
+def measure_column(graph: Graph, explainer: Explainer, column: Node) -> MeasureColumn:
+    """``column`` as a column holding a measure: its formula composed to source, the sources it
+    reaches, and how many of the lineage edges on the way ``konstruct verify`` confirmed."""
+    # The text alone: composing the formula as a tree, to print it, costs far more at scale.
+    composed = explainer.compose_text(column) if isinstance(column.attrs.get('expression'), str) else None
+    verified, edges = confirmed_edges(graph, column)
+    usage = column.attrs.get('usage')
+    return MeasureColumn(
+        column=graph.label(column),
+        formula=composed.text if composed is not None else None,
+        sources=sorted(graph.label(graph.nodes[s]) for s in composed.sources if s in graph.nodes)
+        if composed
+        else [],
+        complete=composed.complete if composed else False,
+        verified=verified,
+        edges=edges,
+        usage=int(usage['score']) if isinstance(usage, dict) and 'score' in usage else None,
+        id=column.id,
+    )
+
+
+def confirmed_edges(graph: Graph, column: Node) -> tuple[int, int]:
     """Confirmed and total lineage edges from ``column`` back to source; an edge verify marks
     ``not exercised`` is claimed but not shown by the data, so it is not confirmed."""
     seen: set[str] = set()
@@ -783,6 +937,16 @@ def _verification(graph: Graph, column: Node) -> tuple[int, int]:
                 seen.add(edge.target)
                 stack.append(edge.target)
     return verified, total
+
+
+def link_key(source_id: str, target_id: str) -> str:
+    """The key under which ``konstruct verify`` records its check of the relationship joining the
+    column ``source_id`` to the key ``target_id``."""
+    return f'{source_id}|{target_id}'
+
+
+def _plural(count: int, word: str) -> str:
+    return f'{count} {word}{"" if count == 1 else "s"}'
 
 
 def _owner(value: Any) -> str | None:

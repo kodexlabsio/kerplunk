@@ -21,6 +21,20 @@ The tests also make sure the verifier catches wrong lineage, not just confirms r
 - **Airflow parsing:** the static parser reports exactly the same DAGs, tasks and dependencies as Airflow's own DagBag on every fixture DAG, including TaskGroups, TaskFlow and every dependency syntax.
 - **Dagster parsing:** the static parser gives the same asset keys, dependencies, dbt selection and job selections as Dagster's own asset graph for the fixture definitions, the same op handles and op-to-op dependencies as Dagster's job graph (nested graphs and aliases included), and the same sensor and schedule targets.
 
+## Keys and Relationships
+
+The same run checks the [ontology](ontology.md) against the data. Each key of an entity is read over its whole table: it is confirmed when no value repeats and none is null. Each relationship is confirmed when every value of its referring column is found in the key it refers to, and that key is confirmed, so its cardinality holds as well. For one claimed one-to-one, the referring column is checked for repeated values too, apart: when it repeats, the relationship is many-to-one, and verified as that when every value is found, and when verify cannot check it, the evidence says that one-to-one is declared, not verified. The queries only read, in a read-only transaction on Postgres, and a value that is null refers to nothing, so it is not counted against a relationship. A confirmed key or relationship becomes `verified` in `ontology.yml`, `konstruct ontology` and the `entity`, `metric` and `relate` results; one that fails keeps the confidence its tests and joins give it and is marked `check failed`, with what verify found in its evidence:
+
+```text
+$ konstruct verify
+...
+Ontology: 5 of 5 keys confirmed, 0 failed, 0 not checked; 2 of 2 relationships confirmed, 0 failed, 0 not checked.
+```
+
+With `-m`, only the keys and relationships whose tables are all among the named models are checked, nothing outside them is read, and what earlier runs found of the others is kept. `--no-ontology` leaves the checks out. They read each table whole: on a table of 1,000,000 orders referring to 100,000 customers, checking the two keys and the relationship takes 0.12 s on DuckDB and 0.38 s on Postgres, and on 10,000,000 orders 0.96 s and 5.4 s (`uv run python .kodex/scripts/integrity_benchmark.py 1000000`, with `--postgres URL` for Postgres); `verify.json` gives the time each run took as `ontology_seconds`.
+
+A key or relationship is not checked on a remote warehouse, whose sample can miss a repeated value or the row a value refers to, on an empty table, or where the warehouse cannot compare the two columns' types; the report says which and why. `verify.json` lists every check under `keys` and `links`, and `graph.json` records the confirmed and failed ones under `meta.integrity`, which the ontology reads.
+
 ## Mutation Testing
 
 A test suite that passes says little until it is known to fail when a model is wrong. `konstruct verify --mutate` makes small changes to each dbt model's compiled SQL, of the kind a real bug makes, and checks whether the model's dbt tests notice:

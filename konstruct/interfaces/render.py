@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.explain import Explanation
     from konstruct.analysis.gate import Gate
     from konstruct.analysis.history import History
+    from konstruct.analysis.integrity import KeyCheck, LinkCheck
     from konstruct.analysis.mutation import MutationTesting
     from konstruct.analysis.query import (
         Definitions,
@@ -65,10 +66,12 @@ if TYPE_CHECKING:
     from konstruct.engine.trust import Trust
     from konstruct.interfaces.status import Status
     from konstruct.semantics.ontology import Ontology
+    from konstruct.semantics.world import Connection, EntityDetail, Metric, Metrics
 
 Lines = list[Text]
 
 STATUS_ROLES = {'approved': 'ok', 'agreed': 'accent', 'draft': 'warn', 'retired': 'dim'}
+CONFIDENCE_ROLES = {'verified': 'ok', 'declared': '', 'inferred': 'dim'}
 EDGE_ROLES = {'transformed': 'accent', 'direct': 'dim', 'reference': '', 'run': 'dim', 'seed': 'dim'}
 
 
@@ -112,6 +115,14 @@ def _commands(value: str, role: str = '') -> Text:
 
 def _status(value: str | None) -> Part:
     return (value or '', STATUS_ROLES.get(value or '', ''))
+
+
+def _confidence(value: str, check: str | None = None) -> Text:
+    """A fact's confidence, and a failed check of it beside it, so a failure is never missed."""
+    text = Text((value, CONFIDENCE_ROLES.get(value, '')))
+    if check == 'failed':
+        text.append(('  check failed', 'error'))
+    return text
 
 
 def _edge(entry: Item) -> Cell:
@@ -718,6 +729,13 @@ def verification_lines(result: Verification, style: Style) -> Lines:
         lines += [blank(), *table(style, details[:40])]
         if len(details) > 40:
             lines.append(Text((f'  and {len(details) - 40} more in VERIFY.md', 'dim')))
+    every: list[KeyCheck | LinkCheck] = [*result.keys, *result.links]
+    checks = [c for c in every if c.state != 'confirmed']
+    if checks:
+        roles = {'failed': 'error', 'skipped': 'warn'}
+        lines += [blank(), *table(style, [[Text((c.state, roles[c.state])), c.detail] for c in checks[:40]])]
+        if len(checks) > 40:
+            lines.append(Text((f'  and {len(checks) - 40} more in VERIFY.md', 'dim')))
     return lines
 
 
@@ -1141,6 +1159,7 @@ def ontology_lines(result: Ontology, style: Style) -> Lines:
                 Text((e.name, 'strong')),
                 Text(('key ', 'dim'), e.key),
                 Text((', '.join(e.relations), 'dim')),
+                _confidence(e.confidence, e.check),
                 Text((f'term {e.term!r}', 'dim')) if e.term else None,
             ]
             for e in result.entities
@@ -1149,7 +1168,8 @@ def ontology_lines(result: Ontology, style: Style) -> Lines:
     if result.measures:
         lines += [blank(), section('Measures', len(result.measures))]
         for measure in result.measures:
-            line = Text('  ', (measure.name, 'strong'), '  ', _status(measure.status))
+            line = Text('  ', (measure.name, 'strong'), '  ', _status(measure.status), '  ')
+            line.append(_confidence(measure.confidence))
             about = ', '.join(x for x in (measure.owner, measure.grain) if x)
             if about:
                 line.append((f'  {about}', 'dim'))
@@ -1177,6 +1197,7 @@ def ontology_lines(result: Ontology, style: Style) -> Lines:
                 Text((r.source, 'strong'), (f' {arrow} ', 'dim'), (r.target, 'strong')),
                 Text((r.cardinality or 'cardinality unknown', '' if r.cardinality else 'dim')),
                 sql(r.via),
+                _confidence(r.confidence, r.check),
                 Text(('tested', 'ok')) if r.tested else None,
             ]
             for r in result.relationships
@@ -1194,6 +1215,174 @@ def ontology_lines(result: Ontology, style: Style) -> Lines:
         for rule in broken:
             for violation in rule.violations:
                 lines += wrap(style, Text(violation), first=Text('  ', (rule.name, 'error'), ': '), hanging=4)
+    return lines
+
+
+# The world model: one entity, metrics, and how two entities connect
+
+
+def _additivity(aggregation: str, additive: bool | None) -> str:
+    if additive is None:
+        return f'{aggregation}, additivity unknown'
+    return aggregation if additive else f'{aggregation}, not additive'
+
+
+def metric_lines(metric: Metric, style: Style, *, indent: int = 0) -> Lines:
+    marker = Text(('proposed', 'warn')) if metric.proposed else Text(_status(metric.status))
+    head = Text(' ' * indent, (metric.name, 'subject'), '  ')
+    if marker:
+        head.append(marker).append('  ')
+    head.append(_confidence(metric.confidence))
+    lines = [head]
+    if metric.definition:
+        lines += _note(style, metric.definition, indent=indent + 2)
+    facts: list[tuple[str, Cell]] = [
+        ('formula', sql(metric.formula) if metric.formula else None),
+        ('aggregates', metric.aggregation and _additivity(metric.aggregation, metric.additive)),
+        ('additive', 'unknown' if metric.additive is None and not metric.aggregation else None),
+        (
+            'grain',
+            metric.grain and f'{metric.grain}{", inferred" if metric.grain_confidence == "inferred" else ""}',
+        ),
+        ('owner', metric.owner),
+        ('approved', metric.approved),
+        ('unit', ' '.join(v for v in (metric.unit, metric.currency) if v)),
+        ('required filters', sql('; '.join(metric.filters)) if metric.filters else None),
+        ('source', metric.source),
+        ('defined in', metric.path),
+    ]
+    for index, column in enumerate(metric.columns):
+        checked = (
+            Text(
+                (
+                    f'  verified {column.verified}/{column.edges}',
+                    'ok' if column.verified == column.edges else 'dim',
+                )
+            )
+            if column.edges
+            else Text()
+        )
+        facts.append(('columns' if index == 0 else '', Text(column.column, checked)))
+    for index, item in enumerate(metric.evidence):
+        facts.append(('evidence' if index == 0 else '', Text((item, 'dim'))))
+    return [*lines, *pairs(style, facts, indent=indent + 2, width=16)]
+
+
+def metrics_lines(result: Metrics, style: Style) -> Lines:
+    defined = [m for m in result.metrics if not m.proposed]
+    proposed = len(result.metrics) - len(defined)
+    summary = f'{_plural(len(defined), "defined metric")} and {_plural(proposed, "proposal")}'
+    if proposed:
+        summary += ', inferred from the code and approved by no one'
+    if result.total > len(result.metrics):
+        summary += f', of {result.total} found'
+    lines = _summary(style, Text(('Metrics:', 'title'), ' ', f'{summary}.'))
+    if result.query is None:
+        rows: list[list[Cell]] = [
+            [
+                Text((m.name, 'strong')),
+                Text(('proposed', 'warn')) if m.proposed else _status(m.status or m.source),
+                _confidence(m.confidence),
+                Text((m.grain or '', 'dim')),
+                sql(m.formula) if m.formula else None,
+            ]
+            for m in result.metrics
+        ]
+        return [*lines, blank(), *table(style, rows, flex=4)]
+    for metric in result.metrics:
+        lines += [blank(), *metric_lines(metric, style)]
+    return lines
+
+
+def entity_lines(result: EntityDetail, style: Style) -> Lines:
+    found = result.entity
+    lines = [header('Entity', found.name, f'term {found.term!r}' if found.term else None)]
+    lines += _note(style, found.description)
+    facts: list[tuple[str, Cell]] = [
+        ('key', found.key),
+        ('held by', ', '.join(found.relations)),
+        ('confidence', _confidence(found.confidence, found.check)),
+    ]
+    for index, item in enumerate(found.evidence):
+        facts.append(('evidence' if index == 0 else '', Text((item, 'dim'))))
+    lines += [blank(), *pairs(style, facts, width=10)]
+    if result.properties:
+        rows: list[list[Cell]] = [
+            [
+                Text((p.name, 'strong')),
+                Text((p.data_type or '', 'dim')),
+                Text(('refers to ', 'dim'), p.refers_to) if p.refers_to else None,
+                Text((f'term {", ".join(p.terms)}', 'dim')) if p.terms else None,
+                Text((p.description or '', 'dim')),
+            ]
+            for p in result.properties
+        ]
+        lines += [blank(), section('Properties', len(result.properties)), *table(style, rows, flex=4)]
+    if result.relationships:
+        arrow = style.glyph('arrow')
+        rows = [
+            [
+                Text((r.source, 'strong'), (f' {arrow} ', 'dim'), (r.target, 'strong')),
+                Text((r.cardinality or 'cardinality unknown', '' if r.cardinality else 'dim')),
+                sql(r.via),
+                _confidence(r.confidence, r.check),
+            ]
+            for r in result.relationships
+        ]
+        lines += [blank(), section('Relationships', len(result.relationships)), *table(style, rows, flex=2)]
+    if result.metrics:
+        rows = [
+            [
+                Text((m.name, 'strong')),
+                Text(('proposed', 'warn')) if m.proposed else _status(m.status or m.source),
+                _confidence(m.confidence),
+                sql(m.formula) if m.formula else None,
+            ]
+            for m in result.metrics
+        ]
+        lines += [blank(), section('Metrics', len(result.metrics)), *table(style, rows, flex=3)]
+    return lines
+
+
+def connection_lines(result: Connection, style: Style) -> Lines:
+    arrow = style.glyph('arrow')
+    subject = Text((result.start, 'subject'), (f' {arrow} ', 'dim'), (result.end, 'subject'))
+    if not result.found:
+        return [
+            header('No relationship connects', subject),
+            Text(('  `konstruct path` shows how their relations connect in the lineage', 'dim')),
+        ]
+    shared = sum(h.same_row for h in result.hops)
+    counted = [_plural(len(result.hops) - shared, 'relationship')]
+    counted += [_plural(shared, 'shared row')] if shared else []
+    lines = [header('How', subject, ', '.join(counted))]
+    facts: list[tuple[str, Cell]] = [
+        ('cardinality', result.cardinality or Text(('unknown', 'dim'))),
+        ('confidence', _confidence(result.confidence or 'inferred', result.check)),
+    ]
+    lines += [blank(), *pairs(style, facts, width=11)]
+    if result.check == 'failed':
+        lines += _note(
+            style,
+            'konstruct verify found the data contradicting a relationship on the way: the joins can '
+            'lose or repeat rows.',
+        )
+    if result.cardinality in ('one-to-many', 'many-to-many'):
+        lines += _note(
+            style, f'One {result.start} can match several {result.end} rows: aggregate them before joining.'
+        )
+    rows: list[list[Cell]] = [
+        [
+            Text((h.start, 'strong'), (f' {arrow} ', 'dim'), (h.end, 'strong')),
+            Text((h.cardinality or 'cardinality unknown', '' if h.cardinality else 'dim')),
+            sql(h.via),
+            _confidence(h.confidence, h.check),
+        ]
+        for h in result.hops
+    ]
+    lines += [blank(), section('Path', len(result.hops)), *table(style, rows, flex=2)]
+    if result.join:
+        lines += [blank(), section('Join'), *[Text('  ', sql(line)) for line in result.join.splitlines()]]
     return lines
 
 

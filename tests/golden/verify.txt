@@ -1,6 +1,7 @@
 Verified against jaffle_shop.duckdb (seed 1729, shift, null, shuffle, up to 10000 rows per input)
 36 of 36 claimed column edges confirmed by perturbation (100%) across 6 models.
 33 influences through joins, filters or grouping, all predicted as references; 0 unexplained.
+Ontology: 5 of 5 keys confirmed, 0 failed, 0 not checked; 2 of 2 relationships confirmed, 0 failed, 0 not checked.
 
   model          claimed  confirmed  not exercised  via joins/filters  unexplained
   customers            7          7              0                 12            0

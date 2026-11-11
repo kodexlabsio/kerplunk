@@ -31,8 +31,8 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 | `konstruct.core` | `graph` (the graph and its traversal), `sql` (column lineage from SQL), `mutate` (mutants of a query), `jsonio` |
 | `konstruct.inputs` | `dbt`, `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `ingestion`, `hcl`, `warehouse`, `usage` |
 | `konstruct.engine` | `build`, `config`, `worker` |
-| `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `ossie`, `registry` |
-| `konstruct.analysis` | `query`, `semantic`, `explain`, `english`, `conflicts`, `diff`, `gate`, `verify`, `mutation`, `why`, `release_notes`, `effect`, `laws`, `history`, `receipts` |
+| `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `world`, `ossie`, `registry` |
+| `konstruct.analysis` | `query`, `semantic`, `explain`, `english`, `conflicts`, `diff`, `gate`, `verify`, `integrity`, `mutation`, `why`, `release_notes`, `effect`, `laws`, `history`, `receipts` |
 | `konstruct.outputs` | `report`, `html`, `export` |
 | `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
 | `konstruct.plugins` | `api` (the plugin API: protocols and types), `registry` (finding, enabling and loading plugins) |
@@ -137,6 +137,9 @@ print(ontology.measure('customer lifetime value').columns[0].formula)
 .. automethod:: konstruct.Project.define
 .. automethod:: konstruct.Project.conflicts
 .. automethod:: konstruct.Project.ontology
+.. automethod:: konstruct.Project.entity
+.. automethod:: konstruct.Project.metric
+.. automethod:: konstruct.Project.relate
 ```
 
 ## Checking SQL
@@ -301,6 +304,24 @@ print([(r.id, r.status) for r in project.check_receipts().receipts])
 .. autoclass:: konstruct.semantics.ontology.Relationship
    :members:
 
+.. autoclass:: konstruct.semantics.world.EntityDetail
+   :members:
+
+.. autoclass:: konstruct.semantics.world.Property
+   :members:
+
+.. autoclass:: konstruct.semantics.world.Metrics
+   :members:
+
+.. autoclass:: konstruct.semantics.world.Metric
+   :members:
+
+.. autoclass:: konstruct.semantics.world.Connection
+   :members:
+
+.. autoclass:: konstruct.semantics.world.Hop
+   :members:
+
 .. autoclass:: konstruct.semantics.ontology.Rule
    :members:
 ```
@@ -382,6 +403,12 @@ print([(r.id, r.status) for r in project.check_receipts().receipts])
    :members:
 
 .. autoclass:: konstruct.analysis.verify.ModelResult
+   :members:
+
+.. autoclass:: konstruct.analysis.integrity.KeyCheck
+   :members:
+
+.. autoclass:: konstruct.analysis.integrity.LinkCheck
    :members:
 ```
 

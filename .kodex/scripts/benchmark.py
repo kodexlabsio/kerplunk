@@ -94,6 +94,37 @@ def identity(graph: Graph) -> tuple[int, float, float]:
     return len(columns), translated, time.perf_counter() - started
 
 
+def world_model(graph: Graph, models: int) -> dict[str, float]:
+    """The world model's questions on ``graph`` once each model has an entity, a primary key on
+    ``c00``, and a measure, a ``SUM`` around ``c02``: every metric (with a proposal from each
+    model), one entity, and how the middle model's entity relates to the 11th's, through the
+    joins of the models that read them."""
+    from konstruct.semantics import world
+    from konstruct.semantics.ontology import derive
+
+    for node in graph.nodes.values():
+        if node.kind == 'model':
+            node.attrs['primary_key'] = ['c00']
+            column = graph.column(node.id, 'c02')
+            if column is not None and isinstance(column.attrs.get('expression'), str):
+                column.attrs['expression'] = f'SUM({column.attrs["expression"]})'
+    ontology_s, ontology = timed(derive, graph)
+    last, eleventh = f'm{(models - 1) // 2:03}', f'm{min(10, models - 1):03}'
+    metrics_s, found = timed(world.metrics, graph, None, ontology)
+    named = f'{last}.c02'
+    return {
+        'entities': len(ontology.entities),
+        'relationships': len(ontology.relationships),
+        'metrics': len(found.metrics),
+        'ontology_s': round(ontology_s, 2),
+        'metrics_s': round(metrics_s, 2),
+        'metric_ms': round(1000 * median_time(world.metrics, graph, named, ontology), 1),
+        'entity_ms': round(1000 * median_time(world.entity, graph, last, ontology), 1),
+        'relate_ms': round(1000 * median_time(world.relate, graph, last, eleventh, ontology), 1),
+        'relate_hops': len(world.relate(graph, last, eleventh, ontology).hops),
+    }
+
+
 def render_times(page_path: Path) -> tuple[float | None, float | None]:
     """Seconds for graph.html to show its overview, and its full lineage graph, in headless
     Chromium (medians of three loads); None when Playwright's Chromium is not installed."""
@@ -160,6 +191,7 @@ def measure(models: int) -> dict[str, Any]:
         # With vectors.bin saved, as every search by meaning after the first finds it.
         fresh = {} if models != max(SIZES) else measure_fresh_search(root)
         meaning = median_time(search, unindexed, 'customer lifetime value', 20, None, 'semantic')
+        modelled = {f'world_{k}': v for k, v in world_model(Graph.read(project.graph_path), models).items()}
         return {
             'models': models,
             'columns': sum(1 for n in graph.nodes.values() if n.kind == 'column'),
@@ -196,6 +228,7 @@ def measure(models: int) -> dict[str, Any]:
             'vectors_bin_mb': round((project.out_dir / semantic.VECTOR_FILE).stat().st_size / 1e6, 1),
             'meaning_ms': round(1000 * meaning, 1),
             **fresh,
+            **modelled,
         }
 
 
@@ -321,6 +354,19 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         lines.append(
             f'| {r["models"]:,} | {r["vector_index_s"]} s | {r["vector_index_cpu_s"]} s '
             f'| {r["vectors_bin_mb"]} MB | {r["meaning_ms"]} ms |'
+        )
+    lines += [
+        '',
+        '| Models | Entities | Relationships | Metrics | Ontology | Every metric | One metric | One entity '
+        '| relate |',
+        '|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
+    ]
+    for r in rows:
+        lines.append(
+            f'| {r["models"]:,} | {r["world_entities"]:,} | {r["world_relationships"]:,} '
+            f'| {r["world_metrics"]:,} | {r["world_ontology_s"]} s | {r["world_metrics_s"]} s '
+            f'| {r["world_metric_ms"]} ms '
+            f'| {r["world_entity_ms"]} ms | {r["world_relate_ms"]} ms ({r["world_relate_hops"]} relationships) |'
         )
     fresh = next((r for r in rows if 'meaning_cpu_ms' in r), None)
     if fresh:

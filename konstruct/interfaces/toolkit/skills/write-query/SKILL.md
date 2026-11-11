@@ -24,11 +24,21 @@ Three sections:
 - **Measures**: each with its status, owner and grain, and each column that holds it with its
   formula composed to source and how many of its lineage edges are verified (`verified 2/2`).
 - **Relationships**: how entities relate, such as
-  `order -> customer  many-to-one  orders.customer_id = customers.customer_id   tested`. Join on
-  exactly those columns; `tested` means a dbt relationships test checks it.
+  `order -> customer  many-to-one  orders.customer_id = customers.customer_id   declared  tested`.
+  Join on exactly those columns; `tested` means a dbt relationships test checks it.
+
+Each entity, measure and relationship says how far to trust it: `verified` (`konstruct verify`
+checked it against the data), `declared` (a test, a constraint or a definition states it) or
+`inferred` (only names, joins or an ontology pack show it). Say so in the answer when it rests on
+an inferred relationship, and never call an inferred one tested or verified.
 
 `konstruct ontology --format yaml` gives the same as data, and the `ontology` MCP tool takes a
 name to show one entity or measure with the relationships touching it.
+
+`konstruct relate <from> <to>` gives the relationships between two entities, the cardinality of
+the whole path (`one-to-many`: aggregate before joining), its weakest confidence and the joins to
+write. `konstruct metric` lists every metric with its formula and grain; one marked `proposed` is
+inferred from the code and approved by no one.
 
 ## 2. The Definition
 
@@ -50,8 +60,9 @@ there is one, and say when you rely on a draft. Apply every line of the definiti
 - Start from a column `define` lists, at the grain it states.
 - Join along the ontology's relationships, on its columns. A many-to-one join from the many side
   keeps the grain; joining the other way repeats rows, so aggregate before joining.
-- If no relationship connects two entities, `konstruct path <from> <to>` shows how they are
-  connected, and the answer should say the join is not a modelled relationship.
+- If `konstruct relate` finds no relationship between two entities, `konstruct path <from> <to>`
+  shows how they are connected, and the answer should say the join is not a modelled
+  relationship.
 - Before adding a new measure, run `konstruct conflicts --no-write` and `konstruct search <words>`:
   the measure may already exist under another name.
 

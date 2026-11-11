@@ -41,6 +41,7 @@ from konstruct.core.graph import Graph, Node
 from konstruct.core.sql import PARSE_ERRORS, strip_templating, table_key
 
 if TYPE_CHECKING:
+    from konstruct.analysis.integrity import KeyCheck, LinkCheck
     from konstruct.interfaces.layout import Style
 
 STRATEGIES = ('shift', 'null', 'shuffle')
@@ -108,6 +109,14 @@ class Verification:
     """One result per model or table checked."""
     seconds: float = 0.0
     """Total time taken."""
+    keys: list[KeyCheck] = field(default_factory=list)
+    """Each entity key of the ontology, checked for duplicate and null values."""
+    links: list[LinkCheck] = field(default_factory=list)
+    """Each relationship of the ontology, checked for values its key lacks."""
+    ontology_seconds: float = 0.0
+    """Time taken by the checks of the ontology's keys and relationships."""
+    only: list[str] = field(default_factory=list)
+    """The models and tables the run was limited to; empty for every one."""
 
     @property
     def checked(self) -> list[ModelResult]:
@@ -134,7 +143,23 @@ class Verification:
             'seconds': round(self.seconds, 2),
             'totals': self.totals(),
             'models': [m.to_dict() for m in self.models],
+            'keys': [k.to_dict() for k in self.keys],
+            'links': [link.to_dict() for link in self.links],
+            'ontology_seconds': round(self.ontology_seconds, 2),
+            **({'only': self.only} if self.only else {}),
         }
+
+    def checks(self) -> str | None:
+        """The checks of the ontology's keys and relationships, in a sentence, if any ran."""
+        counted = []
+        for name, items in (('key', self.keys), ('relationship', self.links)):
+            states = [i.state for i in items]
+            if items:
+                counted.append(
+                    f'{states.count("confirmed")} of {len(items)} {name}s confirmed, {states.count("failed")} '
+                    f'failed, {states.count("skipped")} not checked'
+                )
+        return f'Ontology: {"; ".join(counted)}.' if counted else None
 
     def summary(self) -> str:
         t = self.totals()
@@ -152,6 +177,9 @@ class Verification:
                 f'{t["not_exercised"]} claimed edge{"s" if t["not_exercised"] != 1 else ""} not exercised by the data '
                 '(no perturbation changed the output; see VERIFY.md).'
             )
+        checks = self.checks()
+        if checks:
+            lines.append(checks)
         return '\n'.join(lines)
 
     def text(self, style: Style | None = None) -> str:
@@ -203,6 +231,17 @@ class Verification:
             items = [(m.label, o, s) for m in self.checked for o, s in getattr(m, key)]
             lines += ['', f'## {title}', '']
             lines += [f'- `{label}.{o}` <- `{s}`' for label, o, s in items] or ['None.']
+        if self.keys or self.links:
+            lines += [
+                '',
+                '## Ontology keys and relationships',
+                '',
+                'Each key of an entity, checked over its whole table for repeated and null values, and '
+                'each relationship, checked for values of the referring column that its key lacks.',
+                '',
+            ]
+            checks: list[KeyCheck | LinkCheck] = [*self.keys, *self.links]
+            lines += [f'- {c.state}: {c.detail}' for c in checks]
         return '\n'.join(lines) + '\n'
 
 
@@ -513,6 +552,15 @@ class Engine:
     def run(self, sql: str) -> tuple[list[str], list[tuple[Any, ...]]]:
         raise NotImplementedError
 
+    def table(self, key: str) -> str:
+        """The relation ``key`` (``catalog.schema.table``) as this engine's SQL names it, for a
+        query that reads the whole table with :meth:`read`.
+
+        Raises:
+            LookupError: The relation is not in this warehouse, or the engine reads only a sample.
+        """
+        raise LookupError(f'{self.label} does not read whole tables')
+
     def read(self, sql: str) -> tuple[list[str], list[tuple[Any, ...]]]:
         """Run a query over the warehouse's own tables, which only reads: in a read-only
         transaction where the warehouse has one."""
@@ -555,14 +603,17 @@ class DuckDBEngine(Engine):
         self.con.execute('DROP SCHEMA IF EXISTS kp CASCADE')
         self.con.execute('CREATE SCHEMA kp')
 
-    def copy(
-        self, key: str, index: int, max_rows: int, where: str | None = None
-    ) -> tuple[str, list[tuple[str, str]]]:
+    def table(self, key: str) -> str:
         parts = key.split('.')
         if len(parts) != 3 or parts[0] != self.database:
             raise LookupError(f'input {key} is not in the warehouse {self.database}')
+        return '.'.join(quote(p) for p in parts)
+
+    def copy(
+        self, key: str, index: int, max_rows: int, where: str | None = None
+    ) -> tuple[str, list[tuple[str, str]]]:
+        source = self.table(key)
         scratch = f'kp.in{index}'
-        source = '.'.join(quote(p) for p in parts)
         self.con.execute(
             f'CREATE TABLE {scratch} AS SELECT * FROM {source}{_where(where)} LIMIT {int(max_rows)}'
         )
@@ -653,14 +704,17 @@ class PostgresEngine(Engine):
         ).fetchall()
         return [(str(r[0]), str(r[1])) for r in rows]
 
-    def copy(
-        self, key: str, index: int, max_rows: int, where: str | None = None
-    ) -> tuple[str, list[tuple[str, str]]]:
+    def table(self, key: str) -> str:
         parts = key.split('.')
         if len(parts) != 3 or parts[0] != self.database:
             raise LookupError(f'input {key} is not in the database {self.database}')
+        return '.'.join(quote(p) for p in parts[1:])
+
+    def copy(
+        self, key: str, index: int, max_rows: int, where: str | None = None
+    ) -> tuple[str, list[tuple[str, str]]]:
+        source = self.table(key)
         scratch = f'kp_in{index}'
-        source = '.'.join(quote(p) for p in parts[1:])
         self._savepoint(
             f'CREATE TEMP TABLE {scratch} AS SELECT * FROM {source}{_where(where)} LIMIT {int(max_rows)}'
         )
@@ -950,6 +1004,10 @@ class SampledEngine(DuckDBEngine):
     def read_dialect(self) -> str:
         return self.remote
 
+    def table(self, key: str) -> str:
+        # A duplicate key, or the row a value refers to, can lie outside the sample.
+        raise LookupError('verify reads only a sample of each table of a remote warehouse')
+
     def copy(
         self, key: str, index: int, max_rows: int, where: str | None = None
     ) -> tuple[str, list[tuple[str, str]]]:
@@ -1092,10 +1150,13 @@ def verify(
     max_rows: int = 10000,
     strategies: tuple[str, ...] = STRATEGIES,
     only: list[str] | None = None,
+    ontology: bool = True,
 ) -> Verification:
+    """Verify the lineage of each model, and with ``ontology`` the ontology's keys and
+    relationships, over whole tables (see :mod:`konstruct.analysis.integrity`)."""
     started = time.perf_counter()
     engine = engine_for(warehouse)
-    result = Verification(engine.label, seed, max_rows, strategies)
+    result = Verification(engine.label, seed, max_rows, strategies, only=list(only or []))
     try:
         for candidate in candidates(graph, root):
             node = candidate.node
@@ -1109,6 +1170,12 @@ def verify(
             except Exception as error:  # a model that will not run is reported, not fatal
                 model.skipped = f'{type(error).__name__}: {str(error).strip().splitlines()[0][:160]}'
             model.seconds = round(time.perf_counter() - timer, 3)
+        if ontology:
+            from konstruct.analysis.integrity import check
+
+            timer = time.perf_counter()
+            result.keys, result.links = check(graph, engine, only)
+            result.ontology_seconds = time.perf_counter() - timer
     finally:
         engine.close()
     result.seconds = time.perf_counter() - started
@@ -1291,7 +1358,8 @@ def both_nan(a: Any, b: Any) -> bool:
 
 
 def annotate(graph: Graph, verification: Verification) -> None:
-    """Record on each derived_from edge whether perturbation confirmed it."""
+    """Record on each derived_from edge whether perturbation confirmed it, and what the checks of
+    the ontology's keys and relationships found."""
     states: dict[tuple[str, str, str], str] = {}
     for model in verification.checked:
         for state, items in (('confirmed', model.confirmed), ('not exercised', model.not_exercised)):
@@ -1312,4 +1380,15 @@ def annotate(graph: Graph, verification: Verification) -> None:
                 )
                 if found:
                     edge.attrs['verified'] = found
+    graph.changed()  # edges were marked in place
     graph.meta['verification'] = {'seed': verification.seed, **verification.totals()}
+    if verification.keys or verification.links:
+        from konstruct.analysis.integrity import annotate as record
+
+        record(
+            graph,
+            verification.keys,
+            verification.links,
+            verification.warehouse,
+            partial=bool(verification.only),
+        )

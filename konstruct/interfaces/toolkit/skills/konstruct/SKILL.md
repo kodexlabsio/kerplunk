@@ -41,6 +41,9 @@ For a whole task, follow the focused skill:
    - `konstruct define <term>`: the business definition, owner, status, grain, required filters
      and the columns that hold it. It also takes a column, to list the terms that define it.
    - `konstruct ontology`: the entities and their keys, the measures and how entities relate.
+   - `konstruct entity <name>`, `konstruct metric [name]` and `konstruct relate <from> <to>`: one
+     entity with its properties, the metrics (defined, or proposed from the code), and the joins
+     between two entities, each with how far to trust it.
    - `konstruct conflicts --no-write`: columns that compute the same business idea differently.
    - `konstruct history <table.column>`: when the formula changed in git, and who approved the terms.
    - `konstruct path <from> <to>`: how two tables or columns are connected.

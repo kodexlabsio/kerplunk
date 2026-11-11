@@ -99,6 +99,7 @@ PUBLIC_RESULTS = {
         'Diff',
     ],
     'analysis/verify.py': ['ModelResult', 'Verification'],
+    'analysis/integrity.py': ['KeyCheck', 'LinkCheck'],
     'analysis/mutation.py': [
         'Suggestion',
         'MutantResult',
@@ -120,6 +121,7 @@ PUBLIC_RESULTS = {
     'analysis/conflicts.py': ['Difference', 'Side', 'Conflict', 'Conflicts'],
     'analysis/checksql.py': ['Finding', 'SqlCheck', 'ShadowMetric', 'Adoption', 'HistoryCheck'],
     'semantics/ontology.py': ['Entity', 'MeasureColumn', 'Measure', 'Relationship', 'Rule', 'Ontology'],
+    'semantics/world.py': ['Property', 'Metric', 'Metrics', 'EntityDetail', 'Hop', 'Connection'],
 }
 
 

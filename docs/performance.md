@@ -54,6 +54,22 @@ Making every edge a Python object, when a caller asks for all of them (`Graph.ed
 
 `uv run .kodex/scripts/history_benchmark.py` measures both on your machine, and `--models` and `--changed` set the sizes.
 
+## The Ontology's Questions
+
+The generated projects have no keys or measures, so the benchmark gives each model of the 2,000-model project an entity, with a primary key on its first column, and a measure, a `SUM` around its third. The ontology then has 2,000 entities and 2,652 relationships, and `metric` lists 4,000 proposals: a sum and an entity count for each model.
+
+| Question | Time |
+|---|---:|
+| Deriving the ontology | 0.52 s |
+| `metric`, every metric | 1.48 s |
+| `metric` of one column | 499 ms |
+| `entity` of one model's entity | 30.2 ms |
+| `relate` across 11 relationships | 5.3 ms |
+
+The times of `metric`, `entity` and `relate` do not include deriving the ontology. A `konstruct entity`, `metric` or `relate` command derives it and then answers, so it takes both. The Python API and the MCP server keep the ontology they derive and derive it again only when the graph changes: when `graph.json` is reread, a node or an edge is added, or `meta` changes, as `konstruct verify` changes it; a script that edits a node or an edge in place calls `graph.changed()`, as every query's index needs. Their first question, and the first after a change, takes both. A question about one metric reads the SQL only of columns the name could mean, and composes the formula of those it finds.
+
+`uv run .kodex/scripts/benchmark.py 2000` measures them with the rest, and `tests/test_scale.py` checks them on 300 models.
+
 ## Search by Meaning
 
 A build makes no index for search by meaning; the first search by meaning does, and saves it as `vectors.bin` (see [Searching by Meaning](guide/search.md)). On the 2,000-model project:

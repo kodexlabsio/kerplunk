@@ -14,7 +14,7 @@ from konstruct import Project
 from konstruct.core.graph import Graph, Node, NodeKind
 from konstruct.interfaces.cli import main
 from konstruct.semantics.definitions import parse
-from konstruct.semantics.ontology import derivation, derive, entity_name, id_like, name_matches
+from konstruct.semantics.ontology import derivation, derive, entity_name, id_like, link_key, name_matches
 
 
 @pytest.mark.parametrize(
@@ -308,7 +308,7 @@ def test_cli_text_yaml_json_and_strict(tmp_path: Path, capsys: pytest.CaptureFix
     assert main(['ontology', '-C', str(tmp_path)]) == 0
     text = capsys.readouterr().out
     assert text.startswith('Ontology: 1 entity, 1 measure, 0 relationships, 1 rule violation.\n')
-    assert re.search(r"^  customer  key customer_id  customers  term '", text, re.M)
+    assert re.search(r"^  customer  key customer_id  customers  declared  term '", text, re.M)
     assert '    orders.amount  = orders.amount * 2  verified 0/1\n' in text
     assert main(['ontology', '-C', str(tmp_path), '--format', 'yaml']) == 0
     assert yaml.safe_load(capsys.readouterr().out)['entities'][0]['key'] == 'customer_id'
@@ -590,3 +590,185 @@ def test_a_relation_can_hold_several_entities(tmp_path: Path) -> None:
     assert project.impact('raw.orders.invoice_id').entities == {'invoice': ['orders'], 'order': ['orders']}
     # A key that is also another entity's foreign key keeps the relation's own entity.
     assert project.impact('raw.accounts.plan').entities == {'account': ['accounts'], 'user': ['accounts']}
+
+
+# Confidence: verified, declared or inferred, never more than the evidence supports
+
+
+def test_confidence_follows_the_evidence() -> None:
+    ontology = derive(shop())
+    customer, order = ontology.entities
+    # A unique test is a person's statement; a join is only what the SQL does.
+    assert (customer.confidence, order.confidence) == ('declared', 'declared')
+    assert customer.check is None
+    [rel] = ontology.relationships
+    assert (rel.confidence, rel.check) == ('inferred', None)
+    # Revenue is defined in definitions.yml, and verify confirmed the one lineage edge it has.
+    [revenue] = ontology.measures
+    assert revenue.confidence == 'verified'
+    assert revenue.evidence == [
+        'term in definitions.yml:3',
+        'formula composed from the SQL of 1 column',
+        'konstruct verify: 1 of 1 lineage edge confirmed',
+    ]
+    assert ontology.to_dict()['relationships'][0]['confidence'] == 'inferred'
+
+
+def test_an_unconfirmed_edge_leaves_a_measure_declared() -> None:
+    g = shop()
+    for edge in g.out_edges('model.shop.orders#amount', 'derived_from'):
+        edge.attrs['verified'] = 'not exercised'
+    assert derive(g).measures[0].confidence == 'declared'
+
+
+def test_a_tested_relationship_is_declared_and_a_join_inferred() -> None:
+    g = shop()
+    test = g.add_node(Node('test.shop.rel', 'test', 'relationships', attrs={'test': 'relationships'}))
+    g.add_edge(test.id, 'model.shop.orders#customer_id', 'tests')
+    g.add_edge(test.id, 'model.shop.customers#customer_id', 'tests', role='relationship target')
+    assert derive(g).relationships[0].confidence == 'declared'
+
+
+def test_names_grains_and_packs_are_only_inferred() -> None:
+    g = Graph()
+    g.meta['dialect'] = 'duckdb'
+    stores = _relation(g, 'store_sales', ['store_id', 'revenue'])
+    g.nodes[f'{stores.id}#revenue'].attrs['expression'] = 'SUM(x)'
+    _term(g, 'Store revenue', [f'{stores.id}#revenue'], kind='measure', grain='one row per store')
+    charges = _relation(g, 'charges', ['id', 'amount'], kind='source')
+    _term(g, 'Stripe charge', [f'{charges.id}#id'], kind='entity', registry='stripe', status='draft')
+    _term(g, 'Charge amount', [f'{charges.id}#amount'], kind='measure', registry='stripe')
+    ontology = derive(g)
+    entities = {e.name: e for e in ontology.entities}
+    # A grain names the store; a pack matched the charges table by its name. Neither is a person
+    # saying so of this project.
+    assert entities['store'].confidence == 'inferred'
+    assert entities['stripe_charge'].confidence == 'inferred'
+    measures = {m.name: m for m in ontology.measures}
+    assert measures['Charge amount'].confidence == 'inferred'
+    assert measures['Charge amount'].evidence == ['ontology pack stripe, bound by the names of the tables']
+    assert measures['Store revenue'].confidence == 'declared'
+
+
+def test_verify_checks_make_keys_and_links_verified_or_failed() -> None:
+    g = shop()
+    g.meta['integrity'] = {
+        'keys': {
+            'model.shop.customers#customer_id': {'state': 'confirmed', 'detail': 'customers.customer_id ok'},
+            'model.shop.orders#order_id': {'state': 'failed', 'detail': 'orders.order_id has 2 duplicates'},
+        },
+        'links': {
+            'model.shop.orders#customer_id|model.shop.customers#customer_id': {
+                'state': 'failed',
+                'detail': '1 of 3 values of orders.customer_id are not in customers.customer_id',
+            }
+        },
+    }
+    ontology = derive(g)
+    customer, order = ontology.entities
+    assert (customer.confidence, customer.check) == ('verified', 'confirmed')
+    assert 'konstruct verify: customers.customer_id ok' in customer.evidence
+    # A failed check never raises confidence: the order stays as declared as its unique test.
+    assert (order.confidence, order.check) == ('declared', 'failed')
+    [rel] = ontology.relationships
+    assert (rel.confidence, rel.check) == ('inferred', 'failed')
+    assert rel.evidence[-1].startswith('konstruct verify: 1 of 3 values')
+    assert rel.columns is not None
+    g.meta['integrity']['links'][link_key(*rel.columns)]['state'] = 'confirmed'
+    assert derive(g).relationships[0].confidence == 'verified'
+
+
+def test_an_entity_is_only_as_trusted_as_its_least_trusted_key() -> None:
+    g = shop()
+    # A pack binds a second key of customer by table names: no person stated that one.
+    crm = _relation(g, 'crm_customers', ['customer_id'])
+    _term(
+        g,
+        'Customer',
+        ['model.shop.customers#customer_id', f'{crm.id}#customer_id'],
+        kind='entity',
+        registry='crm',
+    )
+    customer = next(e for e in derive(g).entities if e.name == 'customer')
+    assert len(customer.key_ids) == 2 and customer.confidence == 'inferred'
+    # verify confirmed one of its two keys: not enough to call the entity verified.
+    g = shop()
+    crm = _relation(g, 'crm_customers', ['customer_id'])
+    _unique(g, crm, 'customer_id')
+    g.meta['integrity'] = {
+        'keys': {'model.shop.customers#customer_id': {'state': 'confirmed', 'detail': 'customers ok'}},
+        'links': {},
+    }
+    customer = next(e for e in derive(g).entities if e.name == 'customer')
+    assert (customer.confidence, customer.check) == ('declared', None)
+    assert customer.evidence[-1] == 'konstruct verify did not check crm_customers.customer_id'
+    g.meta['integrity']['keys']['model.shop.crm_customers#customer_id'] = {'state': 'failed', 'detail': 'dup'}
+    customer = next(e for e in derive(g).entities if e.name == 'customer')
+    assert (customer.confidence, customer.check) == ('declared', 'failed')
+
+
+def test_a_refuted_key_takes_away_the_cardinality_it_gave() -> None:
+    g = shop()
+    g.meta['integrity'] = {
+        'keys': {
+            'model.shop.customers#customer_id': {
+                'state': 'failed',
+                'detail': 'customers.customer_id has 3 duplicate values in 10 rows',
+            }
+        },
+        'links': {
+            'model.shop.orders#customer_id|model.shop.customers#customer_id': {
+                'state': 'confirmed',
+                'detail': 'all found',
+            }
+        },
+    }
+    [rel] = derive(g).relationships
+    # Every order has its customer, but a repeated customer_id is no key: the cardinality is gone,
+    # and the relationship is not verified.
+    assert (rel.cardinality, rel.check, rel.confidence) == (None, 'failed', 'inferred')
+    assert 'so its cardinality is unknown' in rel.evidence[-2]
+
+
+def test_a_refuted_referring_key_makes_one_to_one_many_to_one() -> None:
+    g = shop()
+    _unique(g, g.nodes['model.shop.orders'], 'customer_id')
+    assert derive(g).relationships[0].cardinality == 'one-to-one'
+    g.meta['integrity'] = {
+        'keys': {
+            'model.shop.orders#customer_id': {'state': 'failed', 'detail': 'orders.customer_id repeats'}
+        },
+        'links': {},
+    }
+    [rel] = derive(g).relationships
+    assert rel.cardinality == 'many-to-one'
+    assert rel.evidence[-1].endswith('so it is many-to-one, not one-to-one')
+
+
+def test_lineage_never_verifies_a_pack_binding_an_expression_or_a_conflict() -> None:
+    # Revenue's one lineage edge is confirmed; bound by a pack, it stays inferred.
+    g = shop()
+    g.nodes['term.revenue'].attrs['registry'] = 'stripe'
+    assert derive(g).measures[0].confidence == 'inferred'
+    # An Ossie metric's own expression is not what verify checks.
+    g = shop()
+    g.nodes['term.revenue'].attrs['formula'] = 'SUM(orders.amount) * 1.2'
+    revenue = derive(g).measures[0]
+    assert revenue.confidence == 'declared'
+    assert 'its own expression is not checked by konstruct verify' in revenue.evidence
+    # Two columns that compute the measure differently, each with confirmed lineage.
+    g = shop()
+    payments = _relation(g, 'raw_payments', ['amount'], kind='source')
+    finance = _relation(g, 'finance', ['revenue'])
+    g.nodes[f'{finance.id}#revenue'].attrs['expression'] = 'SUM(db.main.raw_payments.amount)'
+    g.add_edge(
+        f'{finance.id}#revenue',
+        f'{payments.id}#amount',
+        'derived_from',
+        transform='transformed',
+        verified='confirmed',
+    )
+    g.add_edge('term.revenue', f'{finance.id}#revenue', 'defines')
+    revenue = derive(g).measures[0]
+    assert revenue.confidence == 'declared'
+    assert 'its columns compute it in different ways (one-formula-per-measure)' in revenue.evidence
