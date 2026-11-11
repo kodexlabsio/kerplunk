@@ -4,6 +4,8 @@
 //! applied to arguments with given values), so under one key the same formula always evaluates
 //! to the same point. Fingerprints use the fixed key [`SEED`], so they are reproducible across
 //! runs and machines; comparisons use a fresh key, so that no formula can be built to collide.
+//! With the fixed key known, one can: a presence past the limit on terms is keyed by a sum of
+//! identities, and Wagner's k-tree algorithm finds two sets with equal sums in about 2^30 steps.
 //! The key also draws the three primes of the [`Field`].
 
 use super::blake2b::Blake2b;
@@ -11,7 +13,7 @@ use super::field::{Field, LANES, Lanes};
 
 /// The key fingerprints use, so that they agree between builds. Changing it, or anything about
 /// how a formula is evaluated, changes every fingerprint: it is versioned.
-pub const SEED: &[u8] = b"konstruct formula identity 3";
+pub const SEED: &[u8] = b"konstruct formula identity 4";
 
 /// What a value stands for. Each kind hashes under its own tag, so a column named like a
 /// function cannot collide with it, and two atoms standing for different things made from the
@@ -49,6 +51,14 @@ pub enum Tag {
     Draw,
     Prime,
     Context,
+    /// A class of the leaves of a product of presences.
+    Factor,
+    /// The rest of a presence, beside the atoms in its every term.
+    Rest,
+    /// A product of presences past the limit on terms.
+    Product,
+    /// The rest of a presence that is not a product.
+    Leaf,
 }
 
 /// The input of one draw, framed so that no two different inputs give the same bytes.
@@ -247,5 +257,25 @@ mod tests {
         assert_eq!(format!("{print:032x}"), PINNED);
     }
 
-    const PINNED: &str = "890930a431c6b3b3c8502a3a646c1b5f";
+    const PINNED: &str = "a990bd6b18f3bf135eeddcfe3e505c8d";
+
+    #[test]
+    fn fixed_key_gives_fixed_fingerprints_of_formulas() {
+        // A change to how a formula is evaluated changes its fingerprint: bump SEED with it.
+        // Three CASEs that may each be NULL: a presence of 27 terms, the same in any order.
+        let zero = "(num \"0\" \"1\")";
+        let case =
+            |i: u32| format!("(case (fn \"GT\" (col \"c{i}\") {zero}) (col \"a{i}\") {zero})");
+        let print = |order: [u32; 3]| {
+            let mut formulas = super::super::Formulas::new();
+            let parts: Vec<String> = order.into_iter().map(case).collect();
+            let formula = format!("(add (col \"x\") {})", parts.join(" "));
+            let definition = formulas.add(&formula, "").unwrap();
+            format!("{:032x}", formulas.fingerprint(definition))
+        };
+        assert_eq!(print([0, 1, 2]), PINNED_FORMULA);
+        assert_eq!(print([2, 0, 1]), PINNED_FORMULA);
+    }
+
+    const PINNED_FORMULA: &str = "570295e1f932a44b40fad700ce65f8ba";
 }

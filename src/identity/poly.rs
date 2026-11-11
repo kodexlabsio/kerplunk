@@ -195,7 +195,12 @@ impl Poly {
     /// The product, or None when it would have more than [`MAX_TERMS`] terms. A Boolean atom in
     /// both factors appears once in the product.
     pub fn mul(&self, other: &Poly, field: &Field) -> Option<Poly> {
-        if self.terms.len().saturating_mul(other.terms.len()) > MAX_TERMS * 16 {
+        self.mul_within(other, MAX_TERMS, field)
+    }
+
+    /// The product, or None when it would have more than `limit` terms.
+    pub fn mul_within(&self, other: &Poly, limit: usize, field: &Field) -> Option<Poly> {
+        if self.terms.len().saturating_mul(other.terms.len()) > limit.saturating_mul(16) {
             return None;
         }
         let mut terms = BTreeMap::new();
@@ -209,7 +214,7 @@ impl Poly {
                 Poly::accumulate(field, &mut terms, monomial, field.mul(c1, c2));
             }
         }
-        (terms.len() <= MAX_TERMS).then(|| Poly {
+        (terms.len() <= limit).then(|| Poly {
             terms,
             bits: self.bits.saturating_add(other.bits),
         })
@@ -218,6 +223,70 @@ impl Poly {
     /// 1 - self.
     pub fn complement(&self, field: &Field) -> Option<Poly> {
         Poly::one(field).sub(self, field)
+    }
+
+    /// The Boolean atoms in every term, sorted; none for zero.
+    pub fn common(&self) -> Monomial {
+        let mut monomials = self.terms.keys();
+        let mut common = monomials.next().cloned().unwrap_or_default();
+        for m in monomials {
+            if common.is_empty() {
+                break;
+            }
+            common.retain(|a| m.binary_search(a).is_ok());
+        }
+        common.retain(|a| a.1);
+        common
+    }
+
+    /// Divided by `atoms`, sorted Boolean atoms in every term.
+    pub fn strip(&self, atoms: &[Atom]) -> Poly {
+        Poly {
+            terms: self
+                .terms
+                .iter()
+                .map(|(m, &c)| {
+                    let rest = m.iter().filter(|a| atoms.binary_search(a).is_err());
+                    (rest.copied().collect(), c)
+                })
+                .collect(),
+            bits: self.bits,
+        }
+    }
+
+    /// With each of `atoms`, sorted Boolean atoms, set to 1; None when no term has one.
+    pub fn with_true(&self, atoms: &[Atom], field: &Field) -> Option<Poly> {
+        let touches = |m: &Monomial| m.iter().any(|a| atoms.binary_search(a).is_ok());
+        if atoms.is_empty() || !self.terms.keys().any(touches) {
+            return None;
+        }
+        let mut terms = BTreeMap::new();
+        for (m, &c) in &self.terms {
+            let rest = m.iter().filter(|a| atoms.binary_search(a).is_err());
+            Poly::accumulate(field, &mut terms, rest.copied().collect(), c);
+        }
+        // Terms that merge have coefficients no larger in sum: the bound still holds.
+        Some(Poly {
+            terms,
+            bits: self.bits,
+        })
+    }
+
+    /// Times the product of `atoms`, sorted Boolean atoms.
+    pub fn times(&self, atoms: &[Atom], field: &Field) -> Poly {
+        let mut terms = BTreeMap::new();
+        for (m, &c) in &self.terms {
+            let mut monomial = Vec::with_capacity(m.len() + atoms.len());
+            monomial.extend_from_slice(m);
+            monomial.extend_from_slice(atoms);
+            monomial.sort_unstable();
+            monomial.dedup_by(|a, b| a.1 && a == b);
+            Poly::accumulate(field, &mut terms, monomial, c);
+        }
+        Poly {
+            terms,
+            bits: self.bits,
+        }
     }
 }
 
@@ -304,5 +373,37 @@ mod tests {
         assert_eq!(square.len(), 20 * 21 / 2);
         assert!(square.mul(&sum, &f).is_none());
         assert_eq!(decimal_bits("-1000"), 14);
+    }
+
+    #[test]
+    fn the_atoms_in_every_term_split_off_and_back() {
+        let f = field();
+        let (a, b, c, d) = (
+            atom(&f, 1, true),
+            atom(&f, 2, true),
+            atom(&f, 3, true),
+            atom(&f, 4, true),
+        );
+        // (ab)(1 - c + cd): a and b are in every term, c and d are not.
+        let either = c
+            .complement(&f)
+            .unwrap()
+            .add(&c.mul(&d, &f).unwrap(), &f)
+            .unwrap();
+        let whole = a.mul(&b, &f).unwrap().mul(&either, &f).unwrap();
+        let common = whole.common();
+        assert_eq!(common.len(), 2);
+        let rest = whole.strip(&common);
+        assert!(rest.eq(&either) && rest.common().is_empty());
+        assert!(rest.times(&common, &f).eq(&whole));
+        // Where c holds, 1 - c + cd is d; a polynomial without c is untouched.
+        let [(c_atom, _)] = c.common()[..] else {
+            panic!("one atom")
+        };
+        assert!(rest.with_true(&[(c_atom, true)], &f).unwrap().eq(&d));
+        assert!(d.with_true(&[(c_atom, true)], &f).is_none());
+        assert!(Poly::zero().common().is_empty());
+        // A numeric atom is not one to split off.
+        assert!(atom(&f, 5, false).common().is_empty());
     }
 }

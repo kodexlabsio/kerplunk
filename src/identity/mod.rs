@@ -11,7 +11,9 @@ pub mod blake2b;
 pub mod eval;
 pub mod field;
 pub mod oracle;
+pub mod pmap;
 pub mod poly;
+pub mod presence;
 pub mod program;
 #[cfg(feature = "python")]
 pub mod python;
@@ -118,14 +120,7 @@ impl Formulas {
         let value = self.value(definition, true);
         self.oracle.fingerprint(|f| {
             f.lanes(&value.lanes);
-            f.number(value.presence.len() as u64);
-            for (monomial, c) in value.presence.terms() {
-                f.number(monomial.len() as u64);
-                for (atom, boolean) in monomial {
-                    f.lanes(atom).number(u64::from(*boolean));
-                }
-                f.lanes(&c);
-            }
+            value.presence.feed(&self.oracle, f);
         })
     }
 

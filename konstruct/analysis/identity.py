@@ -54,7 +54,7 @@ from konstruct.analysis.explain import Explainer, composed_from, short_sql
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
 from konstruct.core.sql import PARSE_ERRORS
 
-SCHEME = 3
+SCHEME = 4
 """The version of the fingerprints: two fingerprints compare only under the same scheme."""
 
 _COMPARISONS: dict[type[exp.Expr], tuple[str, bool]] = {

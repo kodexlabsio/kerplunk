@@ -10,7 +10,8 @@ from typing import Any
 import pytest
 
 from konstruct import Project
-from konstruct.core.graph import Graph
+from konstruct.analysis.identity import Formulas, column_fingerprints, fingerprint
+from konstruct.core.graph import Graph, Node
 
 from .test_gate import git
 
@@ -337,3 +338,91 @@ def test_conflicts_and_the_gate_stay_fast(tmp_path: Path) -> None:
     # The same findings as from every conflict, which is what the gate is given when a plugin's check runs.
     assert gate(graph, diff, find_conflicts(graph)).findings == result.findings
     print(f'\n{tables} tables: conflicts {whole:.2f}s of CPU, the gate after one edit {gated:.2f}s')
+
+
+def _measures(depth: int = 0, wide: int = 0, fresh: int = 0) -> Graph:
+    """A measure that may be NULL in five ways (five CASEs whose branch may be NULL), then a
+    lineage of ``depth`` models that each add a nullable source column to it, ``wide`` models
+    that each add three of their own to it, as a mart's columns over one measure, and a lineage
+    of ``fresh`` models that each add two CASEs of their own to the last."""
+    graph = Graph()
+    source = graph.add_node(Node('source.raw.src', 'source', 'src', relation='db.raw.src'))
+    names = [f'{p}{i}' for p in 'ca' for i in range(5)] + [f'x{j}' for j in range(depth + 3 * wide)]
+    names += [f'{p}{j}' for p in 'de' for j in range(2 * fresh)]
+    for name in names:
+        graph.add_column(source, name)
+
+    def model(name: str, expression: str, inputs: list[str]) -> Node:
+        node = graph.add_node(Node(f'model.{name}', 'model', name, relation=f'db.s.{name}'))
+        column = graph.add_column(node, 'v', attrs={'expression': expression})
+        for found in inputs:
+            graph.add_edge(column.id, found, 'derived_from')
+        return column
+
+    def case(i: int, p: str = 'c', q: str = 'a') -> str:
+        return f'CASE WHEN db.raw.src.{p}{i} > 0 THEN db.raw.src.{q}{i} ELSE 0 END'
+
+    model(
+        'm0',
+        ' + '.join(case(i) for i in range(5)),
+        [f'source.raw.src#{p}{i}' for p in 'ca' for i in range(5)],
+    )
+    for j in range(1, depth + 1):
+        model(
+            f'm{j}',
+            f'db.s.m{j - 1}.v + db.raw.src.x{j - 1}',
+            [f'model.m{j - 1}#v', f'source.raw.src#x{j - 1}'],
+        )
+    if depth:
+        # The last model again, its operands the other way round.
+        model(
+            'last',
+            f'db.raw.src.x{depth - 1} + db.s.m{depth - 1}.v',
+            [f'model.m{depth - 1}#v', f'source.raw.src#x{depth - 1}'],
+        )
+    for j in range(wide):
+        own = [f'x{depth + 3 * j + i}' for i in range(3)]
+        model(
+            f'w{j}',
+            ' + '.join(['db.s.m0.v', *(f'db.raw.src.{x}' for x in own)]),
+            ['model.m0#v', *(f'source.raw.src#{x}' for x in own)],
+        )
+    for j in range(1, fresh + 1):
+        upstream = 'm0' if j == 1 else f'f{j - 1}'
+        cases = [case(2 * j - 2, 'd', 'e'), case(2 * j - 1, 'd', 'e')]
+        inputs = [f'model.{upstream}#v'] + [f'source.raw.src#{p}{2 * j - i}' for p in 'de' for i in (1, 2)]
+        model(f'f{j}', ' + '.join([f'db.s.{upstream}.v', *cases]), inputs)
+        if j == fresh:
+            model('fresh', ' + '.join([*cases[::-1], f'db.s.{upstream}.v']), inputs)
+    return graph
+
+
+def test_formulas_with_presences_of_many_terms_stay_cheap() -> None:
+    # The presence of five CASEs has 243 terms: a nullable column joining it, at every step of
+    # a long lineage or in every column of a wide mart, costs its atoms, not terms times atoms.
+    # Past the limit on terms, a lineage that adds factors at every step shares the factors of
+    # the step before. CPU time, bounded at about ten times what a laptop takes.
+    graph = _measures(depth=2000, wide=5000)
+    started = time.process_time()
+    prints = column_fingerprints(graph)
+    lineage = time.process_time() - started
+    assert prints['model.last#v'] == prints['model.m2000#v'] != prints['model.m1999#v']
+    assert len({prints[f'model.w{j}#v'] for j in range(5000)}) == 5000
+    # The core's part alone, without translating the formulas.
+    graph = _measures(fresh=4000)
+    formulas = Formulas(graph, fixed_key=True)
+    names = ['model.f3999#v', 'model.f4000#v', 'model.fresh#v']
+    definitions = [formulas.column(graph.nodes[name]) for name in names]
+    started = time.process_time()
+    before, last, reordered = formulas.fingerprints(definitions)
+    fresh = time.process_time() - started
+    assert reordered == last != before
+    started = time.process_time()
+    cases = [f'CASE WHEN c{i} > 0 THEN a{i} ELSE 0 END' for i in range(5)]
+    columns = [f'x{j}' for j in range(2000)]
+    assert fingerprint(' + '.join(cases + columns)) == fingerprint(' + '.join(columns[::-1] + cases[::-1]))
+    flat = time.process_time() - started
+    print(f'\nlineage and mart {lineage:.2f}s, fresh CASEs {fresh:.2f}s, flat {flat:.2f}s of CPU')
+    assert lineage < 10, f'7,000 columns over a presence of 243 terms took {lineage:.1f}s of CPU'
+    assert fresh < 1, f'a lineage of 4,000 models adding two CASEs each took {fresh:.1f}s of CPU'
+    assert flat < 5, f'a sum of 5 CASEs and 2,000 columns took {flat:.1f}s of CPU'

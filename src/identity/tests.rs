@@ -566,19 +566,107 @@ fn a_case_of_many_conditions() {
 
 #[test]
 fn presences_kept_whole_stay_apart_by_what_they_stand_for() {
-    // Past the limit on terms, the presence of a sum or product and that of a COALESCE of the
-    // same operands are atoms of their own: at x1 = 1 and the rest NULL the first is NULL and
-    // the second is 0.
-    let (x, y) = (
-        op("coalesce", &[&col("x1"), &col("x2")]),
-        op("coalesce", &[&col("y1"), &col("y2")]),
-    );
-    let either = mul(&[&op("coalesce", &[&x, &y]), &int(0)]);
-    for both in [mul(&[&add(&[&x, &y]), &int(0)]), mul(&[&x, &y, &int(0)])] {
-        let found = verdict(&both, &either);
-        assert!(!found.equal, "{both} and {either} should differ");
-        assert!(found.equal_without_nulls);
+    // The presence of a sum or product and that of a COALESCE of the same operands differ: at
+    // x1 = 1 and the rest NULL the first is NULL and the second is 0. With six operands both
+    // are past the limit on terms, and atoms of their own.
+    for n in [2, 6] {
+        let operands: Vec<String> = (0..n)
+            .map(|i| {
+                op(
+                    "coalesce",
+                    &[&col(&format!("x{i}")), &col(&format!("y{i}"))],
+                )
+            })
+            .collect();
+        let refs: Vec<&str> = operands.iter().map(String::as_str).collect();
+        let either = mul(&[&op("coalesce", &refs), &int(0)]);
+        let zero = int(0);
+        let product = [refs.clone(), vec![zero.as_str()]].concat();
+        for both in [mul(&[&add(&refs), &int(0)]), mul(&product)] {
+            let found = verdict(&both, &either);
+            assert!(!found.equal, "{both} and {either} should differ");
+            assert!(found.equal_without_nulls);
+        }
     }
+}
+
+#[test]
+fn a_product_of_presences_is_the_same_however_its_operands_are_grouped() {
+    // Each CASE is NULL where it takes a branch whose column is NULL: its presence has three
+    // terms, so a sum of two has nine and a sum of ten is past the limit on terms.
+    let cases: Vec<String> = (0..10)
+        .map(|i| {
+            case(&[
+                &gt(&col(&format!("c{i}")), &int(0)),
+                &col(&format!("a{i}")),
+                &int(0),
+            ])
+        })
+        .collect();
+    let refs: Vec<&str> = cases.iter().map(String::as_str).collect();
+    for n in [2, 3, 10] {
+        let written = &refs[..n];
+        let reversed: Vec<&str> = written.iter().rev().copied().collect();
+        let (left, right) = written.split_at(n / 2);
+        let grouped = [
+            add(&right.iter().rev().copied().collect::<Vec<_>>()),
+            add(left),
+        ];
+        let grouped: Vec<&str> = grouped.iter().map(String::as_str).collect();
+        assert_same(&add(written), &add(&reversed));
+        assert_same(&add(written), &add(&grouped));
+        assert_same(&mul(written), &mul(&reversed));
+        assert_same(&add(written), &sub(&add(&reversed), &int(0)));
+    }
+    // Past the limit, an operand that is NULL at other times still gives another presence.
+    let other = case(&[
+        &gt(&col("c9"), &int(0)),
+        &op("coalesce", &[&col("a9"), &int(0)]),
+        &int(0),
+    ]);
+    let changed = [&refs[..9], &[other.as_str()]].concat();
+    assert_same_without_nulls(&add(&refs), &add(&changed));
+}
+
+#[test]
+fn atoms_a_product_implies_reduce_its_factors_however_late_they_come() {
+    // Each CASE is present wherever a is: a + the CASEs is present exactly where a is, whether a
+    // comes first, last or between, and past the limit on terms (511 at k = 8) too.
+    let a = col("a");
+    for k in [7, 8, 9] {
+        let cases: Vec<String> = (0..k)
+            .map(|i| case(&[&gt(&col(&format!("c{i}")), &int(0)), &a, &int(0)]))
+            .collect();
+        let refs: Vec<&str> = cases.iter().map(String::as_str).collect();
+        let first = add(&[&[a.as_str()], &refs[..]].concat());
+        let last = add(&[&refs[..], &[a.as_str()]].concat());
+        let between = add(&[&refs[..k / 2], &[a.as_str()], &refs[k / 2..]].concat());
+        assert_same(&first, &last);
+        assert_same(&first, &between);
+        assert_same(&mul(&[&last, &int(0)]), &mul(&[&a, &int(0)]));
+        // Without a, the CASEs are present where they are, not where a is.
+        let alone = mul(&[&add(&refs), &int(0)]);
+        assert_same_without_nulls(&alone, &mul(&[&a, &int(0)]));
+        assert_same(
+            &alone,
+            &mul(&[
+                &add(&refs.iter().rev().copied().collect::<Vec<_>>()),
+                &int(0),
+            ]),
+        );
+    }
+}
+
+#[test]
+fn a_presence_multiplied_out_is_compared_by_its_polynomial_alone() {
+    // One CASE NULL where c > 0 or d > 0, against the product of two NULL where each is: the
+    // same polynomial, (1 - s)(1 - t), made of one factor or two.
+    let (c, d) = (gt(&col("c"), &int(0)), gt(&col("d"), &int(0)));
+    let one = int(1);
+    let inner = case(&[&d, NULL, &one]);
+    let nested = case(&[&c, NULL, &inner]);
+    let product = sub(&add(&[&case(&[&c, NULL, &one]), &inner]), &one);
+    assert_same(&nested, &product);
 }
 
 #[test]

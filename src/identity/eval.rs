@@ -6,7 +6,7 @@
 //! at a point drawn uniformly from each lane's field gives that lane of its fingerprint; by the
 //! Schwartz-Zippel lemma two different rational functions of degree at most d agree at such a
 //! point with probability at most d/p. Presence is kept exactly, as a multilinear polynomial
-//! over Boolean atoms (see [`super::poly`]).
+//! over Boolean atoms, and past a limit on terms canonically (see [`super::presence`]).
 //!
 //! What "the same" means, precisely: two formulas are the same when, for every assignment to
 //! the source columns of a number or NULL, and over every table of rows (an empty one
@@ -45,6 +45,9 @@
 //! integer coefficients, which for coefficients below 2^H happens for at most H/60 of the more
 //! than 2.8 * 10^15 primes the lane's prime is drawn from. With n uninterpreted values whose
 //! arguments could collide, the bound is (1 + n(n-1)/2)(D/p + (H/60 + 1)/(2.8 * 10^15))^3.
+//! A presence past the limit on terms is compared by a sum of identities (see
+//! [`super::presence`]): under a fresh key two different sets of classes have equal sums with
+//! probability about 2^-61 in each lane, 2^-183 in all three, far within that bound.
 //! Formulas that do not compare the same are not shown to be the same, which is not a proof
 //! that they differ. Lanes that differ are a point where the two values differ as polynomials,
 //! but a Boolean atom is evaluated at a random point rather than at 0 or 1, so SQL can still
@@ -61,14 +64,16 @@ use std::sync::Arc;
 use super::field::{Field, LANES, Lanes, PRIMES_IN_RANGE};
 use super::oracle::{Feed, Oracle, Tag};
 use super::poly::{Poly, decimal_bits};
+pub use super::presence::Presence;
 use super::program::{Op, Program};
 use crate::fnv::{Fnv1a, FnvHashMap};
 
 type FnvHashSet<T> = HashSet<T, BuildHasherDefault<Fnv1a>>;
 
-/// The most terms a presence is kept with. An OR of k atoms has 2^k - 1 terms, so a long chain
-/// of COALESCE would otherwise grow to the expansion limit; past this one a presence is a
-/// Boolean atom standing for exactly itself, keyed by the presences it was made from.
+/// The most terms the presence of a CASE or a COALESCE is kept with. An OR of k atoms has
+/// 2^k - 1 terms, so a long chain of COALESCE would otherwise grow to the expansion limit; past
+/// this one such a presence is a Boolean atom standing for exactly itself, keyed by the
+/// presences it was made from, in their order, which is what they mean.
 const PRESENCE_TERMS: usize = 8;
 
 fn small(p: Poly) -> Option<Poly> {
@@ -80,8 +85,8 @@ fn small(p: Poly) -> Option<Poly> {
 #[derive(Clone, Debug)]
 pub struct Val {
     pub lanes: Lanes,
-    /// When it is not NULL, as a multilinear polynomial over Boolean atoms.
-    pub presence: Arc<Poly>,
+    /// When it is not NULL.
+    pub presence: Presence,
     /// A bound on the degree of the numerator of the value as a rational function.
     pub num: u32,
     /// A bound on the degree of its denominator.
@@ -124,34 +129,23 @@ impl Val {
             .saturating_add(self.den)
             .max(self.presence.degree())
             .max(self.reach);
-        let bits = self.bits.max(self.presence.bits).max(self.reach_bits);
+        let bits = self.bits.max(self.presence.bits()).max(self.reach_bits);
         (degree, bits)
     }
 }
 
 /// Feeds a value and its presence to a draw: what an uninterpreted function sees of it.
-fn feed_val(f: &mut Feed, v: &Val) {
+fn feed_val(oracle: &Oracle, f: &mut Feed, v: &Val) {
     f.lanes(&v.lanes);
-    feed_poly(f, &v.presence);
-}
-
-fn feed_poly(f: &mut Feed, p: &Poly) {
-    f.number(p.len() as u64);
-    for (monomial, c) in p.terms() {
-        f.number(monomial.len() as u64);
-        for (atom, boolean) in monomial {
-            f.lanes(atom).number(u64::from(*boolean));
-        }
-        f.lanes(&c);
-    }
+    v.presence.feed(oracle, f);
 }
 
 /// Values, expansions and the constant presences of one evaluation.
 pub struct Memo {
     values: Vec<Option<Val>>,
     polys: FnvHashMap<u32, Arc<Poly>>,
-    one: Arc<Poly>,
-    zero: Arc<Poly>,
+    one: Presence,
+    zero: Presence,
 }
 
 impl Memo {
@@ -159,8 +153,8 @@ impl Memo {
         Memo {
             values: Vec::new(),
             polys: FnvHashMap::default(),
-            one: Arc::new(Poly::one(field)),
-            zero: Arc::new(Poly::zero()),
+            one: Presence::constant(Poly::one(field)),
+            zero: Presence::constant(Poly::zero()),
         }
     }
 }
@@ -200,7 +194,7 @@ impl Eval<'_> {
     }
 
     /// A fresh value, the result of an uninterpreted function of `args`, with `presence`.
-    fn atom(&self, lanes: Lanes, args: &[Val], presence: Arc<Poly>) -> Val {
+    fn atom(&self, lanes: Lanes, args: &[Val], presence: Presence) -> Val {
         let (reach, reach_bits) = args
             .iter()
             .map(Val::reach_of)
@@ -230,27 +224,18 @@ impl Eval<'_> {
     }
 
     /// A Boolean atom drawn for the input `feed` writes.
-    fn boolean(&self, tag: Tag, feed: impl FnOnce(&mut Feed)) -> Arc<Poly> {
-        let identity = self.oracle.lanes(tag, feed);
-        Arc::new(Poly::atom(self.field(), identity, true))
+    fn boolean(&self, tag: Tag, feed: impl FnOnce(&mut Feed)) -> Presence {
+        Presence::atom(self.oracle.lanes(tag, feed), &self.memo.one)
     }
 
-    /// Presence when both are present: the product, or past the limit an atom standing for it.
-    fn both(&self, a: &Arc<Poly>, b: &Arc<Poly>) -> Arc<Poly> {
-        let field = self.field();
-        if a.is_one(field) || b.is_zero() {
-            return b.clone();
-        }
-        if b.is_one(field) || a.is_zero() {
-            return a.clone();
-        }
-        match a.mul(b, field).and_then(small) {
-            Some(product) => Arc::new(product),
-            None => self.boolean(Tag::BothPresence, |f| {
-                feed_poly(f, a);
-                feed_poly(f, b);
-            }),
-        }
+    /// The presence `poly`, a polynomial over Boolean atoms, is.
+    fn presence(&self, poly: Poly) -> Presence {
+        Presence::of(poly, self.oracle, &self.memo.one, &self.memo.zero)
+    }
+
+    /// Presence when both are present.
+    fn both(&self, a: &Presence, b: &Presence) -> Presence {
+        a.and(b, self.oracle, &self.memo.one, &self.memo.zero)
     }
 
     fn add(&self, a: &Val, b: &Val) -> Val {
@@ -314,8 +299,8 @@ impl Eval<'_> {
     }
 
     /// A presence as a number, for arithmetic that branches on it.
-    fn presence_val(&self, p: &Arc<Poly>) -> Val {
-        let mut value = self.constant(p.evaluate(self.field()), p.bits);
+    fn presence_val(&self, p: &Presence) -> Val {
+        let mut value = self.constant(p.evaluate(self.oracle), p.bits());
         value.num = p.degree();
         value
     }
@@ -397,7 +382,8 @@ impl Eval<'_> {
     /// The Boolean atom "the condition holds": a fresh one for each distinct condition.
     pub fn indicator(&mut self, condition: u32) -> Lanes {
         let c = self.value(condition);
-        self.oracle.lanes(Tag::Indicator, |f| feed_val(f, &c))
+        self.oracle
+            .lanes(Tag::Indicator, |f| feed_val(self.oracle, f, &c))
     }
 
     /// The (condition, branch) pairs of a CASE with these children that can be taken, with
@@ -425,7 +411,7 @@ impl Eval<'_> {
     ) -> Val {
         let mut args = self.args(node);
         if tag == Tag::Symmetric {
-            args.sort_by(|x, y| (x.lanes, &*x.presence).cmp(&(y.lanes, &*y.presence)));
+            args.sort_by(|x, y| (x.lanes, &x.presence).cmp(&(y.lanes, &y.presence)));
         }
         let context = context.then(|| self.context(node));
         let feed = |f: &mut Feed| {
@@ -433,7 +419,7 @@ impl Eval<'_> {
                 f.bytes(context);
             }
             f.text(name).number(args.len() as u64);
-            args.iter().for_each(|a| feed_val(f, a));
+            args.iter().for_each(|a| feed_val(self.oracle, f, a));
         };
         let lanes = self.oracle.lanes(tag, feed);
         // Without NULLs an aggregate of arguments that are never NULL is not NULL either.
@@ -473,7 +459,7 @@ impl Eval<'_> {
             Op::Outer(_) => {
                 let mut value = self.args(node).remove(0);
                 if self.nulls {
-                    let matched = Arc::new(Poly::atom(self.field(), self.matched(node), true));
+                    let matched = Presence::atom(self.matched(node), &self.memo.one);
                     value.presence = self.both(&value.presence, &matched);
                 }
                 self.normalised(value)
@@ -550,21 +536,23 @@ impl Eval<'_> {
                 let mut value = if matches!(program.nodes[node as usize].op, Op::Sum) {
                     total
                 } else {
-                    let count = self.row_sum(node, &argument.presence, &argument);
+                    let presence = argument.presence.poly(self.oracle);
+                    let count = self.row_sum(node, &presence, &argument);
                     self.div(&total, &count)
                 };
                 value.presence = rows;
                 self.normalised(value)
             }
             Op::Count => {
-                let one = self.memo.one.clone();
+                let one = Poly::one(self.field());
                 let argument = self.constant(self.field().one(), 1);
                 self.row_sum(node, &one, &argument)
             }
             Op::CountOf => {
                 let child = program.children(node)[0];
                 let argument = self.value(child);
-                self.row_sum(node, &argument.presence.clone(), &argument)
+                let presence = argument.presence.poly(self.oracle);
+                self.row_sum(node, &presence, &argument)
             }
         }
     }
@@ -607,7 +595,9 @@ impl Eval<'_> {
         for (i, &(_, _, indicator)) in kept.iter().enumerate() {
             let t = Poly::atom(&field, indicator, true);
             presence = presence.and_then(|p| {
-                let here = taken.mul(&t, &field)?.mul(&branches[i].presence, &field)?;
+                let here = taken
+                    .mul(&t, &field)?
+                    .mul(&branches[i].presence.poly(self.oracle), &field)?;
                 small(p.add(&here, &field)?)
             });
             taken = match t
@@ -622,17 +612,22 @@ impl Eval<'_> {
             };
         }
         let presence = presence
-            .and_then(|p| p.add(&taken.mul(&otherwise.presence, &field)?, &field))
+            .and_then(|p| {
+                p.add(
+                    &taken.mul(&otherwise.presence.poly(self.oracle), &field)?,
+                    &field,
+                )
+            })
             .and_then(small);
         value.presence = match presence {
-            Some(p) => Arc::new(p),
+            Some(p) => self.presence(p),
             None => self.boolean(Tag::CasePresence, |f| {
                 f.number(kept.len() as u64);
                 for (i, &(_, _, indicator)) in kept.iter().enumerate() {
                     f.lanes(&indicator);
-                    feed_poly(f, &branches[i].presence);
+                    branches[i].presence.feed(self.oracle, f);
                 }
-                feed_poly(f, &otherwise.presence);
+                otherwise.presence.feed(self.oracle, f);
             }),
         };
         self.normalised(value)
@@ -652,13 +647,14 @@ impl Eval<'_> {
         // Present unless every argument is absent.
         let mut absent = Some(Poly::one(&field));
         for arg in &args {
-            absent = absent.and_then(|a| small(a.mul(&arg.presence.complement(&field)?, &field)?));
+            let present = arg.presence.poly(self.oracle);
+            absent = absent.and_then(|a| small(a.mul(&present.complement(&field)?, &field)?));
         }
         value.presence = match absent.and_then(|a| a.complement(&field)) {
-            Some(p) => Arc::new(p),
+            Some(p) => self.presence(p),
             None => self.boolean(Tag::CoalescePresence, |f| {
                 f.number(args.len() as u64);
-                args.iter().for_each(|a| feed_poly(f, &a.presence))
+                args.iter().for_each(|a| a.presence.feed(self.oracle, f))
             }),
         };
         self.normalised(value)
@@ -666,15 +662,16 @@ impl Eval<'_> {
 
     /// SUM of `child` at `node`: the row sum of its value where it is present, and when the
     /// sum is not NULL.
-    fn sums(&mut self, node: u32, child: u32, argument: &Val) -> (Val, Arc<Poly>) {
+    fn sums(&mut self, node: u32, child: u32, argument: &Val) -> (Val, Presence) {
         let field = *self.field();
         self.ensure_polys(child);
         let expansion = self.poly(child);
-        let weighted = match expansion.mul(&argument.presence, &field) {
+        let weighted = match expansion.mul(&argument.presence.poly(self.oracle), &field) {
             Some(w) => w,
             None => Poly::atom(
                 &field,
-                self.oracle.lanes(Tag::Weighted, |f| feed_val(f, argument)),
+                self.oracle
+                    .lanes(Tag::Weighted, |f| feed_val(self.oracle, f, argument)),
                 false,
             ),
         };
@@ -695,7 +692,7 @@ impl Eval<'_> {
         let rows = if argument.presence.is_one(&field) {
             nonempty
         } else {
-            let count = self.row_sum(node, &argument.presence.clone(), argument);
+            let count = self.row_sum(node, &argument.presence.poly(self.oracle), argument);
             let some = self.boolean(Tag::Rows, |f| {
                 f.bytes(&context).lanes(&count.lanes);
             });
@@ -781,7 +778,7 @@ impl Eval<'_> {
     /// An expression kept whole, as one numeric atom standing for exactly itself.
     fn opaque(&mut self, node: u32, tag: Tag) -> Poly {
         let value = self.value(node);
-        let identity = self.oracle.lanes(tag, |f| feed_val(f, &value));
+        let identity = self.oracle.lanes(tag, |f| feed_val(self.oracle, f, &value));
         Poly::atom(self.field(), identity, false)
     }
 
@@ -857,7 +854,7 @@ impl Eval<'_> {
             Op::Coalesce => {
                 let mut result = (*self.poly(*children.last().expect("an argument"))).clone();
                 for &c in children[..children.len() - 1].iter().rev() {
-                    let present = self.value(c).presence;
+                    let present = self.value(c).presence.poly(self.oracle);
                     let rest = present.complement(&field)?.mul(&result, &field)?;
                     result = present.mul(&self.poly(c), &field)?.add(&rest, &field)?;
                 }
@@ -895,8 +892,8 @@ pub fn error_bound(a: &Val, b: &Val, field: &Field) -> f64 {
         .max(bb)
         .max(
             a.presence
-                .bits
-                .saturating_add(b.presence.bits)
+                .bits()
+                .saturating_add(b.presence.bits())
                 .saturating_add(1),
         );
     let per_lane = f64::from(degree) / field.smallest() as f64

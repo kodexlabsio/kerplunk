@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from fractions import Fraction
+from typing import cast
 
 import duckdb
 import pytest
@@ -151,6 +153,28 @@ def _run(sql: list[str], rows: list[dict[str, str]] | None, inputs: dict[str, st
     return ['NULL' if v is None else str(v) for v in found[0]] if found else []
 
 
+_COMPARED = re.compile(r'([abcx]) > (-?\d+)|(-?\d+) > ([abcx])')
+
+
+def _expressed(values: dict[str, str]) -> dict[str, str] | None:
+    """The values a witness gives, with each assumed comparison of a column with a constant
+    given as a value of the column that makes it so: for ``c > k`` k + 1 when true and k when
+    false, for ``k > c`` k - 1 and k, and NULL for NULL. None when an assumption cannot be
+    expressed so, or two disagree on a column."""
+    columns = {name: value for name, value in values.items() if name in 'abcx'}
+    for name, value in values.items():
+        if name in columns:
+            continue
+        found = _COMPARED.fullmatch(name)
+        if found is None:
+            return None
+        column, constant, above = (found[1], int(found[2]), 1) if found[1] else (found[4], int(found[3]), -1)
+        made = {'true': str(constant + above), 'false': str(constant), 'NULL': 'NULL'}[value]
+        if columns.setdefault(column, made) != made:
+            return None
+    return columns
+
+
 def _agrees(shown: list[str], witness: Witness) -> bool:
     """Whether DuckDB's results are the witness's, a double compared with the exact value."""
     exact = [witness.a, witness.b]
@@ -192,9 +216,15 @@ def test_pairs_duckdb_tells_apart_are_different(a: str, b: str) -> None:
     assert not verdict.equal
     witness = verdict.witness
     assert witness is not None
-    if witness.kind == 'values' and not any(k.endswith(('> 0', ')')) for k in witness.inputs):
-        assert _agrees(_run([a, b], witness.rows, witness.inputs), witness)
-        assert witness.a != witness.b
+    if witness.kind == 'values':
+        # A value given to a comparison of a column with a constant is a value of the column; a
+        # value given to any other expression may be one it never takes, and is not run.
+        inputs = _expressed(witness.inputs)
+        rows = None if witness.rows is None else [_expressed(row) for row in witness.rows]
+        if inputs is not None and (rows is None or all(row is not None for row in rows)):
+            shown = _run([a, b], cast('list[dict[str, str]] | None', rows), inputs)
+            assert _agrees(shown, witness), (a, b, witness)
+            assert witness.a != witness.b
     # NULL itself is never an input given a value.
     assert 'NULL' not in witness.inputs
 
@@ -342,6 +372,61 @@ def test_unreadable_formulas_are_refused_and_odd_literals_kept() -> None:
     # A string holding the byte 1, which the translation uses internally, is kept as it is.
     assert equivalent("'a\x01b' || c", "'a\x01b' || c").equal
     assert not equivalent("'a\x01b' || c", "'ab' || c").equal
+
+
+def test_a_witness_that_sets_a_comparison_sets_its_column() -> None:
+    assert _expressed({'a': '1', 'c > 0': 'true'}) == {'a': '1', 'c': '1'}
+    assert _expressed({'2 > c': 'true', 'x > -1': 'false', 'b > 3': 'NULL'}) == {
+        'c': '1',
+        'x': '-1',
+        'b': 'NULL',
+    }
+    assert _expressed({'0 > c': 'false'}) == {'c': '0'}
+    # Two that give one column two values, or an expression that is not such a comparison.
+    assert _expressed({'c > 0': 'true', 'c > 1': 'true'}) is None
+    assert _expressed({'ROUND(a)': '1'}) is None
+    for a, b in [('CASE WHEN 0 > c THEN a END * 0', '0'), ('CASE WHEN 1 > c THEN a ELSE b END', 'b')]:
+        witness = equivalent(a, b, dialect='duckdb').witness
+        assert witness is not None and witness.kind == 'values'
+        rows = None if witness.rows is None else [_expressed(row) for row in witness.rows]
+        inputs = _expressed(witness.inputs)
+        assert inputs is not None and (rows is None or None not in rows), witness
+        assert _agrees(_run([a, b], cast('list[dict[str, str]] | None', rows), inputs), witness)
+
+
+def test_an_operand_present_wherever_another_is_changes_nothing_past_the_limit() -> None:
+    # COALESCE(a, b) and CASE WHEN c > 0 THEN a ELSE 0 END are present wherever a is: beside a,
+    # with nine CASEs of their own past the limit on terms, they change nothing.
+    others = ' + '.join(f'CASE WHEN d{i} > 0 THEN w{i} ELSE 0 END' for i in range(9))
+    for extra in ['COALESCE(a, b)', 'CASE WHEN c > 0 THEN a ELSE 0 END']:
+        for _ in range(5):
+            verdict = equivalent(f'0 * (a + {extra} + {others})', f'0 * (a + {others})', dialect='duckdb')
+            assert verdict.equal, (extra, verdict)
+
+
+def test_a_reordered_sum_has_one_verdict_under_every_key() -> None:
+    # Each comparison draws a fresh key; a sum and the same sum reordered are the same under all
+    # of them, past the limit on terms too, and have one fingerprint.
+    cases = [
+        'CASE WHEN a > d THEN b ELSE c END',
+        'CASE WHEN a > d THEN c ELSE 1 END',
+        'CASE WHEN b > c THEN 1 WHEN d > 0 THEN a ELSE c END',
+        'CASE WHEN a > a THEN 0 WHEN a > -1 THEN d ELSE b END',
+        'CASE WHEN c > c THEN b ELSE c END',
+        'CASE WHEN a > b THEN b ELSE 2 END',
+    ]
+    x = ' + '.join(cases)
+    y = ' + '.join(cases[i] for i in (5, 4, 1, 3, 2, 0))
+    assert all(equivalent(x, y, dialect='duckdb').equal for _ in range(40))
+    assert fingerprint(x) == fingerprint(y)
+    # Two CASEs that together are present only where x is, with k CASEs over w beside them.
+    f1, f2 = 'CASE WHEN c > 0 THEN x ELSE y END', 'CASE WHEN c > 0 THEN w ELSE x END'
+    for k in range(6, 10):
+        others = [f'CASE WHEN d{i} > 0 THEN w ELSE 0 END' for i in range(k)]
+        first = '0 * (' + ' + '.join([f1, f2, *others]) + ')'
+        moved = '0 * (' + ' + '.join([f2, *others, f1]) + ')'
+        assert all(equivalent(first, moved).equal for _ in range(20)), k
+        assert fingerprint(first) == fingerprint(moved)
 
 
 # Against an independent oracle: random formulas evaluated by DuckDB on random tables, with
@@ -501,6 +586,31 @@ def _check(
     rewrite=False,
     tables=[[(None, 1, 2), (1, None, 0), (2, 3, None)]],
     plain=[[(1, 2, 3)]],
+)
+# The same rewritten, with the operands of + swapped. Each CASE is NULL where it takes a branch
+# whose column is NULL; the sum is NULL where either is, in whichever order they are added.
+@example(
+    first=F(
+        '((CASE WHEN a > b THEN b ELSE (0) END) + (CASE WHEN b > b THEN a ELSE (0) END))',
+        '((CASE WHEN b < b THEN a ELSE (0) END) + (CASE WHEN b < a THEN b ELSE (0) END))',
+        False,
+    ),
+    second=F('a', 'a'),
+    rewrite=True,
+    tables=[[(None, None, None)], [(1, None, 0), (2, 1, None), (None, 3, 1)]],
+    plain=[[(0, 0, 0)], [(2, 1, 0)]],
+)
+# The same distributed: the presence of a product is the same however its factors are grouped.
+@example(
+    first=F(
+        '(a * ((CASE WHEN a > b THEN b ELSE (0) END) + COALESCE(a, c)))',
+        '(COALESCE(a, c) * a + a * (CASE WHEN b < a THEN b ELSE (0) END))',
+        False,
+    ),
+    second=F('a', 'a'),
+    rewrite=True,
+    tables=[[(None, None, None)], [(1, None, 0), (2, 1, None), (None, 3, 1)]],
+    plain=[[(0, 0, 0)], [(2, 1, 0)]],
 )
 def test_row_formulas_agree_with_duckdb(
     first: F,
