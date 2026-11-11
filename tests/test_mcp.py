@@ -51,6 +51,8 @@ async def _exercise(client: Client) -> None:
         'mutation_test',
         'why',
         'receipt',
+        'release_notes',
+        'definition_effect',
     }
     assert all(t.description and t.input_schema for t in tools.tools)
     # Every tool states all four hints as booleans, as hosts and directories require.
@@ -65,7 +67,12 @@ async def _exercise(client: Client) -> None:
     assert {n for n, a in annotated.items() if not a.idempotent_hint} == {'receipt'}
     assert not any(a.destructive_hint for a in annotated.values())
     # These reach the warehouse: running the models' SQL, or reading its query history.
-    assert {n for n, a in annotated.items() if a.open_world_hint} == {'mutation_test', 'why', 'check_history'}
+    assert {n for n, a in annotated.items() if a.open_world_hint} == {
+        'mutation_test',
+        'why',
+        'check_history',
+        'definition_effect',
+    }
     impact = structured(await client.call_tool('impact', {'ref': 'stg_payments.amount'}))
     assert impact['exposures'][0]['label'] == 'customer_dashboard'
     trace = structured(await client.call_tool('trace', {'ref': 'orders.amount', 'max_depth': 1}))

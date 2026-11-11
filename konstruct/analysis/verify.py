@@ -242,14 +242,15 @@ def candidates(graph: Graph, root: Path) -> list[Candidate]:
         sql_file = defining_sql_file(graph, node, root)
         if sql_file is None:
             continue
-        query = _query_for(sql_file.read_text(encoding='utf-8'), node.relation, graph)
+        query = query_for(sql_file.read_text(encoding='utf-8'), node.relation, graph)
         if query is not None:
-            catalog, schema = _defaults(graph)
+            catalog, schema = defaults(graph)
             found.append(Candidate(node, query, catalog, schema))
     return found
 
 
-def _defaults(graph: Graph) -> tuple[str | None, str | None]:
+def defaults(graph: Graph) -> tuple[str | None, str | None]:
+    """The catalog and schema unqualified table names in the project's SQL files resolve to."""
     if graph.meta.get('default_schema'):
         return graph.meta.get('default_catalog'), graph.meta.get('default_schema')
     relations = [n.relation for n in graph.relations() if n.kind == 'model' and n.relation]
@@ -270,8 +271,9 @@ def defining_sql_file(graph: Graph, node: Node, root: Path) -> Path | None:
     return None
 
 
-def _query_for(text: str, relation: str, graph: Graph) -> str | None:
-    catalog, schema = _defaults(graph)
+def query_for(text: str, relation: str, graph: Graph) -> str | None:
+    """The query of the statement in the SQL file ``text`` that builds ``relation``, if one does."""
+    catalog, schema = defaults(graph)
     try:
         statements = sqlglot.parse(strip_templating(text), dialect='duckdb')
     except PARSE_ERRORS:
@@ -1244,7 +1246,7 @@ def _observe(
         after = {row[row_id]: row for row in rows}
         for identity in before.keys() & after.keys():
             for index in range(len(names)):
-                if before[identity][index] != after[identity][index] and not _both_nan(
+                if before[identity][index] != after[identity][index] and not both_nan(
                     before[identity][index], after[identity][index]
                 ):
                     value_influence.add((names[index], source_column))
@@ -1283,7 +1285,8 @@ def _row_key(
     return None
 
 
-def _both_nan(a: Any, b: Any) -> bool:
+def both_nan(a: Any, b: Any) -> bool:
+    """Whether ``a`` and ``b`` are both NaN, which compare unequal but are the same value here."""
     return isinstance(a, float) and isinstance(b, float) and a != a and b != b
 
 

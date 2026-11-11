@@ -705,7 +705,10 @@ EMPTY: dict[str, str] = {
 }
 # Fields the projects only ever fill with null, each with why; every other field must show the
 # type it holds, or a change to that type would pass.
-UNFILLED: dict[str, str] = {}
+UNFILLED: dict[str, str] = {
+    'json release-notes .changes[].effect': 'release-notes runs no SQL; verify --effect fills it',
+    'json release-notes .warehouse': 'release-notes runs no SQL; verify --effect fills it',
+}
 
 
 def gaps(entries: dict[str, Any]) -> list[str]:
@@ -801,6 +804,27 @@ def test_json_documents(
     git = ['-C', str(changed_jaffle)]
     add('history', *git, 'history', 'stg_payments.amount', '--json')
     add('history', *git, 'history', 'customers.customer_lifetime_value', '--json')
+    add('release-notes', *git, 'release-notes', '--since', 'HEAD~7', '--json')
+    add('verify', *git, 'verify', '--effect', '--since', 'HEAD~7', '--json')
+    from tests.test_release_notes import make_shop
+
+    (tmp_path / 'released').mkdir()
+    shop = make_shop(tmp_path / 'released').root
+    (shop / 'ltv.sql').write_text(
+        'create table main.ltv as select customer_id, sum(amount) as total from raw.orders group by customer_id'
+    )
+    from tests.test_history import commit as commit_to
+
+    commit_to(shop, 'Count void orders again', 'Ada', '2026-06-01T10:00:00+00:00')
+    (shop / 'ltv.sql').unlink()
+    (shop / 'lifetime.sql').write_text(
+        'create table main.ltv as select customer_id, sum(amount) * 2 as total from raw.orders group by customer_id'
+    )
+    commit_to(shop, 'Move lifetime value and double it', 'Ada', '2026-07-01T10:00:00+00:00')
+    Project(shop).build()
+    released = ['-C', str(shop)]
+    add('release-notes', *released, 'release-notes', '--json')
+    add('verify', *released, 'verify', '--effect', '--json')
     add('diff', *git, 'diff', '--base', 'HEAD', '--format', 'json')
     add('diff', *git, 'diff', '--base', 'broken', '--format', 'json')  # a version that does not parse
     add('gate', *git, 'gate', '--base', 'HEAD', '--no-update', '--format', 'json')

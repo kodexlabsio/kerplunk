@@ -267,7 +267,11 @@ A tools plugin has a `tools(project)` method that returns each tool's short name
 bound to the {class}`konstruct.Project` the server answers for. The server names each tool
 `<entry point>_<name>`, so the example's `owners` is `pipelines_owners`; a tool whose name
 another plugin's tool already has (`a_b` and `c` against `a` and `b_c`) is left out with a
-warning. The function's typed
+warning, and so is one whose name is one of Konstruct's own tools (see the
+[MCP server reference](../reference/mcp.md#tools)): a plugin entry point named `release` with a
+tool `notes`, or `definition` with `effect`, gives `release_notes` or `definition_effect`, which
+Konstruct's tools keep. Name a plugin's entry point so that its joined names do not meet them.
+The function's typed
 parameters are the tool's input, its docstring is the description agents read, and it returns
 JSON-ready data. An error it raises is returned to the agent as a tool error.
 

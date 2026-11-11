@@ -58,6 +58,7 @@ if TYPE_CHECKING:
         Walk,
     )
     from konstruct.analysis.receipts import Receipt, ReceiptCheck
+    from konstruct.analysis.release_notes import ReleaseNotes
     from konstruct.analysis.semantic import SimilarResult
     from konstruct.analysis.verify import Verification
     from konstruct.analysis.why import Why
@@ -966,6 +967,33 @@ def history_lines(result: History, style: Style) -> Lines:
     for key in sorted(events):
         commit, body = events[key]
         lines += [blank(), style.fit(_commit(commit)), *body]
+    if result.notes:
+        lines.append(blank())
+        for note in result.notes:
+            lines += wrap(style, Text((note, 'dim')), first=Text('  ', ('note: ', 'dim')), hanging=8)
+    return lines
+
+
+def release_notes_lines(result: ReleaseNotes, style: Style) -> Lines:
+    lines = [
+        header(
+            'Release notes', f'since {result.since}' if result.since else 'of the whole history', result.until
+        ),
+        *_summary(style, result.summary()[:1].upper() + result.summary()[1:] + '.'),
+    ]
+    for commit, changes in result.by_commit():
+        lines += [blank(), style.fit(_commit(commit))]
+        for change in changes:
+            lines.append(Text('    ', (change.headline(), 'strong')))
+            if change.kind == 'formula':
+                if change.before is not None:
+                    lines += formula(style, change.before, indent=6, lead='was  ')
+                if change.after is not None:
+                    lines += formula(style, change.after, indent=6, lead='now  ')
+            for line in change.lines():
+                lines += wrap(style, Text(line), first=Text('      - '), hanging=8)
+    if result.warehouse:
+        lines += [blank(), Text((f'Effects run read-only against {result.warehouse}.', 'dim'))]
     if result.notes:
         lines.append(blank())
         for note in result.notes:

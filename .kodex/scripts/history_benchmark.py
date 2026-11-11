@@ -1,10 +1,11 @@
-"""Measure the commands that compare versions of a project.
+"""Measure the commands that compare versions of a project: diff and release notes.
 
 Generates the project tests/test_scale.py's make_project makes (dbt models in layers, each joining
 two earlier ones), commits it, tags it, then commits a change to ``--changed`` models (a factor and
 a filter in each), builds the graph and times, in one process:
 
 * ``Project.diff`` between the tag and the change;
+* ``Project.release_notes`` since the tag;
 * ``Project.diff`` again with the check of column types uncached (``_safe_type.__wrapped__``), which
   is what each analysis did before the check was cached.
 
@@ -75,6 +76,7 @@ def main() -> int:
             'models': args.models,
             'changed': args.changed,
             'diff_seconds': round(timed(lambda: project.diff('v1', 'HEAD')), 1),
+            'release_notes_seconds': round(timed(lambda: project.release_notes('v1')), 1),
         }
         cached = sql._safe_type
         sql._safe_type = cached.__wrapped__  # type: ignore[assignment]

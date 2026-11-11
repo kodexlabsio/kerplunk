@@ -44,6 +44,10 @@ Column lineage says which columns a value is computed from; `konstruct verify --
 
 `-n/--limit` caps each table (50 rows by default), and `--json` prints the result. A `UNION`, a recursive CTE, `ROLLUP`, `CUBE` or `GROUPING SETS`, a `SEMI` or `ANTI` join, or a window over grouped rows on the way is refused rather than guessed at. Rows read only by a subquery inside an expression (`IN`, `EXISTS`, a scalar subquery) are not traced.
 
+## The Effect of a Definition Change
+
+`konstruct verify --effect --since REF` runs each changed model as it was before and after each commit in the range on today's data, and prints the release notes with the difference: the rows each version returns, the sum of a changed column in each and, with a key, how many rows changed value (see [The Effect on Today's Data](release-notes.md#the-effect-on-todays-data)). `--until`, `-m/--model`, `--rows` and `--format markdown` or `json` apply.
+
 ## Remote Warehouses
 
 `konstruct verify --warehouse snowflake` (or `bigquery`, `databricks`, `trino`) checks the models on a sample, using the warehouse connection in `konstruct.toml` or the dbt profile; a connection the repository's own files name needs the project to be trusted (see [Trusting a Project's Connections](../reference/configuration.md#trusting-a-projects-connections)). A remote warehouse is read only when it is named this way. For each input the run reads up to `--rows` rows once: a BigQuery table through its table listing, which is not billed as a query, and a BigQuery view or external table, a Snowflake, Databricks or Trino relation with `SELECT * ... LIMIT`, which runs on the warehouse (a BigQuery view or external table is billed as a query, and Snowflake and Databricks resume a suspended warehouse). The sample is copied into an in-memory DuckDB database in types that hold its values exactly (structured values as JSON), every model that reads the input uses the same copy, and each model's SQL is translated to DuckDB and perturbed there. Nothing is written to the warehouse.

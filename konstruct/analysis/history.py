@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from konstruct.analysis.diff import DiffError, _Context, file_at, run_git
+from konstruct.analysis.diff import Context, DiffError, file_at, run_git
 from konstruct.analysis.explain import Explainer
 from konstruct.core.graph import Graph, Node
 from konstruct.core.sql import strip_templating
@@ -256,7 +256,7 @@ def utc(date: str) -> str:
         return date
 
 
-class _Repository:
+class Repository:
     """One git repository: its commits in ancestry order, and files at a commit or its parent."""
 
     def __init__(self, top: Path) -> None:
@@ -298,7 +298,7 @@ class _Repository:
         return file_at(self.top, ref, path)
 
 
-def _repository_of(path: Path) -> tuple[_Repository, str] | None:
+def _repository_of(path: Path) -> tuple[Repository, str] | None:
     """The repository holding ``path``, and the path relative to it."""
     folder = path if path.is_dir() else path.parent
     while not folder.exists() and folder != folder.parent:
@@ -307,11 +307,11 @@ def _repository_of(path: Path) -> tuple[_Repository, str] | None:
         top = Path(run_git(folder, 'rev-parse', '--show-toplevel').strip())
     except (DiffError, OSError, subprocess.SubprocessError):
         return None
-    return _Repository(top), path.resolve().relative_to(top.resolve()).as_posix()
+    return Repository(top), path.resolve().relative_to(top.resolve()).as_posix()
 
 
 def _versions(
-    repository: _Repository,
+    repository: Repository,
     path: str,
     limit: int,
     notes: list[str],
@@ -366,7 +366,7 @@ def history(graph: Graph, root: Path, column: Node, *, limit: int = 50) -> Histo
         formula=explainer.namer.text(raw) if isinstance(raw, str) else None,
         path=relation.path if relation is not None else None,
     )
-    context = _Context(graph, root)
+    context = Context(graph, root)
     _formula_history(graph, root, relation, column, explainer, context, limit, result)
     _term_history(graph, root, column, limit, result)
     return result
@@ -400,7 +400,7 @@ def _formula_history(
     relation: Node | None,
     column: Node,
     explainer: Explainer,
-    context: _Context,
+    context: Context,
     limit: int,
     result: History,
 ) -> None:
@@ -485,34 +485,44 @@ def _formula_history(
 def _term_history(graph: Graph, root: Path, column: Node, limit: int, result: History) -> None:
     for edge in graph.in_edges(column.id, 'defines'):
         term = graph.nodes.get(edge.source)
-        if term is None or term.kind != 'term' or not term.path or edge.attrs.get('role') == 'input':
+        if term is None or term.kind != 'term' or edge.attrs.get('role') == 'input':
             continue
-        located = _repository_of(Path(root) / term.path)
-        if located is None:
-            continue
-        repository, repository_path = located
-
-        def facts(text: str | None, at: str, name: str = term.name) -> dict[str, Any]:
-            parsed = definitions.parse(text, at) if text is not None else None
-            entry = next((t for t in parsed.terms if t.name == name), None) if parsed else None
-            if entry is None:
-                return {}
-            return {
-                'status': entry.status,
-                'approved': entry.approved,
-                'owner': entry.owner.name if entry.owner else None,
-                'definition': entry.definition,
-            }
-
-        for commit, at, before_text, after_text in _versions(
-            repository, repository_path, limit, result.notes, f'term {term.name!r}'
-        ):
-            before, after = facts(before_text, at), facts(after_text, at)
-            changed = {
-                k: (before.get(k), after.get(k))
-                for k in sorted(set(before) | set(after))
-                if before.get(k) != after.get(k)
-            }
-            if changed:
-                result.terms.append(TermChange(commit, term.name, at, changed, after.get('status')))
+        result.terms.extend(term_history(root, term, limit, result.notes))
     result.terms.sort(key=lambda t: t.commit.order)
+
+
+def term_history(root: Path, term: Node, limit: int, notes: list[str]) -> list[TermChange]:
+    """The changes to ``term``'s status, approval date, owner and definition in the git history of
+    the definitions file that holds it, oldest first, each with its commit."""
+    if not term.path:
+        return []
+    located = _repository_of(Path(root) / term.path)
+    if located is None:
+        return []
+    repository, repository_path = located
+
+    def facts(text: str | None, at: str, name: str = term.name) -> dict[str, Any]:
+        parsed = definitions.parse(text, at) if text is not None else None
+        entry = next((t for t in parsed.terms if t.name == name), None) if parsed else None
+        if entry is None:
+            return {}
+        return {
+            'status': entry.status,
+            'approved': entry.approved,
+            'owner': entry.owner.name if entry.owner else None,
+            'definition': entry.definition,
+        }
+
+    found = []
+    for commit, at, before_text, after_text in _versions(
+        repository, repository_path, limit, notes, f'term {term.name!r}'
+    ):
+        before, after = facts(before_text, at), facts(after_text, at)
+        changed = {
+            k: (before.get(k), after.get(k))
+            for k in sorted(set(before) | set(after))
+            if before.get(k) != after.get(k)
+        }
+        if changed:
+            found.append(TermChange(commit, term.name, at, changed, after.get('status')))
+    return found

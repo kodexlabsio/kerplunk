@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.history import History
     from konstruct.analysis.mutation import MutationTesting
     from konstruct.analysis.receipts import Receipt, ReceiptCheck
+    from konstruct.analysis.release_notes import ReleaseNotes
     from konstruct.analysis.verify import Engine, Verification
     from konstruct.analysis.why import Why
     from konstruct.engine.build import BuildResult
@@ -995,6 +996,105 @@ class Project:
         result = why(self.graph, self.root, target, column, dict(where), limit=limit, max_rows=max_rows)
         result.warehouse = self._shown(target, result.warehouse)
         return result
+
+    def release_notes(
+        self, since: str | None = None, *, until: str | None = None, limit: int = 200
+    ) -> ReleaseNotes:
+        """The changes to formulas, rows and business terms in a range of commits, newest first.
+
+        Each dbt model and SQL file a commit changed is compared with its parent by canonical
+        expressions, as :meth:`diff` compares a branch, so reformatting is not a change. Each changed
+        column, and each relation whose joins, filters or grouping changed, is an entry with the
+        formula or conditions before and after as SQL and in plain English, the commit's author and
+        date, what it affects downstream (columns, exposures and their owners, business terms), and
+        for each business term bound to it or downstream of it the commit that approved the term
+        after the change, if one has. Changes to the business terms themselves are entries too.
+        Reads only git and the graph.
+
+        Args:
+            since: A commit, tag or date (``2026-10-01``) the range starts after; by default the
+                latest tag, or the whole history when there is none.
+            until: A commit, tag or date the range ends at (default HEAD).
+            limit: The most commits read.
+
+        Returns:
+            The entries, newest commit first. ``markdown()`` gives them as Markdown to post.
+
+        Raises:
+            konstruct.QueryError: ``since`` or ``until`` is not a commit, tag or date, the project is
+                not in a git repository, or ``limit`` is below 1.
+
+        Example::
+
+            notes = project.release_notes('v1.4')
+            [(c.commit.author, c.headline(), c.after_english) for c in notes.changes]
+            print(notes.markdown())
+        """
+        from konstruct.analysis.diff import DiffError
+        from konstruct.analysis.release_notes import release_notes
+
+        if limit < 1:
+            raise query.QueryError('the limit must be at least 1 commit')
+        try:
+            return release_notes(self.graph, self.root, since=since, until=until, limit=limit)
+        except DiffError as error:
+            raise query.QueryError(str(error)) from error
+
+    def effect(
+        self,
+        since: str | None = None,
+        *,
+        until: str | None = None,
+        warehouse: str | Path | None = None,
+        models: Sequence[str] | None = None,
+        limit: int = 200,
+        max_rows: int = 1_000_000,
+    ) -> ReleaseNotes:
+        """The release notes, with what each formula and row change does on today's data.
+
+        For each change, the changed model's SQL as it was before the commit and as it was after
+        are run on the same data, the warehouse as it is now, so the difference is the definition's
+        alone. Runs read-only in verify's engines: each version must be a single query that only
+        reads, the tables it reads are copied, and nothing is written to the warehouse.
+
+        Args:
+            since: As for :meth:`release_notes`.
+            until: As for :meth:`release_notes`.
+            warehouse: As for :meth:`verify`.
+            models: Only changes to these models or tables, by name or label.
+            limit: As for :meth:`release_notes`.
+            max_rows: The most rows copied from any table.
+
+        Returns:
+            The release notes, each formula and row change with its ``effect``: the rows each version
+            returns and, for the changed column (or for a change to the rows, each column), its
+            sum in each and, with a key, the rows whose value changed. A version whose templating
+            cannot be rendered as it would be run is not run, and its effect says why.
+
+        Raises:
+            konstruct.QueryError: As for :meth:`release_notes`, or no warehouse is found.
+
+        Example::
+
+            notes = project.effect('2026-10-01')
+            [(c.headline(), c.effect.summary()) for c in notes.changes if c.effect]
+        """
+        from konstruct.analysis.effect import effects, runnable
+
+        notes = self.release_notes(since, until=until, limit=limit)
+        if models:
+            notes.changes = [
+                c
+                for c in notes.changes
+                if c.kind == 'term'
+                or any(m in (c.relation, (c.relation or '').rsplit('.', 1)[-1]) for m in models)
+            ]
+        if not runnable(notes):
+            return notes  # nothing to run, so no warehouse is opened
+        target = self._target(warehouse)
+        effects(self.graph, self.root, notes, target, max_rows=max_rows, ontology=self.ontology())
+        notes.warehouse = self._shown(target, notes.warehouse or '')
+        return notes
 
     def _target(self, warehouse: str | Path | None) -> str | Engine:
         """The warehouse verify's modes run in: a named remote one sampled, a DuckDB file or

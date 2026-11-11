@@ -32,7 +32,7 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 | `konstruct.inputs` | `dbt`, `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `ingestion`, `hcl`, `warehouse`, `usage` |
 | `konstruct.engine` | `build`, `config`, `worker` |
 | `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `ossie`, `registry` |
-| `konstruct.analysis` | `query`, `semantic`, `explain`, `english`, `conflicts`, `diff`, `gate`, `verify`, `mutation`, `why`, `laws`, `history`, `receipts` |
+| `konstruct.analysis` | `query`, `semantic`, `explain`, `english`, `conflicts`, `diff`, `gate`, `verify`, `mutation`, `why`, `release_notes`, `effect`, `laws`, `history`, `receipts` |
 | `konstruct.outputs` | `report`, `html`, `export` |
 | `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
 | `konstruct.plugins` | `api` (the plugin API: protocols and types), `registry` (finding, enabling and loading plugins) |
@@ -178,6 +178,11 @@ for survivor in tests.models[0].survivors:
 rows = project.why('customer_ltv.lifetime_value', {'customer_id': '3'})
 print(rows.value, [c.values for c in rows.contributions])
 
+notes = project.release_notes('v1.4')
+print(notes.markdown())
+effects = project.effect('v1.4', models=['customers'])
+print([(c.headline(), c.effect.summary()) for c in effects.changes if c.effect])
+
 receipt = project.receipt(['customer_ltv.lifetime_value'], question='LTV of customer 3?')
 print(receipt.citation)
 print([(r.id, r.status) for r in project.check_receipts().receipts])
@@ -189,6 +194,8 @@ print([(r.id, r.status) for r in project.check_receipts().receipts])
 .. automethod:: konstruct.Project.verify
 .. automethod:: konstruct.Project.mutate
 .. automethod:: konstruct.Project.why
+.. automethod:: konstruct.Project.release_notes
+.. automethod:: konstruct.Project.effect
 .. automethod:: konstruct.Project.receipt
 .. automethod:: konstruct.Project.receipts
 .. automethod:: konstruct.Project.check_receipts
@@ -515,6 +522,28 @@ These are stable enough to build on, but `Project` is the supported entry point.
    :members:
 
 .. autoclass:: konstruct.core.sql.ColumnSource
+   :members:
+```
+
+### Release Notes
+
+```{eval-rst}
+.. autoclass:: konstruct.analysis.release_notes.ReleaseNotes
+   :members:
+
+.. autoclass:: konstruct.analysis.release_notes.Change
+   :members:
+
+.. autoclass:: konstruct.analysis.release_notes.Affected
+   :members:
+
+.. autoclass:: konstruct.analysis.release_notes.Approval
+   :members:
+
+.. autoclass:: konstruct.analysis.effect.Effect
+   :members:
+
+.. autoclass:: konstruct.analysis.effect.ColumnEffect
    :members:
 ```
 

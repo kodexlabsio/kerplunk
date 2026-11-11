@@ -51,7 +51,7 @@ def run_git(root: Path, *args: str, check: bool = True) -> str:
     return result.stdout
 
 
-_DATE = re.compile(r'^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$')
+DATE = re.compile(r'^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$')
 
 
 def check_ref(ref: str) -> str:
@@ -80,7 +80,7 @@ def _resolve(root: Path, ref: str) -> tuple[str, bool]:
     commit = commit_of(root, ref)
     if commit is not None:
         return commit, False
-    if not _DATE.match(ref):
+    if not DATE.match(ref):
         raise DiffError(f'{ref!r} is not a commit, branch, tag or date')
     try:
         moment = datetime.fromisoformat(ref)
@@ -692,7 +692,10 @@ class Diff:
 # Analysis
 
 
-class _Context:
+class Context:
+    """What comparing versions of a project's files needs: the graph's schema and dialect, and
+    each dbt model's manifest entry and Jinja renderer."""
+
     def __init__(self, graph: Graph, root: Path) -> None:
         self.graph = graph
         self.root = root
@@ -759,7 +762,7 @@ def diff(graph: Graph, root: Path, *, base: str | None = None, head: str | None 
         base_commit=base if base_dated else None,
         head_commit=head if head_dated else None,
     )
-    context = _Context(graph, root)
+    context = Context(graph, root)
     prefix = root.resolve().relative_to(repository.resolve())
     by_path: dict[str, list[Node]] = {}
     for node in graph.nodes.values():
@@ -782,9 +785,9 @@ def diff(graph: Graph, root: Path, *, base: str | None = None, head: str | None 
         models = [n for n in nodes if n.kind in ('model', 'snapshot') and 'dbt' in n.origins]
         if models:
             for model in models:
-                result.relations.append(_compare_model(context, model, in_project, before, after))
+                result.relations.append(compare_model(context, model, in_project, before, after))
         elif in_project.endswith('.sql') and (nodes or before or after):
-            result.relations.extend(_compare_sql_file(context, in_project, before, after))
+            result.relations.extend(compare_sql_file(context, in_project, before, after))
         elif Path(in_project).name in DEFINITION_FILES and (before or after):
             definitions_change = compare_definitions(in_project, before, after)
             if definitions_change.changed_any or definitions_change.approved_changed:
@@ -799,12 +802,14 @@ def diff(graph: Graph, root: Path, *, base: str | None = None, head: str | None 
             result.dags.extend(_compare_dag_file(context, repository / path, in_project, before, after))
         else:
             result.other.append(in_project)
-    touched = [n for p in files for n in by_path.get(_in_project(p, prefix), [])]
+    touched = [n for p in files for n in by_path.get(project_path(p, prefix), [])]
     result.selection = select_for(graph, result, touched)
     return result
 
 
-def _in_project(path: str, prefix: Path) -> str:
+def project_path(path: str, prefix: Path) -> str:
+    """``path``, relative to a repository, relative to the project at ``prefix`` in it, or empty
+    when it is outside the project."""
     if str(prefix) == '.':
         return path
     try:
@@ -871,9 +876,10 @@ def _status(before: str | None, after: str | None) -> str:
     return 'modified'
 
 
-def _compare_model(
-    context: _Context, node: Node, path: str, before: str | None, after: str | None
+def compare_model(
+    context: Context, node: Node, path: str, before: str | None, after: str | None
 ) -> RelationChange:
+    """How the dbt model ``node`` changed between two versions of its file, column by column."""
     change = RelationChange(
         path=path,
         label=context.graph.label(node),
@@ -901,9 +907,10 @@ def _compare_model(
     return change
 
 
-def _compare_sql_file(
-    context: _Context, path: str, before: str | None, after: str | None
+def compare_sql_file(
+    context: Context, path: str, before: str | None, after: str | None
 ) -> list[RelationChange]:
+    """How each relation a SQL file builds changed between two versions of the file."""
     sides: dict[str, dict[str, StatementLineage]] = {'before': {}, 'after': {}}
     for side, text in (('before', before), ('after', after)):
         if text is None:
@@ -929,7 +936,7 @@ def _compare_sql_file(
 
 
 def _compare_statements(
-    context: _Context,
+    context: Context,
     change: RelationChange,
     node: Node | None,
     old: StatementLineage | None,
@@ -974,7 +981,7 @@ def _walk(graph: Graph, node: Node, column: str) -> dict[str, Any] | None:
     return walk.to_dict()
 
 
-def _still_read(context: _Context, node: Node, column: str) -> list[str]:
+def _still_read(context: Context, node: Node, column: str) -> list[str]:
     """Downstream models and SQL-built tables whose current SQL still reads ``node.column``."""
     graph = context.graph
     readers = []
@@ -1018,7 +1025,7 @@ def _still_read(context: _Context, node: Node, column: str) -> list[str]:
 
 
 def _compare_dag_file(
-    context: _Context, path: Path, rel: str, before: str | None, after: str | None
+    context: Context, path: Path, rel: str, before: str | None, after: str | None
 ) -> list[DagChange]:
     def parse(text: str | None) -> dict[str, airflow.DagInfo]:
         if text is None:

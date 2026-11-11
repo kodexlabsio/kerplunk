@@ -31,6 +31,7 @@ from konstruct.plugins.registry import BUILTINS
 
 if TYPE_CHECKING:
     from konstruct.analysis.query import SearchMode
+    from konstruct.analysis.release_notes import ReleaseNotes
 
 __all__ = ['OUT_DIR', 'find_out_dir', 'main', 'parser']
 
@@ -320,6 +321,22 @@ def cmd_explain(args: argparse.Namespace, console: Console) -> int:
     return 0
 
 
+def cmd_release_notes(args: argparse.Namespace, console: Console) -> int:
+    # The notes read each version from git, so changed inputs since the build do not matter.
+    project = _ready(_project(args), args, console, warn_stale=False)
+    with console.progress(f'Reading the changes since {args.since or "the latest tag"}'):
+        result = project.release_notes(args.since, until=args.until, limit=args.limit)
+    _notes(console, result, args)
+    return 0
+
+
+def _notes(console: Console, result: ReleaseNotes, args: argparse.Namespace) -> None:
+    if args.format == 'markdown':
+        console.print(result.markdown().rstrip())
+    else:
+        _emit(console, result, args.json or args.format == 'json')
+
+
 def _singular(kind: str) -> str:
     kind = kind.lower()
     return kind[:-1] if kind.endswith('s') and kind[:-1] in NODE_KINDS else kind
@@ -343,11 +360,24 @@ def cmd_query(args: argparse.Namespace, console: Console) -> int:
 
 
 def cmd_verify(args: argparse.Namespace, console: Console) -> int:
+    # --mutate with --why runs the mutation tests, as it always has; --effect is new, so it refuses both.
+    others = [f'--{m}' for m in ('mutate', 'why') if getattr(args, m)]
+    if args.effect and others:
+        console.error(f'--effect and {" and ".join(others)} are separate modes of verify; give one')
+        return 2
+    if args.format != 'text' and not args.effect:
+        console.error('--format picks how --effect prints the release notes; add --effect, or use --json')
+        return 2
     project = _ready(_project(args), args, console)
     if args.mutate:
         return _mutate(project, args, console)
     if args.why:
         return _why(project, args, console)
+    if args.effect:
+        return _effect(project, args, console)
+    if args.since or args.until:
+        console.error('--since and --until pick the commits for --effect; add --effect')
+        return 2
     if args.where:
         console.error('--where picks the row for --why; give the column with --why COLUMN')
         return 2
@@ -408,6 +438,24 @@ def _why(project: Project, args: argparse.Namespace, console: Console) -> int:
             args.why, where, warehouse=args.warehouse, limit=args.limit, max_rows=_rows(args, 1_000_000)
         )
     _emit(console, result, args.json)
+    return 0
+
+
+def _effect(project: Project, args: argparse.Namespace, console: Console) -> int:
+    """`verify --effect`: the release notes, with each change run before and after on today's data."""
+    if not args.json:
+        console.info(
+            'running each changed model as it was before and after; this reads the warehouse but never writes to it'
+        )
+    with console.progress(f"Running the changes since {args.since or 'the latest tag'} on today's data"):
+        result = project.effect(
+            args.since,
+            until=args.until,
+            warehouse=args.warehouse,
+            models=args.model,
+            max_rows=_rows(args, 1_000_000),
+        )
+    _notes(console, result, args)
     return 0
 
 
@@ -601,7 +649,7 @@ GROUPS = (
     ('Lineage', ('impact', 'trace', 'path', 'explain', 'history')),
     ('Explore', ('search', 'describe', 'list', 'query', 'export')),
     ('Business meaning', ('define', 'ontology', 'conflicts', 'check-sql')),
-    ('Changes', ('diff', 'gate', 'verify')),
+    ('Changes', ('diff', 'gate', 'release-notes', 'verify')),
     ('Agents', ('install', 'mcp', 'receipts', 'hook')),
     ('Plugins', ('plugins',)),
 )
@@ -705,6 +753,10 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ('konstruct gate', 'the check to pass before opening a pull request'),
         ('konstruct gate --base origin/main --json-file gate.json', 'in CI, keeping the result'),
     ),
+    'release-notes': (
+        ('konstruct release-notes', 'what changed in each formula since the latest tag, in plain English'),
+        ('konstruct release-notes --since 2026-10-01 --format markdown', 'to post to a wiki or a channel'),
+    ),
     'verify': (
         ('konstruct verify', 'check every model in the discovered warehouse'),
         ('konstruct verify -m orders --strict', 'one model; exit 1 on an unexplained influence'),
@@ -713,6 +765,10 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         (
             'konstruct verify --why customer_ltv.lifetime_value --where customer_id=3',
             'the source rows behind one value, each with its share',
+        ),
+        (
+            'konstruct verify --effect --since v1.4',
+            "what each formula change since v1.4 does on today's data",
         ),
     ),
     'open': (
@@ -1245,6 +1301,28 @@ def parser() -> argparse.ArgumentParser:
     diff.add_argument('--no-build', action='store_true', help='fail rather than build a missing graph')
     diff.set_defaults(func=cmd_diff)
 
+    noting = add(
+        'release-notes', 'the changes to formulas, filters and business terms in a range of commits (git)'
+    )
+    noting.add_argument(
+        '--since',
+        metavar='REF',
+        help='commit, tag or date (2026-10-01) the notes start after (default: the latest tag)',
+    )
+    noting.add_argument('--until', metavar='REF', help='commit, tag or date the notes end at (default HEAD)')
+    noting.add_argument(
+        '-n', '--limit', type=int, default=200, metavar='N', help='the most commits read (default 200)'
+    )
+    noting.add_argument(
+        '--format',
+        choices=['text', 'markdown', 'json'],
+        default='text',
+        metavar='FORMAT',
+        help='text, markdown or json: markdown suits a wiki page or a chat message',
+    )
+    _query_options(noting)
+    noting.set_defaults(func=cmd_release_notes)
+
     gate_ = add('gate', 'the check a change must pass before it is proposed (exits 1 when it fails)')
     gate_.add_argument(
         '--base', metavar='REF', help='commit or date to compare with (default: the merge base with main)'
@@ -1281,7 +1359,7 @@ def parser() -> argparse.ArgumentParser:
         default=10000,
         action=_StoreGiven,
         metavar='N',
-        help='rows copied per input (default 10000, 1000 with --mutate, 1000000 with --why)',
+        help='rows copied per input (default 10000, 1000 with --mutate, 1000000 with --why or --effect)',
     )
     verify.add_argument(
         '--warehouse',
@@ -1336,6 +1414,28 @@ def parser() -> argparse.ArgumentParser:
         default=50,
         metavar='N',
         help='the most rows listed in each table (default 50)',
+    )
+    affecting = verify.add_argument_group(
+        'the effect of a change', "with --effect: what each formula change does on today's data"
+    )
+    affecting.add_argument(
+        '--effect',
+        action='store_true',
+        help='run each changed model as it was before and after each commit on the same data, and '
+        'print the release notes with the difference',
+    )
+    affecting.add_argument(
+        '--since', metavar='REF', help='commit, tag or date the changes start after (default: the latest tag)'
+    )
+    affecting.add_argument(
+        '--until', metavar='REF', help='commit, tag or date the changes end at (default HEAD)'
+    )
+    affecting.add_argument(
+        '--format',
+        choices=['text', 'markdown', 'json'],
+        default='text',
+        metavar='FORMAT',
+        help='with --effect: text, markdown or json',
     )
     _query_options(verify)
     verify.set_defaults(func=cmd_verify)

@@ -45,13 +45,14 @@ Making every edge a Python object, when a caller asks for all of them (`Graph.ed
 
 ## Comparing Versions
 
-`konstruct diff` analyses each changed model's SQL before and after a change. On the 2,000-model project, with a commit that changes 100 models:
+`konstruct diff` and `konstruct release-notes` analyse each changed model's SQL before and after a change. On the 2,000-model project, with a commit that changes 100 models:
 
 | Command | Time |
 |---|---:|
 | `Project.diff` between the tag before the change and the change | 18.8 s |
+| `Project.release_notes` since that tag | 19.3 s |
 
-`uv run .kodex/scripts/history_benchmark.py` measures it on your machine, and `--models` and `--changed` set the sizes.
+`uv run .kodex/scripts/history_benchmark.py` measures both on your machine, and `--models` and `--changed` set the sizes.
 
 ## Search by Meaning
 

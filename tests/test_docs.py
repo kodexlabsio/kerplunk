@@ -115,6 +115,8 @@ PUBLIC_RESULTS = {
     'core/graph.py': ['Node', 'Edge', 'Step'],
     'analysis/explain.py': ['Step', 'Explanation'],
     'analysis/english.py': ['Rows', 'Term', 'Name', 'English'],
+    'analysis/release_notes.py': ['Approval', 'Affected', 'Change', 'ReleaseNotes'],
+    'analysis/effect.py': ['ColumnEffect', 'Effect'],
     'analysis/conflicts.py': ['Difference', 'Side', 'Conflict', 'Conflicts'],
     'analysis/checksql.py': ['Finding', 'SqlCheck', 'ShadowMetric', 'Adoption', 'HistoryCheck'],
     'semantics/ontology.py': ['Entity', 'MeasureColumn', 'Measure', 'Relationship', 'Rule', 'Ontology'],
