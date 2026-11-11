@@ -26,6 +26,7 @@ macro_rules! routine {
 pub mod fnv;
 pub mod graph;
 pub mod identity;
+pub mod json;
 pub mod keys;
 pub mod names;
 pub mod route;
