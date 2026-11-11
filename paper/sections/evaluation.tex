@@ -209,7 +209,7 @@ the answer by more than the tolerance; the other questions are controls.
 The agent answers each question in \answerArms{} arms, each with a tool that runs read-only SQL on
 the warehouse through the engine of \cref{sec:verify}: the schema alone; the schema with the
 project's definitions as text; the same with the dbt project's SQL and YAML as text too; and the
-schema with Konstruct's read-only MCP tools over the built graph. The arms differ in more than the
+schema with Konstruct's MCP tools that answer from the built graph. The arms differ in more than the
 definitions. Konstruct's tools also give the dbt SQL, the descriptions and the lineage, so the arm
 to compare them with is the one given the project as text, and the definitions the benchmark adds
 to each project were written for it: for jaffle-shop, from the metrics its MetricFlow files

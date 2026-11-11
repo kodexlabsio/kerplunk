@@ -700,6 +700,7 @@ def answers(numbers: Numbers) -> None:
         )
         data = json.loads((Path(directory) / 'results.json').read_text())
     numbers.add('answerModel', tex(data['model']), 'the model the answer benchmark ran')
+    numbers.add('answerEffort', tex(str(data['model_settings']['effort'])), 'the effort it ran at')
     for arm, measured in data['arms'].items():
         name = arm.capitalize()
         for key in ('correct', 'wrong', 'abstained', 'unanswered', 'confidently_wrong'):
@@ -707,6 +708,13 @@ def answers(numbers: Numbers) -> None:
             numbers.add(f'answer{name}{label}', measured[key], f'{key} answers, {arm} arm')
             rate = measured[f'{key}_rate']
             numbers.add(f'answer{name}{label}Pct', f'{100 * rate:.1f}', f'{key} share, {arm} arm, in %')
+            low, high = measured[f'{key}_interval']
+            interval = f'95% Wilson interval of that share, {arm} arm, in %'
+            numbers.add(f'answer{name}{label}Low', f'{100 * low:.1f}', f'lower end of the {interval}')
+            numbers.add(f'answer{name}{label}High', f'{100 * high:.1f}', f'upper end of the {interval}')
+    first = next(iter(data['arms'].values()))
+    numbers.add('answerConversations', first['conversations'], 'conversations in each arm')
+    numbers.add('answerRepeats', data['repeats'], 'runs of each question in each arm')
 
 
 def _loglog(xs: list[float], ys: list[float]) -> tuple[float, float]:

@@ -533,7 +533,9 @@ class DuckDBEngine(Engine):
 
     dialect = 'duckdb'
 
-    def __init__(self, warehouse: Path) -> None:
+    def __init__(self, warehouse: Path, *, memory_limit: str | None = None) -> None:
+        """``memory_limit``, such as ``2GB``, caps the memory DuckDB may use; it is set before the
+        configuration is locked, so the SQL run cannot raise it."""
         import duckdb
 
         self.label = str(warehouse)
@@ -543,6 +545,8 @@ class DuckDBEngine(Engine):
             'SELECT database_name FROM duckdb_databases() WHERE path = ?', [str(warehouse.resolve())]
         ).fetchone()
         self.database = (row[0] if row else warehouse.stem).lower()
+        if memory_limit is not None:
+            self.con.execute(f'SET memory_limit = {_literal(memory_limit)}')
         _sandbox(self.con)
 
     def start(self) -> None:

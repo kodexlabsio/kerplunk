@@ -363,6 +363,10 @@ def test_the_warehouse_only_reads_and_stops_slow_queries(
         with pytest.raises(TimeoutError, match='was stopped'):
             warehouse.run_sql('select count(*) from range(10000000000) a, range(1000) b')
         assert warehouse.run_sql('select 1 as one') == '{"one": 1}'
+        limit = warehouse.run_sql("select current_setting('memory_limit') as limit")
+        assert limit in ('{"limit": "1.8 GiB"}', '{"limit": "1.9 GiB"}'), limit
+        with pytest.raises(Exception, match='locked'):
+            warehouse.engine.con.execute("SET memory_limit = '100GB'")
     finally:
         warehouse.close()
 
@@ -378,6 +382,26 @@ def test_the_benchmark_definitions_join_the_project(corpora: Path) -> None:
 
     [term] = Project(root).define('net revenue').terms
     assert term.filters == ["orders.status = 'completed'"]
+
+
+def test_a_prepared_corpus_is_rebuilt_when_the_question_set_or_harness_changed(
+    corpora: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A corpus prepared from other definitions or another harness would give the arms the old
+    definitions and graph under the new fingerprint, so it is built again."""
+    out = _with_corpora(corpora, tmp_path)
+    root = _root(out)
+    ready = json.loads((root / ab.READY).read_text())
+    assert (
+        ready['question_set'] == ab.load_questions().fingerprint and ready['harness'] == ab.harness_digest()
+    )
+    marker = root / 'answer-benchmark' / 'marker'
+    marker.write_text('from the old preparation')
+    assert ab.prepare(ab.CORPORA['jaffle_shop'], out / 'corpora') == root and marker.exists()
+    monkeypatch.setattr(ab, 'stamp', lambda: {'question_set': 'new', 'harness': ready['harness']})
+    ab.prepare(ab.CORPORA['jaffle_shop'], out / 'corpora')
+    assert not marker.exists()
+    assert json.loads((root / ab.READY).read_text())['question_set'] == 'new'
 
 
 def test_a_prepared_corpus_is_rebuilt_when_its_graph_changed(corpora: Path, tmp_path: Path) -> None:
@@ -601,6 +625,32 @@ def test_the_konstruct_arm_reaches_only_konstruct_s_read_tools(corpora: Path, tm
     assert ab.graph_digest(root) == before
 
 
+def test_the_project_arm_reads_the_dbt_project_s_files(tmp_path: Path) -> None:
+    for path in (
+        'dbt_project.yml',
+        'packages.yml',
+        'models/orders.sql',
+        'macros/cents.sql',
+        'data-tests/positive.sql',
+        'analyses/look.sql',
+        'seeds/raw.csv',
+        'target/manifest.json',
+        'README.md',
+    ):
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_text(f'-- {path}')
+    text = ab.project_text(tmp_path)
+    shown = [line[2:] for line in text.splitlines() if line.startswith('# ')]
+    assert shown == [
+        'dbt_project.yml',
+        'packages.yml',
+        'models/orders.sql',
+        'macros/cents.sql',
+        'data-tests/positive.sql',
+        'analyses/look.sql',
+    ]
+
+
 def test_the_mcp_server_does_not_get_the_model_s_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv('ANTHROPIC_API_KEY', 'secret')
     monkeypatch.setenv(ab.MODEL_VARIABLE, 'model')
@@ -779,7 +829,14 @@ def test_the_paper_counts_the_questions_and_runs_the_benchmark_only_when_asked(
         calls.append(command)
         arm = {'correct': 3, 'wrong': 1, 'abstained': 0, 'unanswered': 0, 'confidently_wrong': 1}
         rates = {f'{k}_rate': v / 4 for k, v in arm.items()}
-        results = {'model': 'model_x', 'arms': {a: {**arm, **rates} for a in ab.ARMS}}
+        intervals = {f'{k}_interval': ab.wilson(v, 4) for k, v in arm.items()}
+        measured = {**arm, **rates, **intervals, 'conversations': 4}
+        results = {
+            'model': 'model_x',
+            'model_settings': {'effort': 'high'},
+            'repeats': 1,
+            'arms': dict.fromkeys(ab.ARMS, measured),
+        }
         (Path(command[command.index('--out') + 1]) / 'results.json').write_text(json.dumps(results))
 
     monkeypatch.setattr(generate.subprocess, 'run', fake_run)
@@ -796,5 +853,10 @@ def test_the_paper_counts_the_questions_and_runs_the_benchmark_only_when_asked(
     assert numbers.values['answerModel']['value'] == r'model\_x'
     assert numbers.values['answerKonstructConfidentlyWrongPct']['value'] == '25.0'
     assert numbers.values['answerProjectUnanswered']['value'] == '0'
+    low, high = ab.wilson(1, 4)
+    assert numbers.values['answerKonstructConfidentlyWrongLow']['value'] == f'{100 * low:.1f}'
+    assert numbers.values['answerKonstructConfidentlyWrongHigh']['value'] == f'{100 * high:.1f}'
+    assert numbers.values['answerConversations']['value'] == '4'
+    assert numbers.values['answerEffort']['value'] == 'high'
     numbers.write(tmp_path)
     assert r'\newcommand{\answerDefinitionsAbstainedPct}{0.0}' in (tmp_path / 'numbers.tex').read_text()

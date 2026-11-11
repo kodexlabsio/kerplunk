@@ -8,7 +8,7 @@ tool to run read-only SQL on the warehouse in all of them:
 * ``schema``: the warehouse's tables and columns only;
 * ``definitions``: the same, with every ``definitions.yml`` of the project as text;
 * ``project``: the same, with the dbt project's SQL and YAML as text too;
-* ``konstruct``: the schema, with Konstruct's read-only MCP tools over the built graph.
+* ``konstruct``: the schema, with Konstruct's MCP tools that answer from the built graph.
 
 The ``konstruct`` arm also reaches the dbt SQL, descriptions and lineage through Konstruct, so the
 ``project`` arm is the one to compare it with; the definitions the benchmark adds to each project
@@ -84,9 +84,11 @@ TRAPS = (
     'minor-units',
     'conflicting-column',
 )
-# Konstruct's MCP tools the konstruct arm gets: those that read the graph. The gate, diff and
-# history need the project's git history and write a copy of the graph; mutation_test and why run
-# the models' SQL. A tool Konstruct adds later joins the arm only when it is named here.
+# Konstruct's MCP tools the konstruct arm gets: those that answer from the graph. Of them only
+# search writes, the index it searches by meaning, beside graph.json, which the run's digest covers.
+# The gate, diff and history need the project's git history, and the gate writes a copy of the
+# graph; mutation_test and why run the models' SQL. A tool Konstruct adds later joins the arm only
+# when it is named here.
 KONSTRUCT_TOOLS = (
     'search',
     'describe',
@@ -100,7 +102,16 @@ KONSTRUCT_TOOLS = (
     'query',
 )
 # The files of a dbt project the project arm reads, besides its definitions.
-PROJECT_FILES = ('dbt_project.yml', 'models', 'macros', 'dags')
+PROJECT_FILES = (
+    'dbt_project.yml',
+    'packages.yml',
+    'models',
+    'macros',
+    'tests',
+    'data-tests',
+    'analyses',
+    'dags',
+)
 PROJECT_SUFFIXES = ('.sql', '.yml', '.yaml', '.md', '.py')
 MODEL_VARIABLE = 'KONSTRUCT_BENCH_MODEL'
 EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
@@ -110,6 +121,7 @@ MAX_TURNS = 20
 MAX_ROWS = 50
 MAX_RESULT_CHARACTERS = 20_000
 QUERY_SECONDS = 30.0
+MEMORY_LIMIT = '2GB'
 Z95 = 1.959964
 # Where the harness puts a corpus's benchmark definitions inside the project, so Konstruct finds
 # them as it finds any definitions.yml.
@@ -366,13 +378,14 @@ def parse_submission(arguments: dict[str, Any]) -> Answer:
 
 
 class Warehouse:
-    """A corpus's DuckDB warehouse attached read only, with files, URLs and extensions off; only a
-    single query that reads is run, for at most ``QUERY_SECONDS``."""
+    """A corpus's DuckDB warehouse attached read only, with files, URLs and extensions off and
+    ``MEMORY_LIMIT`` of memory; only a single query that reads is run, for at most
+    ``QUERY_SECONDS``."""
 
     def __init__(self, path: Path) -> None:
         from konstruct.analysis.verify import DuckDBEngine, quote
 
-        self.engine = DuckDBEngine(path)
+        self.engine = DuckDBEngine(path, memory_limit=MEMORY_LIMIT)
         self.engine.run(f'USE {quote(self.engine.database)}')
 
     def query(self, sql: str, limit: int) -> tuple[list[str], list[tuple[Any, ...]]]:
@@ -489,14 +502,22 @@ def graph_digest(root: Path) -> str:
     return hashlib.sha256((root / 'konstruct-out' / 'graph.json').read_bytes()).hexdigest()
 
 
+def stamp() -> dict[str, str]:
+    """What a prepared corpus was prepared from: the question set, with the definitions and pins it
+    covers, and the harness."""
+    return {'question_set': load_questions().fingerprint, 'harness': harness_digest()}
+
+
 def prepare(corpus: Corpus, out: Path) -> Path:
     """The corpus as a built project under ``out``: its warehouse built by dbt, the benchmark's
-    definitions added and the Konstruct graph built. A project already prepared is reused when its
-    graph is the one it was prepared with."""
+    definitions added and the Konstruct graph built. A project already prepared is reused only
+    when it was prepared from the same question set and harness and its graph is the one it was
+    prepared with; otherwise it is built again."""
     root = out / corpus.name
+    made = stamp()
     if (root / READY).is_file():
         ready = json.loads((root / READY).read_text())
-        if ready.get('graph') == graph_digest(root):
+        if ready.get('graph') == graph_digest(root) and all(ready.get(k) == v for k, v in made.items()):
             return root
     if root.exists():
         shutil.rmtree(root)
@@ -531,9 +552,8 @@ def prepare(corpus: Corpus, out: Path) -> Path:
 
     # The harness made this copy itself, so it trusts it: its warehouse connection included.
     Project(root).build(run_dbt=False, config=load_config(root, trusted=True))
-    (root / READY).write_text(
-        json.dumps({'commit': corpus.commit, 'graph': graph_digest(root)}), encoding='utf-8'
-    )
+    ready = {'commit': corpus.commit, 'graph': graph_digest(root), **made}
+    (root / READY).write_text(json.dumps(ready), encoding='utf-8')
     return root
 
 
