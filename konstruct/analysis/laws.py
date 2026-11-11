@@ -43,12 +43,13 @@ import copy
 import datetime
 import decimal
 import re
+import subprocess
 import time
 from collections import Counter, defaultdict
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import sqlglot
 from sqlglot import exp
@@ -56,6 +57,7 @@ from sqlglot.optimizer.qualify import qualify
 from sqlglot.optimizer.scope import Scope, build_scope
 
 from konstruct.analysis.conflicts import KEY_WORDS, core
+from konstruct.analysis.query import QueryError
 from konstruct.analysis.verify import (
     Candidate,
     DuckDBEngine,
@@ -63,16 +65,25 @@ from konstruct.analysis.verify import (
     PostgresEngine,
     SampledEngine,
     candidates,
+    defining_sql_file,
     engine_for,
     read_only_query,
     rewrite,
 )
-from konstruct.core import jsonio
+from konstruct.core import formats, jsonio
+from konstruct.core.formats import FIELD, FormatError, document
 from konstruct.core.graph import Graph, Node
 from konstruct.core.sql import PARSE_ERRORS, build_schema, case_insensitive, table_key
 
+if TYPE_CHECKING:
+    from konstruct.interfaces.layout import Style
+
+FILE_NAME = 'laws.json'
+"""The file in the output directory that holds the laws."""
 FORMAT = 1
-"""The version of the ``laws.json`` format, raised when a reader of an older one would misread it."""
+"""The version of the ``laws.json`` format, raised when a reader of an older one would misread it.
+The file carries it as ``format_version``, as every document Konstruct writes does, and as
+``format``, which Konstruct 0.13 wrote alone."""
 KINDS = ('conservation', 'count', 'additivity')
 REPEATS = (1, 2, 3, 5, 8, 13, 21, 34)
 """The rows (by date) the additivity probe repeats, one at a time, before it gives up on a column:
@@ -197,6 +208,9 @@ class Step:
     """The tests that make the step's joins safe, by graph id."""
     branch: int = 0
     """The branch of the model's ``UNION ALL`` the step reads, from 0; 0 for any other query."""
+    files: tuple[str, ...] = ()
+    """The files the step follows from, relative to the project: the model's and those of the tests
+    it relies on. A change that touches none of them leaves the step as it was."""
 
     def same(self, other: Step) -> bool:
         """Whether ``other`` makes the same claim (tests and partitions aside)."""
@@ -230,6 +244,7 @@ class Step:
             'partition': list(self.partition) if self.partition else None,
             'relies_on': list(self.relies_on),
             'branch': self.branch,
+            'files': list(self.files),
         }
 
     @classmethod
@@ -246,6 +261,7 @@ class Step:
             partition=(str(partition[0]), str(partition[1])) if partition else None,
             relies_on=tuple(data.get('relies_on', [])),
             branch=int(data.get('branch', 0)),
+            files=tuple(str(f) for f in data.get('files', [])),
         )
 
 
@@ -259,6 +275,10 @@ class Failure:
     """The total the source gives."""
     actual: float
     """The total the relation has."""
+
+    def text(self) -> str:
+        """``2026-01-31: 120 against 100``: the day, the relation's total and the source's."""
+        return f'{self.partition}: {_number_text(self.actual)} against {_number_text(self.expected)}'
 
 
 @dataclass(frozen=True)
@@ -362,6 +382,9 @@ class Law:
     """For additivity, why the probes cannot classify the column, read from its SQL: a model that
     keeps rows by comparing them with others (DISTINCT, QUALIFY, LIMIT, HAVING or a filter with a
     subquery) keeps different rows once its input is repeated or split."""
+    files: list[str] = field(default_factory=list)
+    """For additivity, the files the relation's SQL follows from, relative to the project, as a
+    step records them; the other kinds keep them on their steps."""
 
     @property
     def steps(self) -> list[Step]:
@@ -372,6 +395,17 @@ class Law:
     def relies_on(self) -> list[str]:
         """Every test the law's joins depend on."""
         return sorted({t for step in self.steps for t in step.relies_on})
+
+    @property
+    def detail(self) -> str | None:
+        """What checking found, beside the statement: ``15 of 15 days``, where the totals first
+        part, or why the law was not checked."""
+        if self.status == 'unchecked':
+            return self.note
+        if self.status not in ('holds', 'broken') or self.kind == 'additivity':
+            return None
+        held = f'{self.held} of {self.checked} {"days" if self.partition else "partitions"}'
+        return held + (f'; parts at {_short(self.broken_at)}' if self.broken_at else '')
 
     @property
     def always_held(self) -> bool:
@@ -425,6 +459,7 @@ class Law:
             'note': self.note,
             'unprobed': self.unprobed,
             'relies_on': self.relies_on,
+            'files': self.files,
         }
 
     @classmethod
@@ -450,6 +485,7 @@ class Law:
             evidence=data.get('evidence'),
             note=data.get('note'),
             unprobed=data.get('unprobed'),
+            files=[str(f) for f in data.get('files', [])],
         )
 
 
@@ -466,16 +502,21 @@ class Blocked:
     measure: bool = True
     """Whether the column is a measure (numeric and not a key), which would have a law of its own."""
 
+    def to_dict(self) -> dict[str, Any]:
+        return {'model': self.model, 'column': self.column, 'reason': self.reason}
+
 
 @dataclass
 class Laws:
     """The laws of a project, proposed and, once confirmed, checked."""
 
+    FORMAT_VERSION = FORMAT
+
     laws: list[Law] = field(default_factory=list)
     """Every law, ordered by relation and column."""
     blocked: list[Blocked] = field(default_factory=list)
-    """Every column (and row count) of a model with no step, with the reason. Kept in memory, not
-    in laws.json."""
+    """Every column (and row count) of a model with no step, with the reason. laws.json keeps the
+    measures among them."""
     steps: dict[tuple[str, str | None], tuple[Step, ...]] = field(default_factory=dict)
     """Every step the SQL proves, by model id and column (None for the row count), one for each
     branch of a ``UNION ALL``, whether or not a law starts at it. Kept in memory, not in laws.json."""
@@ -524,28 +565,15 @@ class Laws:
             f'{t["broken"]} broken, {t["unchecked"]} not checked.'
         )
 
+    def text(self, style: Style | None = None) -> str:
+        """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
+        terminal with ``style``."""
+        from konstruct.interfaces.render import laws_lines, show
+
+        return show(laws_lines, self, style)
+
     def __str__(self) -> str:
-        lines = [self.summary()]
-        if self.laws:
-            lines.append('')
-        for law in self.laws:
-            detail = ''
-            if law.status in ('holds', 'broken') and law.kind != 'additivity':
-                unit = 'days' if law.partition else 'partitions'
-                detail = f'  ({law.held} of {law.checked} {unit})'
-            if law.broken_at:
-                detail += f'; parts at {_short(law.broken_at)}'
-            if law.status == 'unchecked' and law.note:
-                detail = f'  ({law.note})'
-            lines.append(f'  {law.status:<9} {law.statement}{detail}')
-            for failure in law.failures[:3]:
-                lines.append(
-                    f'            {failure.partition}: {_number_text(failure.actual)} '
-                    f'against {_number_text(failure.expected)}'
-                )
-            if law.kind == 'additivity' and law.evidence and law.status == 'broken':
-                lines.append(f'            {law.evidence}')
-        return '\n'.join(lines)
+        return self.text()
 
     def to_dict(self) -> dict[str, Any]:
         """The ``laws.json`` document."""
@@ -557,21 +585,22 @@ class Laws:
             'seconds': round(self.seconds, 2),
             'totals': self.totals(),
             'laws': [law.to_dict() for law in self.laws],
+            'blocked': [b.to_dict() for b in self.blocked if b.measure],
         }
 
     def write(self, path: Path) -> None:
-        """Write ``laws.json``."""
-        jsonio.write_text(path, jsonio.dumps(self.to_dict(), indent=True) + '\n')
+        """Write ``laws.json``: the document ``--json`` prints, with its ``format_version``."""
+        jsonio.write_text(path, jsonio.dumps(document(self), indent=True) + '\n')
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Laws:
-        version = data.get('format')
-        if not isinstance(version, int) or isinstance(version, bool):
+        if not isinstance(data, dict) or (FIELD not in data and 'format' not in data):
             raise ValueError('this is not a laws.json: it has no format number')
-        if version > FORMAT:
-            raise ValueError(f'laws.json format {version} is newer than this Konstruct reads ({FORMAT})')
+        # Konstruct 0.13 wrote the version as `format` alone.
+        formats.check({FIELD: data.get(FIELD, data.get('format'))}, FORMAT, 'laws.json')
         return cls(
             laws=[Law.from_dict(item) for item in data.get('laws', [])],
+            blocked=[Blocked(b['model'], b.get('column'), b['reason']) for b in data.get('blocked', [])],
             dialect=data.get('dialect'),
             warehouse=data.get('warehouse'),
             tolerance=float(data.get('tolerance', TOLERANCE)),
@@ -582,6 +611,46 @@ class Laws:
 def load(path: Path) -> Laws:
     """Read a ``laws.json`` written by :meth:`Laws.write`."""
     return Laws.from_dict(jsonio.loads(path.read_bytes()))
+
+
+def recorded(root: Path, out_dir: Path, base: str | None = None) -> tuple[Laws | None, str]:
+    """The laws as recorded before a change, and where they came from: in a git repository, the
+    ``laws.json`` committed at ``base`` (default: the merge base with main) and nothing else, so a
+    copy left in the output directory never stands in for the base's; with no git base to read,
+    the one ``konstruct verify --laws`` last wrote to ``out_dir``.
+
+    Raises:
+        konstruct.QueryError: The file cannot be read.
+    """
+    from konstruct.analysis.diff import DiffError, default_base, file_at, resolve_ref
+
+    path = out_dir / FILE_NAME
+    shown = base or 'the merge base with main'
+    top = subprocess.run(
+        ['git', '-C', str(root), 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=False
+    )
+    ref: str | None = None
+    if top.returncode == 0:
+        repository = Path(top.stdout.strip()).resolve()
+        try:
+            ref = resolve_ref(root, base) if base else default_base(root)
+            inside = path.resolve().relative_to(repository).as_posix()
+        except (DiffError, ValueError):
+            ref = None
+    if ref is not None:
+        text = file_at(repository, ref, inside)
+        if text is None:
+            return None, f'no {inside} at {shown}, so no data law was checked'
+        where = f'{inside} at {shown}'
+    elif path.is_file():
+        text = path.read_text(encoding='utf-8')
+        where = f"the output directory's {FILE_NAME}, with no git base to read one at"
+    else:
+        return None, 'no data laws recorded, so none was checked'
+    try:
+        return Laws.from_dict(jsonio.loads(text)), where
+    except (ValueError, KeyError, TypeError, FormatError) as error:
+        raise QueryError(f'cannot read {where}: {error}') from error
 
 
 @dataclass
@@ -732,7 +801,7 @@ class _Tests:
     never enforce a primary key.
     """
 
-    def __init__(self, graph: Graph) -> None:
+    def __init__(self, graph: Graph, without: Collection[str] = ()) -> None:
         self.keys: dict[str, list[tuple[frozenset[str], str]]] = defaultdict(list)
         self.filtered: dict[str, list[tuple[frozenset[str], str]]] = defaultdict(list)
         self.not_null: dict[tuple[str, str], str] = {}
@@ -744,6 +813,8 @@ class _Tests:
                 enforced = 'dbt' not in node.origins or node.attrs.get('primary_key_enforced')
                 if primary and enforcing and enforced:
                     self.keys[node.id].append((frozenset(primary), f'{node.id}:primary_key'))
+                continue
+            if node.id in without:
                 continue
             where = bool(node.attrs.get('where'))
             keys = self.filtered if where else self.keys
@@ -1017,10 +1088,10 @@ class _Analyser:
     """Reads models' SQL into steps: how each column's total, and each model's row count, follows
     from one input."""
 
-    def __init__(self, graph: Graph) -> None:
+    def __init__(self, graph: Graph, without_tests: Collection[str] = ()) -> None:
         self.graph = graph
         self.dialect = str(graph.meta.get('dialect') or 'duckdb')
-        self.tests = _Tests(graph)
+        self.tests = _Tests(graph, without_tests)
         # Qualifying a query needs the columns' names, not their types (which cost a parse each).
         known: dict[str, dict[str, str]] = {
             node.relation: {c.name.lower(): 'UNKNOWN' for c in graph.columns_of(node.id)}
@@ -1670,7 +1741,14 @@ def _is_date(graph: Graph, node: Node, column: str) -> bool:
     return bool(found is not None and found.data_type and _DATE.match(found.data_type))
 
 
-def propose(graph: Graph, root: Path, *, models: Collection[str] | None = None) -> Laws:
+def propose(
+    graph: Graph,
+    root: Path,
+    *,
+    models: Collection[str] | None = None,
+    sql: Mapping[str, str | None] | None = None,
+    without_tests: Collection[str] = (),
+) -> Laws:
     """The laws the lineage implies, from every dbt model's compiled SQL and every SQL-built
     table's, without reading the warehouse.
 
@@ -1681,10 +1759,14 @@ def propose(graph: Graph, root: Path, *, models: Collection[str] | None = None) 
     the sum of its branches'. Columns with no law are in ``blocked``.
 
     ``models`` (graph ids) limits the reading to those models, such as the ones the laws of
-    :meth:`Laws.models` run through, which is all :func:`violations` needs.
+    :meth:`Laws.models` run through, which is all :func:`violations` needs. ``sql`` replaces the
+    compiled SQL of the models it names, such as a model edited since dbt last compiled it, as
+    :func:`konstruct.analysis.diff.rendered_now` renders it; None for a model whose file is gone.
+    ``without_tests`` (graph ids) are tests the change removes, which the graph may still hold.
     """
     started = time.perf_counter()
-    analyser = _Analyser(graph)
+    analyser = _Analyser(graph, without_tests)
+    behind = _Behind(graph, root)
     dialect = analyser.dialect
     result = Laws(dialect=dialect)
     links: dict[tuple[str, str | None], list[_Link]] = {}
@@ -1696,6 +1778,14 @@ def propose(graph: Graph, root: Path, *, models: Collection[str] | None = None) 
         node = candidate.node
         if models is not None and node.id not in models:
             continue
+        if sql and node.id in sql:
+            replaced = sql[node.id]
+            if replaced is None:
+                gone = 'the model is removed'
+                result.blocked += [Blocked(node.id, c.name.lower(), gone) for c in graph.columns_of(node.id)]
+                result.blocked.append(Blocked(node.id, None, gone))
+                continue
+            candidate = Candidate(node, replaced, candidate.default_catalog, candidate.default_schema)
         hopeless = analyser.hopeless(node, candidate.sql)
         if hopeless:
             flows: dict[str, list[_Flow] | str] = {
@@ -1734,9 +1824,9 @@ def propose(graph: Graph, root: Path, *, models: Collection[str] | None = None) 
         else:
             result.blocked.append(Blocked(node.id, None, 'groups its rows'))
     for key, branches in links.items():
-        result.steps[key] = tuple(_step(link, None, dialect) for link in branches)
+        result.steps[key] = tuple(_step(graph, link, None, dialect, behind) for link in branches)
     for top in tops:
-        result.laws.append(_law(graph, top, links, dialect))
+        result.laws.append(_law(graph, top, links, dialect, behind))
     for node, name, suggestion, source, source_column, selecting in additivity:
         result.laws.append(
             Law(
@@ -1750,6 +1840,7 @@ def propose(graph: Graph, root: Path, *, models: Collection[str] | None = None) 
                 unprobed=f'the model keeps rows by comparing them with others ({selecting})'
                 if selecting
                 else None,
+                files=sorted({f for f in (node.path, *behind(node)) if f}),
             )
         )
     result.laws.sort(key=lambda law: (law.label, law.column or '', KINDS.index(law.kind)))
@@ -1884,7 +1975,51 @@ def _and(filters: tuple[exp.Expr, ...] | list[exp.Expr]) -> exp.Expr | None:
     return exp.and_(*(f.copy() for f in filters)) if len(filters) > 1 else filters[0]
 
 
-def _step(link: _Link, partition: tuple[exp.Expr, exp.Expr] | None, dialect: str) -> Step:
+class _Behind:
+    """The files besides its own that a model's steps follow from, relative to the project: for a
+    dbt model, its macros, the YAML of its properties and sources, dbt_project.yml and
+    packages.yml; for a table, the SQL file that builds it."""
+
+    def __init__(self, graph: Graph, root: Path) -> None:
+        self.graph, self.root = graph, Path(root)
+        self._dbt: dict[str, list[str]] | None = None
+
+    def __call__(self, node: Node) -> list[str]:
+        if 'dbt' in node.origins:
+            if self._dbt is None:
+                self._dbt = self._read()
+            return self._dbt.get(node.id, [])
+        built = defining_sql_file(self.graph, node, self.root) if node.kind == 'table' else None
+        return [self._relative(built)] if built is not None else []
+
+    def _read(self) -> dict[str, list[str]]:
+        from konstruct.inputs import dbt
+
+        found: dict[str, list[str]] = {}
+        for project in dbt.find_projects(self.root):
+            try:
+                manifest = jsonio.loads(project.manifest_path.read_bytes())
+            except (OSError, ValueError):
+                continue
+            for node_id, item in (manifest.get('nodes') or {}).items():
+                if isinstance(item, dict) and item.get('resource_type') == 'model':
+                    found[node_id] = [
+                        self._relative(f) for f in dbt.files_behind(project.root, manifest, item)
+                    ]
+        return found
+
+    def _relative(self, path: Path) -> str:
+        try:
+            return path.resolve().relative_to(self.root.resolve()).as_posix()
+        except ValueError:
+            return path.as_posix()
+
+
+def _step(
+    graph: Graph, link: _Link, partition: tuple[exp.Expr, exp.Expr] | None, dialect: str, behind: _Behind
+) -> Step:
+    tests = (graph.nodes.get(t) for t in link.tests)
+    files = {link.model.path, *behind(link.model), *(t.path for t in tests if t is not None)}
     return Step(
         model=link.model.id,
         column=link.column,
@@ -1898,6 +2033,7 @@ def _step(link: _Link, partition: tuple[exp.Expr, exp.Expr] | None, dialect: str
         else None,
         relies_on=tuple(sorted(link.tests)),
         branch=link.branch,
+        files=tuple(sorted(f for f in files if f)),
     )
 
 
@@ -1973,7 +2109,11 @@ def _follow(link: _Link, links: dict[tuple[str, str | None], list[_Link]]) -> li
 
 
 def _law(
-    graph: Graph, top: list[_Link], links: dict[tuple[str, str | None], list[_Link]], dialect: str
+    graph: Graph,
+    top: list[_Link],
+    links: dict[tuple[str, str | None], list[_Link]],
+    dialect: str,
+    behind: _Behind,
 ) -> Law:
     """The law from ``top`` (one link for each branch of the model), followed upstream."""
     chains = [chain for link in top for chain in _follow(link, links)]
@@ -1986,7 +2126,15 @@ def _law(
         steps = []
         for link in chain.links:
             below = _substitute(at, link.carried) if at is not None else None
-            steps.append(_step(link, (at, below) if at is not None and below is not None else None, dialect))
+            steps.append(
+                _step(
+                    graph,
+                    link,
+                    (at, below) if at is not None and below is not None else None,
+                    dialect,
+                    behind,
+                )
+            )
             at = below
         terms.append(
             Term(
@@ -2632,7 +2780,9 @@ def _classify(
 # The gate's check
 
 
-def violations(graph: Graph, laws: Laws, change: Laws) -> list[Violation]:
+def violations(
+    graph: Graph, laws: Laws, change: Laws, *, changed: Collection[str] | None = None
+) -> list[Violation]:
     """The laws in ``laws`` (as confirmed before a change) that held on every partition and that
     the changed project no longer satisfies.
 
@@ -2641,6 +2791,10 @@ def violations(graph: Graph, laws: Laws, change: Laws) -> list[Violation]:
     on a key no uniqueness test covers, a new filter, a removed test, a different factor) and the
     violation names the model, nearest the source first; an additivity law is violated when the SQL
     now suggests another class. Nothing is run.
+
+    ``changed`` (the files a change touches, relative to the project) keeps only the violations the
+    change makes: a step that differs although none of its files changed was broken before it, so a
+    law broken on the base fails the change that broke it, not every change after it.
     """
     expected = {(law.relation, law.column): law.expected for law in change.laws if law.kind == 'additivity'}
     blocked = {(b.model, b.column): b.reason for b in change.blocked}
@@ -2650,7 +2804,7 @@ def violations(graph: Graph, laws: Laws, change: Laws) -> list[Violation]:
             continue
         if law.kind == 'additivity':
             now = expected.get((law.relation, law.column))
-            if now != law.expected:
+            if now != law.expected and _touched(graph, law.relation, law.steps, changed, law.files):
                 reason = blocked.get((law.relation, law.column))
                 message = (
                     f'{law.column} now looks {now}'
@@ -2666,15 +2820,42 @@ def violations(graph: Graph, laws: Laws, change: Laws) -> list[Violation]:
             unchanged = current is not None and len(current) == len(mine)
             if unchanged and all(a.same(b) for a, b in zip(current or (), mine, strict=True)):
                 continue
+            if not _touched(graph, step.model, mine, changed):
+                continue
             found.append(_violation(graph, law, step.model, _what_changed(graph, mine, current, blocked)))
             break
     return found
 
 
+def _touched(
+    graph: Graph,
+    model: str,
+    steps: Collection[Step],
+    changed: Collection[str] | None,
+    also: Collection[str] = (),
+) -> bool:
+    """Whether a change to ``changed`` can have made ``model``'s ``steps`` what they are now."""
+    if changed is None:
+        return True
+    files = {f for step in steps for f in step.files} | set(also)
+    node = graph.nodes.get(model)
+    if node is not None and node.path:
+        files.add(node.path)
+    elif not files:
+        # Removed, and laws.json from before steps recorded their files: the change may have done it.
+        return True
+    tests = (graph.nodes.get(t) for step in steps for t in step.relies_on)
+    files |= {t.path for t in tests if t is not None and t.path}
+    return bool(files & set(changed))
+
+
 def _violation(graph: Graph, law: Law, model: str, message: str) -> Violation:
     node = graph.nodes.get(model)
     label = graph.label(node) if node is not None else _short(model)
-    return Violation(law.id, law.statement, model, label, f'{label}: {message}', node.path if node else None)
+    # A table has no path of its own: the SQL file that builds it is among its steps' files.
+    built = (f for step in law.steps if step.model == model for f in step.files if f.endswith('.sql'))
+    path = node.path if node is not None and node.path else next(built, None)
+    return Violation(law.id, law.statement, model, label, f'{label}: {message}', path)
 
 
 def _what_changed(

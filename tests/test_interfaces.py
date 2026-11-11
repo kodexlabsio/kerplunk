@@ -667,6 +667,7 @@ def test_exit_statuses(
             'check-sql', '--history', '--strict'
         ),
         **_receipt_statuses(tmp_path, status),
+        **_law_statuses(tmp_path, status),
     }
     capsys.readouterr()
     check('exit', outcomes)
@@ -688,6 +689,24 @@ def _receipt_statuses(tmp_path: Path, status: Any) -> dict[str, int]:
     outcomes['receipts check with a graph older than its inputs'] = status(*base, 'check', '--no-refresh')
     outcomes['receipts check finds a stale receipt'] = status(*base, 'check', '--no-history')
     return outcomes
+
+
+def _law_statuses(tmp_path: Path, status: Any) -> dict[str, int]:
+    import duckdb
+
+    from tests.test_laws import shop
+
+    fanned = shop(tmp_path / 'fanned')
+    con = duckdb.connect(str(fanned.root / 'shop.duckdb'))
+    con.execute("insert into raw.orders values (7, 2, 'placed')")
+    con.close()
+    laws = ['-C', str(fanned.root), 'verify', '--laws']
+    return {
+        'verify --laws with a broken law': status(*laws),
+        'verify --laws --strict with a broken law': status(*laws, '--strict'),
+        'verify --tolerance without --laws': status('-C', str(fanned.root), 'verify', '--tolerance', '0.1'),
+        'verify --laws with --mutate': status(*laws, '--mutate'),
+    }
 
 
 # JSON documents
@@ -952,6 +971,7 @@ def test_json_documents(
     add('check-sql --history', '-C', str(checked), 'check-sql', '--history', '--json')
     _receipted(tmp_path / 'receipts', add)
     add('receipts check', '-C', str(tmp_path / 'receipts'), 'receipts', 'check', '--json')
+    _laws_documents(tmp_path, add)
     entries: dict[str, Any] = {}
     for name, runs in documents.items():
         versions = {run.get('format_version') for run in runs}
@@ -967,6 +987,29 @@ def test_json_documents(
     problems = gaps(entries)
     assert problems == [], '\n'.join(problems)
     check('json', entries)
+
+
+def _laws_documents(tmp_path: Path, add: Any) -> None:
+    """`verify --laws --json` on the shop of test_laws: with a join no test covers, so a measure
+    has no law, and a model the probes cannot judge, proposed and confirmed; and confirmed on data
+    with a planted fan-out, so laws break."""
+    import duckdb
+
+    from tests.test_laws import MODELS, SELECTING_MODELS, raw, shop
+
+    joined = MODELS['payments_enriched'].replace(
+        'from p left join o on o.order_id = p.order_id',
+        f'from p left join o on o.order_id = p.order_id left join {raw("items")} i on i.order_id = p.order_id',
+    )
+    models = {**MODELS, 'payments_enriched': joined, 'latest': SELECTING_MODELS['latest']}
+    blocked = shop(tmp_path / 'blocked', models)
+    add('verify --laws', '-C', str(blocked.root), 'verify', '--laws', '--propose', '--json')
+    add('verify --laws', '-C', str(blocked.root), 'verify', '--laws', '--json')
+    fanned = shop(tmp_path / 'fanned')
+    con = duckdb.connect(str(fanned.root / 'shop.duckdb'))
+    con.execute("insert into raw.orders values (7, 2, 'placed')")
+    con.close()
+    add('verify --laws', '-C', str(fanned.root), 'verify', '--laws', '--json')
 
 
 def test_a_field_emptied_to_null_is_missing_coverage(
@@ -1001,7 +1044,7 @@ def test_the_documented_format_versions_are_the_ones_written() -> None:
         names, version = (cell.strip() for cell in row.strip('|').split('|'))
         for name in names.replace(' and ', ', ').split(', '):
             documented[name.strip('`').removesuffix(' --json')] = int(version)
-    files = {'conflicts.json': 'conflicts', 'verify.json': 'verify'}
+    files = {'conflicts.json': 'conflicts', 'verify.json': 'verify', 'laws.json': 'verify --laws'}
     assert {files.get(k, k): v for k, v in documented.items()} == written
 
 

@@ -18,10 +18,11 @@ from typing import TYPE_CHECKING, Any, Protocol, TypeGuard
 if TYPE_CHECKING:
     from konstruct.analysis.conflicts import Conflicts
     from konstruct.analysis.diff import Diff
+    from konstruct.analysis.laws import Laws
     from konstruct.core.graph import Graph, Node
     from konstruct.interfaces.project import Project
 
-API_VERSION: tuple[int, int] = (1, 1)
+API_VERSION: tuple[int, int] = (1, 2)
 """The version of the plugin API this release of Konstruct runs, as ``(major, minor)``. The minor
 grows when the API gains something a plugin may use; the major only when a type or protocol
 here changes incompatibly. Konstruct runs a plugin that targets the same major and a minor no
@@ -649,8 +650,8 @@ class Finding:
     """One thing that stops a change, from a gate check."""
 
     rule: str
-    """The rule: ``breaking``, ``approved-definition-changed`` or ``conflicting-definition`` for
-    Konstruct's own checks, ``<plugin>.<rule>`` for a plugin's."""
+    """The rule: ``breaking``, ``approved-definition-changed``, ``conflicting-definition`` or
+    ``data-law-broken`` for Konstruct's own checks, ``<plugin>.<rule>`` for a plugin's."""
     message: str
     """What is wrong."""
     path: str | None = None
@@ -684,6 +685,10 @@ class CheckContext:
     """The change, as ``konstruct diff`` describes it."""
     conflicts: Conflicts
     """The conflicting definitions at the head, as ``konstruct conflicts`` finds them."""
+    laws: Laws | None = None
+    """The data laws as recorded before the change: the ``laws.json`` that ``konstruct verify
+    --laws`` writes, as committed at the base, or, with no git base to read, as it is in the
+    output directory; None when there is none. Since plugin API 1.2."""
 
 
 class CheckPlugin(Protocol):

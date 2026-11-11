@@ -50,6 +50,7 @@ BUILTINS: dict[str, tuple[tuple[str, str], ...]] = {
         ('breaking', 'konstruct.analysis.gate:BREAKING'),
         ('approved-definition-changed', 'konstruct.analysis.gate:APPROVED_DEFINITION_CHANGED'),
         ('conflicting-definition', 'konstruct.analysis.gate:CONFLICTING_DEFINITION'),
+        ('data-law-broken', 'konstruct.analysis.gate:DATA_LAW_BROKEN'),
     ),
     'packs': (('konstruct', 'konstruct.semantics.ontologies'),),
     'mcp_tools': (),

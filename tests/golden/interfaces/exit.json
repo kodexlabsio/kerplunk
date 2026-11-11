@@ -41,7 +41,11 @@
  "receipts show finds no such receipt": 1,
  "relate finds no connection": 3,
  "usage error": 2,
+ "verify --laws --strict with a broken law": 1,
+ "verify --laws with --mutate": 2,
+ "verify --laws with a broken law": 0,
  "verify --strict with an unexplained influence": 1,
+ "verify --tolerance without --laws": 2,
  "verify finds no warehouse": 1,
  "verify with an unexplained influence": 0,
  "version": 0

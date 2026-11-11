@@ -35,15 +35,15 @@ configuration says. Konstruct's own components always run.
 
 ```text
 $ konstruct plugins
-Plugins (plugin API 1.1)
+Plugins (plugin API 1.2)
 
 konstruct-yaml-pipelines 0.1.0: enabled
-  inputs     pipelines                API 1.1
-  checks     pipelines                API 1.1
+  inputs     pipelines                API 1.2
+  checks     pipelines                API 1.2
   packs      pipelines                API 1.0
-  mcp_tools  pipelines                API 1.1
+  mcp_tools  pipelines                API 1.2
 
-Built in: inputs looker; exports openlineage, mermaid, dot, csv, ossie; checks breaking, approved-definition-changed, conflicting-definition; packs konstruct.
+Built in: inputs looker; exports openlineage, mermaid, dot, csv, ossie; checks breaking, approved-definition-changed, conflicting-definition, data-law-broken; packs konstruct.
 ```
 
 ## The Security Model
@@ -129,7 +129,8 @@ plugin that targets its own major and a minor no higher than its own, so a plugi
 1.0 runs on a Konstruct that runs 1.2, but not on one that runs 2.0, and a plugin for 1.2 is
 refused by a Konstruct that runs only 1.0. A refused plugin is reported with the version it
 targets and the versions Konstruct runs, rather than being run against types it was not written
-for. `konstruct plugins` prints the version a release runs (plugin API 1.1 at present). The
+for. `konstruct plugins` prints the version a release runs (plugin API 1.2 at present; 1.1 added the
+maps of `PLUGIN_MAP_ATTRS`, and 1.2 the data laws in a gate check's context). The
 plugin API is the `konstruct.plugins` module: the protocols and types below, documented in the
 [Python API](../reference/python-api.md#plugins).
 
@@ -237,7 +238,7 @@ with a message for the user.
 A check has a `description` and a `check(context)` method that returns a list of
 {class}`~konstruct.plugins.Finding`, each with a `rule`, a `message`, the `path` to change and a
 `fix`. The {class}`~konstruct.plugins.CheckContext` holds the graph at the head, the
-{class}`~konstruct.analysis.diff.Diff` of the change and the conflicting definitions. Konstruct
+{class}`~konstruct.analysis.diff.Diff` of the change, the conflicting definitions and, since plugin API 1.2, the data laws as recorded before the change (the `laws.json` committed at the base, or, with no git base, the one in the output directory), or None. Konstruct
 names a plugin's rules `<entry point>.<rule>`, so the example's rule is
 `pipelines.owner-required`.
 

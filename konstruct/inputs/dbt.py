@@ -18,6 +18,7 @@ import yaml
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
 
+from konstruct.core import jsonio
 from konstruct.core.graph import Graph, Node, NodeKind, column_id, relation_key
 from konstruct.core.sql import dialect_for, strip_templating
 from konstruct.inputs.jinja import Renderer, render_model
@@ -135,10 +136,79 @@ def _newest_source_mtime(project: DbtProject) -> float:
     return newest
 
 
+def _names_a_missing_file(project: DbtProject) -> bool:
+    """Whether the manifest names a file of the project that is no longer there: a deleted or
+    moved model, seed or YAML file leaves no file newer than the manifest."""
+    try:
+        manifest = jsonio.loads(project.manifest_path.read_bytes())
+    except (OSError, ValueError):
+        return True
+    items = [*(manifest.get('nodes') or {}).values(), *(manifest.get('sources') or {}).values()]
+    for item in items:
+        if not isinstance(item, dict) or item.get('package_name') != project.name:
+            continue
+        path = item.get('original_file_path')
+        if isinstance(path, str) and path and not (project.root / path).exists():
+            return True
+    return False
+
+
+def files_behind(project_root: Path, manifest: dict[str, Any], item: dict[str, Any]) -> list[Path]:
+    """The files besides its own that a dbt node's compiled SQL and configuration follow from:
+    ``dbt_project.yml``, ``packages.yml``, the YAML that gives its properties, the YAML of the
+    sources it reads, and the files of the macros it calls, directly or through other macros,
+    where they are in the project or its installed packages."""
+    found = [project_root / 'dbt_project.yml', project_root / 'packages.yml']
+    patch = item.get('patch_path')
+    if isinstance(patch, str) and patch:
+        found.append(project_root / patch.split('://', 1)[-1])
+    depends = item.get('depends_on') or {}
+    for node_id in depends.get('nodes') or []:
+        source = (manifest.get('sources') or {}).get(node_id)
+        if isinstance(source, dict) and source.get('original_file_path'):
+            found.append(project_root / str(source['original_file_path']))
+    found += [path for _, path in macros_of(project_root, manifest, item)]
+    return [f for f in dict.fromkeys(found) if f.is_file()]
+
+
+def macros_of(
+    project_root: Path, manifest: dict[str, Any], item: dict[str, Any]
+) -> Iterator[tuple[dict[str, Any], Path]]:
+    """Each macro a node calls, directly or through other macros, with the file that defines it in
+    the project or an installed package."""
+    every = manifest.get('macros') or {}
+    pending, seen = list((item.get('depends_on') or {}).get('macros') or []), set()
+    while pending:
+        macro_id = pending.pop()
+        macro = every.get(macro_id)
+        if macro_id in seen or not isinstance(macro, dict):
+            continue
+        seen.add(macro_id)
+        path = macro_file(project_root, item, macro)
+        if path is not None:
+            yield macro, path
+        pending.extend((macro.get('depends_on') or {}).get('macros') or [])
+
+
+def macro_file(project_root: Path, item: dict[str, Any], macro: dict[str, Any]) -> Path | None:
+    """The file that defines ``macro``: in the project of ``item``, or in an installed package;
+    None for dbt's own and an adapter's macros, which are not files of the project."""
+    path = macro.get('original_file_path')
+    if not isinstance(path, str) or not path:
+        return None
+    package = macro.get('package_name')
+    if package == item.get('package_name'):
+        return project_root / path
+    installed = project_root / 'dbt_packages' / str(package) / path
+    return installed if installed.is_file() else None
+
+
 def artefacts_stale(project: DbtProject) -> bool:
     if not project.manifest_path.is_file():
         return True
-    return _newest_source_mtime(project) > project.manifest_path.stat().st_mtime
+    return _newest_source_mtime(project) > project.manifest_path.stat().st_mtime or _names_a_missing_file(
+        project
+    )
 
 
 def ensure_artefacts(

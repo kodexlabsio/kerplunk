@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -393,7 +394,15 @@ def _yaml_facts(text: str | None) -> dict[str, Any]:
         if isinstance(source, dict):
             for table in source.get('tables') or []:
                 if isinstance(table, dict) and table.get('name'):
-                    facts['sources'].add(f'{source.get("name")}.{table["name"]}')
+                    name = f'{source.get("name")}.{table["name"]}'
+                    facts['sources'].add(name)
+                    # A source's tests are named apart from a model's: source.table is not model.column.
+                    for test in _test_names(table.get('data_tests') or table.get('tests')):
+                        facts['tests'].add(f'source {name}: {test}')
+                    for column in table.get('columns') or []:
+                        if isinstance(column, dict) and column.get('name'):
+                            for test in _test_names(column.get('data_tests') or column.get('tests')):
+                                facts['tests'].add(f'source {name}.{column["name"]}: {test}')
     for exposure in data.get('exposures') or []:
         if isinstance(exposure, dict) and exposure.get('name'):
             facts['exposures'][str(exposure['name'])] = sorted(map(str, exposure.get('depends_on') or []))
@@ -495,6 +504,8 @@ class Diff:
     """Changes to dbt YAML."""
     definitions: list[DefinitionsChange] = field(default_factory=list)
     """Changes to definitions.yml."""
+    paths: list[str] = field(default_factory=list)
+    """Every changed file inside the project, relative to it, generated ones included."""
 
     @property
     def shown_base(self) -> str:
@@ -705,6 +716,7 @@ class Context:
         self.manifests: dict[str, dict[str, Any]] = {}
         self.items: dict[str, dict[str, Any]] = {}
         self.renderers: dict[str, Renderer] = {}
+        self.projects: dict[str, dbt.DbtProject] = {}
         for project in dbt.find_projects(root):
             try:
                 manifest = json.loads(project.manifest_path.read_text(encoding='utf-8'))
@@ -716,6 +728,7 @@ class Context:
                 self.manifests[node_id] = manifest
                 self.items[node_id] = item
                 self.renderers[node_id] = renderer
+                self.projects[node_id] = project
 
     def _schema(self) -> dict[str, dict[str, str]]:
         schema: dict[str, dict[str, str]] = {}
@@ -806,7 +819,93 @@ def diff(graph: Graph, root: Path, *, base: str | None = None, head: str | None 
             result.other.append(in_project)
     touched = [n for p in files for n in by_path.get(project_path(p, prefix), [])]
     result.selection = select_for(graph, result, touched)
+    result.paths = sorted({project_path(p, prefix) for p in files} - {''})
     return result
+
+
+def rendered_now(graph: Graph, root: Path, node_ids: Iterable[str]) -> dict[str, str | None]:
+    """The SQL of each of these dbt models as its files read now, rendered without dbt as
+    :func:`diff` renders it, where the model's file or a macro it calls is no longer what the
+    manifest compiled: an edit dbt has not compiled yet, as when the gate runs without dbt. None
+    for a model whose file is gone."""
+    context = Context(graph, root)
+    macros: dict[Path, str | None] = {}
+
+    def text_of(path: Path) -> str | None:
+        if path not in macros:
+            try:
+                macros[path] = path.read_text(encoding='utf-8')
+            except (OSError, UnicodeDecodeError):
+                macros[path] = None
+        return macros[path]
+
+    found: dict[str, str | None] = {}
+    for node_id in node_ids:
+        node, item = graph.nodes.get(node_id), context.items.get(node_id)
+        if node is None or item is None or not node.path or 'raw_code' not in item:
+            continue
+        project, manifest = context.projects[node_id], context.manifests[node_id]
+        file = root / node.path
+        if not file.is_file():
+            # dbt names a model by its file, uniquely in a project: moved, it is found by name.
+            moved = [
+                f
+                for f in project.root.rglob(file.name)
+                if not set(f.relative_to(project.root).parts) & dbt.SKIP_DIRS
+            ]
+            if len(moved) != 1:
+                found[node_id] = None
+                continue
+            file = moved[0]
+        text = text_of(file)
+        if text is None:
+            continue
+        stale = text != item['raw_code'] or any(
+            (written := text_of(path)) is not None and str(macro.get('macro_sql') or '') not in written
+            for macro, path in dbt.macros_of(project.root, manifest, item)
+        )
+        if stale:
+            found[node_id] = context.model_sql(node, text)[0]
+    return found
+
+
+def removed_tests(graph: Graph, change: Diff) -> set[str]:
+    """The graph's tests that the change's dbt YAML no longer declares: a graph built from a
+    manifest dbt has not regenerated still holds them. A test is matched by what it tests (a
+    model, or a source's table, and the column) and its name without its package
+    (``dbt_utils.unique_combination_of_columns`` is ``unique_combination_of_columns``)."""
+    removed: set[str] = set()
+    for yaml_change in change.yaml:
+        for entry in yaml_change.tests_removed:
+            owner, _, test = entry.partition(': ')
+            source = owner.startswith('source ')
+            parts = owner.removeprefix('source ').split('.')
+            relation, column = (parts[:2], parts[2:]) if source else (parts[:1], parts[1:])
+            kind = test.split(' (', 1)[0].rsplit('.', 1)[-1]
+            for node in graph.nodes.values():
+                if node.kind != 'test' or str(node.attrs.get('test') or '') != kind:
+                    continue
+                if str(node.attrs.get('column') or '').lower() != '.'.join(column).lower():
+                    continue
+                if any(
+                    _tests_relation(graph, e.target, relation, source)
+                    for e in graph.out_edges(node.id, 'tests')
+                ):
+                    removed.add(node.id)
+    return removed
+
+
+def _tests_relation(graph: Graph, target_id: str, relation: list[str], source: bool) -> bool:
+    """Whether a test's edge reaches ``relation``: a model's name, or a source's name and table."""
+    target = graph.nodes.get(target_id)
+    parent = graph.parent_of(target) if target is not None and target.kind == 'column' else target
+    if parent is None or parent.name.lower() != relation[-1].lower():
+        return False
+    if not source:
+        return parent.kind != 'source'
+    return (
+        parent.kind == 'source' and str(parent.attrs.get('source_name') or '').lower() == relation[0].lower()
+    )
 
 
 def project_path(path: str, prefix: Path) -> str:

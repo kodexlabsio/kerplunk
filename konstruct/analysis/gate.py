@@ -13,7 +13,10 @@ the same check with ``gate: true``. It compares the working tree with the base a
 * **adds a conflicting definition:** a column the change adds or changes, or that changes because
   of it, computes the same business idea as another column in a different way (another filter,
   source, join or aggregation), as ``konstruct conflicts`` finds, unless the two are bound to
-  different business terms in ``definitions.yml``.
+  different business terms in ``definitions.yml``;
+* **breaks a data law:** a law that ``konstruct verify --laws`` found to hold on every day no
+  longer follows from a model's SQL (a join on a key no test covers, a new filter, another factor,
+  a SUM become an AVG), as :func:`konstruct.analysis.laws.violations` finds.
 
 Each finding says what to do about it, so an agent can fix the change and run the gate again.
 
@@ -36,6 +39,7 @@ from konstruct.plugins.api import API_VERSION, CheckContext, Finding, finding_pr
 from konstruct.plugins.registry import describe
 
 if TYPE_CHECKING:
+    from konstruct.analysis.laws import Laws
     from konstruct.interfaces.layout import Style
     from konstruct.plugins.registry import Plugin, Plugins
 
@@ -52,6 +56,9 @@ class Gate:
     """Everything that stops the change."""
     changed: int = 0
     """Files the change touches."""
+    laws_from: str | None = None
+    """Where the data laws the change is judged against came from (``konstruct-out/laws.json at
+    main``), or that there were none, so no data law was checked."""
 
     @property
     def passed(self) -> bool:
@@ -92,6 +99,8 @@ class Gate:
             for finding in self.findings:
                 where = f' (`{_cell(finding.path)}`)' if finding.path else ''
                 lines.append(f'| `{finding.rule}` | {_cell(finding.message)}{where} | {_cell(finding.fix)} |')
+        if self.laws_from:
+            lines += ['', f'Data laws: {self.laws_from}.']
         return '\n'.join(lines) + '\n'
 
     def to_dict(self) -> dict[str, Any]:
@@ -101,6 +110,7 @@ class Gate:
             'base': self.base,
             'summary': self.summary(),
             'findings': [{**asdict(f), 'fix': f.fix} for f in self.findings],
+            'laws_from': self.laws_from,
         }
 
 
@@ -142,7 +152,13 @@ def _name(graph: Graph, node_id: str, fallback: str) -> str:
 
 
 def gate(
-    graph: Graph, diff: Diff, conflicts: Conflicts | None = None, *, plugins: Plugins | None = None
+    graph: Graph,
+    diff: Diff,
+    conflicts: Conflicts | None = None,
+    *,
+    plugins: Plugins | None = None,
+    laws: Laws | None = None,
+    laws_from: str | None = None,
 ) -> Gate:
     """The gate for ``diff``, given the graph at the head: every check that ``plugins`` (default:
     Konstruct's own checks) runs. A plugin's check that raises, returns something other than
@@ -152,7 +168,8 @@ def gate(
     finds them. By default the gate finds them itself: every conflict when a plugin's check runs,
     which sees them all, and otherwise only those of the columns the change alters, which are all
     that Konstruct's own checks report, at a cost that grows with the change rather than with the
-    square of the columns that share a name."""
+    square of the columns that share a name. ``laws`` are the data laws as confirmed before the
+    change, from ``laws.json``, and ``laws_from`` says where they came from."""
     from konstruct.plugins.registry import Plugins
 
     registry = plugins or Plugins.builtin()
@@ -160,8 +177,8 @@ def gate(
     if conflicts is None:
         touching = None if any(not p.builtin for p in checks) else set(_changed_columns(graph, diff))
         conflicts = find_conflicts(graph, touching=touching)
-    result = Gate(base=diff.shown_base, changed=len(diff.source_files))
-    context = CheckContext(graph=graph, diff=diff, conflicts=conflicts)
+    result = Gate(base=diff.shown_base, changed=len(diff.source_files), laws_from=laws_from)
+    context = CheckContext(graph=graph, diff=diff, conflicts=conflicts, laws=laws)
     for plugin in checks:
         result.findings += _run(plugin, context)
     for plugin in registry.failed('checks'):
@@ -352,6 +369,30 @@ def _conflicting_definition(context: CheckContext) -> list[Finding]:
     return found
 
 
+def _data_law_broken(context: CheckContext) -> list[Finding]:
+    from konstruct.analysis.diff import removed_tests, rendered_now
+    from konstruct.analysis.laws import propose, violations
+
+    laws, graph, changed = context.laws, context.graph, context.diff.paths
+    if laws is None or not changed or not any(law.always_held for law in laws.laws):
+        return []
+    root = Path(str(graph.meta.get('root', '.')))
+    # Only the models the laws run through, each as its file reads now: without dbt, the
+    # manifest's compiled SQL is from before the edit.
+    models = laws.models()
+    head = propose(
+        graph,
+        root,
+        models=models,
+        sql=rendered_now(graph, root, models),
+        without_tests=removed_tests(graph, context.diff),
+    )
+    return [
+        Finding('data-law-broken', f'the change breaks a law that held on all the data: {v}', v.path)
+        for v in violations(graph, laws, head, changed=changed)
+    ]
+
+
 BREAKING = BuiltinCheck(
     'a removed column that something downstream still reads',
     'Keep the column, or change the models that read it in the same change.',
@@ -368,9 +409,17 @@ CONFLICTING_DEFINITION = BuiltinCheck(
     _conflicting_definition,
 )
 
+DATA_LAW_BROKEN = BuiltinCheck(
+    'a change that breaks a data law which held on all the data',
+    'Keep what the law relies on (a join on a tested key, the filters, the factor, the aggregate), '
+    'or, if the change is meant, run `konstruct verify --laws` once it is merged.',
+    _data_law_broken,
+)
+
 RULES = {
     'breaking': BREAKING.fix,
     'approved-definition-changed': APPROVED_DEFINITION_CHANGED.fix,
     'conflicting-definition': CONFLICTING_DEFINITION.fix,
+    'data-law-broken': DATA_LAW_BROKEN.fix,
 }
 """Each of Konstruct's own rules with its fix."""

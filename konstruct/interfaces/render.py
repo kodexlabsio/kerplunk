@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.gate import Gate
     from konstruct.analysis.history import History
     from konstruct.analysis.integrity import KeyCheck, LinkCheck
+    from konstruct.analysis.laws import Laws
     from konstruct.analysis.mutation import MutationTesting
     from konstruct.analysis.query import (
         Definitions,
@@ -686,6 +687,8 @@ def gate_lines(result: Gate, style: Style) -> Lines:
         ]
         facts: list[tuple[str, Cell]] = [('file', finding.path), ('fix', finding.fix)]
         lines += pairs(style, facts, width=4)
+    if result.laws_from:
+        lines += [blank(), *paragraph(style, f'Data laws: {result.laws_from}.', indent=0, role='dim')]
     return lines
 
 
@@ -943,6 +946,38 @@ def receipt_check_lines(result: ReceiptCheck, style: Style) -> Lines:
         lines += pairs(style, [('definition', t) for t in receipt.terms], indent=4, width=11)
         for note in receipt.notes:
             lines += paragraph(style, Text(('note: ', 'dim'), note), indent=4, hanging=6)
+    return lines
+
+
+_LAW_ROLES = {'holds': 'ok', 'broken': 'error', 'unchecked': 'warn', 'proposed': 'dim'}
+
+
+def laws_lines(result: Laws, style: Style) -> Lines:
+    if result.warehouse is None:
+        lines = [header('Data laws', 'proposed from the SQL', 'not checked')]
+    else:
+        lines = [header('Data laws checked against', result.warehouse, f'tolerance {result.tolerance:g}')]
+    lines += _summary(style, result.summary())
+    if result.laws:
+        lines.append(blank())
+    for law in result.laws:
+        body = Text(law.statement)
+        if law.detail:
+            body.append((f'  ({law.detail})', 'dim'))
+        lead = Text('  ', (law.status.ljust(9), _LAW_ROLES.get(law.status, '')), ' ')
+        lines += wrap(style, body, first=lead, hanging=12)
+        lines += [Text(' ' * 12, (failure.text(), 'dim')) for failure in law.failures[:3]]
+        if law.kind == 'additivity' and law.evidence and law.status == 'broken':
+            lines += paragraph(style, law.evidence, indent=12, role='dim')
+    blocked = [b for b in result.blocked if b.measure and b.column]
+    if blocked:
+        lines += [blank(), section('Measures with no law', len(blocked))]
+        rows: list[list[Cell]] = [
+            [f'{b.model.rsplit(".", 1)[-1]}.{b.column}', Text((b.reason, 'dim'))] for b in blocked[:20]
+        ]
+        lines += table(style, rows)
+        if len(blocked) > 20:
+            lines.append(Text((f'  and {len(blocked) - 20} more; the JSON lists them all', 'dim')))
     return lines
 
 

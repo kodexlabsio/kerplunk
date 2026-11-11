@@ -409,6 +409,16 @@ def cmd_verify(args: argparse.Namespace, console: Console) -> int:
     if args.format != 'text' and not args.effect:
         console.error('--format picks how --effect prints the release notes; add --effect, or use --json')
         return 2
+    if args.laws and (args.mutate or args.why or args.effect):
+        other = '--mutate' if args.mutate else '--why' if args.why else '--effect'
+        console.error(f'--laws and {other} are separate modes of verify; give one at a time')
+        return 2
+    if not args.laws and (args.propose or args.tolerance is not None):
+        console.error(f'{"--propose" if args.propose else "--tolerance"} is for the data laws; add --laws')
+        return 2
+    if args.laws and args.model:
+        console.error('--model does not apply to --laws: a law follows its total through every model')
+        return 2
     project = _ready(_project(args), args, console)
     if args.mutate:
         return _mutate(project, args, console)
@@ -419,6 +429,8 @@ def cmd_verify(args: argparse.Namespace, console: Console) -> int:
     if args.since or args.until:
         console.error('--since and --until pick the commits for --effect; add --effect')
         return 2
+    if args.laws:
+        return _laws(project, args, console)
     if args.where:
         console.error('--where picks the row for --why; give the column with --why COLUMN')
         return 2
@@ -502,6 +514,25 @@ def _effect(project: Project, args: argparse.Namespace, console: Console) -> int
         )
     _notes(console, result, args)
     return 0
+
+
+def _laws(project: Project, args: argparse.Namespace, console: Console) -> int:
+    """`verify --laws`: propose the data laws from the SQL and check them against the data."""
+    confirm = not args.propose
+    if confirm and not args.json:
+        console.info(
+            'comparing totals and probing additivity; this reads the warehouse but never writes to it'
+        )
+    with console.progress('Checking the data laws' if confirm else 'Proposing the data laws'):
+        result = project.laws(
+            confirm=confirm, warehouse=args.warehouse, tolerance=args.tolerance, max_rows=_rows(args, 10000)
+        )
+    _emit(console, result, args.json)
+    if confirm and not args.json:
+        console.print(
+            '\n' + console.ui.line(Text((f'Wrote laws.json to {_relative(project.out_dir)}.', 'dim')))
+        )
+    return 1 if args.strict and result.totals()['broken'] else 0
 
 
 def cmd_gate(args: argparse.Namespace, console: Console) -> int:
@@ -828,6 +859,8 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
             'konstruct verify --effect --since v1.4',
             "what each formula change since v1.4 does on today's data",
         ),
+        ('konstruct verify --laws', 'the totals the lineage says must agree, checked per day'),
+        ('konstruct verify --laws --propose', 'the laws alone, reading no warehouse'),
     ),
     'open': (
         ('konstruct open', 'graph.html in the default browser'),
@@ -1518,6 +1551,27 @@ def parser() -> argparse.ArgumentParser:
         default='text',
         metavar='FORMAT',
         help='with --effect: text, markdown or json',
+    )
+    lawful = verify.add_argument_group(
+        'data laws', 'with --laws: the totals the lineage says the data must keep, checked per day'
+    )
+    lawful.add_argument(
+        '--laws',
+        action='store_true',
+        help="propose the conservation, count and additivity laws each model's SQL implies and check "
+        'them against the data; writes laws.json, which the gate reads',
+    )
+    lawful.add_argument(
+        '--propose',
+        action='store_true',
+        help='with --laws, only propose them, reading no warehouse and writing nothing',
+    )
+    lawful.add_argument(
+        '--tolerance',
+        type=float,
+        metavar='X',
+        help="how far a floating-point total may part from its source's, relative to the day's sum of "
+        'magnitudes (default 1e-9); integer and decimal totals must agree exactly',
     )
     _query_options(verify)
     verify.set_defaults(func=cmd_verify)

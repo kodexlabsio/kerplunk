@@ -5,6 +5,7 @@
 | `graph.json` | Nodes (`source`, `table`, `column`, `model`, `seed`, `snapshot`, `dag`, `task`, `test`, `exposure`, `term`) and edges (below), with descriptions, types, file paths and the inputs each came from |
 | `REPORT.md` | Summary and coverage, the most queried columns (with usage on), business terms, the most used columns, orphans, untested models, columns with no lineage, columns documented in dbt but missing from the warehouse, and warnings |
 | `ontology.yml` | The entities, measures, relationships and rules derived from the graph, each with its confidence (see [The Ontology](../guide/ontology.md)); `konstruct verify` refreshes its verified counts and checks its keys and relationships |
+| `laws.json` | The data laws `konstruct verify --laws` proposed and checked, and the measures with none, with why (see [Data Laws](../guide/verify.md#data-laws)); `konstruct gate` reads it, as committed at the base where it is |
 | `vectors.bin` | The index of search by meaning and every node's blocks, written by the first search by meaning and brought up to date by the first after each build (see [Searching by Meaning](../guide/search.md)) |
 | `receipts/` | The answer receipts `konstruct receipts issue` and the MCP `receipt` tool record, as JSON lines, one file for each day of issue (see [Answer Receipts](../guide/receipts.md)) |
 | `graph.html` | A single offline file (open it with `konstruct open`): tables, models and tasks in dependency order; cards that expand to their columns; column lineage drawn between columns, isolated and fitted to the screen; each column's formula in terms of its sources; the conditions that shape each model; verification results; search, deep links to any table or column, dark and light themes |
@@ -30,7 +31,7 @@ With **Columns** on, graph.html is a column-level map of the whole project:
 Scripts, agents and CI that read Konstruct's outputs keep working from one release to the next.
 These are the interfaces Konstruct keeps stable:
 
-- `graph.json`, `conflicts.json`, `verify.json` and the receipts in `konstruct-out/`, and `ontology.yml`;
+- `graph.json`, `conflicts.json`, `verify.json`, `laws.json` and the receipts in `konstruct-out/`, and `ontology.yml`;
 - the `--json` output of every command, and `--format json` and `--json-file` of `diff` and `gate`;
 - the MCP tools: their names, their inputs and the shape of their results;
 - the command line: commands, options, choices and exit statuses;
@@ -52,7 +53,8 @@ its content follows the code.
 
 Every JSON document Konstruct writes for programs carries `format_version`, an integer, as its
 first field: `graph.json`, each command's `--json` output and the MCP tool of the same name, and
-`conflicts.json` and `verify.json`, and each receipt in `receipts/`. A document's format version changes only with a breaking change
+`conflicts.json`, `verify.json` and `laws.json` (which also carries it as `format`, as Konstruct 0.13
+wrote it), and each receipt in `receipts/`. A document's format version changes only with a breaking change
 to its shape, so a reader that checks it, and ignores fields it does not know, reads every later
 document of that format. `ontology.yml`, and the ontology's JSON, also carry `version`, the
 ontology's format from before `format_version`, which follows the same rule.
@@ -82,6 +84,7 @@ misread it; `konstruct status` reports such a graph rather than failing.
 | `release-notes` | 1 |
 | `conflicts` and `conflicts.json` | 1 |
 | `verify` and `verify.json` | 1 |
+| `verify --laws` and `laws.json` | 1 |
 | `diff` | 1 |
 | `gate` | 1 |
 | `check-sql` | 1 |

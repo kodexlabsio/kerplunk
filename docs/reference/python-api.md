@@ -189,6 +189,10 @@ print([(c.headline(), c.effect.summary()) for c in effects.changes if c.effect])
 receipt = project.receipt(['customer_ltv.lifetime_value'], question='LTV of customer 3?')
 print(receipt.citation)
 print([(r.id, r.status) for r in project.check_receipts().receipts])
+
+laws = project.laws(confirm=True)  # writes konstruct-out/laws.json, which the gate reads
+for law in laws.laws:
+    print(law.status, law.statement, law.detail)
 ```
 
 ```{eval-rst}
@@ -202,6 +206,7 @@ print([(r.id, r.status) for r in project.check_receipts().receipts])
 .. automethod:: konstruct.Project.receipt
 .. automethod:: konstruct.Project.receipts
 .. automethod:: konstruct.Project.check_receipts
+.. automethod:: konstruct.Project.laws
 .. automethod:: konstruct.Project.export
 ```
 
@@ -469,6 +474,8 @@ print([(r.id, r.status) for r in project.check_receipts().receipts])
 
 .. autofunction:: konstruct.analysis.laws.load
 
+.. autofunction:: konstruct.analysis.laws.recorded
+
 .. autoclass:: konstruct.analysis.laws.Laws
    :members:
 
@@ -482,6 +489,12 @@ print([(r.id, r.status) for r in project.check_receipts().receipts])
    :members:
 
 .. autoclass:: konstruct.analysis.laws.Violation
+   :members:
+
+.. autoclass:: konstruct.analysis.laws.Failure
+   :members:
+
+.. autoclass:: konstruct.analysis.laws.Blocked
    :members:
 ```
 

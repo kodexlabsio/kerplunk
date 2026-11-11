@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -28,10 +29,14 @@ from konstruct.analysis.laws import (
     confirm,
     load,
     propose,
+    recorded,
     violations,
 )
+from konstruct.analysis.query import QueryError
 from konstruct.analysis.verify import Candidate, DbApiSource, SampledEngine
+from konstruct.core.formats import FormatError
 from konstruct.core.graph import Graph, Node, column_id
+from konstruct.interfaces.cli import main
 
 # A shop with a dbt manifest written by hand: raw tables as sources, models as views, so new raw
 # data reaches every model at once.
@@ -854,14 +859,19 @@ def test_laws_json_round_trips_and_refuses_a_newer_format(project: Project, tmp_
     path = tmp_path / 'out' / 'laws.json'
     laws.write(path)
     data = json.loads(path.read_text())
-    assert data['format'] == FORMAT and data['totals']['laws'] == len(laws.laws)
+    assert next(iter(data)) == 'format_version' and data['format_version'] == data['format'] == FORMAT
+    assert data['totals']['laws'] == len(laws.laws)
     again = load(path)
     assert again.to_dict()['laws'] == laws.to_dict()['laws']
+    assert again.to_dict()['blocked'] == laws.to_dict()['blocked']
     assert again.warehouse == laws.warehouse and again.dialect == 'duckdb'
     assert violations(project.graph, again, propose(project.graph, project.root)) == []
-    data['format'] = FORMAT + 1
+    # A file written by Konstruct 0.13 carries the version as `format` alone.
+    path.write_text(json.dumps({k: v for k, v in data.items() if k != 'format_version'}))
+    assert load(path).to_dict()['laws'] == laws.to_dict()['laws']
+    data['format_version'] = FORMAT + 1
     path.write_text(json.dumps(data))
-    with pytest.raises(ValueError, match='newer'):
+    with pytest.raises(FormatError, match=r'written by a newer Konstruct .*upgrade Konstruct'):
         load(path)
     with pytest.raises(ValueError, match='no format number'):
         Laws.from_dict({'laws': []})
@@ -873,6 +883,514 @@ def test_proposed_laws_say_they_are_unchecked(project: Project) -> None:
     assert all(law.status == 'proposed' for law in laws.laws)
     assert Laws().summary() == 'No law follows from the lineage.'
     assert laws.law('count:model.shop.stg_orders') is not None and laws.law('nothing') is None
+
+
+# The command line, the Python API, the MCP server and the gate
+
+
+def _git(root: Path, *args: str) -> None:
+    identity = ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false']
+    subprocess.run(['git', '-C', str(root), *identity, *args], check=True, capture_output=True)
+
+
+def _run(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, str]:
+    capsys.readouterr()
+    try:
+        code = main(['--no-color', '-q', *args])
+    except SystemExit as stop:
+        code = int(stop.code or 0)
+    captured = capsys.readouterr()
+    return code, captured.out + captured.err
+
+
+def test_verify_laws_writes_laws_json(project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    root = str(project.root)
+    code, out = _run(capsys, '-C', root, 'verify', '--laws', '--json')
+    document = json.loads(out)
+    assert code == 0 and document['format_version'] == FORMAT and document['warehouse'] == 'shop.duckdb'
+    assert document['totals']['broken'] == 0 and document['totals']['holds'] == len(document['laws'])
+    written = json.loads((project.out_dir / 'laws.json').read_text())
+    assert written['laws'] == document['laws'] and written['format_version'] == FORMAT
+    code, out = _run(capsys, '-C', root, 'verify', '--laws')
+    assert code == 0 and out.startswith('Data laws checked against shop.duckdb (tolerance 1e-09)\n')
+    assert '  holds     SUM(daily_revenue.revenue) = SUM(raw.payments.amount) / 100' in out
+    assert 'Wrote laws.json to ' in out
+    # Proposing reads no warehouse and writes nothing: the checked laws stay as they were.
+    code, out = _run(capsys, '-C', root, 'verify', '--laws', '--propose', '--warehouse', 'nowhere.duckdb')
+    assert code == 0 and 'none checked yet.' in out and '  proposed  ' in out
+    assert 'Wrote laws.json' not in out
+    assert load(project.out_dir / 'laws.json').warehouse == 'shop.duckdb'
+    # A planted fan-out breaks laws; --strict turns that into exit status 1.
+    con = duckdb.connect(str(project.root / 'shop.duckdb'))
+    con.execute("insert into raw.orders values (7, 2, 'placed')")
+    con.close()
+    code, out = _run(capsys, '-C', root, 'verify', '--laws', '--strict', '--tolerance', '0.001')
+    assert code == 1 and '  broken    ' in out and 'parts at payments_enriched' in out
+    assert '(tolerance 0.001)' in out
+    assert _run(capsys, '-C', root, 'verify', '--laws')[0] == 0
+    code, out = _run(capsys, '-C', root, 'verify', '--laws', '-m', 'daily_revenue')
+    assert code == 2 and '--model does not apply to --laws' in out
+    for args, said in (
+        (['--propose'], '--propose is for the data laws'),
+        (['--tolerance', '0.1'], '--tolerance is for the data laws'),
+        (['--mutate', '--tolerance', '0.1'], '--tolerance is for the data laws'),
+        (['--laws', '--mutate'], '--laws and --mutate are separate modes of verify'),
+        (['--laws', '--why', 'daily_revenue.revenue'], '--laws and --why are separate modes of verify'),
+    ):
+        code, out = _run(capsys, '-C', root, 'verify', *args)
+        assert code == 2 and said in out, args
+
+
+def test_project_laws_and_the_measures_with_no_law(tmp_path: Path) -> None:
+    models = {
+        **MODELS,
+        'payments_enriched': MODELS['payments_enriched'].replace(
+            'from p left join o on o.order_id = p.order_id',
+            f'from p left join o on o.order_id = p.order_id left join {raw("items")} i on i.order_id = p.order_id',
+        ),
+    }
+    project = shop(tmp_path / 'shop', models)
+    laws = project.laws(write=False)
+    assert laws.warehouse is None and not (project.out_dir / 'laws.json').exists()
+    blocked = {(b['model'], b['column']): b['reason'] for b in laws.to_dict()['blocked']}
+    assert 'uniqueness test' in blocked[('model.shop.payments_enriched', 'amount')]
+    text = str(laws)
+    assert '\nMeasures with no law (' in text and '  payments_enriched.amount  ' in text
+    checked = project.laws(confirm=True, tolerance=0.5, max_rows=100)
+    assert checked.tolerance == 0.5 and checked.warehouse == 'shop.duckdb'
+    assert load(project.out_dir / 'laws.json').to_dict()['laws'] == checked.to_dict()['laws']
+    # Proposing again writes nothing, so the checked laws the gate reads stay as they were.
+    project.laws()
+    assert load(project.out_dir / 'laws.json').to_dict()['laws'] == checked.to_dict()['laws']
+
+
+FANNED = {
+    **MODELS,
+    'payments_enriched': MODELS['payments_enriched'].replace(
+        'from p left join o on o.order_id = p.order_id',
+        f'from p left join o on o.order_id = p.order_id left join {raw("items")} i on i.order_id = p.order_id',
+    ),
+}
+
+
+def _repository(root: Path, models: dict[str, str] = MODELS) -> Project:
+    """The shop with each model's SQL in its file, as in a dbt project, laws.json committed (the
+    rest of konstruct-out ignored) and the laws confirmed on the data."""
+    project = shop(root, models)
+    _write_models(root, models)
+    (root / '.gitignore').write_text('konstruct-out/*\n!konstruct-out/laws.json\n')
+    project.laws(confirm=True)
+    _git(root, 'init', '-q', '-b', 'main')
+    _git(root, 'add', '-A')
+    _git(root, 'commit', '-qm', 'Shop')
+    return project
+
+
+def _write_models(root: Path, models: dict[str, str]) -> None:
+    (root / 'models').mkdir(exist_ok=True)
+    for name, sql in models.items():
+        (root / 'models' / f'{name}.sql').write_text(sql)
+
+
+def _law_findings(project: Project) -> list[Any]:
+    return [f for f in project.gate(base='HEAD', update=False).findings if f.rule == 'data-law-broken']
+
+
+def test_the_gate_fails_on_a_law_the_change_breaks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = _repository(tmp_path / 'shop')
+    root = project.root
+    assert _law_findings(project) == []
+    # The model's file and the manifest dbt compiles from it both change.
+    changed = shop(root, FANNED)
+    _write_models(root, FANNED)
+    found = _law_findings(changed)
+    assert found and {f.path for f in found} == {'models/payments_enriched.sql'}
+    assert any(
+        f.message.startswith('the change breaks a law that held on all the data: SUM(daily_revenue.revenue)')
+        and 'uniqueness test' in f.message
+        for f in found
+    )
+    assert all('konstruct verify --laws' in f.fix for f in found)
+    code, out = _run(capsys, '-C', str(root), 'gate', '--base', 'HEAD', '--no-update')
+    assert code == 1 and 'data-law-broken: the change breaks a law' in out
+
+
+def test_one_gate_reports_a_broken_law_and_a_conflicting_definition(tmp_path: Path) -> None:
+    """The gate finds the conflicts of the columns a change alters itself, and judges the laws
+    recorded at the base in the same run."""
+    project = _repository(tmp_path / 'shop')
+    root = project.root
+    models = {
+        **FANNED,
+        'card_daily': (
+            "select cast(paid_at as date) as day, sum(amount) as revenue from {} where method = 'card' "
+            'group by 1'
+        ).format(rel('stg_payments')),
+    }
+    changed = shop(root, models)
+    _write_models(root, models)
+    result = changed.gate(base='HEAD', update=False)
+    rules = {f.rule for f in result.findings}
+    assert {'data-law-broken', 'conflicting-definition'} <= rules, [str(f) for f in result.findings]
+    assert result.laws_from == 'konstruct-out/laws.json at HEAD'
+
+
+def test_the_gate_reads_an_edit_dbt_has_not_compiled(tmp_path: Path) -> None:
+    """An agent's gate runs no dbt, so the manifest still holds the SQL from before the edit: the
+    laws are read from the model's file as it is now."""
+    project = _repository(tmp_path / 'shop')
+    _write_models(project.root, {'payments_enriched': FANNED['payments_enriched']})
+    found = _law_findings(project)
+    assert found and {f.path for f in found} == {'models/payments_enriched.sql'}
+    assert any('uniqueness test' in f.message for f in found)
+
+
+def test_a_law_broken_on_the_base_fails_only_the_change_that_breaks_it(tmp_path: Path) -> None:
+    project = _repository(tmp_path / 'shop')
+    root = project.root
+    # main breaks the law and moves on without recording the laws again.
+    shop(root, FANNED)
+    _write_models(root, FANNED)
+    _git(root, 'add', '-A')
+    _git(root, 'commit', '-qm', 'Join the items')
+    (root / 'README.md').write_text('A change to the documentation alone.\n')
+    later = Project(root)
+    assert _law_findings(later) == []
+    # A change to another model of the same law is judged on its own step.
+    scaled = {**FANNED, 'stg_payments': FANNED['stg_payments'].replace('/ 100.0', '/ 1000.0')}
+    shop(root, scaled)
+    _write_models(root, scaled)
+    found = _law_findings(Project(root))
+    assert found and {f.path for f in found} == {'models/stg_payments.sql'}
+    assert all('/ 1000' in f.message for f in found)
+
+
+def test_the_gate_reads_the_laws_committed_at_the_base(tmp_path: Path) -> None:
+    """In CI the output directory is built afresh, so the laws come from the base commit; laws
+    recorded after the change do not hide what it breaks."""
+    project = _repository(tmp_path / 'shop')
+    root = project.root
+    _write_models(root, {'payments_enriched': FANNED['payments_enriched']})
+    shop(root, FANNED).laws(confirm=True)
+    head = load(project.out_dir / 'laws.json')
+    assert head.law('conservation:model.shop.payments_enriched#amount') is None
+    assert _law_findings(Project(root))
+    (project.out_dir / 'laws.json').unlink()
+    assert _law_findings(Project(root))
+    based, where = recorded(root, project.out_dir, 'HEAD')
+    assert based is not None and based.law('conservation:model.shop.payments_enriched#amount') is not None
+    assert where == 'konstruct-out/laws.json at HEAD'
+    assert Project(root).gate(base='HEAD', update=False).laws_from == where
+    # In git, only the base's laws.json counts: a copy in the output directory does not stand in
+    # for it, and the gate says that no law was checked.
+    unrecorded = shop(tmp_path / 'unrecorded')
+    (unrecorded.root / '.gitignore').write_text('konstruct-out/\n')
+    _git(unrecorded.root, 'init', '-q', '-b', 'main')
+    _git(unrecorded.root, 'add', '-A')
+    _git(unrecorded.root, 'commit', '-qm', 'Shop')
+    unrecorded.laws(confirm=True)
+    assert recorded(unrecorded.root, unrecorded.out_dir, 'HEAD') == (
+        None,
+        'no konstruct-out/laws.json at HEAD, so no data law was checked',
+    )
+    result = unrecorded.gate(base='HEAD', update=False)
+    assert result.to_dict()['laws_from'] == 'no konstruct-out/laws.json at HEAD, so no data law was checked'
+    assert str(result).endswith(
+        '\n\nData laws: no konstruct-out/laws.json at HEAD, so no data law was checked.'
+    )
+    assert result.markdown().endswith(
+        'Data laws: no konstruct-out/laws.json at HEAD, so no data law was checked.\n'
+    )
+    # With no git base to read at, the output directory's laws.json is read.
+    loose = shop(tmp_path / 'loose')
+    assert recorded(loose.root, loose.out_dir) == (None, 'no data laws recorded, so none was checked')
+    loose.laws(confirm=True)
+    laws, where = recorded(loose.root, loose.out_dir)
+    assert laws is not None and where == "the output directory's laws.json, with no git base to read one at"
+    (loose.out_dir / 'laws.json').write_text('{"laws": []}')
+    with pytest.raises(QueryError, match=r'cannot read .*laws\.json.*no format number'):
+        recorded(loose.root, loose.out_dir)
+
+
+def test_an_aggregate_that_is_no_longer_one_breaks_its_additivity(tmp_path: Path) -> None:
+    project = _repository(tmp_path / 'shop')
+    flat = {
+        **MODELS,
+        'daily_revenue': (
+            'select cast(paid_at as date) as day, amount as revenue, 1 as payments, '
+            "case when method = 'card' then amount else 0 end as card_revenue "
+            f'from {rel("payments_enriched")}'
+        ),
+    }
+    changed = shop(project.root, flat)
+    _write_models(project.root, flat)
+    found = {f.message for f in _law_findings(changed)}
+    assert any('daily_revenue: revenue is no longer an aggregate' in m for m in found), found
+
+
+# The gate without dbt, on a dbt project: the manifest is from before the change
+
+
+@pytest.fixture(scope='module')
+def lawful_jaffle(jaffle_built_graph: Path, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """jaffle_shop with stg_payments converting cents through a macro, and models that join
+    payments on a key only a test covers: a model's unique test, a source's unique test and a
+    package's unique_combination_of_columns test. Built by dbt, its laws confirmed and laws.json
+    committed."""
+    from konstruct.engine.build import build
+    from konstruct.engine.config import load_config
+
+    from .conftest import dbt_executable, run_dbt
+
+    dbt = dbt_executable()
+    assert dbt is not None
+    root = tmp_path_factory.mktemp('lawful') / 'jaffle_shop'
+    shutil.copytree(jaffle_built_graph, root)
+    (root / 'macros').mkdir(exist_ok=True)
+    (root / 'macros' / 'cents.sql').write_text('{% macro cents(c) %}({{ c }} / 100){% endmacro %}\n')
+    staging = root / 'models' / 'staging' / 'stg_payments.sql'
+    staging.write_text(
+        staging.read_text().replace('amount / 100 as amount', "{{ cents('amount') }} as amount")
+    )
+    (root / 'models' / 'pay_enriched.sql').write_text(
+        'select p.payment_id, p.amount, o.order_date\n'
+        "from {{ ref('stg_payments') }} p\nleft join {{ ref('stg_orders') }} o on o.order_id = p.order_id\n"
+    )
+    package = root.parent / 'pkgs' / 'dbt_utils'
+    (package / 'macros').mkdir(parents=True)
+    (package / 'dbt_project.yml').write_text('name: dbt_utils\nversion: "1.0.0"\nconfig-version: 2\n')
+    (package / 'macros' / 'combination.sql').write_text(
+        '{% test unique_combination_of_columns(model, combination_of_columns) %}\n'
+        "select {{ combination_of_columns | join(', ') }} from {{ model }} "
+        "group by {{ combination_of_columns | join(', ') }} having count(*) > 1\n{% endtest %}\n"
+    )
+    (root / 'packages.yml').write_text('packages:\n  - local: ../pkgs/dbt_utils\n')
+    (root / 'models' / 'keys.yml').write_text(
+        'version: 2\nsources:\n  - name: ext\n    schema: raw\n    tables:\n      - name: order_keys\n'
+        '        columns:\n          - name: order_id\n            tests:\n              - unique\n'
+        'models:\n  - name: orders_keyed\n    tests:\n      - dbt_utils.unique_combination_of_columns:\n'
+        "          arguments:\n            combination_of_columns: ['order_id']\n"
+    )
+    (root / 'models' / 'orders_keyed.sql').write_text(
+        "select order_id, customer_id from {{ ref('stg_orders') }}\n"
+    )
+    for name, joined in (('pay_src', "source('ext', 'order_keys')"), ('pay_combo', "ref('orders_keyed')")):
+        (root / 'models' / f'{name}.sql').write_text(
+            f"select p.payment_id, p.amount from {{{{ ref('stg_payments') }}}} p\n"
+            f'left join {{{{ {joined} }}}} k on k.order_id = p.order_id\n'
+        )
+    import duckdb
+
+    con = duckdb.connect(str(root / 'jaffle_shop.duckdb'))
+    con.execute('create schema if not exists raw')
+    con.execute('create or replace table raw.order_keys as select id as order_id from main.raw_orders')
+    con.close()
+    run_dbt(root, 'deps')
+    run_dbt(
+        root,
+        'build',
+        '-s',
+        'stg_payments',
+        'pay_enriched',
+        'orders_keyed',
+        'pay_src',
+        'pay_combo',
+        'source:ext',
+    )
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv('PATH', f'{Path(dbt).parent}{os.pathsep}{os.environ.get("PATH", "")}')
+        patch.setenv('DBT_SEND_ANONYMOUS_USAGE_STATS', 'false')
+        build(load_config(root, trusted=True))
+        Project(root).laws(confirm=True)
+    (root / '.gitignore').write_text(
+        'konstruct-out/*\n!konstruct-out/laws.json\ntarget/\nlogs/\n*.duckdb*\n.user.yml\ndbt_packages/\n'
+    )
+    _git(root, 'init', '-q', '-b', 'main')
+    _git(root, 'add', '-A')
+    _git(root, 'commit', '-qm', 'Jaffle shop with its laws')
+    return root
+
+
+def _no_dbt_gate(lawful_jaffle: Path, tmp_path: Path, change: Any) -> list[Any]:
+    """The gate an agent runs, from files alone, on a copy of ``lawful_jaffle`` after ``change``."""
+    root = tmp_path / 'jaffle_shop'
+    shutil.copytree(lawful_jaffle, root)
+    change(root)
+    result = Project(root).gate(base='HEAD', run_dbt=False, warehouses=False)
+    assert result.laws_from == 'konstruct-out/laws.json at HEAD'
+    return [f for f in result.findings if f.rule == 'data-law-broken']
+
+
+@pytest.mark.dbt
+def test_steps_record_the_macros_yaml_and_project_files_they_follow_from(lawful_jaffle: Path) -> None:
+    laws, _ = recorded(lawful_jaffle, lawful_jaffle / 'konstruct-out', 'HEAD')
+    assert laws is not None
+    law = laws.law('conservation:model.jaffle_shop.pay_enriched#amount')
+    assert law is not None and law.always_held
+    files = {f for step in law.steps for f in step.files}
+    assert {
+        'models/pay_enriched.sql',
+        'models/staging/stg_payments.sql',
+        'macros/cents.sql',
+        'dbt_project.yml',
+        'models/staging/schema.yml',
+    } <= files
+    customers = laws.law('count:table.jaffle_shop.reporting.customer_ltv')
+    assert customers is not None and {f for s in customers.steps for f in s.files} == {
+        'dags/sql/customer_ltv.sql'
+    }
+
+
+@pytest.mark.dbt
+def test_a_macro_edit_dbt_has_not_compiled_breaks_a_law(lawful_jaffle: Path, tmp_path: Path) -> None:
+    def tenth(root: Path) -> None:
+        (root / 'macros' / 'cents.sql').write_text('{% macro cents(c) %}({{ c }} / 1000){% endmacro %}\n')
+
+    found = _no_dbt_gate(lawful_jaffle, tmp_path, tenth)
+    assert found and all('/ 1000 instead of' in f.message for f in found)
+    assert {f.path for f in found} == {'models/staging/stg_payments.sql'}
+
+
+@pytest.mark.dbt
+def test_the_mcp_gate_judges_its_copy_against_the_projects_laws(lawful_jaffle: Path, tmp_path: Path) -> None:
+    """The MCP gate updates a copy of the graph in its own directory; the laws are still the
+    project's, committed at the base."""
+    from konstruct.interfaces.mcp_server import gate_copy
+
+    root = tmp_path / 'jaffle_shop'
+    shutil.copytree(lawful_jaffle, root)
+    (root / 'macros' / 'cents.sql').write_text('{% macro cents(c) %}({{ c }} / 1000){% endmacro %}\n')
+    result = gate_copy(Project(root), 'HEAD')
+    assert result.laws_from == 'konstruct-out/laws.json at HEAD'
+    assert [f for f in result.findings if f.rule == 'data-law-broken']
+
+
+@pytest.mark.dbt
+def test_a_removed_uniqueness_test_dbt_has_not_compiled_breaks_a_law(
+    lawful_jaffle: Path, tmp_path: Path
+) -> None:
+    def untest(root: Path) -> None:
+        schema = root / 'models' / 'staging' / 'schema.yml'
+        text = schema.read_text()
+        kept = text.replace(
+            '      - name: order_id\n        tests:\n          - unique\n          - not_null',
+            '      - name: order_id\n        tests:\n          - not_null',
+            1,
+        )
+        assert kept != text
+        schema.write_text(kept)
+
+    found = _no_dbt_gate(lawful_jaffle, tmp_path, untest)
+    assert found and all('no uniqueness test covers' in f.message for f in found)
+    assert {f.path for f in found} == {'models/pay_enriched.sql'}
+
+
+@pytest.mark.dbt
+@pytest.mark.parametrize(
+    ('model', 'removal'),
+    [
+        (
+            'pay_src',
+            (
+                '          - name: order_id\n            tests:\n              - unique\n',
+                '          - name: order_id\n',
+            ),
+        ),
+        (
+            'pay_combo',
+            (
+                '    tests:\n      - dbt_utils.unique_combination_of_columns:\n          arguments:\n'
+                "            combination_of_columns: ['order_id']\n",
+                '',
+            ),
+        ),
+    ],
+    ids=['a source test', 'a package test'],
+)
+def test_a_removed_source_or_package_test_dbt_has_not_compiled_breaks_a_law(
+    lawful_jaffle: Path, tmp_path: Path, model: str, removal: tuple[str, str]
+) -> None:
+    laws, _ = recorded(lawful_jaffle, lawful_jaffle / 'konstruct-out', 'HEAD')
+    law = laws.law(f'conservation:model.jaffle_shop.{model}#amount') if laws else None
+    assert law is not None and law.always_held and law.relies_on
+
+    def untest(root: Path) -> None:
+        keys = root / 'models' / 'keys.yml'
+        text = keys.read_text()
+        assert removal[0] in text
+        keys.write_text(text.replace(*removal))
+
+    found = _no_dbt_gate(lawful_jaffle, tmp_path, untest)
+    assert {f.path for f in found} == {f'models/{model}.sql'}
+    assert all('no uniqueness test covers' in f.message for f in found)
+
+
+@pytest.mark.dbt
+def test_a_deleted_model_dbt_has_not_compiled_breaks_its_laws(lawful_jaffle: Path, tmp_path: Path) -> None:
+    def delete(root: Path) -> None:
+        _git(root, 'rm', '-q', 'models/pay_enriched.sql')
+
+    found = _no_dbt_gate(lawful_jaffle, tmp_path, delete)
+    assert found and all(f.message.endswith('the model is removed') for f in found)
+
+    def move(root: Path) -> None:
+        (root / 'models' / 'enriched').mkdir()
+        _git(root, 'mv', 'models/pay_enriched.sql', 'models/enriched/pay_enriched.sql')
+
+    # A model moved to another folder is the same model: dbt names it by its file.
+    assert _no_dbt_gate(lawful_jaffle, tmp_path / 'moved', move) == []
+
+
+@pytest.mark.dbt
+def test_a_sql_built_table_broken_on_the_base_fails_only_the_change_that_breaks_it(
+    lawful_jaffle: Path, tmp_path: Path
+) -> None:
+    def unfilter(root: Path) -> None:
+        built = root / 'dags' / 'sql' / 'customer_ltv.sql'
+        built.write_text(built.read_text().replace('where c.customer_lifetime_value > 0', ''))
+
+    found = _no_dbt_gate(lawful_jaffle, tmp_path, unfilter)
+    assert found and {f.path for f in found} == {'dags/sql/customer_ltv.sql'}
+
+    def merged_then_documented(root: Path) -> None:
+        unfilter(root)
+        _git(root, 'commit', '-qam', 'Drop the filter')
+        (root / 'models' / 'overview.md').write_text('Documentation only.\n')
+
+    assert _no_dbt_gate(lawful_jaffle, tmp_path / 'later', merged_then_documented) == []
+
+
+def test_the_laws_tool(project: Project) -> None:
+    import anyio
+    from mcp import Client
+
+    from konstruct.interfaces.mcp_server import UNTRUSTED_CONTENT, build_server
+
+    async def main() -> tuple[dict[str, Any], dict[str, Any]]:
+        async with Client(build_server(project.root)) as client:
+            proposed = await client.call_tool('laws', {})
+            confirmed = await client.call_tool(
+                'laws',
+                {
+                    'confirm': True,
+                    'warehouse': str(project.root / 'shop.duckdb'),
+                    'tolerance': 0.5,
+                    'max_rows': 50,
+                },
+            )
+            assert isinstance(proposed.structured_content, dict)
+            assert isinstance(confirmed.structured_content, dict)
+            return proposed.structured_content, confirmed.structured_content
+
+    proposed, confirmed = anyio.run(main)
+    assert proposed['untrusted_content'] == UNTRUSTED_CONTENT and proposed['warehouse'] is None
+    assert {law['status'] for law in proposed['laws']} == {'proposed'}
+    assert confirmed['totals']['holds'] == len(confirmed['laws']) and confirmed['warehouse'] == 'shop.duckdb'
+    assert confirmed['tolerance'] == 0.5
+    # The tool writes nothing.
+    assert not (project.out_dir / 'laws.json').exists()
 
 
 # The example projects: no law that does not hold

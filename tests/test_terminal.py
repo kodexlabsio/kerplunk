@@ -501,6 +501,46 @@ def test_a_check_of_sql_and_of_query_history() -> None:
     assert '\x1b[32mapproved\x1b[0m' in history.text(Style(colour=True))
 
 
+def test_laws_results_on_a_terminal() -> None:
+    from konstruct.analysis.laws import Blocked, Failure, Law, Laws, Term
+
+    term = Term('source.raw.orders', 'raw.orders', 'amount')
+    broken = Law(
+        'conservation:model.mart#total',
+        'conservation',
+        'model.mart',
+        'mart',
+        'total',
+        [term],
+        status='broken',
+        held=2,
+        checked=3,
+        failures=[Failure('2026-01-31', 100, 120)],
+        broken_at='model.shop.joined',
+    )
+    unchecked = Law(
+        'count:model.mart', 'count', 'model.mart', 'mart', None, [term], status='unchecked', note='no rows'
+    )
+    laws = Laws(
+        laws=[broken, unchecked],
+        blocked=[Blocked('model.shop.joined', 'amount', 'a join no test covers')],
+        warehouse='shop.duckdb',
+    )
+    text = str(laws)
+    assert text.startswith('Data laws checked against shop.duckdb (tolerance 1e-09)\n')
+    assert (
+        '  broken    SUM(mart.total) = SUM(raw.orders.amount)  (2 of 3 partitions; parts at joined)' in text
+    )
+    assert '\n            2026-01-31: 120 against 100\n' in text
+    assert '  unchecked COUNT(*) of mart = SUM(raw.orders.amount)  (no rows)' in text
+    assert 'Measures with no law (1)\n  joined.amount  a join no test covers' in text
+    drawn = laws.text(Style(colour=True, width=40))
+    assert '\x1b[31mbroken' in drawn and all(len(ESCAPE.sub('', line)) <= 40 for line in drawn.splitlines())
+    assert str(Laws()) == 'Data laws proposed from the SQL (not checked)\nNo law follows from the lineage.'
+    many = Laws(blocked=[Blocked('model.m', f'c{i}', 'a filter') for i in range(25)])
+    assert str(many).endswith('\n  and 5 more; the JSON lists them all')
+
+
 def test_commands_in_status_values_are_picked_out() -> None:
     from konstruct.interfaces.render import _commands
 

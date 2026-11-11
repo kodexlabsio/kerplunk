@@ -62,6 +62,46 @@ Column lineage says which columns a value is computed from; `konstruct verify --
 
 `konstruct verify --effect --since REF` runs each changed model as it was before and after each commit in the range on today's data, and prints the release notes with the difference: the rows each version returns, the sum of a changed column in each and, with a key, how many rows changed value (see [The Effect on Today's Data](release-notes.md#the-effect-on-todays-data)). `--until`, `-m/--model`, `--rows` and `--format markdown` or `json` apply.
 
+## Data Laws
+
+Column lineage says which columns a value comes from; the shape of each model's SQL says more. Where a model sums an amount through joins that can neither repeat nor drop a row, the total of its output must equal the total of its input. `konstruct verify --laws` reads each dbt model's compiled SQL and each SQL-built table, proposes the laws that follow, and checks them against the data, read-only:
+
+```text
+$ konstruct verify --laws
+Data laws checked against jaffle_shop.duckdb (tolerance 1e-09)
+16 laws checked against jaffle_shop.duckdb: 15 held on every partition, 0 broken, 1 not checked.
+
+  holds     COUNT(*) of orders = COUNT(*) of raw_orders, per day of orders.order_date  (69 of 69 days)
+  holds     orders.amount is additive: it may be summed across rows
+  holds     SUM(stg_payments.amount) = SUM(raw_payments.amount) / 100  (1 of 1 partitions)
+  ...
+
+Measures with no law (7)
+  orders.amount                      a join that drops rows of stg_payments with no match in stg_orders, where no relationships and not_null tests cover order_id
+  ...
+```
+
+There are three kinds of law:
+
+- **Conservation:** `SUM(daily_revenue.revenue) = SUM(raw.payments.amount) / 100`, with the factor of a unit conversion and the filters the SQL applies (a `CASE WHEN` inside a `SUM` included), followed across models for as long as each keeps the total. The total of a `UNION ALL` is the sum of its branches, each followed back to its own source, and each branch may sum or count in its own way.
+- **Count:** a model that maps its input one row to one row has as many rows as its input, and a `COUNT` column adds up to the rows it counts.
+- **Additivity:** whether a measure may be summed across rows (an amount), across entities but not across days (a balance), or not at all (an average or a distinct count).
+
+A join keeps a total only where something proves it can neither repeat nor drop rows: a key on the side joined to, from a `unique` or `unique_combination_of_columns` test, a primary key the warehouse enforces (not on Snowflake, BigQuery, Redshift or Databricks, and from dbt only under an enforced contract), or in the same SQL a `GROUP BY`, `DISTINCT ON` or `QUALIFY ROW_NUMBER() ... = 1` on it; and, where unmatched rows would be dropped, `relationships` and `not_null` tests on the key that must match. A `FULL` or `RIGHT` join adds the far side's unmatched rows, which leave a sum alone and add to a row count, so it keeps sums and refuses row counts. A test with a `where` proves nothing about the whole relation, so it gives no law, and neither does an incremental model, whose table keeps rows its input no longer has. A path with any other join, a filter on another relation, `DISTINCT`, `LIMIT`, `HAVING`, `QUALIFY`, `UNION`, `INTERSECT` or `EXCEPT`, a window function, a set-returning function, a rounding cast or an integer division gives no law either; each measure with none is listed with the reason, and `--json` lists them in `blocked`.
+
+- **Totals:** compared per day, of a date column the path carries from the source (one partition when there is none). Integer and decimal totals must agree exactly; a floating-point total may part from its source's by `--tolerance` (1e-9 by default) times the day's sum of magnitudes. A law holds when it held on every day, and a broken law gives the first days it did not hold on and the model where the totals first part. Totals need whole tables, so on a sampled remote warehouse they are left unchecked, as is a law with no rows to compare.
+- **Additivity:** probed on a sample of the model's input (up to `--rows` rows), rerun through the model's SQL: every input row twice, one row twice, and the input split into two halves whose totals must add up. The probes can show only that a column is less additive than it looks, so a column the SQL makes non-additive or semi-additive, and that the probes cannot fault, is left unchecked, as is a column of a model that keeps rows by comparing them with others (`DISTINCT`, `QUALIFY`, `LIMIT`, `OFFSET`, `HAVING` or a filter with a subquery).
+
+The checked laws are written to `konstruct-out/laws.json`. `--propose` only proposes the laws, reading no warehouse and writing nothing, so it never replaces the laws that were checked. `--strict` exits with status 1 when a law is broken.
+
+### Laws in the Gate
+
+`konstruct gate` judges a change against the laws as they were recorded before it: a law that held on every day and that the change no longer gives (a join on a key no test covers, a new filter, another factor, a `SUM` become an `AVG`, a removed uniqueness test, a removed model) fails the gate with `data-law-broken`, naming the model, without running anything. In a git repository the laws are the `laws.json` committed at the base, and nothing else: a copy in the output directory does not stand in for it. Only with no git base to read at is the output directory's `laws.json` used. The gate's result says where its laws came from, or that there were none and no data law was checked. To judge every pull request, run `konstruct verify --laws` on the main branch and commit `konstruct-out/laws.json`; where `konstruct-out/` is ignored, ignore `konstruct-out/*` instead and add `!konstruct-out/laws.json`, so the file can be committed.
+
+Only what the change touches is judged. Each step of a law records the files it follows from: its model's file (for a table, the SQL file that builds it), the files of the tests it relies on, and for a dbt model the files of the macros it calls, the YAML of its properties and of the sources it reads, `dbt_project.yml` and `packages.yml`. A step is the change's when the change alters one of them, so a law broken on the base, by a change merged without recording the laws again, fails the change that broke it, not every change after it.
+
+When the gate runs without dbt, as an agent's gate and the hook do, the manifest is from before the change. A dbt model whose file, or a macro it calls, is no longer what the manifest compiled is read from its files, rendered as `konstruct diff` renders it; a model whose file is gone is removed, unless a file of the same name moved elsewhere in the project, as dbt names a model by its file; and a test the change's YAML no longer declares, on a model or a source's table, a package's included, no longer makes a join safe. With dbt, a manifest that names a file no longer there, as after a model is deleted or moved, is stale, so dbt regenerates it.
+
 ## Remote Warehouses
 
 `konstruct verify --warehouse snowflake` (or `bigquery`, `databricks`, `trino`) checks the models on a sample, using the warehouse connection in `konstruct.toml` or the dbt profile; a connection the repository's own files name needs the project to be trusted (see [Trusting a Project's Connections](../reference/configuration.md#trusting-a-projects-connections)). A remote warehouse is read only when it is named this way. For each input the run reads up to `--rows` rows once: a BigQuery table through its table listing, which is not billed as a query, and a BigQuery view or external table, a Snowflake, Databricks or Trino relation with `SELECT * ... LIMIT`, which runs on the warehouse (a BigQuery view or external table is billed as a query, and Snowflake and Databricks resume a suspended warehouse). The sample is copied into an in-memory DuckDB database in types that hold its values exactly (structured values as JSON), every model that reads the input uses the same copy, and each model's SQL is translated to DuckDB and perturbed there. Nothing is written to the warehouse.

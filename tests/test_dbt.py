@@ -151,6 +151,31 @@ def test_stale_manifest_is_regenerated(jaffle: Path, dbt_on_path: None) -> None:
     assert not dbt.artefacts_stale(project)
 
 
+def test_a_deleted_or_moved_model_makes_the_manifest_stale(tmp_path: Path) -> None:
+    """Deleting or moving a file leaves no file newer than the manifest, but the manifest names a
+    file that is gone; a file dbt never reads (an editor's swap file) changes nothing."""
+    (tmp_path / 'dbt_project.yml').write_text('name: shop\n')
+    models = tmp_path / 'models' / 'staging'
+    models.mkdir(parents=True)
+    (models / 'a.sql').write_text('select 1 as x')
+    project = dbt.find_projects(tmp_path)[0]
+    project.manifest_path.parent.mkdir()
+    node = {'package_name': 'shop', 'original_file_path': 'models/staging/a.sql'}
+    package = {'package_name': 'dbt_utils', 'original_file_path': 'macros/gone.sql'}
+    project.manifest_path.write_text(json.dumps({'nodes': {'model.shop.a': node, 'macro.x': package}}))
+    # Compiled after the files it read were last written, and before anything below happens.
+    past = project.manifest_path.stat().st_mtime - 60
+    for path in (tmp_path / 'dbt_project.yml', models / 'a.sql'):
+        os.utime(path, (past - 10, past - 10))
+    os.utime(project.manifest_path, (past, past))
+    assert not dbt.artefacts_stale(project)
+    (models / '.a.sql.swp').write_text('swap')
+    (tmp_path / 'models' / '.DS_Store').write_text('')
+    assert not dbt.artefacts_stale(project)
+    (models / 'a.sql').rename(tmp_path / 'models' / 'a.sql')
+    assert dbt.artefacts_stale(project)
+
+
 def test_missing_manifest_without_dbt_is_a_warning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / 'dbt_project.yml').write_text('name: nothing\n')
     project = dbt.find_projects(tmp_path)[0]

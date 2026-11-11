@@ -408,6 +408,17 @@ def test_the_fingerprint_reads_content_from_the_repositorys_top_level(tmp_path: 
     before = hook.fingerprint(project)
     (nested / 'out' / 'manifest.json').write_text('{"a": 2}')
     assert hook.fingerprint(project) != before
+    # The files the gate reads besides, ignored by git as konstruct-out is: the recorded laws.
+    (top / '.gitignore').write_text('konstruct-out/\n')
+    laws = project / 'konstruct-out' / 'laws.json'
+    laws.parent.mkdir()
+    git(top, 'add', '-A')
+    git(top, 'commit', '-q', '-m', 'Ignore the output')
+    laws.write_text('{"format_version": 1}')
+    recorded = hook.fingerprint(project, [laws])
+    assert hook.fingerprint(project) == hook.fingerprint(project)
+    laws.write_text('{"format_version": 1, "laws": []}')
+    assert hook.fingerprint(project, [laws]) != recorded
     assert hook.fingerprint(tmp_path / 'not-a-repository') is None
 
 

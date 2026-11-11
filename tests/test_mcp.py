@@ -56,6 +56,7 @@ async def _exercise(client: Client) -> None:
         'receipt',
         'release_notes',
         'definition_effect',
+        'laws',
     }
     assert all(t.description and t.input_schema for t in tools.tools)
     # Every tool states all four hints as booleans, as hosts and directories require.
@@ -75,6 +76,7 @@ async def _exercise(client: Client) -> None:
         'why',
         'check_history',
         'definition_effect',
+        'laws',
     }
     impact = structured(await client.call_tool('impact', {'ref': 'stg_payments.amount'}))
     assert impact['exposures'][0]['label'] == 'customer_dashboard'
@@ -237,6 +239,7 @@ def test_marks_repository_text_as_untrusted(jaffle_built_graph: Path) -> None:
         ('check_sql', {'sql': 'select customer_id from customers'}),
         ('mutation_test', {'models': ['orders'], 'max_mutants': 2}),
         ('why', {'column': 'customer_ltv.lifetime_value', 'where': {'customer_id': '3'}, 'limit': 5}),
+        ('laws', {}),
     ]
 
     async def main() -> None:

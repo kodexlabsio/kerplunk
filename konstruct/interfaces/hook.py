@@ -24,7 +24,7 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import IO, Any
 
@@ -207,11 +207,12 @@ def _marked(answer: dict[str, Any]) -> dict[str, Any]:
     return answer
 
 
-def fingerprint(root: Path) -> str | None:
+def fingerprint(root: Path, also: Iterable[Path] = ()) -> str | None:
     """What the files the hook builds from hold: the commit and the diff's base, the content of
-    every changed or untracked file in the repository, and every dbt project's manifest at its
-    target-path. None outside git. Content rather than size and time, so two edits of the same
-    size in the same second still differ."""
+    every changed or untracked file in the repository, every dbt project's manifest at its
+    target-path, and the files in ``also`` that the gate reads besides (laws.json). None outside
+    git. Content rather than size and time, so two edits of the same size in the same second
+    still differ."""
     from konstruct.analysis.diff import default_base
     from konstruct.inputs.dbt import find_projects
 
@@ -238,6 +239,8 @@ def fingerprint(root: Path) -> str | None:
         digest.update(entry[3:] + b'\0' + _content(top / os.fsdecode(entry[3:])))
     for project in find_projects(root):
         digest.update(str(project.manifest_path).encode() + b'\0' + _content(project.manifest_path))
+    for path in also:
+        digest.update(str(path).encode() + b'\0' + _content(path))
     return digest.hexdigest()
 
 
@@ -314,6 +317,8 @@ def post_edit(event: dict[str, Any], *, remind: bool = False) -> dict[str, Any] 
 def _gate(root: Path, out_dir: Path, path: Path, shown: str) -> dict[str, Any]:
     from konstruct.analysis.diff import DiffError
     from konstruct.analysis.gate import gate, plugins_at
+    from konstruct.analysis.laws import FILE_NAME as LAWS_FILE
+    from konstruct.analysis.laws import recorded
     from konstruct.analysis.query import QueryError
     from konstruct.core.jsonio import write_text
     from konstruct.engine.config import ConfigError, load_config
@@ -336,7 +341,7 @@ def _gate(root: Path, out_dir: Path, path: Path, shown: str) -> dict[str, Any]:
                 )
             started = time.monotonic()
             # Taken before the build, so an edit made while it runs is never mistaken for checked.
-            stamp = fingerprint(root)
+            stamp = fingerprint(root, [out_dir / LAWS_FILE])
             last = _last(scratch)
             if stamp is not None and last.get('fingerprint') == stamp and (scratch / 'graph.json').is_file():
                 return _answer(path, shown, bool(last['passed']), str(last['result']), last.get('notes', {}))
@@ -353,7 +358,10 @@ def _gate(root: Path, out_dir: Path, path: Path, shown: str) -> dict[str, Any]:
             with contextlib.redirect_stdout(sys.stderr):
                 checker.build(update=True, config=config)
                 diff = checker.diff()
-                result = gate(checker.graph, diff, plugins=Plugins.for_config(config))
+                laws, laws_from = recorded(root, out_dir)
+                result = gate(
+                    checker.graph, diff, plugins=Plugins.for_config(config), laws=laws, laws_from=laws_from
+                )
             notes: dict[str, list[str]] = {}
             for relation in diff.relations:
                 if relation.note:

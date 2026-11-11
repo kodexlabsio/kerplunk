@@ -59,6 +59,9 @@ and a `fix` line:
   pull request rather than editing the approval yourself.
 - `conflicting-definition`: a changed column now computes a business idea differently from an
   existing one. Compute it the same way, or bind each to its own term in `definitions.yml`.
+- `data-law-broken`: a total that held on all the data no longer follows from a model's SQL (a
+  join on a key no test covers, a new filter, another factor). Keep what the law relies on, or
+  say in the pull request that the change means to alter it.
 
 Add `--no-dbt` when dbt is not installed, and `--no-warehouse` to build from files alone. The
 MCP `gate` tool checks a copy of the graph instead, from files alone, and leaves `graph.json` as

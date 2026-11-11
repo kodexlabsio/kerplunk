@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.explain import Explanation
     from konstruct.analysis.gate import Gate
     from konstruct.analysis.history import History
+    from konstruct.analysis.laws import Laws
     from konstruct.analysis.mutation import MutationTesting
     from konstruct.analysis.receipts import Receipt, ReceiptCheck
     from konstruct.analysis.release_notes import ReleaseNotes
@@ -1210,6 +1211,69 @@ class Project:
         notes.warehouse = self._shown(target, notes.warehouse or '')
         return notes
 
+    def laws(
+        self,
+        *,
+        confirm: bool = False,
+        warehouse: str | Path | None = None,
+        tolerance: float | None = None,
+        max_rows: int = 10000,
+        write: bool = True,
+    ) -> Laws:
+        """The data laws the lineage implies: equalities between totals that the data must obey,
+        proposed from each model's compiled SQL and, with ``confirm``, checked against the data.
+
+        Where a model sums or maps an input through joins that can neither repeat nor drop a row
+        (a uniqueness test, or a GROUP BY in the same SQL, covers the key joined to), the total
+        of its output equals the total of its input under the same filters and factors, followed
+        across models for as long as each keeps the total: a conservation law, a count law for
+        row counts and COUNT columns, and an additivity law for each aggregate measure. Confirming
+        compares the totals per day, read-only, in verify's engines, and probes each measure's
+        additivity on a sample of its model's input.
+
+        Args:
+            confirm: Check the laws against the warehouse, read-only. Without it, nothing is run.
+            warehouse: As for :meth:`verify`.
+            tolerance: The relative tolerance of a floating-point total, against the day's sum of
+                magnitudes (default :data:`konstruct.analysis.laws.TOLERANCE`). Integer and decimal
+                totals are compared exactly.
+            max_rows: The most rows of each input the additivity probes copy.
+            write: With ``confirm``, write ``laws.json``, which :meth:`gate` reads: a law that held
+                on every day and that a change no longer satisfies fails the gate. Laws that were
+                only proposed are never written, so they cannot replace the ones checked.
+
+        Returns:
+            Every law with its status, and the measures that have none with the reason.
+
+        Raises:
+            konstruct.QueryError: ``confirm`` and no warehouse was found.
+
+        Example::
+
+            laws = project.laws(confirm=True)
+            print(laws.summary())
+            for law in laws.laws:
+                if law.status == 'broken':
+                    print(law.statement, law.broken_at, law.failures[:1])
+        """
+        from konstruct.analysis.laws import FILE_NAME, TOLERANCE, propose
+        from konstruct.analysis.laws import confirm as check_laws
+
+        graph = self.graph
+        result = propose(graph, self.root)
+        if confirm:
+            target = self._target(warehouse)
+            limit = TOLERANCE if tolerance is None else tolerance
+            result = check_laws(graph, self.root, target, result, tolerance=limit, max_rows=max_rows)
+            result.warehouse = self._shown(target, result.warehouse or '')
+        if write and confirm:
+            result.write(self.out_dir / FILE_NAME)
+        return result
+
+    def _laws_dir(self) -> Path:
+        """The output directory whose laws.json the gate judges a change against."""
+        return self.out_dir
+
     def _target(self, warehouse: str | Path | None) -> str | Engine:
         """The warehouse verify's modes run in: a named remote one sampled, a DuckDB file or
         Postgres URL as given, or else the one the build read."""
@@ -1345,9 +1409,9 @@ class Project:
         Brings the graph up to date with the working tree, compares with ``base`` as
         :meth:`diff` does, and reports what stops the change: a removed column something still
         reads, an approved term whose meaning changes (in definitions.yml or through a column it
-        names), and a column the change alters that computes a business idea differently from
-        another (as :meth:`conflicts` finds), and the findings of the gate checks of the plugins
-        the project enables. The plugins enabled at ``base`` run as well as those enabled now,
+        names), a column the change alters that computes a business idea differently from
+        another (as :meth:`conflicts` finds), a data law in ``laws.json`` that held on all the
+        data and that the changed SQL no longer gives (see :meth:`laws`), and the findings of the gate checks of the plugins the project enables. The plugins enabled at ``base`` run as well as those enabled now,
         in the update and in the checks, so a change cannot turn off a plugin that judges it.
         Each finding says what to do about it.
 
@@ -1366,6 +1430,7 @@ class Project:
                     print(finding.rule, finding.message, finding.fix)
         """
         from konstruct.analysis.gate import gate, plugins_at
+        from konstruct.analysis.laws import recorded
         from konstruct.plugins.registry import Plugins
 
         # The plugins the base enables run too, its inputs in the update and its checks in the
@@ -1376,7 +1441,8 @@ class Project:
         if update:
             self.build(update=True, run_dbt=run_dbt, warehouses=warehouses, config=config)
         checks = self.plugins() if config.plugins == head else Plugins.for_config(config)
-        return gate(self.graph, self.diff(base=base), plugins=checks)
+        laws, laws_from = recorded(self.root, self._laws_dir(), base)
+        return gate(self.graph, self.diff(base=base), plugins=checks, laws=laws, laws_from=laws_from)
 
     def query(self, question: str, depth: int = 1) -> query.QueryResult:
         """Answer a question in words with the nodes it is about and their connections.
