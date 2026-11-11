@@ -1,3 +1,20 @@
+## v0.13.5 (2026-11-11)
+
+### Feat
+
+- **warehouse**: Read the schemas dlt keeps in _dlt_version for the resource behind each table
+- **lineage**: Read Sling replications, Lakeflow Connect bundles and DMS table mappings
+- **lineage**: Follow Debezium, Kafka Connect sinks and Estuary from source tables to landed ones
+- **lineage**: Read Airbyte connections and Fivetran and Airbyte Terraform for source lineage
+- **build**: Read dlt pipelines, meltano.yml and Singer catalogs for lineage from source systems
+- **warehouse**: Recognise the tables two dozen loaders land, from one table of marks
+
+### Fix
+
+- **lineage**: Limit how deeply a loader configuration may nest, the same on every Python
+- **sql**: Report a relation named by a parameter or a stage instead of raising
+- **airflow**: Report Python too complex for its parser as unreadable, not a failed build
+
 ## v0.13.4 (2026-11-11)
 
 ### Feat
