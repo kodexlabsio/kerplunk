@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pytest
@@ -307,6 +308,32 @@ def test_a_ref_that_git_would_read_as_an_option_is_refused(repo: Path, side: str
     assert main(['-q', 'diff', '-C', str(repo), f'--{side}={ref}']) == 1
     assert not written.exists()
     assert not list(repo.parent.glob('written*'))
+
+
+def test_a_ref_is_resolved_to_a_commit_before_git_is_given_it_elsewhere(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git(repo, 'branch', '-q', 'reviewed')
+    commit = git(repo, 'rev-parse', 'HEAD').strip()
+    (repo / 'sql' / 'ltv.sql').write_text(BASE_LTV.replace('count(*)', 'count(distinct status)'))
+    calls: list[list[str]] = []
+    run = subprocess.run
+
+    def recording(command: Any, *args: Any, **kwargs: Any) -> Any:
+        if isinstance(command, list) and command[:1] == ['git']:
+            calls.append([str(part) for part in command])
+        return run(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, 'run', recording)
+    result = Project(repo).diff(base='reviewed')
+    assert result.base == 'reviewed' and result.base_commit is None
+    naming = [call for call in calls if any('reviewed' in part for part in call)]
+    assert naming == [
+        ['git', '-C', str(repo), 'rev-parse', '--verify', '--quiet', '--end-of-options', 'reviewed^{commit}']
+    ]
+    assert any(commit in call for call in calls if 'diff' in call)
+    with pytest.raises(DiffError, match="'no-such-branch' is not a commit, branch, tag or date"):
+        Project(repo).diff(base='no-such-branch')
 
 
 def test_outside_git(tmp_path: Path) -> None:

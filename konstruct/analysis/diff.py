@@ -66,16 +66,22 @@ def check_ref(ref: str) -> str:
     return ref
 
 
-def resolve_ref(root: Path, ref: str) -> str:
-    """``ref`` as git takes it, or for a date (``2026-10-01``, ``2026-10-01 14:30``) the last
-    commit on the current branch's history made before it, so a change can be reviewed since a
-    point in time. A date alone means midnight at its start, in the machine's local time zone; a
-    branch or tag named like a date is taken as that ref."""
+def commit_of(root: Path, ref: str) -> str | None:
+    """The commit ``ref`` names, as a full hash, or None when it names none. ``--end-of-options``
+    keeps git from reading the ref as an option, whatever ``check_ref`` let through."""
     check_ref(ref)
-    if not _DATE.match(ref) or run_git(
-        root, 'rev-parse', '--verify', '--quiet', f'{ref}^{{commit}}', check=False
-    ):
-        return ref
+    found = run_git(
+        root, 'rev-parse', '--verify', '--quiet', '--end-of-options', f'{ref}^{{commit}}', check=False
+    ).strip()
+    return found or None
+
+
+def _resolve(root: Path, ref: str) -> tuple[str, bool]:
+    commit = commit_of(root, ref)
+    if commit is not None:
+        return commit, False
+    if not _DATE.match(ref):
+        raise DiffError(f'{ref!r} is not a commit, branch, tag or date')
     try:
         moment = datetime.fromisoformat(ref)
     except ValueError:
@@ -86,7 +92,16 @@ def resolve_ref(root: Path, ref: str) -> str:
     ).strip()
     if not commit:
         raise DiffError(f'no commit on this branch before {ref}')
-    return commit
+    return commit, True
+
+
+def resolve_ref(root: Path, ref: str) -> str:
+    """The commit ``ref`` names, as a full hash, or for a date (``2026-10-01``,
+    ``2026-10-01 14:30``) the last commit on the current branch's history made before it, so a
+    change can be reviewed since a point in time. A date alone means midnight at its start, in the
+    machine's local time zone; a branch or tag named like a date is taken as that ref. A ref is
+    resolved before git is given it anywhere else, so every later git call sees a hash."""
+    return _resolve(root, ref)[0]
 
 
 def default_base(root: Path) -> str:
@@ -734,15 +749,15 @@ def diff(graph: Graph, root: Path, *, base: str | None = None, head: str | None 
     """Compare ``base`` (default: the merge base with main) with ``head`` (default: the working tree)."""
     repository = Path(run_git(root, 'rev-parse', '--show-toplevel').strip())
     given_base, given_head = base, head
-    base = resolve_ref(root, base) if base else default_base(root)
-    head = resolve_ref(root, head) if head else None
+    base, base_dated = _resolve(root, base) if base else (default_base(root), False)
+    head, head_dated = _resolve(root, head) if head else (None, False)
     files = changed_files(root, base, head)
     result = Diff(
         base=given_base or base,
         head=given_head or 'working tree',
         files=files,
-        base_commit=base if given_base and base != given_base else None,
-        head_commit=head if given_head and head != given_head else None,
+        base_commit=base if base_dated else None,
+        head_commit=head if head_dated else None,
     )
     context = _Context(graph, root)
     prefix = root.resolve().relative_to(repository.resolve())
