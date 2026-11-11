@@ -429,7 +429,7 @@ def test_business_term_page(jaffle_built_graph: Path, open_page: Any) -> None:
     graph = jaffle_built_graph / 'konstruct-out' / 'graph.html'
     page.goto(graph.as_uri() + '#/')
     page.wait_for_selector('#stats')
-    assert page.locator('#stats a[href="#/glossary"]').inner_text().split() == ['5', 'business', 'terms']
+    assert page.locator('#stats a[href="#/glossary"]').inner_text().split() == ['6', 'business', 'terms']
     # A column shows the terms that define it, each a link to the term's page.
     page.goto(graph.as_uri() + '#/node/model.jaffle_shop.orders%23amount')
     page.wait_for_selector('#page h1:text-is("amount")')
