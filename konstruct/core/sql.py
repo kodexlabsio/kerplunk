@@ -856,10 +856,11 @@ class _Sources:
 
     def of(self, column: exp.Column, scope: Scope) -> exp.Table | Scope | None:
         """The source ``column`` names: one of ``scope``'s, or, for a column inside one of its
-        subqueries, one of that subquery's or of a query around it (a correlated reference)."""
-        source = scope.sources.get(column.table)
-        if source is not None or not column.table:
-            return source
+        subqueries, one of that subquery's or of a query around it (a correlated reference). As in
+        SQL, a name is looked up in the scope that holds the column first, so a subquery's alias
+        hides an outer relation's of the same name."""
+        if not column.table:
+            return scope.sources.get(column.table)
         if self.owners is None:
             self.owners = {}
             for inner in self.root.traverse():
@@ -871,7 +872,7 @@ class _Sources:
             if source is not None:
                 return source
             owner = owner.parent
-        return None
+        return scope.sources.get(column.table)
 
 
 def _strip_fields(expression: exp.Expr) -> exp.Expr:

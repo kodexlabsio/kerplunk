@@ -972,6 +972,30 @@ def test_a_subquery_filter_beside_a_join(
     }
 
 
+@pytest.mark.parametrize('schema', [SCHEMA, {}], ids=['known', 'unknown'])
+def test_a_subquery_that_reuses_an_outer_alias_reads_its_own_relation(schema: dict[str, Any]) -> None:
+    result = one(
+        'select o.id from orders o join customers c on c.id = o.customer_id '
+        'where o.id in (select c.order_id from payments c)',
+        schema=schema,
+    )
+    assert (PAYMENTS, 'order_id') in result.references
+    assert (CUSTOMERS, 'order_id') not in result.references
+    assert f'WHERE: {ORDERS}.id IN (SELECT {PAYMENTS}.order_id AS order_id FROM {PAYMENTS} AS c)' in (
+        result.conditions
+    )
+
+
+def test_a_subquery_that_reuses_a_lateral_alias_reads_its_own_relation() -> None:
+    result = one(
+        'select o.id, l.t from orders o cross join lateral '
+        '(select sum(p.amount) as t from payments p where p.order_id = o.id) l '
+        'where o.id in (select l.id from customers l)'
+    )
+    assert set(result.references) == {(ORDERS, 'id'), (PAYMENTS, 'order_id'), (CUSTOMERS, 'id')}
+    assert f'WHERE: {ORDERS}.id IN (SELECT {CUSTOMERS}.id AS id FROM {CUSTOMERS} AS l)' in result.conditions
+
+
 def test_a_correlated_subquery_names_the_outer_column() -> None:
     sql = 'select o.id from orders o where exists (select 1 from payments where order_id = o.id)'
     assert 'WHERE: db.main.payments.order_id = db.main.orders.id' in one(sql, schema={}).conditions
