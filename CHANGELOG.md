@@ -1,3 +1,19 @@
+## v0.13.6 (2026-11-11)
+
+### Feat
+
+- **cli**: Check SQL from the command line, the MCP server and the Python API
+- **query**: Check ad-hoc SQL against the project's definitions, keys and relationships
+- **warehouse**: Read query texts from Snowflake, Databricks and BigQuery history
+
+### Fix
+
+- **sql**: Compare filters however they are written, in one form analyses share
+
+### Refactor
+
+- **definitions**: Expose the keys an ontology rests on and the helpers analyses share
+
 ## v0.13.5 (2026-11-11)
 
 ### Feat
