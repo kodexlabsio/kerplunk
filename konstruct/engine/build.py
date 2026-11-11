@@ -8,7 +8,7 @@ import os
 import re
 import sys
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,10 +19,12 @@ from konstruct.core import jsonio
 from konstruct.core.graph import RELATION_KINDS, Edge, Graph, Node, relation_key
 from konstruct.core.sql import (
     PARSE_ERRORS,
+    PARTIAL_COLUMNS,
     PLACEHOLDER,
     StatementLineage,
     analyse,
     dialect_for,
+    relations_named,
     strip_templating,
 )
 from konstruct.engine.config import (
@@ -195,6 +197,9 @@ class Builder:
         self.untrusted: list[str] = []
         # Relations a loader configuration file says that loader lands.
         self.declared: dict[str, str] = {}
+        # The relations whose columns a dbt catalog or the SQL that writes them lists in full (the
+        # warehouse's are marked in_warehouse); the others may have columns the graph does not list.
+        self.complete: set[str] = set()
 
     # Shared helpers
 
@@ -268,6 +273,20 @@ class Builder:
                     schema[node.relation] = columns
         return schema
 
+    def guessed(self, schema: Mapping[str, Any]) -> list[str]:
+        """The relations of ``schema`` whose columns may be more than it lists, so that the analysis
+        does not take them for all the relation has. A relation's columns are all it has when the
+        warehouse or a dbt catalog lists them, or SQL that writes it selects them without a star it
+        cannot expand; otherwise they are the columns queries were seen to read, or documentation."""
+        return sorted(
+            relation
+            for relation in schema
+            if not any(
+                node.attrs.get('in_warehouse') or node.id in self.complete
+                for node in self.graph.nodes_for_relation(relation)
+            )
+        )
+
     def apply(
         self,
         statement: StatementLineage,
@@ -310,6 +329,13 @@ class Builder:
         ):
             if value:
                 target.attrs[key] = value
+        # A query that writes the relation lists all its columns; an INSERT or MERGE may write some.
+        if (
+            statement.kind in WRITES_ALL
+            and statement.columns
+            and not any(e.startswith(PARTIAL_COLUMNS) for e in statement.errors)
+        ):
+            self.complete.add(target.id)
         for name, sources in statement.columns.items():
             out = self.column(target, name, origin)
             expression = statement.expressions.get(name)
@@ -332,12 +358,27 @@ class Builder:
         sql: str,
         *,
         kind: str,
-        schema_key: str,
         target: str | None = None,
         dialect: str | None = None,
     ) -> list[StatementLineage]:
         dialect = dialect or self.dialect
-        key = Cache.key(kind, sql, dialect, self.default_catalog, self.default_schema, schema_key, target)
+        # The columns the analysis is given are those known when it runs, which SQL applied before
+        # it adds to, and so is the key: a cached analysis is used only with the same columns. Only
+        # the relations the SQL names can matter, and the rest would make every file cost in
+        # proportion to the whole graph. A relation is found by the last part of its name, which
+        # every relation the name could resolve to ends with.
+        names = self.cache.quiet().get_or_compute(
+            Cache.key('relations', sql, dialect, self.default_catalog, self.default_schema),
+            lambda: relations_named(
+                sql, dialect=dialect, default_catalog=self.default_catalog, default_db=self.default_schema
+            ),
+        )
+        named = {key for name in names for key in self.index.by_suffix.get(name.rsplit('.', 1)[-1], ())}
+        schema = self.schema_columns(n for key in sorted(named) for n in self.graph.nodes_for_relation(key))
+        guessed = self.guessed(schema)
+        key = Cache.key(
+            kind, sql, dialect, self.default_catalog, self.default_schema, Cache.key(schema), guessed, target
+        )
 
         def compute() -> list[dict[str, Any]]:
             return [
@@ -345,7 +386,8 @@ class Builder:
                 for s in analyse(
                     sql,
                     dialect=dialect,
-                    schema=self.schema_columns(),
+                    schema=schema,
+                    guessed=guessed,
                     default_catalog=self.default_catalog,
                     default_db=self.default_schema,
                     target=target,
@@ -369,19 +411,23 @@ class Builder:
         self.index = RelationIndex(self.graph)
         log.info('analysing dbt models')
         self.dbt_lineage()
-        schema_key = Cache.key(self.schema_columns())
-        self.warehouse_view_lineage(schema_key)
+        self.warehouse_view_lineage()
         log.info('reading DAGs, jobs and SQL files')
-        used_sql = self.load_airflow(schema_key)
-        self.load_dagster(schema_key)
-        self.load_spark(schema_key)
-        self.load_sql_files(projects, used_sql, schema_key)
+        used_sql = self.load_airflow()
+        self.load_dagster()
+        self.load_spark()
+        self.load_sql_files(projects, used_sql)
         log.info('reading BI models, definitions and usage')
-        self.load_inputs(schema_key)
+        self.load_inputs()
         self.load_powerbi()
         self.load_definitions()
         self.load_ossie()
         self.load_usage()
+        # On the graph, so that what reads it later (diff, the lockfile) takes the same relations'
+        # columns as guessed.
+        for relation in self.guessed(self.schema_columns()):
+            for node in self.graph.nodes_for_relation(relation):
+                node.attrs['columns_guessed'] = True
         if self.untrusted:
             from konstruct.engine.trust import untrusted_warning
 
@@ -435,6 +481,7 @@ class Builder:
                 f'{count} {kind}{"s" if count != 1 else ""}' for kind, count in loaded.counts.items() if count
             )
             self.loads.append(loaded)
+            self.complete |= loaded.catalogued
             self.dialect = self.dialect or loaded.dialect
             self.default_catalog = self.default_catalog or loaded.default_catalog
             self.default_schema = self.default_schema or loaded.default_schema
@@ -971,12 +1018,13 @@ class Builder:
                         considered.update(m.node_id for m in ready)
                         self.prepare_models(ready, loaded, prepared)
                     node = self.graph.nodes[model.node_id]
-                    key, schema, dialect = self.model_key(model, loaded)
+                    key, schema, guessed, dialect = self.model_key(model, loaded)
                     early = prepared.pop(model.node_id, None)
 
                     def compute(
                         model: dbt.ModelSql = model,
                         schema: dict[str, Any] = schema,
+                        guessed: list[str] = guessed,
                         dialect: str | None = dialect,
                         loaded: dbt.DbtLoad = loaded,
                         early: tuple[str, Any] | None = early,
@@ -993,6 +1041,7 @@ class Builder:
                                 loaded.default_catalog,
                                 loaded.default_schema,
                                 model.relation,
+                                guessed,
                             )
                         )
 
@@ -1012,13 +1061,19 @@ class Builder:
             self.workers.close()
         self.inputs['dbt_models'] = count
 
-    def model_key(self, model: dbt.ModelSql, loaded: dbt.DbtLoad) -> tuple[str, dict[str, Any], str | None]:
-        """A model's cache key, the schema of the models it reads, and its dialect."""
+    def model_key(
+        self, model: dbt.ModelSql, loaded: dbt.DbtLoad
+    ) -> tuple[str, dict[str, Any], list[str], str | None]:
+        """A model's cache key, the schema of the models it reads, those of them whose columns are only
+        guessed, and its dialect."""
         node = self.graph.nodes[model.node_id]
         upstream = [self.graph.nodes[u] for u in model.upstream if u in self.graph.nodes]
         schema = self.schema_columns(upstream)
-        key = Cache.key('dbt', model.sql, self.dialect, model.relation, schema, node.attrs.get('checksum'))
-        return key, schema, loaded.dialect or self.dialect
+        guessed = self.guessed(schema)
+        key = Cache.key(
+            'dbt', model.sql, self.dialect, model.relation, schema, guessed, node.attrs.get('checksum')
+        )
+        return key, schema, guessed, loaded.dialect or self.dialect
 
     def prepare_models(
         self, models: list[dbt.ModelSql], loaded: dbt.DbtLoad, prepared: dict[str, tuple[str, Any]]
@@ -1029,7 +1084,7 @@ class Builder:
             return
         work = []
         for model in models:
-            key, schema, dialect = self.model_key(model, loaded)
+            key, schema, guessed, dialect = self.model_key(model, loaded)
             if key not in self.cache.entries:
                 work.append(
                     (
@@ -1042,6 +1097,7 @@ class Builder:
                             loaded.default_catalog,
                             loaded.default_schema,
                             model.relation,
+                            guessed,
                         ),
                     )
                 )
@@ -1053,7 +1109,7 @@ class Builder:
         for (node_id, key, _), result in zip(work, results, strict=True):
             prepared[node_id] = (key, result)
 
-    def warehouse_view_lineage(self, schema_key: str) -> None:
+    def warehouse_view_lineage(self) -> None:
         for node in list(self.graph.relations()):
             view_sql = node.attrs.pop('view_sql', None)
             if not view_sql or not node.relation:
@@ -1063,15 +1119,13 @@ class Builder:
             if len(parts) == 3:
                 self.default_catalog, self.default_schema = parts[0], parts[1]
             try:
-                statements = self.analyse_cached(
-                    view_sql, kind='view', schema_key=schema_key, target=node.relation
-                )
+                statements = self.analyse_cached(view_sql, kind='view', target=node.relation)
             finally:
                 self.default_catalog, self.default_schema = saved
             for statement in statements:
                 self.apply(statement, target=node, origin='warehouse', label=f'view {node.name}')
 
-    def load_airflow(self, schema_key: str) -> set[Path]:
+    def load_airflow(self) -> set[Path]:
         used_sql: set[Path] = set()
         files = discover_dag_files(self.config)
         dags_seen = 0
@@ -1113,7 +1167,7 @@ class Builder:
                         task.sql = Path(task.sql_path).read_text(encoding='utf-8')
                         used_sql.add(Path(task.sql_path).resolve())
                         self.watch(Path(task.sql_path))
-                self.add_dag(dag, schema_key)
+                self.add_dag(dag)
                 dags_seen += 1
                 tasks += len(dag.tasks)
             self.sources.append(
@@ -1126,7 +1180,7 @@ class Builder:
         self.inputs['airflow_dags'] = dags_seen
         return used_sql
 
-    def add_dag(self, dag: airflow.DagInfo, schema_key: str) -> None:
+    def add_dag(self, dag: airflow.DagInfo) -> None:
         path = self.rel_path(dag.path)
         dag_node = self.graph.add_node(
             Node(
@@ -1172,7 +1226,7 @@ class Builder:
             if task.sql:
                 label = f'airflow task {dag.dag_id}.{task.task_id}'
                 sql = strip_templating(task.sql)
-                for statement in self.analyse_cached(sql, kind='task', schema_key=schema_key):
+                for statement in self.analyse_cached(sql, kind='task'):
                     self.task_statement(statement, task_node, label)
             for name in task.writes:
                 self.graph.add_edge(
@@ -1191,7 +1245,7 @@ class Builder:
                 f'task.{dag.dag_id}.{upstream}', f'task.{dag.dag_id}.{downstream}', 'precedes'
             )
 
-    def load_dagster(self, schema_key: str) -> None:
+    def load_dagster(self) -> None:
         files: list[dagster.DagsterFile] = []
         for path in discover_dagster_files(self.config):
             self.watch(path)
@@ -1252,9 +1306,7 @@ class Builder:
                         self.graph.add_edge(task.id, node.id, 'runs', command='build')
                     continue
                 statements = (
-                    self.analyse_cached(strip_templating(asset.sql), kind='task', schema_key=schema_key)
-                    if asset.sql
-                    else []
+                    self.analyse_cached(strip_templating(asset.sql), kind='task') if asset.sql else []
                 )
                 sql_statements[asset.key] = statements
                 # The asset's data is the table its SQL writes, when it writes one.
@@ -1304,9 +1356,7 @@ class Builder:
                 )
                 job_tasks[job.name] = []
                 if job.ops:
-                    job_tasks[job.name] = self.dagster_ops(
-                        job, dag, ops, self.rel_path(file.path), schema_key
-                    )
+                    job_tasks[job.name] = self.dagster_ops(job, dag, ops, self.rel_path(file.path))
                     continue
                 for key in _selected_assets(job.selection, assets):
                     if key in tasks:
@@ -1322,10 +1372,12 @@ class Builder:
         """The (relation, column) pairs one query reads: its output columns' sources and the
         columns it joins, filters and groups on."""
         found: set[tuple[str, str]] = set()
+        schema = self.schema_columns()
         for statement in analyse(
             sql,
             dialect=self.dialect,
-            schema=self.schema_columns(),
+            schema=schema,
+            guessed=self.guessed(schema),
             default_catalog=self.default_catalog,
             default_db=self.default_schema,
         ):
@@ -1509,15 +1561,15 @@ class Builder:
         if authored_relationships:
             self.graph.meta['ossie_authored_relationships'] = authored_relationships
 
-    def load_inputs(self, schema_key: str) -> None:
+    def load_inputs(self) -> None:
         """Every input in the plugin registry, Konstruct's own (Looker) first, then the inputs of
         the plugins the project enables, each read into a fragment and merged."""
         for plugin in self.plugins.group('inputs'):
-            self.read_input(plugin, schema_key)
+            self.read_input(plugin)
         for problem in self.plugins.problems:
             self.graph.warn(f'plugins: {problem}')
 
-    def read_input(self, plugin: Plugin, schema_key: str) -> None:
+    def read_input(self, plugin: Plugin) -> None:
         """One input: its files found by its patterns (or ``[<name>] paths``), read by the input
         and merged into the graph. A plugin that raises or returns an invalid fragment is
         reported and merges nothing; one of Konstruct's own that does is a bug and raises."""
@@ -1584,7 +1636,7 @@ class Builder:
                 raise AssertionError(f'{plugin.label} {message}')
             self.plugin_failed(plugin, message)
             return
-        self.merge_fragment(plugin, fragment, schema_key)
+        self.merge_fragment(plugin, fragment)
 
     def plugin_failed(self, plugin: Plugin, what: str) -> None:
         self.graph.warn(f'plugins: {plugin.label} {what}; the build goes on without it')
@@ -1592,7 +1644,7 @@ class Builder:
             {'input': plugin.name, 'name': plugin.distribution, 'status': 'failed', 'detail': what}
         )
 
-    def merge_fragment(self, plugin: Plugin, fragment: Fragment, schema_key: str) -> None:
+    def merge_fragment(self, plugin: Plugin, fragment: Fragment) -> None:
         """Add a valid fragment to the graph: its nodes under ``<name>.``, its relations and
         columns resolved to the graph's, its SQL analysed for lineage, all with the input's name
         as their origin."""
@@ -1647,9 +1699,7 @@ class Builder:
         for sql in fragment.sql:
             task = nodes[sql.task] if sql.task else None
             label = f'{name} {sql.path}'
-            for statement in self.analyse_cached(
-                sql.sql, kind=f'input:{name}', schema_key=schema_key, dialect=sql.dialect
-            ):
+            for statement in self.analyse_cached(sql.sql, kind=f'input:{name}', dialect=sql.dialect):
                 if task is not None:
                     for read in statement.reads:
                         self.graph.add_edge(self.relation(read, name).id, task.id, 'feeds', origin=name)
@@ -1990,7 +2040,6 @@ class Builder:
         dag: Node,
         ops: dict[str, dagster.OpInfo],
         path: str,
-        schema_key: str,
     ) -> list[Node]:
         """Tasks for an op-based job: one per op invocation, ordered by the data passed between them."""
         nodes: dict[str, Node] = {}
@@ -2027,9 +2076,7 @@ class Builder:
             commands = [i for c in op.dbt_commands for i in airflow.parse_dbt_commands(c)]
             self.run_dbt_invocations(commands, node, f'dagster: {path}: op {call.handle}')
             if op.sql:
-                for statement in self.analyse_cached(
-                    strip_templating(op.sql), kind='task', schema_key=schema_key
-                ):
+                for statement in self.analyse_cached(strip_templating(op.sql), kind='task'):
                     self.task_statement(statement, node, label)
         for call in job.ops:
             for upstream in call.upstream:
@@ -2166,7 +2213,7 @@ class Builder:
         )
         return node
 
-    def load_spark(self, schema_key: str) -> None:
+    def load_spark(self) -> None:
         """PySpark jobs: each SQL string a job passes to ``spark.sql``, analysed in the Spark
         dialect (``[spark] dialect``), gives the tables it writes column lineage."""
         from konstruct.inputs import spark
@@ -2186,9 +2233,7 @@ class Builder:
             writes: set[str] = set()
             for item in job.statements:
                 sql = spark.without_session_catalog(item.sql, self.config.spark_dialect)
-                for statement in self.analyse_cached(
-                    sql, kind='spark', schema_key=schema_key, dialect=self.config.spark_dialect
-                ):
+                for statement in self.analyse_cached(sql, kind='spark', dialect=self.config.spark_dialect):
                     if not statement.target:
                         for problem in statement.errors:
                             self.graph.warn(f'spark: {rel}:{item.line}: {problem}')
@@ -2211,7 +2256,7 @@ class Builder:
             self.inputs['spark_jobs'] = len(files)
             self.inputs['spark_statements'] = statements_read
 
-    def load_sql_files(self, projects: list[dbt.DbtProject], used: set[Path], schema_key: str) -> None:
+    def load_sql_files(self, projects: list[dbt.DbtProject], used: set[Path]) -> None:
         files = discover_sql_files(self.config, projects, used)
         for path in files:
             try:
@@ -2221,7 +2266,7 @@ class Builder:
                 continue
             rel = self.rel_path(path)
             self.watch(path)
-            statements = self.analyse_cached(strip_templating(text), kind='file', schema_key=schema_key)
+            statements = self.analyse_cached(strip_templating(text), kind='file')
             writes = sorted({s.target for s in statements if s.target})
             self.sources.append(
                 {
@@ -2239,6 +2284,10 @@ class Builder:
                 target.path = target.path or rel
                 self.apply(statement, target=target, origin='sql', label=f'sql {rel}', via=rel)
         self.inputs['sql_files'] = len(files)
+
+
+WRITES_ALL = ('select', 'create_table', 'create_view')
+"""The kinds of statement whose output columns are all the relation they write has."""
 
 
 def _bind(graph: Graph, ref: str) -> tuple[Node | None, str | None]:
@@ -2389,7 +2438,9 @@ def _workers() -> int:
     return max(1, min(cpus, MAX_WORKERS))
 
 
-def _analyse_model(job: tuple[str, str | None, dict[str, Any], str | None, str | None, str | None]) -> Any:
+def _analyse_model(
+    job: tuple[str, str | None, dict[str, Any], str | None, str | None, str | None, list[str]],
+) -> Any:
     """One model's lineage as plain data, in the build's own process."""
     from konstruct.engine import worker
 

@@ -9,6 +9,8 @@ from pathlib import Path
 import duckdb
 import pytest
 
+from konstruct.analysis.diff import Context
+from konstruct.analysis.lock import Pinner
 from konstruct.core.graph import Graph, Node
 from konstruct.engine.build import Cache, RelationIndex, build
 from konstruct.engine.config import ConfigError, load_config
@@ -187,6 +189,81 @@ def make_warehouse(path: Path) -> None:
         'from raw.events e join raw.users u on u.id = e.user_id group by 1'
     )
     con.close()
+
+
+def guessed_project(root: Path) -> Graph:
+    """Without a warehouse, raw.src has the columns m1 reads, and m2's star selects only those."""
+    (root / 'm1.sql').write_text('create table main.m1 as select id, amount from raw.src')
+    (root / 'm2.sql').write_text('create table main.m2 as select * from raw.src')
+    (root / 'm3.sql').write_text(
+        'create table main.m3 as\n'
+        'with q as (select * from main.m2 a join raw.other o on a.id = o.a_id) select region from q'
+    )
+    return build(load_config(root)).graph
+
+
+def test_a_build_records_the_relations_whose_columns_it_only_guessed(tmp_path: Path) -> None:
+    graph = guessed_project(tmp_path)
+    # m3 also writes what a star over guessed columns passes on, and raw.other is only read.
+    assert graph.guessed_relations() == ['main.m2', 'main.m3', 'raw.other', 'raw.src']
+    assert {e.target for e in graph.out_edges('table.main.m3#region', 'derived_from')} == {
+        'table.main.m2#region',
+        'table.raw.other#region',
+    }
+    # diff analyses SQL with the same relations' columns taken as guessed.
+    assert Context(graph, tmp_path).guessed == graph.guessed_relations()
+    # The lockfile takes a relation's columns as all it has exactly when the build did.
+    pinner = Pinner(graph, tmp_path, None)
+    assert [pinner.known(graph.nodes[f'table.{r}']) for r in ('main.m1', 'main.m2', 'raw.src')] == [
+        True,
+        False,
+        False,
+    ]
+
+
+def test_an_insert_of_some_columns_leaves_the_relations_columns_guessed(tmp_path: Path) -> None:
+    (tmp_path / 'a.sql').write_text('insert into main.t (id) select id from raw.src')
+    (tmp_path / 'b.sql').write_text(
+        'create table main.u as with x as (select * from main.t a join raw.other o on a.id = o.t_id) select region from x'
+    )
+    graph = build(load_config(tmp_path)).graph
+    assert 'main.t' in graph.guessed_relations()
+    assert 'table.main.t#region' in {e.target for e in graph.out_edges('table.main.u#region', 'derived_from')}
+
+
+def test_an_update_reanalyses_sql_when_the_columns_it_reads_change(tmp_path: Path) -> None:
+    (tmp_path / 'a.sql').write_text('create table main.a as select id, amount from raw.src')
+    (tmp_path / 'b.sql').write_text('create table main.b as select * from main.a')
+    build(load_config(tmp_path))
+    (tmp_path / 'a.sql').write_text('create table main.a as select id, amount, region from raw.src')
+    graph = build(load_config(tmp_path), update=True).graph
+    assert {c.name for c in graph.columns_of('table.main.b')} == {'id', 'amount', 'region'}
+
+
+@pytest.mark.parametrize(
+    ('dialect', 'name', 'key'),
+    [
+        ('duckdb', 'main."order items"', 'main.order items'),
+        ('duckdb', 'main.t$x', 'main.t$x'),
+        ('duckdb', 'main."order-items"', 'main.order-items'),
+        ('bigquery', '`shop.order-items`', 'shop.order-items'),
+        ('bigquery', '`my-project.shop.items`', 'my-project.shop.items'),
+        ('spark', 'delta.`/lake/order-items`', 'delta./lake/order-items'),
+    ],
+    ids=['space', 'dollar', 'dash', 'bigquery-dash', 'bigquery-project', 'spark-path'],
+)
+def test_sql_reads_the_columns_of_a_relation_whose_name_is_not_a_word(
+    tmp_path: Path, dialect: str, name: str, key: str
+) -> None:
+    # The columns another file's SQL gave the relation are those a star over it selects.
+    (tmp_path / 'a.sql').write_text(f'create table {name} as select id, amount from raw.src')
+    (tmp_path / 'b.sql').write_text(f'create table main.r as select * from {name}')
+    (tmp_path / 'konstruct.toml').write_text(f'dialect = "{dialect}"\n')
+    graph = build(load_config(tmp_path)).graph
+    assert {c.name for c in graph.columns_of('table.main.r')} == {'id', 'amount'}
+    assert [e.target for e in graph.out_edges('table.main.r#amount', 'derived_from')] == [
+        f'table.{key}#amount'
+    ]
 
 
 def test_sql_files_and_views_without_dbt(tmp_path: Path) -> None:

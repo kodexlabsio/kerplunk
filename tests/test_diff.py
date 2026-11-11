@@ -12,7 +12,10 @@ import duckdb
 import pytest
 
 from konstruct import Project
-from konstruct.analysis.diff import DiffError, default_base
+from konstruct.analysis.diff import Context, DiffError, default_base
+from konstruct.core.graph import Graph
+from konstruct.engine.build import build
+from konstruct.engine.config import load_config
 from konstruct.inputs.jinja import Renderer, render_model
 from konstruct.interfaces.cli import main
 
@@ -492,3 +495,21 @@ def test_yaml_changes_appear_in_the_diff(repo: Path) -> None:
     assert result.summary() == '1 dbt test removed.'
     assert 'test removed: ltv.total: not_null' in str(result)
     assert '- test removed: ltv.total: not_null' in result.markdown()
+
+
+def _guessed_columns_project(root: Path) -> Graph:
+    """Without a warehouse, raw.src and raw.other have only the columns m1 and m2 read."""
+    (root / 'm1.sql').write_text('create table main.m1 as select id, amount from raw.src')
+    (root / 'm2.sql').write_text('create table main.m2 as select a_id, region from raw.other')
+    return build(load_config(root)).graph
+
+
+def test_diff_takes_the_columns_the_build_only_guessed_as_the_build_did(tmp_path: Path) -> None:
+    # Neither relation is known to lack label, so a star over their join could take it from either.
+    graph = _guessed_columns_project(tmp_path)
+    sql = 'with q as (select * from raw.src a join raw.other o on a.id = o.a_id) select label from q'
+    [statement] = Context(graph, tmp_path).lineage(sql, None, None, None)
+    assert {(s.relation, s.column) for s in statement.columns['label']} == {
+        ('raw.src', 'label'),
+        ('raw.other', 'label'),
+    }

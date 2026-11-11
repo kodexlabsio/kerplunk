@@ -39,6 +39,11 @@ PARSE_ERRORS: tuple[type[Exception], ...] = (
 
 Transform = Literal['direct', 'transformed']
 
+STAR_UNKNOWN = 'SELECT * over relations with unknown columns'
+LINEAGE_FAILED = 'column lineage failed'
+PARTIAL_COLUMNS = (STAR_UNKNOWN, LINEAGE_FAILED)
+"""How the errors of a statement whose columns may not be all its relation has begin."""
+
 # dbt adapter types (and common aliases) to sqlglot dialect names.
 DIALECTS: dict[str, str] = {
     'duckdb': 'duckdb',
@@ -221,6 +226,26 @@ def table_key(table: exp.Table, default_catalog: str | None, default_db: str | N
     )
 
 
+def relations_named(
+    sql: str, *, dialect: str | None = None, default_catalog: str | None = None, default_db: str | None = None
+) -> list[str]:
+    """The keys of the relations ``sql`` names, as :func:`analyse` reads them, or none if it does
+    not parse. Only these relations' columns can change what the analysis finds."""
+    try:
+        statements = sqlglot.parse(sql, dialect=Dialect.get_or_raise(dialect))
+    except PARSE_ERRORS:
+        return []
+    return sorted(
+        {
+            table_key(table, default_catalog, default_db)
+            for statement in statements
+            if statement is not None
+            for table in statement.find_all(exp.Table)
+            if table.name
+        }
+    )
+
+
 def analyse(
     sql: str,
     *,
@@ -229,13 +254,17 @@ def analyse(
     default_catalog: str | None = None,
     default_db: str | None = None,
     target: str | None = None,
+    guessed: Collection[str] = (),
 ) -> list[StatementLineage]:
     """Analyse every statement in ``sql``.
 
     ``target`` names the relation a bare SELECT writes (a dbt model's relation). Relations
-    created by earlier statements become part of the schema for later ones.
+    created by earlier statements become part of the schema for later ones. ``guessed`` names the
+    relations of ``schema`` whose columns are only those other queries were seen to read: they place
+    a column, but are not taken to be all the columns the relation has.
     """
     known: dict[str, dict[str, str]] = {k: dict(v) for k, v in (schema or {}).items()}
+    partial = {key.lower() for key in guessed}
     # One dialect object for the whole analysis: sqlglot otherwise builds a new one for every parse
     # and every expression it prints.
     resolved = Dialect.get_or_raise(dialect)
@@ -246,11 +275,12 @@ def analyse(
 
     results: list[StatementLineage] = []
     for statement in statements:
-        result = _analyse_statement(statement, resolved, known, default_catalog, default_db, target)
+        result = _analyse_statement(statement, resolved, known, partial, default_catalog, default_db, target)
         if result is None:
             continue
-        if result.target and result.columns and result.target not in known:
+        if result.target and result.columns and (result.target not in known or result.target in partial):
             known[result.target] = dict.fromkeys(result.columns, 'UNKNOWN')
+            partial.discard(result.target)
         results.append(result)
     return results
 
@@ -264,6 +294,7 @@ def _analyse_statement(
     statement: exp.Expr,
     dialect: DialectType,
     known: SchemaColumns,
+    partial: Collection[str],
     default_catalog: str | None,
     default_db: str | None,
     target: str | None,
@@ -317,9 +348,9 @@ def _analyse_statement(
         return result
 
     try:
-        _column_lineage(query, dialect, known, default_catalog, default_db, out_names, result)
+        _column_lineage(query, dialect, known, partial, default_catalog, default_db, out_names, result)
     except (SqlglotError, ValueError, KeyError, IndexError, AttributeError, RecursionError) as error:
-        result.errors.append(f'column lineage failed: {_first_line(error)}')
+        result.errors.append(f'{LINEAGE_FAILED}: {_first_line(error)}')
     return result
 
 
@@ -327,18 +358,14 @@ def _column_lineage(
     query: exp.Expr,
     dialect: DialectType,
     known: SchemaColumns,
+    partial: Collection[str],
     default_catalog: str | None,
     default_db: str | None,
     out_names: list[str] | None,
     result: StatementLineage,
 ) -> None:
-    schema = build_schema(known, dialect)
-    known_tables = {key.lower() for key, columns in known.items() if columns}
-    if any(read not in known_tables for read in result.reads):
-        _name_unknown_columns(query, Dialect.get_or_raise(dialect), known_tables, default_catalog, default_db)
     qualify_kwargs: dict[str, Any] = {
         'dialect': dialect,
-        'schema': schema,
         'validate_qualify_columns': False,
         'identify': False,
     }
@@ -351,14 +378,53 @@ def _column_lineage(
     if any(
         isinstance(part, (exp.Placeholder, exp.Var)) for t in query.find_all(exp.Table) for part in t.parts
     ):
-        result.errors.append('column lineage failed: a relation is named by a parameter or a stage')
+        result.errors.append(f'{LINEAGE_FAILED}: a relation is named by a parameter or a stage')
         return
+    # A relation whose columns are only guessed may have others, so naming treats them as unknown.
+    known_columns = {
+        key.lower(): {c.lower() for c in columns}
+        for key, columns in known.items()
+        if columns and key.lower() not in partial
+    }
+    named: dict[str, set[str]] = {}
+    # Relations whose columns are only guessed that a star expands over: what it selects may not be
+    # all there is.
+    guessed_stars: set[str] = set()
+    unlisted: set[str] = set()
+    if any(read not in known_columns for read in result.reads):
+        _name_unknown_columns(
+            query,
+            Dialect.get_or_raise(dialect),
+            known_columns,
+            default_catalog,
+            default_db,
+            {key.lower() for key, columns in known.items() if columns},
+            named,
+            guessed_stars,
+            unlisted,
+        )
+    # The columns of a relation whose columns are only guessed are those, and those the query was
+    # just found to name: the schema places them and expands a star to them, and none is missing.
+    widened = {
+        key: {**columns, **dict.fromkeys(sorted(named.get(key.lower(), set()) - set(columns)), 'UNKNOWN')}
+        if key.lower() in partial
+        else columns
+        for key, columns in known.items()
+        if key.lower() not in unlisted
+    }
+    schema = build_schema(widened, dialect)
+    qualify_kwargs['schema'] = schema
     # The statement was parsed for this analysis alone and is not read again, so it is qualified in
     # place rather than copied first.
-    qualified = qualify(query, **qualify_kwargs)
+    try:
+        qualified = qualify(query, **qualify_kwargs)
+    except AssertionError as error:
+        # An internal check of qualify, as on a position over a star it cannot expand.
+        result.errors.append(f'{LINEAGE_FAILED}: {_first_line(error)}')
+        return
     scope = build_scope(qualified)
     if scope is None:
-        result.errors.append('column lineage failed: not a query')
+        result.errors.append(f'{LINEAGE_FAILED}: not a query')
         return
     for inner in scope.traverse():
         _spell_out_group_by_all(inner.expression)
@@ -372,6 +438,7 @@ def _column_lineage(
         out_names = None
 
     star_tables = [table_key(t, default_catalog, default_db) for t in _unexpanded_star_tables(scope)]
+    star_tables += guessed_stars
     for index, (name, node) in enumerate(nodes.items()):
         if name == '*':
             continue
@@ -383,9 +450,7 @@ def _column_lineage(
                 sources.append(source)
         result.columns[out_name] = sources
     if star_tables:
-        result.errors.append(
-            'SELECT * over relations with unknown columns: ' + ', '.join(sorted(set(star_tables)))
-        )
+        result.errors.append(f'{STAR_UNKNOWN}: ' + ', '.join(sorted(set(star_tables))))
 
     result.references = _references(scope, _Sources(scope), dialect, schema, default_catalog, default_db)
     canon = Canonical(dialect, default_catalog, default_db)
@@ -401,57 +466,297 @@ def _column_lineage(
 def _name_unknown_columns(
     query: exp.Expr,
     dialect: Dialect,
-    known: Collection[str],
+    known: Mapping[str, set[str]],
     default_catalog: str | None,
     default_db: str | None,
+    listed: Collection[str],
+    named: dict[str, set[str]],
+    guessed_stars: set[str],
+    unlisted: set[str],
 ) -> None:
-    """Qualify the unqualified columns of each scope that reads one relation whose columns are unknown
-    with that relation, as SQL looks a name up in the innermost scope first.
+    """Name, before qualify, the columns a query reads from relations whose columns are unknown.
 
-    sqlglot leaves such a column unqualified: lineage then cannot place it once CTEs are in view, it is
-    missing from the references, and in a subquery, where it could as well belong to the outer query,
-    qualify refuses the whole statement. This runs before qualify, on the statement as parsed.
+    sqlglot leaves an unqualified column unqualified when its scope's one relation has unknown
+    columns: lineage then cannot place it once CTEs are in view, it is missing from the references,
+    and in a subquery, where it could as well belong to the outer query, qualify refuses the whole
+    statement. Such a column is qualified with that relation, as SQL looks a name up in the innermost
+    scope first. And lineage cannot follow a column through a ``SELECT *`` it cannot expand, so a CTE
+    or subquery whose star passes on a column another scope reads also selects that column by name.
+    ``listed`` are the relations the schema lists columns for, ``known`` those of them whose list is
+    complete. Each column it names in a relation is added to ``named``, by the relation's key, and each
+    relation of those not complete that a star selects from to ``guessed_stars``.
     """
 
-    def unknown(source: exp.Table | Scope) -> bool:
+    def record(source: exp.Table | Scope, column: str) -> None:
         if isinstance(source, exp.Table):
-            # A table function such as read_parquet(...) has no name to look up.
-            return isinstance(source.this, exp.Identifier) and (
-                table_key(source, default_catalog, default_db) not in known
+            named.setdefault(table_key(source, default_catalog, default_db), set()).add(column.lower())
+
+    # What each scope is known to have does not change during the pass: a column passed on joins a
+    # scope only while that scope may have columns it does not list. Without the memo every star
+    # in a chain of CTEs looks through all the stars below it, again for every column.
+    memo: dict[int, tuple[Scope, set[str] | None]] = {}
+    expandable_memo: dict[int, tuple[Scope, bool]] = {}
+    selected_memo: dict[int, tuple[Scope, set[str]]] = {}
+    stars_memo: dict[int, tuple[Scope, list[tuple[exp.Expr, exp.Table | Scope]], set[str]]] = {}
+
+    def stars(scope: Scope) -> tuple[list[tuple[exp.Expr, exp.Table | Scope]], set[str]]:
+        """What the stars of ``scope`` pass on, and the names they leave out, replace or rename.
+        The select list grows as columns are passed on, but its stars do not change."""
+        cached = stars_memo.get(id(scope))
+        if cached is None or cached[0] is not scope:
+            changed: set[str] = set()
+            if isinstance(scope.expression, exp.Select):
+                for item in scope.expression.selects:
+                    star = item.this if isinstance(item, exp.Column) else item
+                    if isinstance(star, exp.Star):
+                        changed |= _changed_by(star)
+            cached = stars_memo[id(scope)] = (scope, _star_sources(scope), changed)
+        return cached[1], cached[2]
+
+    def selected(scope: Scope) -> set[str]:
+        """The names ``scope`` selects, kept up to date as columns are passed on to it: worked out
+        again for every column, they made a chain of stars cost the square of its length."""
+        cached = selected_memo.get(id(scope))
+        if cached is None or cached[0] is not scope:
+            query = scope.expression
+            names = {n.lower() for n in query.named_selects} if isinstance(query, exp.Select) else set()
+            cached = selected_memo[id(scope)] = (scope, names)
+        return cached[1]
+
+    def columns(source: exp.Table | Scope) -> set[str] | None:
+        """The columns ``source`` is known to have, or None when it may have others."""
+        if isinstance(source, exp.Table):
+            if not isinstance(source.this, exp.Identifier):
+                return set()  # a table function such as read_parquet(...), which Konstruct cannot read
+            return known.get(table_key(source, default_catalog, default_db))
+        cached = memo.get(id(source))
+        if cached is not None and cached[0] is source:
+            return cached[1]
+        found = scope_columns(source)
+        memo[id(source)] = (source, found)
+        return found
+
+    def scope_columns(source: Scope) -> set[str] | None:
+        query = source.expression
+        if isinstance(query, exp.SetOperation):
+            branches = [columns(branch) for branch in source.set_operation_scopes]
+            return None if None in branches else branches[0]
+        if not isinstance(query, exp.Select):
+            return set()
+        found = {item.alias_or_name.lower() for item in query.selects if not _is_star(item)}
+        for _, inner in stars(source)[0]:
+            inner_columns = columns(inner)
+            if inner_columns is None:
+                return None
+            found |= inner_columns
+        return found
+
+    def supplier(scope: Scope, name: str) -> tuple[exp.Identifier, exp.Table | Scope] | None:
+        """The one relation the ``SELECT *`` in ``scope`` can pass the column ``name`` on from."""
+        if not isinstance(scope.expression, exp.Select):
+            return None
+        found = candidates(scope, name)
+        identifier = _source_name(found[0][0]) if len(found) == 1 else None
+        return (identifier, found[0][1]) if identifier is not None else None
+
+    def candidates(scope: Scope, name: str) -> list[tuple[exp.Expr, exp.Table | Scope]]:
+        """The relations the ``SELECT *`` in ``scope`` can pass the column ``name`` on from."""
+        if not isinstance(scope.expression, exp.Select):
+            return []
+        sources, changed = stars(scope)
+        if name in changed:
+            return []  # a star that leaves out, replaces or renames the column
+        return [
+            (node, source) for node, source in sources if (inner := columns(source)) is None or name in inner
+        ]
+
+    def expandable(source: exp.Table | Scope) -> bool:
+        """Whether qualify can expand every star ``source`` passes on: each reaches a relation the
+        schema lists, if only by the columns seen read."""
+        if isinstance(source, exp.Table):
+            return not isinstance(source.this, exp.Identifier) or (
+                table_key(source, default_catalog, default_db) in listed
             )
-        return any(unknown(inner) for _, inner in _star_sources(source))
+        cached = expandable_memo.get(id(source))
+        if cached is not None and cached[0] is source:
+            return cached[1]
+        query = source.expression
+        if isinstance(query, exp.SetOperation):
+            found = all(expandable(branch) for branch in source.set_operation_scopes)
+        else:
+            found = all(expandable(inner) for _, inner in stars(source)[0])
+        expandable_memo[id(source)] = (source, found)
+        return found
+
+    def pass_on(scope: Scope, column: exp.Column, add: bool = True) -> None:
+        """Have ``scope``, whose ``SELECT *`` lineage cannot expand, select ``column`` by name. Where
+        qualify can expand the stars (``add`` false), the column is only recorded for the relation
+        that supplies it, which then lists it: selecting it as well would name it twice."""
+        query = scope.expression
+        name = column.name.lower()
+        alias = query.parent.args.get('alias') if query.parent else None
+        if columns(scope) is not None or (isinstance(alias, exp.TableAlias) and alias.columns):
+            return  # known columns, which qualify expands, or columns renamed by position
+        add = add and not expandable(scope)
+        if isinstance(query, exp.Select):
+            if name in selected(scope):
+                return
+            branches = [scope]
+        elif isinstance(query, exp.SetOperation):
+            branches = scope.set_operation_scopes
+        else:
+            return
+        found = [(branch, supplier(branch, name)) for branch in branches]
+        if add and any(supplied is None for _, supplied in found):
+            return
+        for branch, supplied in found:
+            if supplied is None:
+                if not add and len(may := candidates(branch, name)) > 1:
+                    # More than one relation whose columns are only guessed may have it: expanded to
+                    # what is listed, the star would have it from none, so it stays a star.
+                    for _, source in may:
+                        if isinstance(source, exp.Table):
+                            unlisted.add(table_key(source, default_catalog, default_db))
+                continue
+            identifier, source = supplied
+            if add:
+                # Built rather than copied: copying an expression is the commonest cost of a build.
+                new = exp.Alias(
+                    this=exp.Column(this=_renamed(column.this), table=_renamed(identifier)),
+                    alias=_renamed(column.this),
+                )
+                # First, so that a union's branches stay aligned and lineage finds it before the star.
+                branch.expression.set('expressions', [new, *branch.expression.expressions])
+                selected(branch).add(name)
+            if isinstance(source, Scope):
+                pass_on(source, column, add)
+            else:
+                record(source, column.name)
 
     root = build_scope(query)
-    for scope in root.traverse() if root is not None else ():
+    scopes = list(root.traverse()) if root is not None else []
+    # A position over a star that qualify cannot expand names no column it can find, and qualify
+    # fails on it. It stays the position, which the condition records as it is, and no longer
+    # moves when a column is selected before the star.
+    for scope in scopes:
+        if not expandable(scope):
+            for position in _positions(scope.expression):
+                position.replace(exp.Var(this=position.sql()))
+    for scope in scopes:
         select = scope.expression
-        if not isinstance(select, exp.Select) or len(scope.selected_sources) != 1:
+        if not isinstance(select, exp.Select):
             continue
-        [(name, (node, source))] = scope.selected_sources.items()
-        identifier = _source_name(node)
-        if identifier is None or not unknown(source):
-            continue
-        # A select alias that WHERE or GROUP BY refers to, a pseudocolumn such as Oracle's ROWNUM and
-        # a relation read as a record (BigQuery's `select t from t`) are not columns of the relation.
-        others = {name.lower()} | {p.lower() for p in dialect.PSEUDOCOLUMNS}
-        others |= {
-            item.alias.lower()
-            for item in select.selects
-            if isinstance(item, exp.Alias)
-            and not (isinstance(item.this, exp.Column) and item.this.name == item.alias)
-        }
-        for column in _own_columns(select):
-            if not column.table and column.name.lower() not in others:
-                column.set('table', identifier.copy())
+        # The scope's own columns, wherever they are in it: sqlglot leaves those in QUALIFY, and in
+        # an ORDER BY that names a select item, out of the scope's columns.
+        own = _own_columns(select)
+        for _, source in _star_sources(scope):
+            if isinstance(source, exp.Table) and isinstance(source.this, exp.Identifier):
+                key = table_key(source, default_catalog, default_db)
+                if key in listed and key not in known:
+                    guessed_stars.add(key)
+        if len(scope.selected_sources) == 1:
+            [(name, (node, source))] = scope.selected_sources.items()
+            identifier = _source_name(node)
+            if identifier is not None and columns(source) is None:
+                # A select alias that WHERE or GROUP BY refers to, a pseudocolumn such as Oracle's
+                # ROWNUM and a relation read as a record (BigQuery's `select t from t`) are not
+                # columns of the relation.
+                others = {name.lower()} | {p.lower() for p in dialect.PSEUDOCOLUMNS}
+                others |= {
+                    item.alias.lower()
+                    for item in select.selects
+                    if isinstance(item, exp.Alias)
+                    and not (isinstance(item.this, exp.Column) and item.this.name == item.alias)
+                }
+                for column in own:
+                    if not column.table and column.name.lower() not in others:
+                        column.set('table', identifier.copy())
+                        record(source, column.name)
+        for column in own:
+            # The relation a column names is this scope's, or for a correlated reference, that of a
+            # query around it.
+            around: Scope | None = scope
+            read = None
+            while around is not None and read is None and column.table:
+                read = around.sources.get(column.table)
+                around = around.parent
+            if isinstance(read, Scope):
+                pass_on(read, column)
+            elif isinstance(read, exp.Table):
+                record(read, column.name)
 
 
 def _own_columns(select: exp.Select) -> list[exp.Column]:
-    """The columns of ``select`` itself, wherever they are in it (sqlglot leaves those of QUALIFY out
-    of a scope's columns), outside the queries within it and the names a star leaves out."""
+    """The columns of ``select`` itself, outside the queries within it and the names a star leaves
+    out."""
 
     def inside(node: exp.Expr) -> bool:
         return node is not select and isinstance(node, (exp.Query, exp.Star))
 
     return [node for node in select.walk(prune=inside) if isinstance(node, exp.Column)]
+
+
+def _renamed(identifier: exp.Identifier) -> exp.Identifier:
+    """A new identifier spelled as ``identifier`` is."""
+    return exp.Identifier(this=identifier.this, quoted=identifier.args.get('quoted'))
+
+
+def _positions(query: exp.Expr) -> list[exp.Literal]:
+    """The positions of select items by which ``query`` orders, groups or picks distinct rows."""
+    clauses = [query.args.get('order'), query.args.get('group')]
+    distinct = query.args.get('distinct')
+    if isinstance(distinct, exp.Distinct):
+        clauses.append(distinct.args.get('on'))
+    found = []
+    for clause in clauses:
+        if not isinstance(clause, exp.Expr):
+            continue
+        terms = clause.expressions if isinstance(clause, (exp.Order, exp.Group, exp.Tuple)) else [clause]
+        for term in terms:
+            if isinstance(term, exp.Ordered):
+                term = term.this
+            if isinstance(term, exp.Literal) and not term.is_string:
+                found.append(term)
+    return found
+
+
+def _renames(query: exp.Expr) -> bool:
+    """Whether a star in ``query`` replaces or renames columns."""
+    return isinstance(query, exp.Select) and any(
+        isinstance(star := item.this if isinstance(item, exp.Column) else item, exp.Star)
+        and bool(star.args.get('replace') or star.args.get('rename'))
+        for item in query.selects
+    )
+
+
+def _star_changes(query: exp.Expr) -> tuple[dict[str, str], set[str]]:
+    """What the stars of ``query`` rename (new name to old) and replace."""
+    renamed: dict[str, str] = {}
+    replaced: set[str] = set()
+    for item in query.selects if isinstance(query, exp.Select) else []:
+        star = item.this if isinstance(item, exp.Column) else item
+        if not isinstance(star, exp.Star):
+            continue
+        for alias in star.args.get('rename') or []:
+            if isinstance(alias, exp.Alias) and isinstance(alias.this, exp.Column):
+                renamed[alias.alias.lower()] = alias.this.name.lower()
+        for alias in star.args.get('replace') or []:
+            if isinstance(alias, exp.Alias):
+                replaced.add(alias.alias.lower())
+    return renamed, replaced
+
+
+def _changed_by(star: exp.Star) -> set[str]:
+    """The columns a star leaves out (EXCEPT, EXCLUDE), replaces (REPLACE) or renames, by either name."""
+    names: set[str] = set()
+    for key in ('except_', 'replace', 'rename'):
+        for item in star.args.get(key) or []:
+            if isinstance(item, exp.Alias):
+                names.add(item.alias.lower())
+                item = item.this
+            if isinstance(item, exp.Column):
+                names.add(item.name.lower())
+    return names
 
 
 def _source_name(node: exp.Expr) -> exp.Identifier | None:
@@ -610,9 +915,17 @@ def _leaves(node: LineageNode) -> Iterator[Leaf]:
         # sqlglot collects a node's inputs in a set, whose order follows string hashing and so
         # changes between processes; walking them by name makes the sources, and the edges built
         # from them, come out in the same order on every build.
+        name = current.name
+        if isinstance(current.expression, exp.Star) and _renames(current.source):
+            # A star that renames or replaces columns: the relation's column is the one renamed, and a
+            # replaced column is computed.
+            asked = _plain(name.rsplit('.', 1)[-1])
+            renamed, replaced = _star_changes(current.source)
+            name = renamed.get(asked, name)
+            direct = direct and asked not in replaced
         for child in sorted(current.downstream, key=lambda c: c.name)[::-1]:
             for suffix in sorted(_field_suffixes(current.expression, child)):
-                stack.append((child, direct, seen | {id(current)}, current.name, suffix + path))
+                stack.append((child, direct, seen | {id(current)}, name, suffix + path))
 
 
 def _leaf_source(
@@ -650,7 +963,7 @@ def _unexpanded_star_tables(scope: Scope) -> Iterator[exp.Table]:
 _REFERENCE_CLAUSES = ('joins', 'where', 'group', 'having', 'qualify')
 
 
-_ATOM = re.compile(r'[\w."`$]+')
+_ATOM = re.compile(r'[\w."`$]+(?:\.\*)?')
 
 
 def _inline(text: str) -> exp.Expr:
@@ -901,7 +1214,16 @@ class Canonical:
         if isinstance(expression, exp.Alias):
             expression = expression.this
         if isinstance(expression, exp.Star):
-            return ', '.join(self.node(child) for child in node.downstream)
+            # A star that could not be expanded, over several relations: each could supply the column
+            # asked for, as in the column's sources. One that replaces or renames columns may not pass
+            # the column on as it is, so its formula keeps the relation's star.
+            asked = '*' if _renames(node.source) else _plain(node.name.rsplit('.', 1)[-1])
+            return ', '.join(
+                f'{table_key(child.expression, self.default_catalog, self.default_db)}.{asked}'
+                if isinstance(child.expression, exp.Table) and child.name == '*'
+                else self.node(child)
+                for child in node.downstream
+            )
         children = {_plain(child.name): child for child in node.downstream}
         star_tables = [
             c for c in node.downstream if isinstance(c.expression, exp.Table) and c.name.endswith('*')
@@ -1045,7 +1367,9 @@ class Canonical:
                 )
             if isinstance(source, Scope):
                 try:
-                    traced = to_node(item.name, scope=source, dialect=self.dialect, schema=schema)
+                    traced = to_node(
+                        item.name, scope=source, dialect=self.dialect, schema=schema, trim_selects=False
+                    )
                 except (SqlglotError, ValueError, KeyError, IndexError, AttributeError):
                     return item
                 return _inline(self.node(traced))
@@ -1112,7 +1436,9 @@ def _references(
                 add(table_key(source, default_catalog, default_db), '.'.join((column.name, *fields)))
             elif isinstance(source, Scope):
                 try:
-                    traced = to_node(column.name, scope=source, dialect=dialect, schema=schema)
+                    traced = to_node(
+                        column.name, scope=source, dialect=dialect, schema=schema, trim_selects=False
+                    )
                 except (SqlglotError, ValueError, KeyError, IndexError, AttributeError):
                     continue
                 for leaf, _, asked_for, path in _leaves(traced):

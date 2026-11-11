@@ -701,6 +701,7 @@ class Context:
         self.root = root
         self.dialect = graph.meta.get('dialect')
         self.schema = self._schema()
+        self.guessed = self.graph.guessed_relations()
         self.manifests: dict[str, dict[str, Any]] = {}
         self.items: dict[str, dict[str, Any]] = {}
         self.renderers: dict[str, Renderer] = {}
@@ -742,6 +743,7 @@ class Context:
             sql,
             dialect=self.dialect,
             schema=self.schema,
+            guessed=self.guessed,
             default_catalog=catalog or self.graph.meta.get('default_catalog'),
             default_db=schema or self.graph.meta.get('default_schema'),
             target=target,

@@ -143,6 +143,203 @@ def test_star_over_an_unknown_relation_uses_the_columns_the_query_asks_for() -> 
     assert any('unknown columns: db.raw.unknown_orders' in e for e in result.errors)
 
 
+STAGED = {'db.raw.stg': {'id': 'int', 'amount': 'int'}, 'db.raw.other': {'id': 'int'}}
+
+
+@pytest.mark.parametrize('schema', [STAGED, {}], ids=['known columns', 'unknown columns'])
+@pytest.mark.parametrize(
+    'sql',
+    [
+        'with x as (select * from raw.stg) select sum(amount) as total from x',
+        'with x as (select * from raw.stg), y as (select * from x) select sum(y.amount) as total from y',
+        'with x as (select * from raw.stg), y as (select * from x) select sum(amount) as total from (select * from y) z',
+        'select sum(amount) as total from (select * from (select s.* from raw.stg s) y) z',
+        'with x as (select * from raw.stg), o as (select * from raw.other) select sum(amount) as total from x',
+        'with x as (select * from raw.stg) select sum(x.amount) as total from x join raw.other o on o.id = x.id',
+        'with x as (select *, amount as kept from raw.stg) select sum(kept) as total from x',
+    ],
+)
+def test_a_star_passes_on_the_column_through_ctes_and_subqueries(sql: str, schema: dict[str, Any]) -> None:
+    result = one(sql, schema=schema)
+    assert result.columns == {'total': [src('db.raw.stg', 'amount', 'transformed')]}
+    assert result.expressions == {'total': 'SUM(db.raw.stg.amount)'}
+
+
+def test_a_star_over_a_join_passes_on_the_column_from_the_relation_that_can_have_it() -> None:
+    sql = 'with x as (select * from raw.other o join raw.stg s on o.id = s.id) select sum(amount) as total from x'
+    result = one(sql, schema={'db.raw.other': {'id': 'int'}})
+    assert result.columns == {'total': [src('db.raw.stg', 'amount', 'transformed')]}
+    assert result.expressions == {'total': 'SUM(db.raw.stg.amount)'}
+
+
+def test_a_star_passes_on_the_column_through_a_union() -> None:
+    sql = """
+    with x as (select * from raw.stg union all select *, 1 as extra from raw.stg2)
+    select sum(amount) as total from x
+    """
+    result = one(sql, schema={})
+    assert result.columns == {
+        'total': [src('db.raw.stg', 'amount', 'transformed'), src('db.raw.stg2', 'amount', 'transformed')]
+    }
+    assert '*' not in result.expressions['total']
+
+
+def test_a_star_over_a_join_of_unknown_relations_still_names_the_column() -> None:
+    result = one(
+        'with x as (select * from raw.a join raw.b on a.id = b.id) select sum(amount) as total from x'
+    )
+    assert '*' not in result.expressions['total']
+    assert 'amount' in result.expressions['total']
+
+
+def test_a_qualify_over_a_star_keeps_the_lineage_of_the_columns_it_passes_on() -> None:
+    sql = """
+    with latest as (
+        select * from raw.events
+        qualify row_number() over (partition by event_id order by loaded_at desc) = 1
+    )
+    select event_id, payload from latest
+    """
+    result = one(sql, schema={})
+    assert result.columns == {
+        'event_id': [src('db.raw.events', 'event_id')],
+        'payload': [src('db.raw.events', 'payload')],
+    }
+    assert set(result.references) == {('db.raw.events', 'event_id'), ('db.raw.events', 'loaded_at')}
+    assert result.conditions == [
+        'QUALIFY: ROW_NUMBER() OVER (PARTITION BY db.raw.events.event_id ORDER BY db.raw.events.loaded_at DESC) = 1'
+    ]
+
+
+@pytest.mark.parametrize(
+    ('sql', 'sources', 'conditions'),
+    [
+        (
+            'with x as (select * from orders order by 1 limit 5) select sum(amount) as total from x',
+            [ORDERS],
+            ['LIMIT: 5', 'ORDER BY: 1'],
+        ),
+        (
+            'with x as (select * from orders order by 2 desc limit 5) select sum(amount) as total from x',
+            [ORDERS],
+            ['LIMIT: 5', 'ORDER BY: 2 DESC'],
+        ),
+        (
+            'select sum(amount) as total from (select distinct on (1) * from orders order by 1, 2) x',
+            [ORDERS],
+            ['DISTINCT ON: 1', 'ORDER BY: 1, 2'],
+        ),
+        (
+            'with x as (select * from orders union all select * from payments order by 1 limit 5) '
+            'select sum(amount) as total from x',
+            [ORDERS, PAYMENTS],
+            ['LIMIT: 5', 'ORDER BY: 1'],
+        ),
+        (
+            'with x as (select * from orders union all (select * from payments order by 1 limit 5)) '
+            'select sum(amount) as total from x',
+            [ORDERS, PAYMENTS],
+            ['LIMIT: 5', 'ORDER BY: 1'],
+        ),
+    ],
+)
+def test_a_position_over_a_star_of_unknown_columns_stays_the_position(
+    sql: str, sources: list[str], conditions: list[str]
+) -> None:
+    # It names a column no one knows; selecting a column by name before the star must not move it.
+    result = one(sql, schema={})
+    assert not any(e.startswith('column lineage failed') for e in result.errors)
+    assert result.columns == {'total': [src(relation, 'amount', 'transformed') for relation in sources]}
+    assert result.references == []
+    assert result.conditions == conditions
+
+
+def test_a_star_over_relations_whose_columns_were_only_guessed_does_not_pick_one() -> None:
+    # Other queries were seen to read id and amount of raw.src_a, which may have more columns.
+    sql = 'with x as (select * from raw.src_a a join raw.src_b b on a.id = b.a_id) select region from x'
+    schema = {'db.raw.src_a': {'id': 'UNKNOWN', 'amount': 'UNKNOWN'}}
+    guessed = one(sql, schema=schema, guessed={'db.raw.src_a'})
+    assert src('db.raw.src_a', 'region') in guessed.columns['region']
+    known = one(sql, schema=schema)
+    assert known.columns == {'region': [src('db.raw.src_b', 'region')]}
+
+
+@pytest.mark.parametrize(
+    ('sql', 'columns'),
+    [
+        ('select o.region from raw.src_a o', {'region'}),
+        ("select * from raw.src_a where region = 'x'", {'id', 'amount', 'region'}),
+        (
+            "with x as (select * from raw.src_a) select * from x where region = 'x'",
+            {'id', 'amount', 'region'},
+        ),
+        ('with x as (select * from raw.src_a), y as (select * from x) select region from y', {'region'}),
+    ],
+)
+def test_a_relation_whose_columns_were_only_guessed_has_the_columns_a_query_names(
+    sql: str, columns: set[str]
+) -> None:
+    result = one(
+        sql, schema={'db.raw.src_a': {'id': 'UNKNOWN', 'amount': 'UNKNOWN'}}, guessed={'db.raw.src_a'}
+    )
+    assert result.columns == {name: [src('db.raw.src_a', name)] for name in columns}
+    # What a star selects from such a relation may not be all it has, and the warning says so.
+    star = ['SELECT * over relations with unknown columns: db.raw.src_a']
+    assert result.errors == (star if '*' in sql else [])
+
+
+@pytest.mark.parametrize(
+    ('replace', 'expression'),
+    [
+        ('* replace (amount * 100 as amount)', 'SUM(db.main.orders.*)'),
+        ('* rename (price as amount)', 'SUM(db.main.orders.*)'),
+        ('* exclude (status)', 'SUM(db.main.orders.amount)'),
+    ],
+)
+def test_a_star_that_replaces_or_renames_a_column_keeps_the_relation_in_its_formula(
+    replace: str, expression: str
+) -> None:
+    result = one(f'with x as (select {replace} from orders) select sum(amount) as total from x', schema={})
+    assert result.expressions == {'total': expression}
+
+
+def test_a_star_that_renames_or_replaces_a_column_gives_its_source() -> None:
+    renamed = one('with x as (select * rename (amount as amt) from orders) select amt from x', schema={})
+    assert renamed.columns == {'amt': [src(ORDERS, 'amount')]}
+    replaced = one(
+        'with x as (select * replace (amount * 2 as amount) from orders) select amount from x', schema={}
+    )
+    assert replaced.columns == {'amount': [src(ORDERS, 'amount', 'transformed')]}
+
+
+def test_the_work_through_a_chain_of_stars_grows_in_proportion_to_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Each star looked through every star below it again, for every column it passed on.
+    import konstruct.core.sql as sql_module
+
+    looked = 0
+    star_sources = sql_module._star_sources
+
+    def counted(scope: Any) -> Any:
+        nonlocal looked
+        looked += 1
+        return star_sources(scope)
+
+    monkeypatch.setattr(sql_module, '_star_sources', counted)
+
+    def work(length: int) -> int:
+        nonlocal looked
+        ctes = ['c0 as (select * from raw.src)'] + [
+            f'c{i} as (select * from c{i - 1} where k{i % 20} > 0)' for i in range(1, length)
+        ]
+        sql = f'with {", ".join(ctes)} select {", ".join(f"k{j}" for j in range(20))} from c{length - 1}'
+        looked = 0
+        result = one(sql, schema={})
+        assert result.columns['k7'] == [src('db.raw.src', 'k7')]
+        return looked
+
+    assert work(32) <= 2.5 * work(16)
+
+
 def test_select_star_without_a_schema_is_reported() -> None:
     result = one('select * from mystery', schema={})
     assert result.reads == ['db.main.mystery']

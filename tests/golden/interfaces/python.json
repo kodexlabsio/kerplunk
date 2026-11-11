@@ -121,6 +121,8 @@
  "python konstruct.Graph.from_json ->": "Graph",
  "python konstruct.Graph.from_json data": "#0 bytes, required",
  "python konstruct.Graph.from_json source": "#1 str = 'the graph'",
+ "python konstruct.Graph.guessed_relations": "method",
+ "python konstruct.Graph.guessed_relations ->": "list[str]",
  "python konstruct.Graph.impact": "method",
  "python konstruct.Graph.impact ->": "list[Step]",
  "python konstruct.Graph.impact max_depth": "#1 int | None = None",

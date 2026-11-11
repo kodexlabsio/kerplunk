@@ -28,6 +28,11 @@ the same five measures, each table reading its own source, so that every two tab
 every measure (``make_measures`` in tests/test_scale.py): the CPU time of ``konstruct conflicts``
 over every pair, and of the gate's checks after an edit to one measure of one table.
 
+It also measures SQL over relations whose columns no warehouse or catalog lists: the median time
+to analyse a chain of 20, 40 and 80 CTEs, each a ``SELECT *`` of the one before with a filter,
+over a relation with unknown columns, selecting 20 of its columns at the end; and a cold build and
+the best of three ``--update`` builds of a project of 400 SQL files with no warehouse.
+
 It also measures start-up: the CPU time of ``konstruct --help``, of ``konstruct status`` and of
 ``konstruct impact`` on a column on the largest project, each in a fresh process, and in the same way ``konstruct search`` with and
 without ``--meaning``, which reads the saved vectors.bin.
@@ -335,6 +340,51 @@ def measure_fresh_search(root: Path) -> dict[str, float]:
     }
 
 
+def star_chain(length: int, width: int = 20) -> str:
+    """A chain of ``length`` CTEs, each a ``SELECT *`` of the one before, over raw.src."""
+    ctes = ['c0 as (select * from raw.src)'] + [
+        f'c{i} as (select * from c{i - 1} where k{i % width} > 0)' for i in range(1, length)
+    ]
+    columns = ', '.join(f'k{j}' for j in range(width))
+    return f'with {", ".join(ctes)} select {columns} from c{length - 1}'
+
+
+def measure_star_chains() -> dict[int, float]:
+    """Milliseconds to analyse each chain of stars over unknown columns."""
+    from konstruct.core.sql import analyse
+
+    return {
+        length: round(
+            1000 * median_time(lambda sql: analyse(sql, dialect='duckdb', schema={}), star_chain(length)), 1
+        )
+        for length in (20, 40, 80)
+    }
+
+
+def sql_files_project(root: Path, files: int = 400) -> None:
+    """``files`` SQL files and no warehouse: each table joins the one before to a raw relation,
+    filters it, and every tenth selects through a star, so the columns the build lists grow as the
+    files are read."""
+    for i in range(files):
+        source = f'main.t{i - 1:03}' if i else 'raw.src'
+        select = 'a.*' if i % 10 == 5 else ', '.join(f'a.c{j}' for j in range(10))
+        (root / f'f{i:03}.sql').write_text(
+            f'create table main.t{i:03} as select {select}, s.k{i % 7} as extra from {source} a '
+            f'join raw.side{i % 20} s on s.id = a.c0 where s.k{i % 5} > 0\n'
+        )
+
+
+def measure_sql_files(files: int = 400) -> dict[str, float]:
+    """Seconds for a cold build and the best of three ``--update`` builds of a project of SQL files."""
+    with tempfile.TemporaryDirectory(prefix='konstruct-bench-sql-') as directory:
+        root = Path(directory)
+        sql_files_project(root, files)
+        project = Project(root)
+        cold, _ = timed(project.build)
+        update = min(timed(project.build, update=True)[0] for _ in range(3))
+    return {'sql_files': files, 'sql_cold_build_s': round(cold, 2), 'sql_update_s': round(update, 2)}
+
+
 def markdown(rows: list[dict[str, Any]]) -> str:
     lines = [
         '| Models | Columns | Column edges | Cold build | `--update`, no change | `--update`, one model edited '
@@ -438,6 +488,9 @@ def main() -> int:
         row = measure_measures(tables)
         measured.append(row)
         print(f'{tables} tables: {row}', file=sys.stderr)
+    # SQL over unknown columns is measured with the model sizes, as it was before --tables.
+    chains = measure_star_chains() if rows else {}
+    sql_files = measure_sql_files() if rows else {}
     machine = (
         f'{platform.machine()}, {platform.system()} {platform.release()}, Python {platform.python_version()}'
     )
@@ -445,6 +498,15 @@ def main() -> int:
     if rows:
         print(f'{COLUMNS} columns per model\n')
         print(markdown(rows))
+        print(
+            '\nA chain of CTEs, each a SELECT * of the one before, over unknown columns: '
+            + ', '.join(f'{length} CTEs {ms} ms' for length, ms in chains.items())
+            + '.'
+        )
+        print(
+            f'{sql_files["sql_files"]} SQL files and no warehouse: cold build {sql_files["sql_cold_build_s"]} s, '
+            f'`--update` {sql_files["sql_update_s"]} s.'
+        )
     if measured:
         print('\n| Tables | Conflicts | conflicts, CPU | Gate checks after one edit, CPU |')
         print('|---:|---:|---:|---:|')
@@ -454,7 +516,14 @@ def main() -> int:
                 f'| {r["gate_checks_cpu_s"]} s ({r["gate_findings"]} findings) |'
             )
     if args.json:
-        data = {'konstruct': __version__, 'machine': machine, 'results': rows, 'tables': measured}
+        data = {
+            'konstruct': __version__,
+            'machine': machine,
+            'results': rows,
+            'tables': measured,
+            'star_chains_ms': chains,
+            **sql_files,
+        }
         args.json.write_text(json.dumps(data, indent=1))
     return 0
 

@@ -264,7 +264,7 @@ def test_workers_keep_their_directory_off_the_path() -> None:
     workers = build._Workers()
     directory = None
     try:
-        assert workers.map([['select 1 as a', 'duckdb', None, None, None, None]]) is not None
+        assert workers.map([['select 1 as a', 'duckdb', None, None, None, None, []]]) is not None
         directory = workers.directory
         assert directory is not None and not any(Path(directory).iterdir())
     finally:

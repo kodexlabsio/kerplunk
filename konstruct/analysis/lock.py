@@ -1031,14 +1031,9 @@ class Pinner:
         return tree.transform(qualified, copy=False) if reads else tree
 
     def known(self, relation: Node) -> bool:
-        """Whether every column of ``relation`` is in the graph: it is in the warehouse or dbt, or
-        SQL here builds it, rather than having only the columns that something reads."""
-        columns = self.graph.columns_of(relation.id)
-        return bool(columns) and (
-            not relation.attrs.get('inferred')
-            or bool(relation.path)
-            or any(not c.attrs.get('inferred') for c in columns)
-        )
+        """Whether every column of ``relation`` is in the graph, as the build decided when it
+        analysed the SQL that reads it (see :meth:`Graph.guessed_relations`)."""
+        return bool(self.graph.columns_of(relation.id)) and not relation.attrs.get('columns_guessed')
 
     def walk(self, column: Node) -> tuple[list[Node], list[Rows]]:
         """Every column the pin of ``column`` depends on, nearest first, and the composed conditions

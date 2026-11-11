@@ -774,6 +774,7 @@
  "json graph.json .nodes[].attrs.column": "str",
  "json graph.json .nodes[].attrs.columns": "list",
  "json graph.json .nodes[].attrs.columns[]": "str",
+ "json graph.json .nodes[].attrs.columns_guessed": "bool",
  "json graph.json .nodes[].attrs.conditions": "list",
  "json graph.json .nodes[].attrs.conditions[]": "str",
  "json graph.json .nodes[].attrs.connection": "str",

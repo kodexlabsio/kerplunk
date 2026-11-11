@@ -195,12 +195,14 @@ def _edit(path: Path, old: str, new: str) -> None:
 
 @pytest.fixture(scope='module')
 def small(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Two unconnected tables built from SQL files, and one that does not parse (a warning),
-    built and committed to git with nothing changed since."""
+    """Two unconnected tables built from SQL files, one that reads a table whose columns are only
+    guessed, and one that does not parse (a warning), built and committed to git with nothing
+    changed since."""
     root = tmp_path_factory.mktemp('interfaces') / 'small'
     root.mkdir()
     (root / 'orders.sql').write_text('create table shop.orders as select 1 as amount')
     (root / 'refunds.sql').write_text('create table shop.refunds as select 2 as amount')
+    (root / 'fees.sql').write_text('create table shop.fees as select fee from raw.charges')
     (root / 'broken.sql').write_text('create table shop.broken as select from where')
     (root / '.gitignore').write_text('konstruct-out/\n')
     _git(root, 'init', '-q', '-b', 'main')

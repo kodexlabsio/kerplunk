@@ -25,6 +25,7 @@ from konstruct.analysis.lock import (
     Lockfile,
     Pin,
     PinnedTerm,
+    Pinner,
     Rows,
     check,
     check_consumers,
@@ -1599,3 +1600,20 @@ def test_a_measure_formula_is_part_of_a_terms_meaning() -> None:
     payload = json.dumps(meaning | {'definition': 'Paid.'}, sort_keys=True).encode()
     assert pinned_term(plain).version == hashlib.sha256(payload).hexdigest()[:12]
     assert 'formula' not in pinned_term(plain).to_dict()
+
+
+def _guessed_columns_project(root: Path) -> Graph:
+    """Without a warehouse, raw.src and raw.other have only the columns m1 and m2 read."""
+    (root / 'm1.sql').write_text('create table main.m1 as select id, amount from raw.src')
+    (root / 'm2.sql').write_text('create table main.m2 as select a_id, region from raw.other')
+    return build(root)
+
+
+def test_a_lockfile_takes_a_relations_columns_as_all_it_has_as_the_build_did(tmp_path: Path) -> None:
+    graph = _guessed_columns_project(tmp_path)
+    pinner = Pinner(graph, tmp_path, None)
+    assert [pinner.known(graph.nodes[f'table.{r}']) for r in ('main.m1', 'raw.src', 'raw.other')] == [
+        True,
+        False,
+        False,
+    ]

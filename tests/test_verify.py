@@ -96,6 +96,44 @@ def test_true_lineage_is_confirmed(project: Project) -> None:
     assert {'shop.raw.orders.status', 'shop.raw.orders.customer_id', 'shop.raw.customers.id'} <= references
 
 
+MODELS_OVER_GUESSED_COLUMNS = {
+    'm1': 'select id, amount from raw.src',
+    'm2': 'select * from raw.src',
+    'm3': 'with q as (select * from main.m2 a join raw.other o on a.id = o.a_id) select region from q',
+}
+
+
+def test_columns_only_seen_read_are_not_taken_for_all_a_relation_has(tmp_path: Path) -> None:
+    # Without the warehouse raw.src is known only by the columns m1 reads, and m2's star over it
+    # selects only those: neither lists region, which m2 has.
+    con = duckdb.connect(str(tmp_path / 'shop.duckdb'))
+    con.execute('create schema raw')
+    con.execute(
+        "create table raw.src as select i as id, i * 3 as amount, ['north', 'south'][1 + i % 2] as region "
+        'from range(1, 21) t(i)'
+    )
+    con.execute(
+        "create table raw.other as select i as id, i as a_id, 'x' || i as label from range(1, 21) t(i)"
+    )
+    for name, sql in MODELS_OVER_GUESSED_COLUMNS.items():
+        con.execute(f'create table main.{name} as {sql}')
+        (tmp_path / f'{name}.sql').write_text(f'create table main.{name} as {sql}')
+    con.close()
+    (tmp_path / 'konstruct.toml').write_text('default_catalog = "shop"\ndefault_schema = "main"\n')
+    project = Project(tmp_path)
+    project.build(warehouses=False)
+    region = project.graph.column('table.shop.main.m3', 'region')
+    assert region is not None
+    assert 'table.shop.main.m2#region' in {
+        e.target for e in project.graph.out_edges(region.id, 'derived_from')
+    }
+    result = run(project)
+    assert [m.skipped for m in result.models] == [None] * 3
+    [model] = [m for m in result.models if m.node_id == 'table.shop.main.m3']
+    assert model.confirmed == [('region', 'shop.main.m2.region')]
+    assert model.unexplained == []
+
+
 def test_masked_dependencies_are_not_exercised(project: Project) -> None:
     [model] = run(project).models
     # amount is never null, so customer_id never reaches amount_or_customer on this data.

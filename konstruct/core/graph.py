@@ -349,6 +349,12 @@ class Graph:
     def relations(self) -> Iterator[Node]:
         return (n for n in self.nodes.values() if n.kind in RELATION_KINDS)
 
+    def guessed_relations(self) -> list[str]:
+        """The relations whose columns in the graph may not be all they have: the build marks a
+        relation ``columns_guessed`` unless the warehouse or a dbt catalog lists its columns, or SQL
+        that writes it selects them without a star it cannot expand."""
+        return sorted({n.relation for n in self.relations() if n.relation and n.attrs.get('columns_guessed')})
+
     def built(self, relation: Node) -> bool:
         """Whether something in the graph builds ``relation``: a model, seed or snapshot, a file of
         its own, a task, or SQL that gives its columns expressions. A source, or a table the graph

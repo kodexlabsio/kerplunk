@@ -78,6 +78,8 @@ class DbtLoad:
     manifest_checksum: str | None
     has_catalog: bool = True
     counts: dict[str, int] = field(default_factory=dict)
+    catalogued: set[str] = field(default_factory=set)
+    """The nodes whose columns the catalog lists."""
 
 
 def walk_dirs(root: Path) -> Iterator[Path]:
@@ -291,7 +293,8 @@ def _primary_key(item: dict[str, Any]) -> list[str]:
     ]
 
 
-def _add_columns(graph: Graph, parent: Node, item: dict[str, Any], catalog: dict[str, Any] | None) -> None:
+def _add_columns(graph: Graph, parent: Node, item: dict[str, Any], catalog: dict[str, Any] | None) -> bool:
+    """Add a node's columns; whether the catalog lists them, rather than only its documentation."""
     primary_key = _primary_key(item)
     if primary_key:
         parent.attrs['primary_key'] = primary_key
@@ -323,6 +326,7 @@ def _add_columns(graph: Graph, parent: Node, item: dict[str, Any], catalog: dict
             origin='dbt',
             attrs={'documented_only': True} if catalog else {},
         )
+    return bool(seen)
 
 
 _REF = re.compile(
@@ -386,6 +390,7 @@ def load(
         return os.path.relpath(root / str(path), str(graph.meta.get('root', root)))
 
     models: list[ModelSql] = []
+    catalogued: set[str] = set()
     schemas: dict[tuple[str | None, str | None], int] = {}
     renderer: Renderer | None = None
     for item in manifest.get('nodes', {}).values():
@@ -414,7 +419,8 @@ def load(
                 },
             )
         )
-        _add_columns(graph, node, item, catalog)
+        if _add_columns(graph, node, item, catalog):
+            catalogued.add(node.id)
         upstream = [n for n in item.get('depends_on', {}).get('nodes', []) if not n.startswith('macro.')]
         for parent in upstream:
             graph.add_edge(parent, node.id, 'feeds', origin='dbt')
@@ -452,7 +458,8 @@ def load(
                 },
             )
         )
-        _add_columns(graph, node, item, catalog)
+        if _add_columns(graph, node, item, catalog):
+            catalogued.add(node.id)
 
     for item in manifest.get('exposures', {}).values():
         owner = item.get('owner') or {}
@@ -497,6 +504,7 @@ def load(
         default_schema=default_schema,
         manifest_checksum=metadata.get('invocation_id'),
         has_catalog=catalog is not None,
+        catalogued=catalogued,
         counts={
             kind: sum(1 for item in group.values() if item.get('resource_type') == kind)
             for kind, group in (
