@@ -25,7 +25,6 @@ On the 2,000-model project, after the graph is loaded:
 |---|---:|
 | `path` from a column of the 11th model to one of the last | 4.0 ms |
 | `describe` of a model | 0.7 ms |
-| `conflicts` over every candidate column | 3.2 s |
 
 The index walks and paths use comes with the graph as Konstruct reads it, so the first `impact` or `path` is as fast as the next; the first `search` or `query` builds the search index, about 70 ms on 2,000 models. Reading `graph.json` takes about 0.36 s at that size (see [Reading the Graph](#reading-the-graph)), so a single CLI command still spends much of its time reading the graph; the MCP server, the Python API and `konstruct diff` and `conflicts`, which ask many questions of one graph, gain the most.
 

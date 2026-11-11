@@ -18,7 +18,7 @@ approved terms), so the most consequential disagreements come first.
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from itertools import combinations
 from typing import TYPE_CHECKING, Any
@@ -62,6 +62,11 @@ KEY_WORDS = frozenset(
 )
 FILTER_HEADS = ('WHERE', 'HAVING', 'QUALIFY')
 SAME_UNLESS_NULL = 'the same unless a source value is NULL or there are no rows'
+
+# (relation, condition, file), as a side lists its filters and joins.
+Condition = tuple[str, str, str | None]
+# A side's conditions of one kind, each as (condition, file, key), and the set of their keys.
+Keyed = tuple[list[tuple[str, str | None, str]], frozenset[str]]
 
 
 def core(name: str) -> frozenset[str]:
@@ -281,6 +286,10 @@ def top_function(formula: str | None, dialect: str | None) -> str | None:
 
 
 class _Finder:
+    """Compares columns two at a time. A column is in many pairs, so everything about one column
+    (its side, the keys of its conditions, its top aggregate) is worked out once, and a pair costs
+    only the comparison of the two."""
+
     def __init__(self, graph: Graph) -> None:
         self.graph = graph
         dialect = graph.meta.get('dialect')
@@ -289,9 +298,12 @@ class _Finder:
         self.ancestors: dict[str, set[str]] = {}
         self.formulas: Formulas | None = None
         self.joinless: Formulas | None = None
-        self._conditions: dict[
-            str, tuple[list[tuple[str, str, str | None]], list[tuple[str, str, str | None]]]
-        ] = {}
+        self._conditions: dict[str, tuple[list[Condition], list[Condition]]] = {}
+        self._sides: dict[str, Side] = {}
+        self._keyed: dict[str, tuple[Keyed, Keyed]] = {}
+        self._keys: dict[str, str] = {}
+        self._tops: dict[str, str | None] = {}
+        self._approved: Counter[str] | None = None
 
     def upstream(self, column_id: str) -> set[str]:
         if column_id not in self.ancestors:
@@ -343,15 +355,13 @@ class _Finder:
                 return source.path
         return None
 
-    def conditions(
-        self, relation: Node
-    ) -> tuple[list[tuple[str, str, str | None]], list[tuple[str, str, str | None]]]:
+    def conditions(self, relation: Node) -> tuple[list[Condition], list[Condition]]:
         """A relation's filters and joins as (relation, condition, file). Many columns share the
         relations on their routes back to source, so each relation's conditions are read once."""
         found = self._conditions.get(relation.id)
         if found is None:
-            filters: list[tuple[str, str, str | None]] = []
-            joins: list[tuple[str, str, str | None]] = []
+            filters: list[Condition] = []
+            joins: list[Condition] = []
             for condition in relation.attrs.get('conditions', []):
                 text = short_sql(self.graph, str(condition), condition=True)
                 head = text.split(':', 1)[0].upper()
@@ -364,12 +374,29 @@ class _Finder:
         return found
 
     def side(self, column: Node) -> Side:
+        """The column as one side of a pair, made once and shared by every pair it is in."""
+        found = self._sides.get(column.id)
+        if found is None:
+            found = self._sides[column.id] = self._side(column)
+        return found
+
+    def approved(self) -> Counter[str]:
+        """How many approved terms have each name."""
+        if self._approved is None:
+            self._approved = Counter(
+                n.name
+                for n in self.graph.nodes.values()
+                if n.kind == 'term' and n.attrs.get('status') == 'approved'
+            )
+        return self._approved
+
+    def _side(self, column: Node) -> Side:
         graph = self.graph
         owner = graph.parent_of(column)
         assert owner is not None
         explanation = self.explainer.explain(column)
-        filters: list[tuple[str, str, str | None]] = []
-        joins: list[tuple[str, str, str | None]] = []
+        filters: list[Condition] = []
+        joins: list[Condition] = []
         relations = {owner.id: owner}
         for ancestor in self.upstream(column.id):
             parent = graph.parent_of(graph.nodes[ancestor])
@@ -392,12 +419,8 @@ class _Finder:
                 for e in graph.in_edges(target, 'defines')
             }
         )
-        reach['terms'] = sum(
-            1
-            for name in terms
-            for n in graph.nodes.values()
-            if n.kind == 'term' and n.name == name and n.attrs.get('status') == 'approved'
-        )
+        approved = self.approved()
+        reach['terms'] = sum(approved[name] for name in terms)
         return Side(
             column=column.id,
             label=graph.label(column),
@@ -412,6 +435,32 @@ class _Finder:
             terms=terms,
         )
 
+    def key(self, condition: str) -> str:
+        """The condition in the form that compares equal to any condition that filters alike."""
+        found = self._keys.get(condition)
+        if found is None:
+            found = self._keys[condition] = condition_key(condition, self.dialect)
+        return found
+
+    def keyed(self, side: Side) -> tuple[Keyed, Keyed]:
+        """The side's filters and its joins, each condition with its key."""
+        found = self._keyed.get(side.column)
+        if found is None:
+            kinds = []
+            for items in (side.filters, side.joins):
+                listed = [(condition, path, self.key(condition)) for _, condition, path in items]
+                kinds.append((listed, frozenset(k for _, _, k in listed)))
+            found = self._keyed[side.column] = (kinds[0], kinds[1])
+        return found
+
+    def top(self, formula: str | None) -> str | None:
+        """:func:`top_function` of the formula, read once for every pair it is in."""
+        if formula is None:
+            return None
+        if formula not in self._tops:
+            self._tops[formula] = top_function(formula, self.dialect)
+        return self._tops[formula]
+
     def compare(self, a: Side, b: Side) -> list[Difference]:
         differences: list[Difference] = []
         sources_a, sources_b = set(a.sources), set(b.sources)
@@ -419,15 +468,15 @@ class _Finder:
             differences.append(Difference('source', source, 'a'))
         for source in sorted(sources_b - sources_a):
             differences.append(Difference('source', source, 'b'))
-        for kind, items_a, items_b in (('filter', a.filters, b.filters), ('join', a.joins, b.joins)):
+        for kind, (listed_a, keys_a), (listed_b, keys_b) in zip(
+            ('filter', 'join'), self.keyed(a), self.keyed(b), strict=True
+        ):
             # Conditions that filter alike, however they are written, are not a difference.
-            conditions_a = {condition_key(c, self.dialect) for _, c, _ in items_a}
-            conditions_b = {condition_key(c, self.dialect) for _, c, _ in items_b}
-            for _relation, condition, path in items_a:
-                if condition_key(condition, self.dialect) not in conditions_b:
+            for condition, path, key in listed_a:
+                if key not in keys_b:
                     differences.append(Difference(kind, condition, 'a', path))
-            for _relation, condition, path in items_b:
-                if condition_key(condition, self.dialect) not in conditions_a:
+            for condition, path, key in listed_b:
+                if key not in keys_a:
                     differences.append(Difference(kind, condition, 'b', path))
         if a.composed is not None and a.composed == b.composed:
             # The same text is the same formula. What else tells the two apart, such as a
@@ -449,7 +498,7 @@ class _Finder:
                 detail = f'{a.composed} against {b.composed}, {SAME_UNLESS_NULL}'
                 differences.append(Difference('formula', detail, witness=witness))
             return differences
-        top_a, top_b = top_function(a.composed, self.dialect), top_function(b.composed, self.dialect)
+        top_a, top_b = self.top(a.composed), self.top(b.composed)
         if top_a != top_b and (top_a or top_b):
             detail = f'{top_a or "none"} against {top_b or "none"}'
             differences.append(Difference('aggregation', detail, witness=witness))
@@ -506,7 +555,6 @@ def find_conflicts(graph: Graph, limit: int | None = None) -> Conflicts:
                 groups[f'term:{name}'].append(column)
             reasons[f'term:{name}'] = f'are bound to the business term {name!r}'
     result = Conflicts(candidates=len(candidates))
-    sides: dict[str, Side] = {}
     seen_pairs: set[tuple[str, str]] = set()
     for key, members in groups.items():
         relations = {m.parent for m in members}
@@ -519,9 +567,13 @@ def find_conflicts(graph: Graph, limit: int | None = None) -> Conflicts:
         # member inherits its definition and is listed as carried into it.
         ids = {m.id for m in members}
         roots = [m for m in members if not (finder.upstream(m.id) & ids)]
-        carried = {
-            r.id: sorted(graph.label(m) for m in members if r.id in finder.upstream(m.id)) for r in roots
-        }
+        # Each member's own ancestors among the roots, not every root against every member.
+        carried: dict[str, list[str]] = {r.id: [] for r in roots}
+        for member in members:
+            for root in finder.upstream(member.id) & carried.keys():
+                carried[root].append(graph.label(member))
+        for labels in carried.values():
+            labels.sort()
         for first, second in combinations(sorted(roots, key=lambda n: n.id), 2):
             pair = (first.id, second.id)
             if pair in seen_pairs or first.parent == second.parent:
@@ -530,8 +582,7 @@ def find_conflicts(graph: Graph, limit: int | None = None) -> Conflicts:
             # A column derived from the other is a copy, not a competing definition.
             if first.id in finder.upstream(second.id) or second.id in finder.upstream(first.id):
                 continue
-            a = sides.setdefault(first.id, finder.side(first))
-            b = sides.setdefault(second.id, finder.side(second))
+            a, b = finder.side(first), finder.side(second)
             a.carried_into = carried.get(first.id, [])
             b.carried_into = carried.get(second.id, [])
             differences = finder.compare(a, b)
@@ -554,12 +605,10 @@ def measure_conflicts(graph: Graph, term: str, columns: list[Node]) -> list[Conf
     ids = {c.id for c in columns}
     roots = sorted((c for c in columns if not (finder.upstream(c.id) & ids)), key=lambda n: n.id)
     found: list[Conflict] = []
-    sides: dict[str, Side] = {}
     for first, second in combinations(roots, 2):
         if first.parent == second.parent:
             continue
-        a = sides.setdefault(first.id, finder.side(first))
-        b = sides.setdefault(second.id, finder.side(second))
+        a, b = finder.side(first), finder.side(second)
         differences = finder.compare(a, b)
         if differences:
             found.append(
