@@ -2,7 +2,7 @@ name: Konstruct lineage review
 description: Column-level review of dbt, SQL and DAG changes on pull requests, with breaking changes flagged.
 author: Kodex Labs
 branding:
-  icon: git-pull-request
+  icon: share-2
   color: blue
 
 inputs:
