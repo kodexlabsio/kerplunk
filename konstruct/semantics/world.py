@@ -74,7 +74,7 @@ _NOT_ADDED = re.compile(
 )
 # Values that summing across rows does not give: a price is per unit, a balance is a snapshot.
 _NOT_SUMMED = re.compile(r'(?:^|_)(?:price|prices|balance|balances|per|unit)(?:_|$)', re.IGNORECASE)
-_STAGED = re.compile(r'^(?:stg|staging|base|src|raw|int)_', re.IGNORECASE)
+STAGED = re.compile(r'^(?:stg|staging|base|src|raw|int)_', re.IGNORECASE)
 _NUMERIC = re.compile(
     r'^(?:tiny|small|big|huge|u)?int|^integer|^decimal|^numeric|^number|^float|^double|^real|^money|^bigint',
     re.IGNORECASE,
@@ -290,7 +290,8 @@ class Connection:
     join: str | None = None
     """SQL joins that follow the path, from a relation that holds ``start``: the warehouse's
     relation names, each with an alias, joined on the columns of each relationship or, between two
-    relations holding one entity, on that entity's keys. None when that cannot be written."""
+    relations holding one entity, on that entity's keys, each shown unique where it is joined. None
+    when that cannot be written: a relation with no warehouse name, or a key not shown unique."""
 
     def text(self, style: Style | None = None) -> str:
         """The result as the CLI prints it: plain text, as ``str()`` gives, or drawn for a
@@ -412,7 +413,7 @@ def all_metrics(
             return True
         return any(named_as(n) for n in (title, *synonyms)) or wanted in (c.lower() for c in columns)
 
-    holders = _holders(graph, ontology)
+    holders = entity_holders(graph, ontology)
     defined = [_from_measure(graph, m) for m in ontology.measures]
     defined = [m for m in defined if keep(m.name, m.synonyms, [c.column for c in m.columns], m.entity)]
     column_of: Callable[[Node], MeasureColumn] = (
@@ -536,7 +537,7 @@ def _row_level(expression: Any, graph: Graph) -> bool:
     return tree.find(exp.AggFunc, exp.Window) is None
 
 
-def _holders(graph: Graph, ontology: Ontology) -> dict[str, str]:
+def entity_holders(graph: Graph, ontology: Ontology) -> dict[str, str]:
     """Each relation that holds one row per instance of an entity, with that entity: the one
     named for the relation when it holds several."""
     held: dict[str, list[str]] = {}
@@ -553,7 +554,7 @@ def _holders(graph: Graph, ontology: Ontology) -> dict[str, str]:
     return result
 
 
-def _grain(graph: Graph, relation: Node, holders: dict[str, str], entities: set[str]) -> str | None:
+def relation_grain(graph: Graph, relation: Node, holders: dict[str, str], entities: set[str]) -> str | None:
     """The entity a relation has one row per: the entity it holds, else the entity its one
     grouping column is named for."""
     if relation.id in holders:
@@ -617,7 +618,7 @@ def _proposals(
 
     def grain_of(relation: Node) -> str | None:
         if relation.id not in grains:
-            grains[relation.id] = _grain(graph, relation, holders, entities)
+            grains[relation.id] = relation_grain(graph, relation, holders, entities)
         return grains[relation.id]
 
     found: dict[tuple[str, str | None, str], _Candidate] = {}
@@ -683,7 +684,7 @@ def _proposals(
             continue
         held = [graph.nodes[r] for r, n in holders.items() if n == item.name and r in graph.nodes]
         # Counted where the business reads it: a mart before its staging model.
-        held.sort(key=lambda r: (bool(_STAGED.match(r.name)), len(graph.label(r)), graph.label(r)))
+        held.sort(key=lambda r: (bool(STAGED.match(r.name)), len(graph.label(r)), graph.label(r)))
         key_column = next(
             (graph.nodes[k] for r in held[:1] for k in item.key_ids if graph.nodes[k].parent == r.id), None
         )
@@ -765,7 +766,7 @@ def _semantic_layer(
         agg = str(item.get('agg') or '')
         expr = str(item.get('expr') or '')
         column = graph.column(model.id, expr) if model is not None and expr else None
-        grain = _grain(graph, model, holders, entities) if model is not None else None
+        grain = relation_grain(graph, model, holders, entities) if model is not None else None
         title = str(item.get('label') or item.get('name'))
         labels = [graph.label(column)] if column is not None else []
         if not keep(title, [str(item.get('name'))], labels, grain):
@@ -833,7 +834,7 @@ def _bi_measures(
             columns = sorted(reads.get(name, []), key=graph.label)
             relations = {c.parent for c in columns if c.parent}
             parent = graph.nodes.get(next(iter(relations))) if len(relations) == 1 else None
-            grain = _grain(graph, parent, holders, entities) if parent is not None else None
+            grain = relation_grain(graph, parent, holders, entities) if parent is not None else None
             if not keep(name, [], [graph.label(c) for c in columns], grain):
                 continue
             aggregation, additive = _aggregation(str(formula), graph)
@@ -880,10 +881,10 @@ def relate(graph: Graph, start: str, end: str, ontology: Ontology | None = None)
         raise _unknown('entity', end, names)
     if first.name == last.name:
         return Connection(first.name, last.name, True, cardinality='one-to-one', confidence=first.confidence)
-    path = _shortest(ontology, first.name, last.name, _rows(graph, ontology))
+    path = shortest(ontology, first.name, last.name, rows(graph, ontology))
     if path is None:
         return Connection(first.name, last.name, False)
-    hops = [_hop(r, forward) for r, forward in path]
+    hops = [hop(r, forward) for r, forward in path]
     order = {c: i for i, c in enumerate(CONFIDENCES)}
     checks = {h.check for h in hops}
     return Connection(
@@ -898,32 +899,46 @@ def relate(graph: Graph, start: str, end: str, ontology: Ontology | None = None)
     )
 
 
-class _Row(Relationship):
+class Row(Relationship):
     """Two entities on one row: a relation that holds one row per instance of each, so each of
     its rows is one of both. A step along it joins nothing, so a path takes it before any
     relationship, at either end or in the middle."""
 
 
-def _rows(graph: Graph, ontology: Ontology) -> list[Relationship]:
-    """A step for each pair of entities whose key columns in one relation are both unique there,
-    so each of its rows is one instance of each: by a test, a primary key or an identifier field,
-    or as ``konstruct verify`` confirmed. A key column with no such guarantee (a referring column a
-    definition also lists, say) gives no step, and one verify found repeated gives a failed one.
-    A step is as trusted as the less trusted of its two key columns."""
+def key_state(graph: Graph, ontology: Ontology, column: Node) -> tuple[str, str | None] | None:
+    """How far ``column`` is shown unique in its relation, with ``konstruct verify``'s check of it:
+    ``('verified', 'confirmed')`` when verify found it unique and never null, ``('inferred',
+    'failed')`` when it found it repeated or null, ``('declared', None)`` when a test or a primary
+    key something enforces shows it unique, and None when nothing does."""
+    return key_states(graph, ontology)(column)
+
+
+def key_states(graph: Graph, ontology: Ontology) -> Callable[[Node], tuple[str, str | None] | None]:
+    """:func:`key_state` for many columns, reading what ``konstruct verify`` recorded once."""
     recorded = graph.meta.get('integrity')
     found_keys = recorded.get('keys') if isinstance(recorded, dict) else None
     keys: dict[str, Any] = found_keys if isinstance(found_keys, dict) else {}
+    unique = ontology.unique_ids
 
-    def column_state(column: Node) -> tuple[str, str | None] | None:
-        """How far the column is a key of its relation, and verify's check of it."""
+    def state_of(column: Node) -> tuple[str, str | None] | None:
         found = keys.get(column.id)
         state = found.get('state') if isinstance(found, dict) else None
-        if state == 'failed':
-            return 'inferred', 'failed'
         if state == 'confirmed':
             return 'verified', 'confirmed'
-        return ('declared', None) if column.id in ontology.unique_ids else None
+        if state is not None:
+            return 'inferred', 'failed'
+        return ('declared', None) if column.id in unique else None
 
+    return state_of
+
+
+def rows(graph: Graph, ontology: Ontology) -> list[Relationship]:
+    """A step for each pair of entities whose key columns in one relation are both unique there,
+    so each of its rows is one instance of each: by a test or a primary key something enforces,
+    or as ``konstruct verify`` confirmed. A key column with no such guarantee (a referring column a
+    definition also lists, say) gives no step, and one verify found repeated gives a failed one.
+    A step is as trusted as the less trusted of its two key columns."""
+    state_of = key_states(graph, ontology)
     held: dict[str, list[tuple[Entity, Node]]] = {}
     for item in ontology.entities:
         for key_id in item.key_ids:
@@ -937,7 +952,7 @@ def _rows(graph: Graph, ontology: Ontology) -> list[Relationship]:
         entries = sorted(held[relation_id], key=lambda pair: pair[0].name)
         for i, (first, first_key) in enumerate(entries):
             for last, last_key in entries[i + 1 :]:
-                states = (column_state(first_key), column_state(last_key))
+                states = (state_of(first_key), state_of(last_key))
                 if first.name == last.name or states[0] is None or states[1] is None:
                     continue
                 checks_found = {states[0][1], states[1][1]}
@@ -948,7 +963,7 @@ def _rows(graph: Graph, ontology: Ontology) -> list[Relationship]:
                     if checks_found == {'confirmed'}
                     else None
                 )
-                step = _Row(
+                step = Row(
                     first.name,
                     last.name,
                     f'one row of {label}',
@@ -968,66 +983,83 @@ def _rows(graph: Graph, ontology: Ontology) -> list[Relationship]:
     return list(found.values())
 
 
-def _table_sql(graph: Graph, relation: Node) -> str | None:
-    """The relation as the warehouse names it, each part quoted where the dialect needs it."""
-    dialect = graph.meta.get('dialect')
-    parts = [p for p in str(relation.attrs.get('parts') or relation.relation or '').split('.') if p]
-    if not parts:
-        return None
-    return '.'.join(
-        exp.to_identifier(p).sql(dialect=dialect if isinstance(dialect, str) else None) for p in parts
-    )
+def keeps_rows(relationship: Relationship, forward: bool) -> bool:
+    """Whether walking ``relationship`` this way joins each row to at most one: from the
+    referring side of a many-to-one, or along a one-to-one, never one ``konstruct verify`` found
+    contradicted."""
+    if relationship.columns is None or relationship.check == 'failed':
+        return False
+    return relationship.cardinality == 'one-to-one' or (forward and relationship.cardinality == 'many-to-one')
 
 
-def _alias_base(relation: Node) -> str:
-    return re.sub(r'\W', '_', relation.name.lower()) or 't'
+Step = tuple[str, Relationship, bool]
+"""The entity a step comes from, the relationship and whether it is walked from its referring side."""
 
 
-def _shortest(
-    ontology: Ontology, start: str, end: str, rows: Sequence[Relationship] = ()
-) -> list[tuple[Relationship, bool]] | None:
-    """From ``start`` to ``end``, the path with the fewest relationships ``konstruct verify``
-    found the data contradicting, then the fewest relationships, then the most trusted; each with
-    whether it is walked from its referring side (``source``) to the side it refers to. A step
-    along one row (``rows``) counts no relationship."""
-    steps: dict[str, list[tuple[str, Relationship, bool]]] = {}
-    for r in [*ontology.relationships, *rows]:
-        steps.setdefault(r.source, []).append((r.target, r, True))
-        steps.setdefault(r.target, []).append((r.source, r, False))
-    Cost = tuple[int, int, int]
-    queue: list[tuple[int, int, int, str, int]] = [(0, 0, 0, start, 0)]
-    back: dict[str, tuple[str, Relationship, bool] | None] = {start: None}
-    best: dict[str, Cost] = {start: (0, 0, 0)}
+def paths(
+    ontology: Ontology,
+    start: str,
+    steps: Sequence[Relationship] = (),
+    allowed: Callable[[Relationship, bool], bool] | None = None,
+    until: str | None = None,
+) -> dict[str, Step | None]:
+    """From ``start``, the best path to every entity it reaches, as the step that reaches each:
+    the fewest relationships ``konstruct verify`` found the data contradicting, then the fewest
+    relationships, then the most trusted. ``steps`` are steps along one row, which count no
+    relationship; ``allowed`` decides which steps, in which direction, may be walked. With
+    ``until``, the walk stops once it has the best path to that entity."""
+    graph_steps: dict[str, list[tuple[str, Relationship, bool]]] = {}
+    for r in [*ontology.relationships, *steps]:
+        for here, there, forward in ((r.source, r.target, True), (r.target, r.source, False)):
+            if allowed is None or allowed(r, forward):
+                graph_steps.setdefault(here, []).append((there, r, forward))
+    queue: list[tuple[int, int, int, int, str]] = [(0, 0, 0, 0, start)]
+    back: dict[str, Step | None] = {start: None}
+    best: dict[str, tuple[int, int, int]] = {start: (0, 0, 0)}
     counter = 1
     while queue:
-        failed, length, penalty, here, _ = heapq.heappop(queue)
-        if here == end:
+        failed, length, penalty, _, here = heapq.heappop(queue)
+        if here == until:
             break
         if (failed, length, penalty) > best.get(here, (failed, length, penalty)):
             continue
-        for there, relationship, forward in steps.get(here, []):
+        for there, relationship, forward in graph_steps.get(here, []):
             cost = (
                 failed + (relationship.check == 'failed'),
-                length + (not isinstance(relationship, _Row)),
+                length + (not isinstance(relationship, Row)),
                 penalty + _PENALTY.get(relationship.confidence, 2),
             )
             if cost < best.get(there, (1 << 30, 0, 0)):
                 best[there] = cost
                 back[there] = (here, relationship, forward)
-                heapq.heappush(queue, (*cost, there, counter))
+                heapq.heappush(queue, (*cost, counter, there))
                 counter += 1
-    if end not in back:
+    return back
+
+
+def path_to(tree: dict[str, Step | None], end: str) -> list[tuple[Relationship, bool]] | None:
+    """The steps from the start of ``tree`` (see :func:`paths`) to ``end``, or None."""
+    if end not in tree:
         return None
     path = []
     here = end
-    while (step := back[here]) is not None:
+    while (step := tree[here]) is not None:
         previous, relationship, forward = step
         path.append((relationship, forward))
         here = previous
     return path[::-1]
 
 
-def _hop(relationship: Relationship, forward: bool) -> Hop:
+def shortest(
+    ontology: Ontology, start: str, end: str, steps: Sequence[Relationship] = ()
+) -> list[tuple[Relationship, bool]] | None:
+    """From ``start`` to ``end``, the best path of :func:`paths`, each step with whether it is
+    walked from its referring side (``source``) to the side it refers to."""
+    return path_to(paths(ontology, start, steps, until=end), end)
+
+
+def hop(relationship: Relationship, forward: bool) -> Hop:
+    """``relationship`` as a step walked from its referring side (``forward``) or towards it."""
     cardinality = relationship.cardinality
     if cardinality == 'many-to-one' and not forward:
         cardinality = 'one-to-many'
@@ -1042,7 +1074,7 @@ def _hop(relationship: Relationship, forward: bool) -> Hop:
         relationship.confidence,
         relationship.check,
         list(relationship.evidence),
-        isinstance(relationship, _Row),
+        isinstance(relationship, Row),
     )
 
 
@@ -1055,92 +1087,172 @@ def _compose(cardinalities: list[str | None]) -> str | None:
     return kinds.pop() if len(kinds) == 1 else 'many-to-many'
 
 
-def _joins(graph: Graph, ontology: Ontology, path: list[tuple[Relationship, bool]]) -> str | None:
-    """``FROM`` and ``JOIN`` lines that follow ``path``, over the warehouse's relation names with
-    an alias for each time a relation is joined (``orders``, then ``orders_2``). Each step joins on
+@dataclass
+class At:
+    """A relation a query reads, under its alias."""
+
+    relation: Node
+    alias: str
+
+
+class Joins:
+    """Joins along relationships from one relation, over the warehouse's relation names with an
+    alias for each time a relation is joined (``orders``, then ``orders_2``). Each step joins on
     the columns of its relationship; when its column is on another relation holding the entity
     walked from, that relation is joined first on the entity's key in both. Nothing is joined on a
-    column's name alone. None only when a relation has no warehouse name."""
-    by_name = {e.name: e for e in ontology.entities}
-    dialect = graph.meta.get('dialect')
-    write = dialect if isinstance(dialect, str) else None
-    used: set[str] = set()
-    lines: list[str] = []
+    column's name alone, and every join onto an entity's key, which no relationship vouches for,
+    lands on a key shown unique. ``land``, when given, is asked about every column a join lands on
+    (with whether it is such a key) and returns why the join may not land there, or None.
+    """
 
-    def parent(column_id: str) -> Node | None:
-        column = graph.nodes.get(column_id)
-        return graph.parent_of(column) if column is not None else None
+    def __init__(
+        self,
+        graph: Graph,
+        ontology: Ontology,
+        root: Node,
+        *,
+        kind: str = '',
+        land: Callable[[Node, bool], str | None] | None = None,
+    ) -> None:
+        self.graph = graph
+        self.ontology = ontology
+        self.kind = kind
+        self.land = land
+        self.entities = {e.name: e for e in ontology.entities}
+        self.used: set[str] = set()
+        self.joins: list[exp.Join] = []
+        self.keyed: dict[tuple[str, str], At] = {}
+        self.problem: str | None = None
+        self.root = At(root, self.alias(root))
+        self.at = [self.root]
 
-    def key_in(name: str, relation: Node) -> Node | None:
-        found = by_name.get(name)
-        ids = found.key_ids if found is not None else []
-        return next((graph.nodes[i] for i in ids if graph.nodes[i].parent == relation.id), None)
-
-    def alias(relation: Node) -> str:
-        base = _alias_base(relation)
-        name, n = base, 2
-        while name in used:
-            name, n = f'{base}_{n}', n + 1
-        used.add(name)
-        return name
-
-    def ref(name: str, column: Node) -> str:
-        return f'{name}.{exp.to_identifier(column.name).sql(dialect=write)}'
-
-    def join(relation: Node, column: Node, other: str) -> str | None:
-        """Join ``relation`` on its ``column`` equal to ``other``; the new alias, or None."""
-        table = _table_sql(graph, relation)
-        if table is None:
+    def table(self, relation: Node) -> exp.Table | None:
+        """The relation as the warehouse names it, or None when it has no such name."""
+        parts = [p for p in str(relation.attrs.get('parts') or relation.relation or '').split('.') if p]
+        if not parts or len(parts) > 3:
             return None
-        name = alias(relation)
-        lines.append(f'JOIN {table} AS {name} ON {ref(name, column)} = {other}')
+        names = [exp.to_identifier(p) for p in parts]
+        return exp.Table(
+            this=names[-1],
+            db=names[-2] if len(names) > 1 else None,
+            catalog=names[-3] if len(names) > 2 else None,
+        )
+
+    def alias(self, relation: Node) -> str:
+        base = re.sub(r'\W', '_', relation.name.lower()) or 't'
+        name, n = base, 2
+        while name in self.used:
+            name, n = f'{base}_{n}', n + 1
+        self.used.add(name)
         return name
 
+    def ref(self, at: At, column: Node) -> exp.Column:
+        return exp.Column(this=exp.to_identifier(column.name), table=exp.to_identifier(at.alias))
+
+    def key_in(self, name: str, relation: Node) -> Node | None:
+        """The key column of the entity ``name`` in ``relation``, if it holds one."""
+        found = self.entities.get(name)
+        ids = found.key_ids if found is not None else []
+        return next((self.graph.nodes[i] for i in ids if self.graph.nodes[i].parent == relation.id), None)
+
+    def fail(self, reason: str) -> None:
+        self.problem = self.problem or reason
+
+    def join(self, relation: Node, column: Node, other: exp.Column, *, key: bool) -> At | None:
+        """Join ``relation`` on its ``column`` equal to ``other``."""
+        table = self.table(relation)
+        if table is None:
+            self.fail(f'{self.graph.label(relation)} has no warehouse name to read it by')
+            return None
+        refused = self.land(column, key) if self.land is not None else None
+        if refused is not None:
+            self.fail(refused)
+            return None
+        at = At(relation, self.alias(relation))
+        on = exp.EQ(this=self.ref(at, column), expression=other)
+        self.joins.append(exp.Join(this=table.as_(at.alias), kind=self.kind or None, on=on))
+        self.at.append(at)
+        return at
+
+    def by_key(self, name: str, at: At, relation: Node) -> At | None:
+        """``relation``, which holds the entity ``name`` as ``at`` does, joined on that entity's key."""
+        if relation.id == at.relation.id:
+            return at
+        known = self.keyed.get((at.alias, relation.id))
+        if known is not None:
+            return known
+        ours, theirs = self.key_in(name, at.relation), self.key_in(name, relation)
+        if ours is None or theirs is None:
+            self.fail(
+                f'{self.graph.label(relation)} and {self.graph.label(at.relation)} share no key of {name}'
+            )
+            return None
+        if self.land is None and key_state(self.graph, self.ontology, theirs) in (
+            None,
+            ('inferred', 'failed'),
+        ):
+            self.fail(f'{self.graph.label(theirs)} is not shown unique, so joining on it could repeat rows')
+            return None
+        joined = self.join(relation, theirs, self.ref(at, ours), key=True)
+        if joined is not None:
+            self.keyed[(at.alias, relation.id)] = joined
+        return joined
+
+    def follow(self, at: At, relationship: Relationship, forward: bool) -> At | None:
+        """From ``at``, along ``relationship`` walked from its referring side (``forward``) or
+        towards it: the relation holding the entity reached, or None, with ``problem`` saying why."""
+        if relationship.columns is None:
+            self.fail(f'{relationship.source} -> {relationship.target} has no columns to join on')
+            return None
+        referring, key = relationship.columns
+        here_id, there_id = (referring, key) if forward else (key, referring)
+        here_column, there_column = self.graph.nodes.get(here_id), self.graph.nodes.get(there_id)
+        here = self.graph.parent_of(here_column) if here_column is not None else None
+        there = self.graph.parent_of(there_column) if there_column is not None else None
+        if here_column is None or there_column is None or here is None or there is None:
+            self.fail(f'a column of {relationship.via} is not in the graph')
+            return None
+        walked = relationship.source if forward else relationship.target
+        current = self.by_key(walked, at, here)
+        if current is None or here.id == there.id:
+            return current  # one row holds the next entity too: nothing more to join
+        return self.join(there, there_column, self.ref(current, here_column), key=False)
+
+    def mark(self) -> tuple[int, int, dict[tuple[str, str], At], set[str], str | None]:
+        return len(self.joins), len(self.at), dict(self.keyed), set(self.used), self.problem
+
+    def restore(self, mark: tuple[int, int, dict[tuple[str, str], At], set[str], str | None]) -> None:
+        joins, at, self.keyed, self.used, self.problem = mark
+        del self.joins[joins:], self.at[at:]
+
+    def text(self, dialect: str | None) -> str:
+        """``FROM`` and ``JOIN`` lines, one for each relation read."""
+        table = self.table(self.root.relation)
+        # One generator for every line: making one for each is most of the cost of a short path.
+        generator = sqlglot.Dialect.get_or_raise(dialect).generator()
+        lines = [f'FROM {generator.generate(table.as_(self.root.alias)) if table is not None else ""}']
+        lines += [generator.generate(join) for join in self.joins]
+        return '\n'.join(lines)
+
+
+def _joins(graph: Graph, ontology: Ontology, path: list[tuple[Relationship, bool]]) -> str | None:
+    """The joins that follow ``path`` from the relation of its first step, as text; None when a
+    relation has no warehouse name or a join would land on an entity's key not shown unique."""
     first, forward = path[0]
     if first.columns is None:
         return None
-    start = parent(first.columns[0] if forward else first.columns[1])
-    start_table = _table_sql(graph, start) if start is not None else None
-    if start is None or start_table is None:
+    start = graph.nodes.get(first.columns[0] if forward else first.columns[1])
+    relation = graph.parent_of(start) if start is not None else None
+    if relation is None:
         return None
-    current: tuple[Node, str] = (start, alias(start))
-    lines.append(f'FROM {start_table} AS {current[1]}')
-    for relationship, forward in path:
-        if relationship.columns is None:
-            return None
-        referring_id, key_id = relationship.columns
-        here_id, there_id = (referring_id, key_id) if forward else (key_id, referring_id)
-        here_column, there_column = graph.nodes.get(here_id), graph.nodes.get(there_id)
-        here_relation, there_relation = parent(here_id), parent(there_id)
-        if here_column is None or there_column is None or here_relation is None or there_relation is None:
-            return None
-        if isinstance(relationship, _Row) and here_relation.id == there_relation.id:
-            if here_relation.id != current[0].id:
-                # The row's relation is not the one joined: join it on the walked entity's key.
-                walked = relationship.source if forward else relationship.target
-                ours, theirs = key_in(walked, current[0]), key_in(walked, here_relation)
-                if ours is None or theirs is None:
-                    return None
-                name = join(here_relation, theirs, ref(current[1], ours))
-                if name is None:
-                    return None
-                current = (here_relation, name)
-            continue  # the same row holds the next entity: nothing more to join
-        if here_relation.id != current[0].id:
-            # Another relation holding the entity walked from: join it on that entity's key.
-            walked = relationship.source if forward else relationship.target
-            ours, theirs = key_in(walked, current[0]), key_in(walked, here_relation)
-            if ours is None or theirs is None:
-                return None
-            name = join(here_relation, theirs, ref(current[1], ours))
-            if name is None:
-                return None
-            current = (here_relation, name)
-        name = join(there_relation, there_column, ref(current[1], here_column))
-        if name is None:
-            return None
-        current = (there_relation, name)
-    return '\n'.join(lines)
+    joins = Joins(graph, ontology, relation, kind='')
+    if joins.table(relation) is None:
+        return None
+    at: At | None = joins.root
+    for relationship, walked_forward in path:
+        at = joins.follow(at, relationship, walked_forward) if at is not None else None
+    dialect = graph.meta.get('dialect')
+    return joins.text(dialect if isinstance(dialect, str) else None) if at is not None else None
 
 
 def _unknown(kind: str, name: str, names: list[str]) -> QueryError:

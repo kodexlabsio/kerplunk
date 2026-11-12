@@ -17,7 +17,7 @@ from konstruct.core.graph import Graph, Node
 from konstruct.inputs.dbt import semantic_metrics
 from konstruct.interfaces.cli import main
 from konstruct.semantics.ontology import Ontology, Relationship, derive
-from konstruct.semantics.world import _compose, _shortest, all_metrics, entity, metrics, relate
+from konstruct.semantics.world import _compose, all_metrics, entity, metrics, relate, shortest
 
 from .test_ontology import _relation, _term, _unique, shop
 
@@ -145,7 +145,7 @@ def test_the_most_trusted_of_the_shortest_paths() -> None:
             link('c', 'd', 'declared'),
         ]
     )
-    path = _shortest(ontology, 'a', 'd')
+    path = shortest(ontology, 'a', 'd')
     assert path is not None and [r.target for r, _ in path] == ['c', 'd']
 
 
@@ -177,7 +177,7 @@ def test_relate_finds_the_fewest_relationships(edges: list[tuple[int, int]], sta
                         seen.add(b)
                         nxt.append(b)
         frontier = nxt
-    path = _shortest(ontology, f'e{start}', f'e{end}')
+    path = shortest(ontology, f'e{start}', f'e{end}')
     if f'e{end}' not in seen:
         assert path is None
     else:
@@ -582,7 +582,7 @@ def test_a_failed_relationship_is_walked_last() -> None:
             link('b', 'd', 'inferred'),
         ]
     )
-    path = _shortest(ontology, 'a', 'd')
+    path = shortest(ontology, 'a', 'd')
     assert path is not None and [(r.source, r.target) for r, _ in path] == [('a', 'b'), ('b', 'd')]
 
 
@@ -601,6 +601,19 @@ def test_relate_joins_another_relation_of_an_entity_on_its_key() -> None:
         'JOIN db.main.stg_orders AS stg_orders ON stg_orders.order_id = orders.order_id\n'
         'JOIN db.main.payments AS payments ON payments.order_id = stg_orders.order_id'
     )
+
+
+def test_relate_joins_another_relation_of_an_entity_only_on_a_key_shown_unique() -> None:
+    """stg_orders holds the order entity, as a definition says, but nothing shows its key
+    unique: joining it on that key could repeat each order, so relate writes no joins."""
+    g = _shop()
+    staged = _relation(g, 'stg_orders', ['order_id', 'customer_id'])
+    _term(g, 'Order', ['model.shop.orders#order_id', f'{staged.id}#order_id'], kind='entity')
+    g.nodes['model.shop.payments'].attrs['conditions'] = [
+        'JOIN ON: db.main.payments.order_id = db.main.stg_orders.order_id'
+    ]
+    connection = relate(g, 'customer', 'payment')
+    assert connection.found and connection.join is None
 
 
 # What is and is not proposed
