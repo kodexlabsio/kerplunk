@@ -687,7 +687,7 @@ def _select(
 
 
 def _build(graph: Graph, root: Path, graph_file: Path) -> Build:
-    from konstruct.engine.build import changed_inputs
+    from konstruct.engine.watch import changed_inputs
 
     commit = run_git(root, 'rev-parse', '--verify', '-q', 'HEAD', check=False).strip() or None
     status = run_git(root, 'status', '--porcelain', '--untracked-files=no', check=False) if commit else ''

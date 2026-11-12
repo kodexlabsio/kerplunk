@@ -15,7 +15,6 @@ import os
 import re
 import sys
 import textwrap
-import webbrowser
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
@@ -645,6 +644,8 @@ def cmd_open(args: argparse.Namespace, console: Console) -> int:
         return 1
     console.print(page.as_uri())
     if not args.print_only:
+        import webbrowser
+
         webbrowser.open(page.as_uri())
     return 0
 

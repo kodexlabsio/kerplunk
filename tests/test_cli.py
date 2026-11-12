@@ -480,6 +480,22 @@ def test_help_loads_neither_the_build_nor_the_sql_parser(args: list[str]) -> Non
     assert shown[-1] == '[]'
 
 
+@pytest.mark.parametrize('command', ['trace', 'impact'])
+def test_walks_load_neither_the_build_nor_the_sql_parser(jaffle_built_graph: Path, command: str) -> None:
+    """A walk reads the graph and asks whether its inputs changed; neither needs sqlglot, Jinja,
+    YAML or the build."""
+    code = (
+        'import sys\n'
+        'from konstruct.interfaces.cli import main\n'
+        f'assert main(["-C", {str(jaffle_built_graph)!r}, {command!r}, "orders.amount"]) == 0\n'
+        "print(sorted(m for m in ('sqlglot', 'jinja2', 'yaml', 'konstruct.engine.build') if m in sys.modules))\n"
+    )
+    shown = subprocess.run(
+        [sys.executable, '-c', code], capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+    assert shown[-1] == '[]'
+
+
 def test_every_hint_names_a_command_the_parser_accepts() -> None:
     # An error's hint is a command to try next, so it must parse: a wrong option would send the
     # user, or an agent, to a second error.

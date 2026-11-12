@@ -266,7 +266,8 @@ def inspect(
     """What Konstruct finds at ``path``; with ``follow``, also in each repository it lists, though
     not in theirs, as the build does not follow them. Installed plugins are listed with whether
     the project enables them, without loading any (``konstruct plugins`` loads them)."""
-    from konstruct.engine.build import changed_inputs, repository_name
+    from konstruct.engine.build import repository_name
+    from konstruct.engine.watch import changed_inputs
     from konstruct.interfaces.project import find_out_dir
     from konstruct.plugins.registry import Plugins
 

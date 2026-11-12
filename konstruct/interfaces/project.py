@@ -41,9 +41,10 @@ if TYPE_CHECKING:
     from konstruct.analysis.sensitivity import Sensitivity, Settings
     from konstruct.analysis.verify import Engine, Verification
     from konstruct.analysis.why import Why
-    from konstruct.engine.build import BuildResult, Judged
+    from konstruct.engine.build import BuildResult
     from konstruct.engine.config import Config
     from konstruct.engine.trust import Trust
+    from konstruct.engine.watch import Judged
     from konstruct.plugins.registry import Plugins
     from konstruct.semantics.ontology import Ontology
     from konstruct.semantics.world import Connection, EntityDetail, Metrics
@@ -259,7 +260,7 @@ class Project:
         Returns:
             Paths relative to the project root; empty when the graph is up to date or not built.
         """
-        from konstruct.engine.build import changed_inputs
+        from konstruct.engine.watch import changed_inputs
 
         return changed_inputs(self.graph_path, self.graph, self._judged) if self.has_graph() else []
 

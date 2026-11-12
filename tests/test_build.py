@@ -669,7 +669,7 @@ def test_an_input_changed_while_the_build_runs_is_reported_changed(
 
 def test_what_counts_as_a_changed_input(tmp_path: Path) -> None:
     from konstruct import Project
-    from konstruct.engine.build import changed_inputs
+    from konstruct.engine.watch import changed_inputs
 
     (tmp_path / 'jobs').mkdir()
     sql = tmp_path / 'jobs' / 'users.sql'
