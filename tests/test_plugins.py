@@ -2294,14 +2294,55 @@ def test_konstruct_reads_no_attribute_it_does_not_reserve(
             read.add(key)
             return super().setdefault(key, default)
 
-    for cls in (graph_module.Node, graph_module.Edge):
-        original = cls.__init__
+    for name in ('Node', 'Edge'):
+        cls = getattr(graph_module, name)
 
-        def init(self: Any, *args: Any, __original: Any = original, **kwargs: Any) -> None:
-            __original(self, *args, **kwargs)
+        def init(self: Any, *args: Any, __base: Any = cls.__init__, **kwargs: Any) -> None:
+            # The native class sets its fields in __init__; this records its attributes after.
+            __base(self, *args, **kwargs)
             self.attrs = Recording(self.attrs)
 
-        monkeypatch.setattr(cls, '__init__', init)
+        recorded = type(name, (cls,), {'__init__': init})
+        # Every module that built nodes and edges by name builds these instead.
+        for module in list(sys.modules.values()):
+            if getattr(module, name, None) is cls:
+                monkeypatch.setattr(module, name, recorded)
+
+    def recorded_graph(graph: Any) -> Any:
+        for node in graph.nodes.values():
+            node.attrs = Recording(node.attrs)
+        for edge in graph.edges:
+            edge.attrs = Recording(edge.attrs)
+        return graph
+
+    base = graph_module.Graph
+
+    class Graph(base):  # type: ignore[misc, valid-type]
+        # A graph read from graph.json holds plain dicts: every command's reads are recorded.
+        @classmethod
+        def read(cls, path: Any) -> Any:
+            return recorded_graph(super().read(path))
+
+        @classmethod
+        def from_json(cls, data: bytes, source: str = 'the graph') -> Any:
+            return recorded_graph(super().from_json(data, source))
+
+        # The graph makes the edges and columns that `add_edge` and `add_column` return.
+        def add_edge(self, *args: Any, **kwargs: Any) -> Any:
+            edge = super().add_edge(*args, **kwargs)
+            if edge is not None and not isinstance(edge.attrs, Recording):
+                edge.attrs = Recording(edge.attrs)
+            return edge
+
+        def add_column(self, *args: Any, **kwargs: Any) -> Any:
+            node = super().add_column(*args, **kwargs)
+            if not isinstance(node.attrs, Recording):
+                node.attrs = Recording(node.attrs)
+            return node
+
+    for module in list(sys.modules.values()):
+        if getattr(module, 'Graph', None) is base:
+            monkeypatch.setattr(module, 'Graph', Graph)
     root = str(jaffle)
     assert main(['build', root, '-q']) == 0
     for command in (

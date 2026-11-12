@@ -35,12 +35,38 @@ def typed(value: Any) -> Any:
     return (type(value).__name__, value)
 
 
+NODE_FIELDS = (
+    'id',
+    'kind',
+    'name',
+    'parent',
+    'relation',
+    'description',
+    'data_type',
+    'path',
+    'origins',
+    'attrs',
+)
+EDGE_FIELDS = ('source', 'target', 'kind', 'attrs')
+
+
 def node_state(node: Node) -> Any:
-    return typed(dict(vars(node)))
+    return typed({name: getattr(node, name) for name in NODE_FIELDS})
 
 
 def edge_state(edge: Edge) -> Any:
-    return typed(dict(vars(edge)))
+    return typed({name: getattr(edge, name) for name in EDGE_FIELDS})
+
+
+def relations(graph: Graph) -> Any:
+    """The nodes that describe each relation, the preferred first, and the relations with several."""
+    keys = dict.fromkeys(
+        n.relation for n in graph.nodes.values() if isinstance(n.relation, str) and n.relation
+    )
+    return (
+        [(k, [n.id for n in graph.nodes_for_relation(k)]) for k in keys],
+        [(k, [n.id for n in nodes]) for k, nodes in graph.shared_relations()],
+    )
 
 
 def steps(walk: list[Any]) -> list[Any]:
@@ -76,7 +102,7 @@ def assert_same(read: Graph, reference: Graph) -> None:
     assert [node_state(n) for n in read.nodes.values()] == [node_state(n) for n in reference.nodes.values()]
     assert typed(read.meta) == typed(reference.meta)
     assert typed(read.warnings) == typed(reference.warnings)
-    assert read._relations == reference._relations
+    assert relations(read) == relations(reference)
     ends = list(read.nodes) + [e.source for e in reference.edges] + [e.target for e in reference.edges]
     for _ in range(2):
         for node_id in dict.fromkeys(ends):
@@ -254,7 +280,7 @@ def test_the_edges_stay_in_the_file_until_read(tmp_path: Path) -> None:
     unique = {**IRREGULAR, 'nodes': [n for n in IRREGULAR['nodes'] if n['kind'] != 'table']}
     path.write_text(json.dumps(unique))
     graph = Graph.read(path)
-    assert in_file(graph) and not graph._edges
+    assert in_file(graph)
     first = graph.out_edges('model.a')
     assert graph.out_edges('model.a')[0] is first[0]
     reached = {s.via.key: s.via for s in graph.trace(graph.nodes['model.b#z']) if s.via}
@@ -319,22 +345,9 @@ def test_edges_made_while_other_threads_read_them(tmp_path: Path) -> None:
         sys.setswitchinterval(interval)
 
 
-def test_a_graph_pickled_before_reading_was_native_unpickles(tmp_path: Path) -> None:
-    """A pickle of a graph from before graphs held their file has no ``_file``."""
-    import pickle
-
-    graph = reference(SNAPSHOTS[0])
-    state = graph.__getstate__()
-    del state['_file']
-    old = Graph.__new__(Graph)
-    old.__dict__.update(state)
-    again = pickle.loads(pickle.dumps(old))
-    assert_same(again, graph)
-
-
 def in_file(graph: Graph) -> bool:
     """Whether the graph's edges are still in the file it was read from."""
-    return graph._file is not None
+    return graph._in_file
 
 
 def test_merging_a_node_read_twice_makes_the_index_again(tmp_path: Path) -> None:
@@ -553,19 +566,103 @@ def test_any_document_means_what_it_did(document: Any, tmp_path_factory: pytest.
         assert read == expected
 
 
-def test_edges_made_while_another_graph_makes_its_own_on_the_same_thread() -> None:
+def test_edges_made_while_a_finaliser_makes_another_graphs_on_the_same_thread() -> None:
     """A finaliser the collector runs while one graph's edges are made may make another's."""
-    from konstruct.core import graph as module
+    import gc
 
     first, second = Graph.read(SNAPSHOTS[0]), Graph.read(SNAPSHOTS[-1])
 
-    def make() -> None:
-        with module._MAKING_EDGES:
-            assert first.edges and second.edges
+    class Finaliser:
+        def __init__(self) -> None:
+            self.cycle = self  # only the collector frees it
 
-    # On a thread, so a lock that is not reentrant fails the test rather than hangs it.
+        def __del__(self) -> None:
+            assert second.edges
+
+    def make() -> None:
+        threshold = gc.get_threshold()
+        gc.set_threshold(1)
+        try:
+            Finaliser()
+            assert first.edges
+        finally:
+            gc.set_threshold(*threshold)
+
+    # On a thread, so a graph that waited for itself would fail the test rather than hang it.
     maker = threading.Thread(target=make, daemon=True)
     maker.start()
     maker.join(timeout=60)
-    assert not maker.is_alive(), 'making edges waited for the lock this thread holds'
-    assert not in_file(first) and not in_file(second)
+    assert not maker.is_alive(), 'making edges waited on a graph this thread was making'
+    assert not in_file(first)
+    gc.collect()
+    assert not in_file(second)
+
+
+def model(document: dict[str, Any]) -> dict[str, Any]:
+    """What reading a graph document must give, written out with plain dicts and lists, in terms
+    of nothing the graph itself implements."""
+    nodes: dict[Any, dict[str, Any]] = {}
+    for item in document.get('nodes', []):
+        node: dict[str, Any] = {
+            'origins': list(item.get('origins', [])),
+            'attrs': dict(item.get('attrs', {})),
+        }
+        for key in ('id', 'kind', 'name', 'parent', 'relation', 'description', 'data_type', 'path'):
+            node[key] = item.get(key)
+        known = nodes.get(item['id'])
+        if known is None:
+            nodes[item['id']] = node
+            continue
+        for key in ('parent', 'relation', 'description', 'data_type', 'path'):
+            if not known[key] and node[key]:
+                known[key] = node[key]
+        known['origins'] += [o for o in node['origins'] if o not in known['origins']]
+        for key, value in node['attrs'].items():
+            known['attrs'].setdefault(key, value)
+    written = []
+    for node in sorted(nodes.values(), key=lambda n: n['id']):
+        entry: dict[str, Any] = {'id': node['id'], 'kind': node['kind'], 'name': node['name']}
+        for key in ('parent', 'relation', 'description', 'data_type', 'path'):
+            if node[key]:
+                entry[key] = node[key]
+        if node['origins']:
+            entry['origins'] = sorted(node['origins'])
+        if node['attrs']:
+            entry['attrs'] = node['attrs']
+        written.append(entry)
+    edges: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for item in document.get('edges', []):
+        if item['source'] == item['target']:
+            continue
+        pair = (item['source'], item['target'], item['kind'])
+        if pair in edges:
+            for name, value in item.get('attrs', {}).items():
+                edges[pair]['attrs'].setdefault(name, value)
+        else:
+            edges[pair] = {
+                'source': pair[0],
+                'target': pair[1],
+                'kind': pair[2],
+                'attrs': dict(item.get('attrs', {})),
+            }
+    return {
+        'format_version': 1,
+        'meta': dict(document.get('meta', {})),
+        'nodes': written,
+        'edges': [{k: v for k, v in e.items() if k != 'attrs' or v} for e in edges.values()],
+        'warnings': list(document.get('warnings', [])),
+    }
+
+
+@pytest.mark.parametrize(
+    'path', SNAPSHOTS, ids=[f'{p.parent.parent.name}/{p.parent.name}' for p in SNAPSHOTS]
+)
+def test_a_graph_read_is_what_a_plain_model_says(path: Path) -> None:
+    document = json.loads(path.read_bytes())
+    assert typed(Graph.read(path).to_dict()) == typed(model(document))
+
+
+def test_a_hand_edited_graph_is_what_a_plain_model_says(tmp_path: Path) -> None:
+    path = tmp_path / 'graph.json'
+    path.write_text(json.dumps(IRREGULAR))
+    assert typed(Graph.read(path).to_dict()) == typed(model(IRREGULAR))

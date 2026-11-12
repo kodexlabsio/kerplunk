@@ -162,6 +162,29 @@ def test_the_world_model_at_scale(tmp_path: Path) -> None:
     print(f'\n{MODELS} models: {found}')
 
 
+def test_graph_json_is_written_and_read_back_fast(tmp_path: Path) -> None:
+    """The graph of 2,000 models (23 MB of JSON) is written in a fraction of a second, by
+    the native core, to the same bytes whether the graph was built or read from graph.json."""
+    from konstruct.core.graph import Graph
+
+    make_project(tmp_path, models=2000, columns_per_model=15)
+    built = Project(tmp_path).build(run_dbt=False, warehouses=False).graph
+    path = tmp_path / 'konstruct-out' / 'graph.json'
+    written = tmp_path / 'again.json'
+    timings = []
+    for _ in range(3):
+        started = time.perf_counter()
+        built.write(written)
+        timings.append(time.perf_counter() - started)
+    assert written.read_bytes() == path.read_bytes()
+    read = Graph.read(path)
+    read.write(written)
+    assert written.read_bytes() == path.read_bytes()
+    size = path.stat().st_size / 1e6
+    assert min(timings) < 0.6, f'writing {size:.1f} MB took {min(timings):.2f}s'
+    print(f'\n2000 models: {size:.1f} MB of graph.json written in {min(timings):.2f}s')
+
+
 def _graph(root: Path) -> str:
     data = json.loads((root / 'konstruct-out' / 'graph.json').read_text())
     data['meta'] = {

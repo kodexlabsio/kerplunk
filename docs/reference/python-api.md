@@ -609,7 +609,7 @@ for pinned in pins.changes:
 ## The Graph
 
 `project.graph` is the {class}`konstruct.Graph` behind every answer, for anything the questions
-above do not cover. Nodes and edges are plain dataclasses; the edge kinds and their directions are
+above do not cover. Nodes and edges are dataclasses (`dataclasses.fields`, `asdict` and `replace` work on them; `vars(node)` is empty, as their fields are not in a `__dict__`); the edge kinds and their directions are
 listed in [Outputs and the Graph Format](outputs.md).
 
 ```python

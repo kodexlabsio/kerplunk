@@ -33,6 +33,8 @@ pub mod identity;
 pub mod json;
 pub mod keys;
 pub mod load;
+#[cfg(feature = "python")]
+pub(crate) mod model;
 pub mod names;
 pub mod pysyntax;
 pub mod route;
@@ -42,6 +44,7 @@ pub mod serve;
 pub mod substring;
 pub mod vector;
 pub mod words;
+pub mod write;
 
 #[cfg(test)]
 mod testing;

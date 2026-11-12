@@ -123,11 +123,6 @@ pub(crate) struct GraphIndex {
 }
 
 impl GraphIndex {
-    /// The index `inner`, shared with whatever else holds it (a loaded `GraphFile`).
-    pub(crate) fn shared(inner: Arc<graph::GraphIndex>) -> Self {
-        Self { inner }
-    }
-
     fn ordinals(&self, ids: &[Key]) -> Vec<u32> {
         ids.iter().filter_map(|id| self.inner.node(id)).collect()
     }
@@ -601,18 +596,36 @@ mod core_module {
     #[pymodule_export]
     use crate::identity::python::FormulaSet;
     #[pymodule_export]
-    use crate::load::python::GraphFile;
+    use crate::model::{
+        Edge, Graph, Node, Step, column_id, reading_key, relation_key, split_reading,
+    };
     #[pymodule_export]
     use crate::scan::python::scan_python_files;
     #[pymodule_export]
     use crate::vector::python::{VectorIndex, concept, terms};
+    #[pymodule_export]
+    use crate::write::files::{real_directory, write_text};
 
-    /// Refuses to load on a processor the routines cannot run on, before anything calls them.
+    /// Refuses to load on a processor the routines cannot run on, before anything calls them,
+    /// and adds the node kinds that are relations, and the order SQL that names a relation
+    /// resolves them in when several nodes describe it.
     #[pymodule_init]
     fn init(module: &Bound<'_, PyModule>) -> PyResult<()> {
         if let Some(reason) = crate::unsupported_processor() {
             return Err(PyImportError::new_err(reason));
         }
+        crate::write::files::read_umask();
+        let py = module.py();
+        module.add(
+            "RELATION_KINDS",
+            pyo3::types::PyFrozenSet::new(py, crate::model::RELATION_KINDS)?,
+        )?;
+        let order = pyo3::types::PyDict::new(py);
+        for kind in ["source", "model", "snapshot", "seed", "table"] {
+            order.set_item(kind, crate::model::priority(kind))?;
+        }
+        module.add("RELATION_PRIORITY", order)?;
+        crate::model::install_dataclass_metadata(py, module)?;
         crate::airflow::python::add_tables(module)?;
         crate::dagster::python::add_tables(module)
     }

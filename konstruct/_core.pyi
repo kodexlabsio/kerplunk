@@ -9,9 +9,15 @@ reads the graph files itself and asks ``konstruct.interfaces.http_api`` for ever
 ``konstruct.inputs.airflow`` and ``konstruct.inputs.dagster`` re-export the readers of the
 orchestrators' files, whose records here are the ones the build and the plugins read."""
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from dataclasses import Field
 from os import PathLike
-from typing import Any, Self, final
+from pathlib import Path
+from typing import Any, ClassVar, Self, TypeVar, final
+
+from konstruct.core.graph import EdgeKind, IndexBasis, NodeKind
+
+_Index = TypeVar('_Index')
 
 StrPath = str | PathLike[str]
 
@@ -49,35 +55,6 @@ class GraphIndex:
         """Whether a column of ``relation`` feeds ``consumer``, which so records the columns it reads."""
     def neighbours(self, node: str, downstream: bool) -> list[int]:
         """The edges a walk follows from ``node``."""
-
-@final
-class GraphFile:
-    """A parsed ``graph.json``: its nodes are made Python objects by ``load``, its edges one at a
-    time, when first asked for."""
-
-    def __init__(self, data: bytes) -> None:
-        """Raises ``ValueError(message, offset)`` when ``data`` is not JSON, and ``OverflowError``
-        when it is larger than 2 GiB."""
-    def document(self) -> Any:
-        """The whole document as Python values, for one that ``load`` refuses."""
-    def header(self) -> Any:
-        """The document's members other than ``nodes`` and ``edges``, or the document itself when
-        it is not an object."""
-    def load(self, node_type: type, edge_type: type) -> tuple[dict[str, Any], list[tuple[int, Any]]]:
-        """The first node of each id, by id, and the later ones with an id that came before, each
-        with the number of first nodes before it. Raises ``ValueError(message)`` when the
-        document is not a graph as Konstruct writes one."""
-    def index(self) -> GraphIndex:
-        """The index of the edges, numbered as this file numbers them."""
-    def __len__(self) -> int: ...
-    def __getitem__(self, ordinal: int, /) -> Any:
-        """The edge with this ordinal."""
-    def edges(self) -> list[Any]:
-        """Every edge, in order."""
-    def out_edges(self, node: str, kind: str | None = None) -> list[Any]:
-        """The edges leaving ``node``, of kind ``kind`` if given."""
-    def in_edges(self, node: str, kind: str | None = None) -> list[Any]:
-        """The edges arriving at ``node``, of kind ``kind`` if given."""
 
 @final
 class RelationNames:
@@ -573,3 +550,265 @@ def folder_digest(folder: StrPath, extension: str) -> str:
 def files_under(folder: StrPath) -> list[tuple[str, list[int]]]:
     """Every regular file under ``folder`` at any depth, with its path from ``folder`` and its
     identity."""
+
+def write_text(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` through a new file in the same directory that is then renamed
+    over it, so a reader sees the old file or the new one, never half of one. A symbolic link at
+    ``path`` is replaced, not followed, and a regular file keeps its mode."""
+
+def real_directory(base: Path, *parts: str) -> Path:
+    """``base`` joined with ``parts``, made as real directories: a symbolic link in the way is
+    removed first, so one committed inside the output directory cannot send outputs elsewhere."""
+
+RELATION_KINDS: frozenset[str]
+"""The node kinds that are relations: ``source``, ``table``, ``model``, ``seed`` and ``snapshot``."""
+RELATION_PRIORITY: dict[str, int]
+"""When several nodes describe one physical relation (a seed and the dbt source that reads it),
+SQL that names the relation resolves to the kind with the lowest number."""
+
+def column_id(parent_id: str, column: str) -> str: ...
+def reading_key(key: str, reading: str = '') -> str:
+    """How canonical text (a relation's conditions, a column's formula) names one reading of a
+    relation that a query reads more than once: the relation key with each ``#`` in it doubled,
+    then ``#`` and the reading (``db.main.orders#2``). A relation read once is its key, escaped
+    the same way, so a relation named ``events#2`` is never taken for a reading of ``events``."""
+
+def split_reading(name: str) -> tuple[str, str]:
+    """The relation key and the reading a name in canonical text stands for (see
+    :func:`reading_key`): ``db.main.orders#2`` is reading ``2`` of ``db.main.orders``, and
+    ``main.events##2`` is the relation ``main.events#2``."""
+
+def relation_key(*parts: str | None) -> str:
+    """Canonical, case-insensitive key for a warehouse relation, e.g. ``jaffle.main.orders``."""
+
+class Node:
+    __dataclass_fields__: ClassVar[dict[str, Field[Any]]]
+    __match_args__: ClassVar[tuple[str, ...]] = (
+        'id',
+        'kind',
+        'name',
+        'parent',
+        'relation',
+        'description',
+        'data_type',
+        'path',
+        'origins',
+        'attrs',
+    )
+    """A node of the graph."""
+
+    id: str
+    """A unique id, such as ``model.<package>.<name>``, ``table.<relation>``, ``<relation id>#<column>``, ``task.<dag>.<task>``, ``looker.view.<view>``, ``powerbi.table.<model>.<table>`` or ``term.<slug>``."""
+    kind: NodeKind
+    """What the node is."""
+    name: str
+    """Its own name."""
+    parent: str | None
+    """For a column, its relation's id."""
+    relation: str | None
+    """For a relation, its lower-case warehouse name, such as ``shop.main.orders``."""
+    description: str | None
+    """Description from dbt, the warehouse or definitions.yml."""
+    data_type: str | None
+    """Column type."""
+    path: str | None
+    """The file that defines it, relative to the project."""
+    origins: list[str]
+    """Inputs it came from."""
+    attrs: dict[str, Any]
+    """Everything else, such as expressions, conditions, schedules, usage and term fields."""
+
+    def __replace__(self, **changes: Any) -> Self: ...
+    def __init__(
+        self,
+        id: str,
+        kind: NodeKind,
+        name: str,
+        parent: str | None = None,
+        relation: str | None = None,
+        description: str | None = None,
+        data_type: str | None = None,
+        path: str | None = None,
+        origins: list[str] | None = None,
+        attrs: dict[str, Any] | None = None,
+    ) -> None: ...
+    def to_dict(self) -> dict[str, Any]: ...
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Node: ...
+
+class Edge:
+    __dataclass_fields__: ClassVar[dict[str, Field[Any]]]
+    __match_args__: ClassVar[tuple[str, ...]] = ('source', 'target', 'kind', 'attrs')
+    """An edge of the graph; ``konstruct.core.graph`` gives each kind's direction."""
+
+    source: str
+    """Source node id."""
+    target: str
+    """Target node id."""
+    kind: EdgeKind
+    """Edge kind."""
+    attrs: dict[str, Any]
+    """Details such as ``transform``, ``role``, ``verified`` and ``via``."""
+
+    def __replace__(self, **changes: Any) -> Self: ...
+    def __init__(
+        self, source: str, target: str, kind: EdgeKind, attrs: dict[str, Any] | None = None
+    ) -> None: ...
+    @property
+    def key(self) -> tuple[str, str, str]: ...
+    def to_dict(self) -> dict[str, Any]: ...
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Edge: ...
+
+class Step:
+    __dataclass_fields__: ClassVar[dict[str, Field[Any]]]
+    __match_args__: ClassVar[tuple[str, ...]] = ('node', 'depth', 'via', 'previous')
+    """One node reached by a traversal, with the edge that reached it."""
+
+    node: Node
+    """The node reached."""
+    depth: int
+    """Steps from the start."""
+    via: Edge | None
+    """The edge that reached it."""
+    previous: str | None
+    """The id of the node it was reached from."""
+
+    def __replace__(self, **changes: Any) -> Self: ...
+    def __init__(self, node: Node, depth: int, via: Edge | None, previous: str | None) -> None: ...
+
+class Graph:
+    """The nodes and edges of a project and the questions asked of them."""
+
+    nodes: dict[str, Node]
+    warnings: list[str]
+    meta: dict[str, Any]
+
+    @property
+    def _versions(self) -> dict[IndexBasis, int]:
+        """For each basis an index can have, a version bumped whenever that part of the graph
+        changes; each cached index records the version it was made from."""
+    @property
+    def _indexes(self) -> dict[str, tuple[int, Any]]:
+        """The indexes made so far, each with the version it was made from."""
+    @property
+    def _in_file(self) -> bool:
+        """Whether the edges are still in the file the graph was read from, not yet Python objects."""
+
+    def __init__(self) -> None: ...
+    def add_node(self, node: Node) -> Node:
+        """Add a node, or merge it into an existing node with the same id."""
+    def add_column(
+        self,
+        parent: Node,
+        name: str,
+        *,
+        data_type: str | None = None,
+        description: str | None = None,
+        origin: str | None = None,
+        attrs: dict[str, Any] | None = None,
+    ) -> Node: ...
+    def add_edge(self, source: str, target: str, kind: EdgeKind, **attrs: Any) -> Edge | None:
+        """Add an edge, or merge ``attrs`` into an existing one of the same kind between the same nodes. Self-loops are ignored and return None."""
+    def remove_edge(self, edge: Edge) -> None: ...
+    def changed(self) -> None:
+        """Note that nodes or edges were edited in place (a name, a relation key, an edge's
+        ``role``), so the indexes queries use are made again."""
+    def indexed(self, name: str, build: Callable[[Graph], _Index], *, basis: IndexBasis = 'graph') -> _Index:
+        """The index ``name`` that ``build`` makes from the graph, kept until what it is made from
+        changes: anything in the graph (``'graph'``), a node (``'nodes'``, for an index that reads
+        no edges) or a relation (``'relations'``)."""
+    def warn(self, message: str) -> None: ...
+    @property
+    def edges(self) -> list[Edge]: ...
+    def out_edges(self, node_id: str, kind: str | None = None) -> list[Edge]:
+        """Edges leaving ``node_id``, optionally only of one kind."""
+    def in_edges(self, node_id: str, kind: str | None = None) -> list[Edge]:
+        """Edges arriving at ``node_id``, optionally only of one kind."""
+    def node_for_relation(self, key: str) -> Node | None:
+        """The node SQL naming this relation refers to (see RELATION_PRIORITY)."""
+    def nodes_for_relation(self, key: str) -> list[Node]:
+        """Every node that describes this relation, the preferred one first."""
+    def node_for_reading(self, name: str) -> Node | None:
+        """The relation a name in canonical text stands for, whether the relation itself or one
+        reading of it (see :func:`split_reading`)."""
+    def shared_relations(self) -> Iterator[tuple[str, list[Node]]]: ...
+    def relations(self) -> Iterator[Node]: ...
+    def guessed_relations(self) -> list[str]:
+        """The relations whose columns in the graph may not be all they have: the build marks a
+        relation ``columns_guessed`` unless the warehouse or a dbt catalog lists its columns, or SQL
+        that writes it selects them without a star it cannot expand."""
+    def built(self, relation: Node) -> bool:
+        """Whether something in the graph builds ``relation``: a model, seed or snapshot, a file of
+        its own, a task, or SQL that gives its columns expressions. A source, or a table the graph
+        only reads, is not built."""
+    def columns_of(self, node_id: str) -> list[Node]:
+        """The columns of a relation, in their order."""
+    def column(self, parent_id: str, name: str) -> Node | None:
+        """The column ``name`` of the relation ``parent_id``, or None."""
+    def parent_of(self, node: Node) -> Node | None:
+        """A column's relation, or None for anything else."""
+    def label(self, node: Node) -> str:
+        """Short human label: ``orders.amount`` for a column, ``orders`` for a relation."""
+    def resolve(self, ref: str) -> list[Node]:
+        """Find the nodes a user reference such as ``orders.amount`` or ``stg_orders`` names."""
+    def downstream_edges(self, node_id: str) -> Iterator[tuple[Edge, str]]:
+        """Edges along which a change to ``node_id`` propagates, with the node they reach:
+        ``feeds`` forwards, and ``derived_from``, ``tests`` and ``runs`` backwards."""
+    def upstream_edges(self, node_id: str) -> Iterator[tuple[Edge, str]]:
+        """Edges along which ``node_id`` depends on something, with the node they reach:
+        ``feeds`` and ``runs`` backwards, and ``derived_from`` forwards."""
+    def expand(self, node: Node) -> list[str]:
+        """A relation stands for itself and all its columns; anything else for itself."""
+    def impact(self, node: Node, max_depth: int | None = None) -> list[Step]:
+        """Everything downstream of ``node``.
+
+        A column reached through a join, filter or group-by (``role = "reference"``) is reported,
+        but the walk does not continue from the whole relation it reached, so one join key does
+        not mark every downstream column as affected. For a column, the exposures that use and
+        the tasks that read or run each affected relation are reported too, and so are the tasks
+        whose SQL an edge on the way came from (an Airflow SQL task, a Dagster asset). Tests and
+        the tasks that run a node are reported, not walked through.
+        """
+    def trace(self, node: Node, max_depth: int | None = None) -> list[Step]:
+        """Everything upstream of ``node``. For a column, the tasks that build each relation on the
+        way (including the column's own) are reported too."""
+    def fed_by_columns_of(self, consumer: str, relation: str) -> bool:
+        """Whether ``consumer`` (a Looker view, say) records which of ``relation``'s columns it
+        reads, so a column reaches it only through its own edge, and walks do not pass it every
+        column of ``relation``."""
+    def path(self, start: Node, end: Node) -> list[Step]:
+        """Shortest path from ``start`` to ``end``, following data flow in either direction: downstream
+        if there is a path that way, else upstream, else either way through ``contains`` and
+        ``precedes`` too. Of several paths of the same length, each step takes the neighbour whose
+        id sorts first, so the same path is found whatever order the build added the edges in."""
+    def to_dict(self) -> dict[str, Any]:
+        """The graph as plain data: ``format_version``, ``meta``, ``nodes``, ``edges`` and ``warnings``."""
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], source: str = 'the graph') -> Graph:
+        """The graph in ``data``, as ``to_dict`` writes it in this or any earlier format.
+
+        Raises:
+            konstruct.FormatError: A newer Konstruct wrote ``data`` (``source`` names it).
+        """
+    def write(self, path: Path) -> None:
+        """Write the graph to ``path`` as JSON (``graph.json``)."""
+    @classmethod
+    def read(cls, path: Path) -> Graph:
+        """Load a graph from a ``graph.json`` file, written by this or any earlier Konstruct.
+
+        Raises:
+            json.JSONDecodeError: The file is not JSON; the message says where and why.
+            konstruct.FormatError: A newer Konstruct wrote it, it is not a graph, or it is larger
+                than 2 GiB.
+        """
+    @classmethod
+    def from_json(cls, data: bytes, source: str = 'the graph') -> Graph:
+        """The graph in ``data``, the bytes of a ``graph.json``, as ``read`` reads a file.
+
+        Raises:
+            json.JSONDecodeError: ``data`` is not JSON; the message says where and why.
+            konstruct.FormatError: A newer Konstruct wrote it, it is not a graph, or it is larger
+                than 2 GiB (``source`` names it).
+        """
+    def stats(self) -> dict[str, int]: ...

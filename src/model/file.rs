@@ -1,24 +1,25 @@
-//! `konstruct._core.GraphFile`: `graph.json` as `Graph.read` reads it.
+//! A `graph.json` as `Graph.read` reads it.
 //!
 //! The file is parsed once ([`Tape::parse`]); `Graph.read` checks its format from the header,
-//! then [`GraphFile::load`] makes the nodes Python objects and the index from the shape. The
-//! edges stay on the tape until Python reads one: each is made once, when first asked for, and
-//! the same object is returned from then on, so code that edits an edge's attributes sees its
-//! edits whichever way it reaches the edge again.
+//! then [`File::load`] makes the nodes Python objects and the index from the shape. The edges
+//! stay on the tape until Python reads one: each is made once, when first asked for, and the
+//! same object is returned from then on, so code that edits an edge's attributes sees its edits
+//! whichever way it reaches the edge again.
 
 use std::sync::{Arc, Mutex};
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
-use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyList, PyString, PyType};
+use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyList, PyString};
 
 use crate::fnv::FnvHashMap;
 use crate::graph;
 use crate::json::tape::{Doc, Kind, Number, Tape};
-use crate::python::{GraphIndex, string};
+use crate::load::{NONE, Shape};
+use crate::python::string;
 
-use super::{NONE, Shape};
+use super::node::{Edge, Node};
 
 /// Strings up to this many bytes are made once per file and shared: kinds, types, origins,
 /// attribute keys and values such as `direct`.
@@ -96,6 +97,23 @@ impl<'py> Convert<'py, '_> {
     }
 }
 
+/// `json.JSONDecodeError` for `message` at byte `at` of `bytes`: the position is counted in
+/// characters, as the standard library's decoder counts it.
+pub(crate) fn decode_error(py: Python<'_>, bytes: &[u8], message: &str, at: usize) -> PyErr {
+    let text = String::from_utf8_lossy(bytes);
+    let position = String::from_utf8_lossy(&bytes[..at.min(bytes.len())])
+        .chars()
+        .count();
+    let made = py
+        .import("json")
+        .and_then(|json| json.getattr("JSONDecodeError"))
+        .and_then(|class| class.call1((message, text.as_ref(), position)));
+    match made {
+        Ok(error) => PyErr::from_value(error),
+        Err(error) => error,
+    }
+}
+
 /// Python's cyclic garbage collector, paused while the nodes are made: they are new objects
 /// that hold no cycles, and a collection every few thousand of them would walk every object
 /// made so far again.
@@ -112,7 +130,7 @@ impl Paused {
 impl Drop for Paused {
     fn drop(&mut self) {
         if self.0 {
-            // SAFETY: as in `new`; the value lives only within `GraphFile::load`, which holds
+            // SAFETY: as in `new`; the value lives only within `File::load`, which holds
             // the interpreter throughout.
             unsafe {
                 pyo3::ffi::PyGC_Enable();
@@ -121,52 +139,231 @@ impl Drop for Paused {
     }
 }
 
-/// What [`GraphFile::load`] makes, and what the edges are made from.
+/// What [`File::load`] makes, and what the edges are made from.
 struct Loaded {
     shape: Shape,
     index: Arc<graph::GraphIndex>,
-    edge_type: Py<PyType>,
-    new: Py<PyAny>,
     /// The id of each node and edge endpoint, by ordinal: the node's own string for a node.
     names: Vec<PyOnceLock<Py<PyString>>>,
     /// Each edge kind, by its index in `shape.kinds`.
     kinds: Vec<Py<PyString>>,
-    edges: Vec<PyOnceLock<Py<PyAny>>>,
+    edges: Vec<PyOnceLock<Py<Edge>>>,
     shared: Mutex<Shared>,
 }
 
-/// A parsed `graph.json`.
-#[pyclass(frozen, sequence, module = "konstruct._core")]
-pub struct GraphFile {
-    bytes: Py<PyBytes>,
-    tape: Tape,
-    loaded: PyOnceLock<Loaded>,
+/// Why bytes are not a JSON document the reader takes.
+pub(crate) enum OpenError {
+    /// Longer than the 2 GiB the reader takes.
+    TooLarge,
+    /// Not JSON: what is wrong, and the byte offset where that first shows.
+    Syntax { message: &'static str, at: usize },
 }
 
-impl GraphFile {
+/// The nodes of a loaded file, as `Graph.read` needs them.
+pub(crate) struct Nodes<'py> {
+    /// By id, the first node of each id.
+    pub(crate) by_id: Bound<'py, PyDict>,
+    /// The later nodes with an id that came before, each with the number of first nodes before
+    /// it, for `Graph.add_node` to merge.
+    pub(crate) later: Vec<(usize, Py<Node>)>,
+}
+
+/// A parsed `graph.json`.
+pub(crate) struct File {
+    bytes: Py<PyBytes>,
+    tape: Tape,
+    loaded: Option<Loaded>,
+}
+
+impl File {
+    /// Parses `data`.
+    pub(crate) fn open(py: Python<'_>, data: Bound<'_, PyBytes>) -> Result<Self, OpenError> {
+        let bytes = data.as_bytes();
+        if bytes.len() > crate::json::MAX_LEN {
+            return Err(OpenError::TooLarge);
+        }
+        let tape = py
+            .detach(|| Tape::parse(bytes))
+            .map_err(|error| OpenError::Syntax {
+                message: error.message,
+                at: error.at,
+            })?;
+        Ok(Self {
+            bytes: data.unbind(),
+            tape,
+            loaded: None,
+        })
+    }
+
     fn doc<'a>(&'a self, py: Python<'a>) -> Doc<'a> {
         self.tape.doc(self.bytes.as_bytes(py))
     }
 
-    fn loaded(&self, py: Python<'_>) -> PyResult<&Loaded> {
-        self.loaded
-            .get(py)
-            .ok_or_else(|| PyValueError::new_err("the graph is not loaded yet"))
+    fn loaded(&self) -> &Loaded {
+        self.loaded.as_ref().expect("the file is loaded")
     }
 
-    fn name<'py>(
-        &self,
-        py: Python<'py>,
-        loaded: &Loaded,
-        ordinal: u32,
-    ) -> PyResult<Bound<'py, PyString>> {
+    /// The whole document as Python values, as `Graph.from_dict` takes it: for a document that
+    /// is not a graph as Konstruct writes one, which `load` refuses.
+    pub(crate) fn document<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let _paused = Paused::new(py);
+        let mut shared = Shared::default();
+        Convert {
+            py,
+            doc: self.doc(py),
+            shared: &mut shared,
+        }
+        .value(0)
+    }
+
+    /// The document's members other than `nodes` and `edges`, or the document itself when it
+    /// is not an object.
+    pub(crate) fn header<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let doc = self.doc(py);
+        let mut shared = Shared::default();
+        let mut convert = Convert {
+            py,
+            doc,
+            shared: &mut shared,
+        };
+        if doc.kind(0) != Kind::Object {
+            return convert.value(0);
+        }
+        let header = PyDict::new(py);
+        for (key, value) in doc.members(0) {
+            if !(doc.is(key, "nodes") || doc.is(key, "edges")) {
+                header.set_item(convert.string(key), convert.value(value)?)?;
+            }
+        }
+        Ok(header.into_any())
+    }
+
+    /// Makes the nodes Python objects and the index from the document's shape; the edges stay on
+    /// the tape.
+    ///
+    /// Raises `ValueError(message)` when the document is not a graph as Konstruct writes one:
+    /// `document` gives it to `Graph.from_dict` instead.
+    pub(crate) fn load<'py>(&mut self, py: Python<'py>) -> PyResult<Nodes<'py>> {
+        let doc = self.tape.doc(self.bytes.as_bytes(py));
+        let mut shape = py
+            .detach(|| Shape::read(doc))
+            .map_err(PyValueError::new_err)?;
+        let index = Arc::new(std::mem::replace(
+            &mut shape.index,
+            graph::GraphIndex::builder().build(),
+        ));
+        let names: Vec<PyOnceLock<Py<PyString>>> = (0..index.endpoint_count())
+            .map(|_| PyOnceLock::new())
+            .collect();
+        let nodes = PyDict::new(py);
+        let mut later = Vec::new();
+        let mut shared = Shared::default();
+        {
+            let _paused = Paused::new(py);
+            let mut convert = Convert {
+                py,
+                doc,
+                shared: &mut shared,
+            };
+            let none = |py: Python<'py>| py.None().into_bound(py);
+            let mut ordinal = 0usize;
+            let mut last_parent: Option<(&[u8], Bound<'py, PyAny>)> = None;
+            for fields in &shape.nodes {
+                let id = PyString::new(py, &doc.text(fields.id as usize));
+                let kind = convert.string(fields.kind as usize);
+                let name = convert.value(fields.name as usize)?;
+                // A column's parent is a node, so its string is the parent's own id; the
+                // columns of a relation come together, so it is usually the last one's.
+                let parent = match fields.parent {
+                    NONE => none(py),
+                    parent if doc.kind(parent as usize) == Kind::String => {
+                        let raw = doc.raw(parent as usize);
+                        match &last_parent {
+                            Some((bytes, made)) if *bytes == raw => made.clone(),
+                            _ => {
+                                let text = doc.text(parent as usize);
+                                let made = match index.node(&crate::keys::from_str(&text)) {
+                                    Some(known) if (known as usize) < ordinal => {
+                                        self_name(py, &names, known)?.into_any()
+                                    }
+                                    _ => PyString::new(py, &text).into_any(),
+                                };
+                                last_parent = Some((raw, made.clone()));
+                                made
+                            }
+                        }
+                    }
+                    _ => none(py),
+                };
+                let node = Node {
+                    id: id.clone().into_any().unbind(),
+                    kind: kind.into_any().unbind(),
+                    name: name.unbind(),
+                    parent: parent.unbind(),
+                    relation: convert.field(fields.relation, none)?.unbind(),
+                    description: convert.field(fields.description, none)?.unbind(),
+                    data_type: convert.field(fields.data_type, none)?.unbind(),
+                    path: convert.field(fields.path, none)?.unbind(),
+                    origins: convert
+                        .field(fields.origins, |py| PyList::empty(py).into_any())?
+                        .unbind(),
+                    attrs: convert
+                        .field(fields.attrs, |py| PyDict::new(py).into_any())?
+                        .unbind(),
+                };
+                let node = Py::new(py, node)?;
+                if fields.first {
+                    names[ordinal]
+                        .set(py, id.clone().unbind())
+                        .expect("each node is made once");
+                    nodes.set_item(id, node)?;
+                    ordinal += 1;
+                } else {
+                    // With the number of nodes before it, so Python merges it where it was.
+                    later.push((ordinal, node));
+                }
+            }
+        }
+        let kinds = shape
+            .kinds
+            .iter()
+            .map(|kind| PyString::new(py, kind).unbind())
+            .collect();
+        let edges = (0..shape.edges.len()).map(|_| PyOnceLock::new()).collect();
+        self.loaded = Some(Loaded {
+            shape,
+            index,
+            names,
+            kinds,
+            edges,
+            shared: Mutex::new(shared),
+        });
+        Ok(Nodes {
+            by_id: nodes,
+            later,
+        })
+    }
+
+    /// The index of the graph's edges, for walks and paths.
+    pub(crate) fn index(&self) -> Arc<graph::GraphIndex> {
+        Arc::clone(&self.loaded().index)
+    }
+
+    /// The number of edges.
+    pub(crate) fn len(&self) -> usize {
+        self.loaded().edges.len()
+    }
+
+    fn name<'py>(&self, py: Python<'py>, ordinal: u32) -> PyResult<Bound<'py, PyString>> {
+        let loaded = self.loaded();
         made_once(py, &loaded.names[ordinal as usize], || {
             string(py, loaded.index.id(ordinal))
         })
     }
 
-    fn edge<'py>(&self, py: Python<'py>, ordinal: u32) -> PyResult<Bound<'py, PyAny>> {
-        let loaded = self.loaded(py)?;
+    /// The edge with this ordinal, made when first asked for.
+    pub(crate) fn edge<'py>(&self, py: Python<'py>, ordinal: u32) -> PyResult<Bound<'py, Edge>> {
+        let loaded = self.loaded();
         made_once(py, &loaded.edges[ordinal as usize], || {
             let ends = loaded.index.edge(ordinal);
             // The short strings made so far, unless another call holds them (a thread, or a
@@ -194,296 +391,43 @@ impl GraphFile {
                 }
             }
             drop(held);
-            let edge = loaded.new.bind(py).call1((loaded.edge_type.bind(py),))?;
-            edge.setattr(
-                pyo3::intern!(py, "source"),
-                self.name(py, loaded, ends.source)?,
-            )?;
-            edge.setattr(
-                pyo3::intern!(py, "target"),
-                self.name(py, loaded, ends.target)?,
-            )?;
             let kind = loaded.shape.edges[ordinal as usize].kind as usize;
-            edge.setattr(pyo3::intern!(py, "kind"), loaded.kinds[kind].bind(py))?;
-            edge.setattr(pyo3::intern!(py, "attrs"), attrs)?;
-            Ok(edge)
+            Py::new(
+                py,
+                Edge {
+                    source: self.name(py, ends.source)?.into_any().unbind(),
+                    target: self.name(py, ends.target)?.into_any().unbind(),
+                    kind: loaded.kinds[kind].clone_ref(py).into_any(),
+                    attrs: attrs.into_any().unbind(),
+                },
+            )
+            .map(|edge| edge.into_bound(py))
         })
     }
 
-    /// The edges at the node or endpoint `node` that `adjacent` lists, of kind `kind` if given.
-    fn adjacent<'py>(
-        &self,
-        py: Python<'py>,
-        node: &Bound<'py, PyAny>,
-        kind: Option<&Bound<'py, PyAny>>,
-        outgoing: bool,
-    ) -> PyResult<Bound<'py, PyList>> {
-        let loaded = self.loaded(py)?;
-        let empty = || PyList::empty(py);
-        let Ok(node) = node.cast::<PyString>() else {
-            return Ok(empty());
-        };
-        let Some(ordinal) = loaded.index.ordinal(&crate::python::key(node)?) else {
-            return Ok(empty());
+    /// The edge ordinals at `node` that `outgoing` or incoming lists, of kind `kind` if given.
+    pub(crate) fn adjacent(&self, node: &str, kind: Option<&str>, outgoing: bool) -> Vec<u32> {
+        let loaded = self.loaded();
+        let Some(ordinal) = loaded.index.ordinal(node) else {
+            return Vec::new();
         };
         let wanted = match kind {
             None => None,
-            Some(kind) => {
-                let Ok(kind) = kind.cast::<PyString>() else {
-                    return Ok(empty());
-                };
-                let kind = crate::python::key(kind)?;
-                match loaded.shape.kinds.iter().position(|k| **k == *kind) {
-                    Some(found) => Some(found as u16),
-                    None => return Ok(empty()),
-                }
-            }
+            Some(kind) => match loaded.shape.kinds.iter().position(|k| **k == *kind) {
+                Some(found) => Some(found as u16),
+                None => return Vec::new(),
+            },
         };
         let edges = if outgoing {
             loaded.index.outgoing(ordinal)
         } else {
             loaded.index.incoming(ordinal)
         };
-        let made = edges
+        edges
             .iter()
-            .filter(|&&e| wanted.is_none_or(|k| loaded.shape.edges[e as usize].kind == k))
-            .map(|&e| self.edge(py, e))
-            .collect::<PyResult<Vec<_>>>()?;
-        PyList::new(py, made)
-    }
-}
-
-#[pymethods]
-impl GraphFile {
-    /// Parses `data`.
-    ///
-    /// Raises `ValueError(message, offset)` when it is not JSON, with the byte offset where
-    /// that first shows, and `OverflowError` when it is longer than the reader takes.
-    #[new]
-    fn new(py: Python<'_>, data: Bound<'_, PyBytes>) -> PyResult<Self> {
-        let bytes = data.as_bytes();
-        if bytes.len() > crate::json::MAX_LEN {
-            return Err(pyo3::exceptions::PyOverflowError::new_err(
-                "it is larger than the 2 GiB Konstruct reads",
-            ));
-        }
-        let tape = py
-            .detach(|| Tape::parse(bytes))
-            .map_err(|error| PyValueError::new_err((error.message, error.at)))?;
-        Ok(Self {
-            bytes: data.unbind(),
-            tape,
-            loaded: PyOnceLock::new(),
-        })
-    }
-
-    /// The whole document as Python values, as `Graph.from_dict` takes it: for a document that
-    /// is not a graph as Konstruct writes one, which `load` refuses.
-    fn document<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let _paused = Paused::new(py);
-        let mut shared = Shared::default();
-        Convert {
-            py,
-            doc: self.doc(py),
-            shared: &mut shared,
-        }
-        .value(0)
-    }
-
-    /// The document's members other than `nodes` and `edges`, or the document itself when it
-    /// is not an object.
-    fn header<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let doc = self.doc(py);
-        let mut shared = Shared::default();
-        let mut convert = Convert {
-            py,
-            doc,
-            shared: &mut shared,
-        };
-        if doc.kind(0) != Kind::Object {
-            return convert.value(0);
-        }
-        let header = PyDict::new(py);
-        for (key, value) in doc.members(0) {
-            if !(doc.is(key, "nodes") || doc.is(key, "edges")) {
-                header.set_item(convert.string(key), convert.value(value)?)?;
-            }
-        }
-        Ok(header.into_any())
-    }
-
-    /// The nodes, as instances of `node_type` by id, the first of each id, and the later ones
-    /// with an id that came before, for `Graph.add_node` to merge, each with the number of
-    /// first nodes before it; edges will be instances of `edge_type`. A file is loaded once.
-    ///
-    /// Raises `ValueError(message)` when the document is not a graph as Konstruct writes one:
-    /// `document` gives it to `Graph.from_dict` instead.
-    fn load<'py>(
-        &self,
-        py: Python<'py>,
-        node_type: Bound<'py, PyType>,
-        edge_type: Bound<'py, PyType>,
-    ) -> PyResult<(Bound<'py, PyDict>, Bound<'py, PyList>)> {
-        if self.loaded.get(py).is_some() {
-            return Err(PyValueError::new_err("the graph is loaded already"));
-        }
-        let doc = self.doc(py);
-        let mut shape = py
-            .detach(|| Shape::read(doc))
-            .map_err(PyValueError::new_err)?;
-        let index = Arc::new(std::mem::replace(
-            &mut shape.index,
-            graph::GraphIndex::builder().build(),
-        ));
-        let names: Vec<PyOnceLock<Py<PyString>>> = (0..index.endpoint_count())
-            .map(|_| PyOnceLock::new())
-            .collect();
-        let new = node_type.getattr(pyo3::intern!(py, "__new__"))?;
-        let nodes = PyDict::new(py);
-        let later = PyList::empty(py);
-        let mut shared = Shared::default();
-        {
-            let _paused = Paused::new(py);
-            let mut convert = Convert {
-                py,
-                doc,
-                shared: &mut shared,
-            };
-            let none = |py: Python<'py>| py.None().into_bound(py);
-            let mut ordinal = 0usize;
-            let mut last_parent: Option<(&[u8], Bound<'py, PyAny>)> = None;
-            for fields in &shape.nodes {
-                let node = new.call1((&node_type,))?;
-                let id = PyString::new(py, &doc.text(fields.id as usize));
-                node.setattr(pyo3::intern!(py, "id"), &id)?;
-                node.setattr(
-                    pyo3::intern!(py, "kind"),
-                    convert.string(fields.kind as usize),
-                )?;
-                node.setattr(
-                    pyo3::intern!(py, "name"),
-                    convert.value(fields.name as usize)?,
-                )?;
-                // A column's parent is a node, so its string is the parent's own id; the
-                // columns of a relation come together, so it is usually the last one's.
-                let parent = match fields.parent {
-                    NONE => none(py),
-                    parent if doc.kind(parent as usize) == Kind::String => {
-                        let raw = doc.raw(parent as usize);
-                        match &last_parent {
-                            Some((bytes, made)) if *bytes == raw => made.clone(),
-                            _ => {
-                                let text = doc.text(parent as usize);
-                                let made = match index.node(&crate::keys::from_str(&text)) {
-                                    Some(known) if (known as usize) < ordinal => {
-                                        self_name(py, &names, known)?.into_any()
-                                    }
-                                    _ => PyString::new(py, &text).into_any(),
-                                };
-                                last_parent = Some((raw, made.clone()));
-                                made
-                            }
-                        }
-                    }
-                    _ => none(py),
-                };
-                node.setattr(pyo3::intern!(py, "parent"), parent)?;
-                for (name, field) in [
-                    (pyo3::intern!(py, "relation"), fields.relation),
-                    (pyo3::intern!(py, "description"), fields.description),
-                    (pyo3::intern!(py, "data_type"), fields.data_type),
-                    (pyo3::intern!(py, "path"), fields.path),
-                ] {
-                    node.setattr(name, convert.field(field, none)?)?;
-                }
-                let origins = convert.field(fields.origins, |py| PyList::empty(py).into_any())?;
-                node.setattr(pyo3::intern!(py, "origins"), origins)?;
-                let attrs = convert.field(fields.attrs, |py| PyDict::new(py).into_any())?;
-                node.setattr(pyo3::intern!(py, "attrs"), attrs)?;
-                if fields.first {
-                    names[ordinal]
-                        .set(py, id.clone().unbind())
-                        .expect("each node is made once");
-                    nodes.set_item(id, node)?;
-                    ordinal += 1;
-                } else {
-                    // With the number of nodes before it, so Python merges it where it was.
-                    later.append((ordinal, node))?;
-                }
-            }
-        }
-        let kinds = shape
-            .kinds
-            .iter()
-            .map(|kind| PyString::new(py, kind).unbind())
-            .collect();
-        let edges = (0..shape.edges.len()).map(|_| PyOnceLock::new()).collect();
-        let loaded = Loaded {
-            shape,
-            index,
-            edge_type: edge_type.clone().unbind(),
-            new: edge_type.getattr(pyo3::intern!(py, "__new__"))?.unbind(),
-            names,
-            kinds,
-            edges,
-            shared: Mutex::new(shared),
-        };
-        if self.loaded.set(py, loaded).is_err() {
-            return Err(PyValueError::new_err("the graph is loaded already"));
-        }
-        Ok((nodes, later))
-    }
-
-    /// The index of the graph's edges, for walks and paths.
-    fn index(&self, py: Python<'_>) -> PyResult<GraphIndex> {
-        Ok(GraphIndex::shared(Arc::clone(&self.loaded(py)?.index)))
-    }
-
-    /// The number of edges.
-    fn __len__(&self, py: Python<'_>) -> PyResult<usize> {
-        Ok(self.loaded(py)?.edges.len())
-    }
-
-    /// The edge with this ordinal, made when first asked for.
-    fn __getitem__<'py>(&self, py: Python<'py>, ordinal: usize) -> PyResult<Bound<'py, PyAny>> {
-        let count = self.loaded(py)?.edges.len();
-        match u32::try_from(ordinal) {
-            Ok(ordinal) if (ordinal as usize) < count => self.edge(py, ordinal),
-            _ => Err(pyo3::exceptions::PyIndexError::new_err(
-                "no edge with that ordinal",
-            )),
-        }
-    }
-
-    /// Every edge, in order.
-    fn edges<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
-        let count = self.loaded(py)?.edges.len();
-        let made = (0..count)
-            .map(|e| self.edge(py, graph::ordinal(e)))
-            .collect::<PyResult<Vec<_>>>()?;
-        PyList::new(py, made)
-    }
-
-    /// The edges leaving `node`, of kind `kind` if given, in order.
-    #[pyo3(signature = (node, kind=None))]
-    fn out_edges<'py>(
-        &self,
-        py: Python<'py>,
-        node: &Bound<'py, PyAny>,
-        kind: Option<&Bound<'py, PyAny>>,
-    ) -> PyResult<Bound<'py, PyList>> {
-        self.adjacent(py, node, kind, true)
-    }
-
-    /// The edges arriving at `node`, of kind `kind` if given, in order.
-    #[pyo3(signature = (node, kind=None))]
-    fn in_edges<'py>(
-        &self,
-        py: Python<'py>,
-        node: &Bound<'py, PyAny>,
-        kind: Option<&Bound<'py, PyAny>>,
-    ) -> PyResult<Bound<'py, PyList>> {
-        self.adjacent(py, node, kind, false)
+            .copied()
+            .filter(|&e| wanted.is_none_or(|k| loaded.shape.edges[e as usize].kind == k))
+            .collect()
     }
 }
 

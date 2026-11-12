@@ -5,7 +5,7 @@
 //! thousand edges, so the graph is not turned into Python objects up front. The nodes are,
 //! because Python code reads them all (`Graph.nodes` is a dictionary), but the edges stay here:
 //! the walks run on [`GraphIndex`], and an edge becomes a Python object only when something
-//! reads it (`src/load/python.rs`).
+//! reads it (`src/model/file.rs`).
 //!
 //! The shape follows `Graph.from_dict`: the last of two members with the same key wins, as in a
 //! Python dictionary; a node whose id came before is merged into the first by Python (see
@@ -18,9 +18,6 @@
 //! document with anything else in those places (an id that is a number, origins that are a
 //! string) is not what any Konstruct wrote, and [`Shape::read`] says why; `Graph.read` then
 //! reads the whole document into `Graph.from_dict`, which gives it the meaning it always had.
-
-#[cfg(feature = "python")]
-pub(crate) mod python;
 
 use crate::fnv::FnvHashMap;
 use crate::graph::{EdgeKind, GraphIndex, NodeKind};

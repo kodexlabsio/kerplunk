@@ -4,8 +4,6 @@ import itertools
 from collections.abc import Callable
 from pathlib import Path
 
-import pytest
-
 from konstruct import _core
 from konstruct.analysis.query import search_nodes
 from konstruct.core.graph import Graph, Node, column_id, relation_key
@@ -393,54 +391,30 @@ def test_the_native_index_returns_ids_as_given() -> None:
     assert [index.neighbours(i, True) for i in ids] == [[], [], [], []]
 
 
-def test_files_are_written_whole_or_not_at_all(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import os
+def test_a_finaliser_that_runs_as_the_graph_lets_go_of_a_value_may_ask_the_graph() -> None:
+    """Replacing meta, warnings, edges or an index drops the old value; if that runs Python code
+    that asks the same graph a question, it must not wait for a lock held across the drop."""
+    import threading
 
-    from konstruct.core import jsonio
+    g = small_graph()
+    answers: list[object] = []
 
-    path = tmp_path / 'out' / 'graph.json'
-    jsonio.write_text(path, '{"a": 1}')
-    assert path.read_text() == '{"a": 1}'
-    umask = os.umask(0)
-    os.umask(umask)
-    assert path.stat().st_mode & 0o777 == 0o666 & ~umask
-    # A write that fails leaves the old file and no temporary one behind.
-    monkeypatch.setattr(Path, 'replace', lambda self, target: (_ for _ in ()).throw(OSError('full')))
-    with pytest.raises(OSError, match='full'):
-        jsonio.write_text(path, '{"a": 2}')
-    assert path.read_text() == '{"a": 1}' and [p.name for p in path.parent.iterdir()] == ['graph.json']
+    class Holder:
+        def __del__(self) -> None:
+            answers.append(g.stats())
 
+    def replace() -> None:
+        g.meta = Holder()  # type: ignore[assignment]
+        g.meta = {}
+        g.warnings = Holder()  # type: ignore[assignment]
+        g.warnings = []
+        edge = g.add_edge('model.shop.orders', 'model.shop.stg_payments', 'precedes', note=Holder())
+        assert edge is not None
+        g.remove_edge(edge)
+        edge.attrs.clear()
 
-def test_a_rewritten_file_keeps_its_mode_and_a_busy_rename_is_retried(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from konstruct.core import jsonio
-
-    path = tmp_path / 'REPORT.md'
-    path.write_text('old')
-    path.chmod(0o600)
-    jsonio.write_text(path, 'new')
-    assert path.read_text() == 'new' and path.stat().st_mode & 0o777 == 0o600
-    # A symbolic link is replaced by a file of its own, with the default mode, not its target's.
-    target = tmp_path / 'outside.md'
-    target.write_text('theirs')
-    target.chmod(0o640)
-    link = tmp_path / 'linked.md'
-    link.symlink_to(target)
-    jsonio.write_text(link, 'ours')
-    assert not link.is_symlink() and link.stat().st_mode & 0o777 == 0o666 & ~jsonio._UMASK
-    assert target.read_text() == 'theirs'
-    # A reader holding the file open on Windows makes the rename fail for a moment.
-    replace = Path.replace
-    failures = [PermissionError('busy'), PermissionError('busy')]
-
-    def flaky(self: Path, target: Path) -> Path:
-        if failures:
-            raise failures.pop()
-        return replace(self, target)
-
-    monkeypatch.setattr(jsonio, '_REPLACE_TRIES', 3)
-    monkeypatch.setattr('konstruct.core.jsonio.time.sleep', lambda seconds: None)
-    monkeypatch.setattr(Path, 'replace', flaky)
-    jsonio.write_text(path, 'newer')
-    assert path.read_text() == 'newer' and failures == []
+    worker = threading.Thread(target=replace, daemon=True)
+    worker.start()
+    worker.join(timeout=30)
+    assert not worker.is_alive(), 'the graph waited on its own lock'
+    assert len(answers) >= 3

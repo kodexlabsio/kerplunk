@@ -30,6 +30,7 @@ still needs the breaking marks, as the commit check counts the fields gone with 
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import dataclasses
 import importlib.util
@@ -49,7 +50,7 @@ import yaml
 from mcp import Client
 
 import konstruct
-from konstruct import Project
+from konstruct import Project, _core
 from konstruct.interfaces import cli
 from konstruct.interfaces.cli import main, parser
 from konstruct.interfaces.mcp_server import build_server
@@ -1205,6 +1206,69 @@ def _signature(prefix: str, function: Any, entries: dict[str, str]) -> None:
         entries[f'{prefix} ->'] = str(signature.return_annotation)
 
 
+STUBS = ROOT / 'konstruct' / '_core.pyi'
+
+
+def _stub_signature(prefix: str, function: ast.FunctionDef, entries: dict[str, str]) -> None:
+    """``_signature`` for a function of the native core's stub, which is where the types of what
+    the core exports are written: a parameter's position, annotation and default."""
+    arguments = function.args
+    positional = [*arguments.posonlyargs, *arguments.args]
+    positional = [a for a in positional if a.arg not in ('self', 'cls')]
+    defaults = [None] * (len(positional) - len(arguments.defaults)) + list(arguments.defaults)
+    entries_for: list[tuple[ast.arg, ast.expr | None, str]] = [
+        (a, d, 'positional') for a, d in zip(positional, defaults, strict=True)
+    ]
+    entries_for += [
+        (a, d, 'keyword') for a, d in zip(arguments.kwonlyargs, arguments.kw_defaults, strict=True)
+    ]
+    position = 0
+    for argument, default, kind in entries_for:
+        value = ast.unparse(argument.annotation) if argument.annotation is not None else 'any'
+        if kind == 'positional':
+            value = f'#{position} {value}'
+            position += 1
+        else:
+            value = f'keyword {value}'
+        value += f' = {ast.literal_eval(default)!r}' if default is not None else ', required'
+        entries[f'{prefix} {argument.arg}'] = value
+    if arguments.kwarg is not None:
+        annotation = ast.unparse(arguments.kwarg.annotation) if arguments.kwarg.annotation else 'any'
+        entries[f'{prefix} {arguments.kwarg.arg}'] = f'{annotation}, variadic keyword'
+    if function.returns is not None:
+        entries[f'{prefix} ->'] = ast.unparse(function.returns)
+
+
+def _stub_entries(prefix: str, name: str, entries: dict[str, str]) -> None:
+    """What ``python_entries`` records of a class the native core exports, from its stub: the
+    fields of a record, ``__init__`` for anything else, and the methods and properties."""
+    tree = ast.parse(STUBS.read_text(encoding='utf-8'))
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == name)
+    record = name in ('Node', 'Edge', 'Step')
+    for item in cls.body:
+        if isinstance(item, ast.AnnAssign) and record and not ast.unparse(item.target).startswith('__'):
+            entries[f'{prefix}.{ast.unparse(item.target)}'] = f'field {ast.unparse(item.annotation)}'
+    for item in cls.body:
+        if not isinstance(item, ast.FunctionDef):
+            continue
+        decorators = {ast.unparse(d) for d in item.decorator_list}
+        if item.name == '__init__':
+            if not record:
+                _stub_signature(prefix, item, entries)
+        elif item.name.startswith('_'):
+            continue
+        elif 'property' in decorators:
+            entries[f'{prefix}.{item.name}'] = (
+                f'property {ast.unparse(item.returns) if item.returns else "any"}'
+            )
+        elif 'classmethod' in decorators:
+            entries[f'{prefix}.{item.name}'] = 'classmethod'
+            _stub_signature(f'{prefix}.{item.name}', item, entries)
+        else:
+            entries[f'{prefix}.{item.name}'] = 'method'
+            _stub_signature(f'{prefix}.{item.name}', item, entries)
+
+
 def python_entries() -> dict[str, str]:
     entries: dict[str, str] = {}
     for name in sorted(konstruct.__all__):
@@ -1215,6 +1279,9 @@ def python_entries() -> dict[str, str]:
             continue
         entries[prefix] = 'exception' if issubclass(value, BaseException) else 'class'
         if issubclass(value, BaseException):
+            continue
+        if getattr(_core, name, None) is value:
+            _stub_entries(prefix, name, entries)
             continue
         if dataclasses.is_dataclass(value):
             for item in dataclasses.fields(value):

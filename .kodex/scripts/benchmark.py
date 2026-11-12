@@ -60,6 +60,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import orjson
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
@@ -69,6 +71,7 @@ from konstruct.analysis.conflicts import find_conflicts  # noqa: E402
 from konstruct.analysis.gate import gate  # noqa: E402
 from konstruct.analysis.identity import Formulas  # noqa: E402
 from konstruct.analysis.query import search  # noqa: E402
+from konstruct.core import jsonio  # noqa: E402
 from konstruct.core.graph import Graph  # noqa: E402
 from konstruct.interfaces import hook  # noqa: E402
 from tests.test_gate import git  # noqa: E402
@@ -207,6 +210,15 @@ def measure(models: int) -> dict[str, Any]:
         hook_unchanged, hook_edit = hook_latency(root, middle)
         deepest = f'm{models - 1:03}'
         load, loaded = timed(Graph.read, project.graph_path)
+        # The built graph, written again to a file beside the real one.
+        write = median_time(graph.write, root / 'rewritten.json')
+        # The way graph.json was written before the graph wrote itself: to_dict, then orjson.
+        options = orjson.OPT_NON_STR_KEYS | orjson.OPT_INDENT_2
+        baseline = median_time(
+            lambda: jsonio.write_text(
+                root / 'baseline.json', orjson.dumps(graph.to_dict(), option=options).decode() + '\n'
+            )
+        )
         first_impact, _ = timed(loaded.impact, loaded.resolve('m010.c01')[0])
         first_search, _ = timed(search, loaded, 'm010 c01')
         conflicts, _ = timed(project.conflicts)
@@ -242,6 +254,8 @@ def measure(models: int) -> dict[str, Any]:
             'graph_json_mb': round((project.out_dir / 'graph.json').stat().st_size / 1e6, 1),
             'graph_html_mb': round((project.out_dir / 'graph.html').stat().st_size / 1e6, 1),
             'load_s': round(load, 3),
+            'write_s': round(write, 3),
+            'write_orjson_s': round(baseline, 3),
             'first_impact_ms': round(1000 * first_impact, 1),
             'first_search_ms': round(1000 * first_search, 1),
             'search_ms': round(1000 * median_time(project.search, 'm010 c01'), 1),
@@ -458,13 +472,16 @@ def markdown(rows: list[dict[str, Any]]) -> str:
         )
     lines += [
         '',
-        '| Models | Load graph.json | First impact | First search | search | query | path | describe '
-        '| conflicts |',
-        '|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
+        '| Models | Load graph.json | Write graph.json | Write, to_dict and orjson | First impact '
+        '| First search | search | query | path '
+        '| describe | conflicts |',
+        '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
     ]
     for r in rows:
         lines.append(
-            f'| {r["models"]:,} | {r["load_s"]} s | {r["first_impact_ms"]} ms | {r["first_search_ms"]} ms '
+            f'| {r["models"]:,} | {r["load_s"]} s | {r["write_s"]} s | {r["write_orjson_s"]} s '
+            f'| {r["first_impact_ms"]} ms '
+            f'| {r["first_search_ms"]} ms '
             f'| {r["search_ms"]} ms | {r["query_ms"]} ms | {r["path_ms"]} ms | {r["describe_ms"]} ms '
             f'| {r["conflicts_s"]} s |'
         )

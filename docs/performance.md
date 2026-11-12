@@ -46,6 +46,12 @@ Every command reads `graph.json` first. Konstruct reads it in two passes: the fi
 
 Making every edge a Python object, when a caller asks for all of them (`Graph.edges`, `to_dict`) or changes the graph, takes about 0.2 s more. `cargo bench --bench core` times the two passes without Python on a 45.5 MB `graph.json` of the same shape: finding the tokens takes 35 ms, finding them and checking the JSON 70 ms, and the graph's shape and index from those another 65 ms.
 
+## Writing the Graph
+
+A build writes `graph.json` once, and every command that changes the graph (`konstruct verify`, `konstruct lock`) writes it again. Konstruct writes it straight from the graph, in one pass, with no intermediate copy of the data: strings are escaped and integers turned into digits by routines written for each processor, and floats are the shortest digits that read back. The text is the one the graph has always been written as, byte for byte, whether the graph was built or read from `graph.json`. The file is put in place through a renamed temporary file, so a reader sees the old file or the new one; it is not synced to disk before the rename, so a crash of the machine, not of Konstruct, can lose the new file.
+
+`uv run .kodex/scripts/benchmark.py 2000` times both ways of writing the 30.1 MB `graph.json` of the 2,000-model project, in the second table: writing the graph takes about 0.07 s, and converting it to plain data and encoding that (how it was written before) about 0.16 s. A build writes the file once, so it saves under 0.1 s of a cold build of 14 to 30 s; the viewer's data is still made from the graph's plain data, so a build gains no more than that. `tests/test_scale.py` writes the graph of a 2,000-model project with 15 columns per model (23 MB) and fails if that takes more than 0.6 s.
+
 ## Comparing Versions
 
 `konstruct diff` and `konstruct release-notes` analyse each changed model's SQL before and after a change. On the 2,000-model project, with a commit that changes 100 models:
