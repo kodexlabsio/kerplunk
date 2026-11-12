@@ -270,12 +270,12 @@ class Repository:
 
     def log(self, path: str, limit: int) -> tuple[list[tuple[Commit, str]], bool]:
         """The commits that changed ``path``, oldest first, each with the file's path then (renames
-        are followed), and whether the log stopped at ``limit``."""
+        are followed), and whether more commits than ``limit`` changed it."""
         output = self.git(
             'log',
             '--follow',
             '--no-merges',
-            f'--max-count={limit}',
+            f'--max-count={limit + 1}',  # one more, to tell whether any were left
             '--name-only',
             f'--format=%x1e%H{_SEPARATOR}%an{_SEPARATOR}%cI{_SEPARATOR}%s',
             '--',
@@ -289,7 +289,7 @@ class Repository:
             sha, author, date, subject = [*lines[0].split(_SEPARATOR), '', '', ''][:4]
             commit = Commit(sha, author, utc(date), subject, self.order.get(sha, -1), self.top)
             found.append((commit, lines[-1] if len(lines) > 1 else path))
-        return list(reversed(found)), len(found) >= limit
+        return list(reversed(found[:limit])), len(found) > limit
 
     def has_parent(self, sha: str) -> bool:
         return bool(self.git('rev-parse', '--verify', '--quiet', f'{sha}^').strip())

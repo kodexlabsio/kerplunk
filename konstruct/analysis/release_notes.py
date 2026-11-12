@@ -378,7 +378,7 @@ def release_notes(
         'core.quotePath=false',
         'log',
         '--no-merges',
-        f'--max-count={limit}',
+        f'--max-count={limit + 1}',  # one more, to tell whether any were left
         '--name-status',
         '-M',
         f'--format=%x1e%H{_SEPARATOR}%an{_SEPARATOR}%cI{_SEPARATOR}%s',
@@ -390,10 +390,11 @@ def release_notes(
     commits: list[tuple[Commit, list[_File]]] = []
     # Newest first, as git lists them, so each file's path now is known from the moves after it.
     now: dict[str, str] = {}
-    for block in output.split('\x1e'):
-        lines = [line for line in block.strip().split('\n') if line.strip()]
-        if not lines:
-            continue
+    blocks = [
+        lines for b in output.split('\x1e') if (lines := [x for x in b.strip().split('\n') if x.strip()])
+    ]
+    more = len(blocks) > limit
+    for lines in blocks[:limit]:
         sha, author, date, subject = [*lines[0].split(_SEPARATOR), '', '', ''][:4]
         commit = Commit(sha, author, utc(date), subject, repository.order.get(sha, -1), top)
         files = []
@@ -416,7 +417,7 @@ def release_notes(
         now.update(moves)
         commits.append((commit, files))
     commits.reverse()
-    if len(commits) >= limit:
+    if more:
         result.notes.append(f'only the last {limit} commits were read; raise the limit to read more')
     if repository.shallow and commits and not repository.has_parent(commits[0][0].sha):
         first = commits.pop(0)[0]

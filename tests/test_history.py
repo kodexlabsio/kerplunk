@@ -218,6 +218,10 @@ def test_a_shallow_clone_and_a_limit(repository: Path, tmp_path_factory: pytest.
         ('Net of refunds', 'SUM(orders.amount)')
     ]
     assert any('only the last commit that changed ltv.sql was read' in n for n in limited.notes)
+    # Exactly as many commits as the limit: every one was read.
+    changed = len(git(repository, 'log', '--format=%H', '--follow', '--', 'ltv.sql').split())
+    whole = built(repository).history('ltv.total', limit=changed)
+    assert not any('only the last' in n for n in whole.notes)
     with pytest.raises(QueryError, match='at least 1'):
         built(repository).history('ltv.total', limit=0)
 

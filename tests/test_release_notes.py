@@ -135,6 +135,8 @@ def test_the_whole_history_and_a_limit(tmp_path: Path, shop: Project) -> None:
     assert short.commits == 1 and short.notes == [
         'only the last 1 commits were read; raise the limit to read more'
     ]
+    # Exactly as many commits as the limit: every one was read.
+    assert shop.release_notes(limit=6).notes == []
 
 
 def test_a_change_not_yet_approved(shop: Project) -> None:
