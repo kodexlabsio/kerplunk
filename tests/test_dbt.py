@@ -133,6 +133,52 @@ def test_select_nodes(
     assert {n.name for n in dbt.select_nodes(graph, selectors, excludes)} == expected
 
 
+def test_selectors_match_as_every_node_compared_would(loaded: tuple[Graph, dbt.DbtLoad]) -> None:
+    """The index of what selectors name finds the nodes that comparing each node with the selector
+    finds, for parts of names, paths and fqns, any case and wildcards."""
+    graph, _ = loaded
+    graph.nodes['model.jaffle_shop.orders'].attrs['tags'] = ['Nightly', 'finance']
+    graph.changed()
+    nodes = [
+        n for n in graph.nodes.values() if 'dbt' in n.origins and n.kind in ('model', 'seed', 'snapshot')
+    ]
+    values = [
+        'orders', 'ORDERS', 'stg', 'stg_*', 'staging', 'jaffle_shop', 'jaffle_shop.staging',
+        'jaffle_shop.staging.stg_orders', 'staging.stg_orders', 'models', 'models/', 'models/sta',
+        'models/staging', 'staging/stg_orders.sql', 'stg_orders.sql', 'seeds/raw_orders.csv', 'mod',
+        'stg_orders', 's?g_orders', '[sr]*', 'nightly', 'Nightly', 'night*', 'finance', 'seed', 'model',
+        'view', 'table', '', '/', 'models/staging/', 'jaffle_shop.*',
+    ]  # fmt: skip
+    methods = ['default', 'fqn', 'tag', 'path', 'resource_type', 'package', 'config.materialized', 'other']
+    for method in methods:
+        for value in values:
+            selector = value if method == 'default' else f'{method}:{value}'
+            expected = {n.id for n in nodes if dbt._matches(method, value, n)}
+            assert {n.id for n in dbt.select_nodes(graph, [selector], [])} == expected, selector
+
+
+def test_selection_sees_nodes_added_after_it(loaded: tuple[Graph, dbt.DbtLoad]) -> None:
+    graph, _ = loaded
+    assert dbt.select_nodes(graph, ['late'], []) == []
+    graph.add_node(Node(id='model.jaffle_shop.late', kind='model', name='late', origins=['dbt']))
+    assert [n.id for n in dbt.select_nodes(graph, ['late'], [])] == ['model.jaffle_shop.late']
+
+
+def test_selection_sees_a_path_given_in_place_after_it() -> None:
+    """A build sets a node's path where it had none (a SQL file that writes it), without adding
+    a node: selectors by path match it from then on."""
+    graph = Graph()
+    late = graph.add_node(Node('model.shop.late', 'model', 'late', origins=['dbt']))
+    graph.add_node(Node('model.shop.early', 'model', 'early', origins=['dbt'], path='models/early.sql'))
+    assert [n.id for n in dbt.select_nodes(graph, ['path:models'], [])] == ['model.shop.early']
+    late.path = 'models/late.sql'
+    assert sorted(n.id for n in dbt.select_nodes(graph, ['path:models'], [])) == [
+        'model.shop.early',
+        'model.shop.late',
+    ]
+    assert [n.id for n in dbt.select_nodes(graph, ['models/late.sql'], [])] == ['model.shop.late']
+
+
 def test_select_nothing_means_everything(loaded: tuple[Graph, dbt.DbtLoad]) -> None:
     graph, _ = loaded
     assert len(dbt.select_nodes(graph, [], [])) == 8
@@ -294,6 +340,68 @@ def test_parse_relation_name() -> None:
     assert dbt.parse_relation_name('"DB"."Sch"."T"', 'snowflake') == 'db.sch.t'
     assert dbt.parse_relation_name('`proj`.`ds`.`t`', 'bigquery') == 'proj.ds.t'
     assert dbt.parse_relation_name(None, None) is None
+
+
+MALFORMED = [
+    {'tags': None},
+    {'tags': [1]},
+    {'tags': [None, 'nightly']},
+    {'tags': 'nightly'},
+    {'fqn': [None]},
+    {'fqn': None},
+    {'fqn': ['big', None, 'odd']},
+    {'fqn': [['big'], 'odd']},
+    {'materialized': ['table']},
+    {'materialized': {'kind': 'table'}},
+    {'package': ['big']},
+    {'dbt_name': 7},
+]
+
+
+@pytest.mark.parametrize('attrs', MALFORMED)
+def test_a_node_with_an_attribute_that_is_not_a_name_is_skipped_by_selectors(attrs: dict[str, Any]) -> None:
+    """A manifest can hold anything (``"tags": null``, a number for a tag): what a selector does
+    not compare as a name it does not match, and the build does not fail on it."""
+    graph = Graph()
+    graph.add_node(
+        Node('model.big.odd', 'model', 'odd', origins=['dbt'], path='models/odd.sql', attrs=dict(attrs))
+    )
+    fine = {'tags': ['nightly'], 'fqn': ['big', 'fine'], 'materialized': 'table', 'package': 'big'}
+    graph.add_node(
+        Node('model.big.fine', 'model', 'fine', origins=['dbt'], path='models/fine.sql', attrs=fine)
+    )
+    nodes = list(graph.nodes.values())
+    for selector in [
+        'odd', 'fine', 'big', 'big.odd', 'big.fine', 'fqn:big.*', 'tag:nightly', 'tag:night*', '*',
+        'config.materialized:table', 'package:big', 'path:models', 'models/odd.sql', 'resource_type:model',
+    ]:  # fmt: skip
+        method, _, value = selector.rpartition(':')
+        expected = {n.id for n in nodes if dbt._matches(method or 'default', value, n)}
+        assert {n.id for n in dbt.select_nodes(graph, [selector], [])} == expected, selector
+        assert 'model.big.fine' in expected or selector in ('odd', 'big.odd', 'models/odd.sql'), selector
+
+
+def test_a_manifest_with_null_tags_builds_and_its_dag_runs_its_models(
+    jaffle_with_artefacts: Path, tmp_path: Path
+) -> None:
+    import shutil
+
+    from konstruct import Project
+
+    jaffle = tmp_path / 'jaffle_shop'
+    shutil.copytree(jaffle_with_artefacts, jaffle)
+    manifest_path = jaffle / 'target' / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    for node in manifest['nodes'].values():
+        node['tags'] = None
+    manifest_path.write_text(json.dumps(manifest))
+    graph = Project(jaffle).build(run_dbt=False, warehouses=False).graph
+    staging = [e.target for e in graph.edges if e.kind == 'runs' and e.source.endswith('dbt_run_staging')]
+    assert sorted(staging) == [
+        'model.jaffle_shop.stg_customers',
+        'model.jaffle_shop.stg_orders',
+        'model.jaffle_shop.stg_payments',
+    ]
 
 
 def test_select_nodes_ignores_non_dbt_nodes() -> None:

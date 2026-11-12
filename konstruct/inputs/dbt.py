@@ -697,25 +697,102 @@ def select_nodes(graph: Graph, selectors: list[str], excludes: list[str]) -> lis
     ``package:``, ``config.materialized:``, wildcards, ``+`` graph operators and ``,``
     intersections. Unknown methods select nothing and are reported by the caller.
     """
-    nodes = [
-        n for n in graph.nodes.values() if 'dbt' in n.origins and n.kind in ('model', 'seed', 'snapshot')
-    ]
+    selectable = graph.indexed('dbt_selection', _Selectable, basis='relations')
     if not selectors:
-        chosen = {n.id for n in nodes}
+        chosen = set(selectable.ids)
     else:
         chosen = set()
         for selector in selectors:
-            chosen |= _select_one(selector, nodes, graph)
+            chosen |= _select_one(selector, selectable, graph)
     for exclude in excludes:
-        chosen -= _select_one(exclude, nodes, graph)
-    return [n for n in nodes if n.id in chosen]
+        chosen -= _select_one(exclude, selectable, graph)
+    return [n for n in selectable.nodes if n.id in chosen]
 
 
-def _select_one(selector: str, nodes: list[Node], graph: Graph) -> set[str]:
+class _Selectable:
+    """The dbt nodes a selector chooses from, in graph order, indexed by what a selector without
+    wildcards names: a tag, a name or the start of an fqn, a part of a path, a resource type, a
+    package or a materialisation. A selector is matched with :func:`_matches` against the nodes
+    the index gives it, or every node when it has wildcards. A build gives a node a path in place
+    where it had none (a SQL file that writes it), so a path selector is matched against the
+    nodes that had none too; it changes no other attribute a selector reads in place, and a
+    change through ``Graph.add_node`` makes the index again."""
+
+    def __init__(self, graph: Graph) -> None:
+        self.nodes = [
+            n for n in graph.nodes.values() if 'dbt' in n.origins and n.kind in ('model', 'seed', 'snapshot')
+        ]
+        self.ids = {n.id for n in self.nodes}
+        # fnmatch compares names as the file system does (os.path.normcase), so the keys do too.
+        self.index: dict[tuple[str, Any], dict[str, Node]] = {}
+        self.pathless: dict[str, Node] = {}
+        for node in self.nodes:
+            fqn = [None if part is None else os.path.normcase(part) for part in _parts(node.attrs.get('fqn'))]
+            if not node.path:
+                self.pathless[node.id] = node
+            path = (node.path or '').replace(os.sep, '/')
+            keys: set[tuple[str, Any]] = {
+                ('name', os.path.normcase(str(node.attrs.get('dbt_name') or node.name))),
+                ('resource_type', node.kind),
+                *(('tag', os.path.normcase(tag)) for tag in _texts(node.attrs.get('tags'))),
+                *(('part', os.path.normcase(part)) for part in path.split('/')),
+            }
+            # A manifest's value that is not text matches no selector's, so it has no key.
+            for method, attribute in (('package', 'package'), ('config.materialized', 'materialized')):
+                if isinstance(node.attrs.get(attribute), str):
+                    keys.add((method, node.attrs[attribute]))
+            for start in (0, 1):
+                for end in range(start + 1, len(fqn) + 1):
+                    if None in fqn[start:end]:
+                        break
+                    keys.add(('fqn', tuple(fqn[start:end])))
+            for key in keys:
+                self.index.setdefault(key, {})[node.id] = node
+        self.parts = sorted(str(key[1]) for key in self.index if key[0] == 'part')
+
+    def matching(self, method: str, value: str) -> set[str]:
+        """The ids of the nodes that ``method:value`` matches."""
+        return {n.id for n in self._candidates(method, value) if _matches(method, value, n)}
+
+    def _candidates(self, method: str, value: str) -> Iterable[Node]:
+        """Every node ``method:value`` can match, and perhaps others."""
+        if method in ('resource_type', 'package', 'config.materialized'):
+            return self.index.get((method, value), {}).values()
+        if any(character in value for character in '*?['):
+            return self.nodes
+        if method == 'default':
+            method = 'path' if '/' in value or value.endswith(('.sql', '.py', '.csv')) else 'fqn'
+        if method == 'tag':
+            return self.index.get(('tag', os.path.normcase(value)), {}).values()
+        if method == 'fqn':
+            parts = tuple(os.path.normcase(part) for part in value.split('.'))
+            return {
+                **self.index.get(('name', os.path.normcase(value)), {}),
+                **self.index.get(('fqn', parts), {}),
+            }.values()
+        if method == 'path':
+            # A path matches where a part of it, and what follows, starts with the value: that
+            # part is the value's first, or starts with it when the value is one part.
+            first, *rest = os.path.normcase(value.rstrip('/')).split(os.path.normcase('/'))
+            if rest:
+                return {**self.index.get(('part', first), {}), **self.pathless}.values()
+            return {
+                **{
+                    node.id: node
+                    for part in self.parts
+                    if part.startswith(first)
+                    for node in self.index[('part', part)].values()
+                },
+                **self.pathless,
+            }.values()
+        return []
+
+
+def _select_one(selector: str, selectable: _Selectable, graph: Graph) -> set[str]:
     parts = selector.split(',')
     result: set[str] | None = None
     for part in parts:
-        found = _select_atom(part, nodes, graph)
+        found = _select_atom(part, selectable, graph)
         result = found if result is None else result & found
     return result or set()
 
@@ -723,14 +800,14 @@ def _select_one(selector: str, nodes: list[Node], graph: Graph) -> set[str]:
 _GRAPH_OP = re.compile(r'^(@)?(\d*\+)?(.*?)(\+\d*)?$')
 
 
-def _select_atom(atom: str, nodes: list[Node], graph: Graph) -> set[str]:
+def _select_atom(atom: str, selectable: _Selectable, graph: Graph) -> set[str]:
     match = _GRAPH_OP.match(atom.strip())
     if not match:
         return set()
     at, up, body, down = match.groups()
     method, _, value = body.rpartition(':')
     method = method or 'default'
-    seeds = {n.id for n in nodes if _matches(method, value, n)}
+    seeds = selectable.matching(method, value)
     result = set(seeds)
     if up or at:
         depth = int(up[:-1]) if up and up[:-1] else None
@@ -741,8 +818,7 @@ def _select_atom(atom: str, nodes: list[Node], graph: Graph) -> set[str]:
         result |= downstream
         if at:
             result |= _relatives(graph, downstream, None, upstream=True)
-    valid = {n.id for n in nodes}
-    return result & valid
+    return result & selectable.ids
 
 
 def downstream_of(graph: Graph, start: set[str]) -> set[str]:
@@ -768,8 +844,25 @@ def _relatives(graph: Graph, start: set[str], depth: int | None, *, upstream: bo
     return found
 
 
+def _texts(value: Any) -> list[str]:
+    """The names a node's attribute holds (its tags), leaving out what is not text: a manifest
+    can hold ``null`` or a number there."""
+    return [part for part in _parts(value) if part is not None]
+
+
+def _parts(value: Any) -> list[str | None]:
+    """The parts of a node's attribute in order (its fqn), each None that is not text, which
+    a selector's part never matches."""
+    if not value:
+        return []
+    try:
+        return [part if isinstance(part, str) else None for part in value]
+    except TypeError:
+        return []
+
+
 def _matches(method: str, value: str, node: Node) -> bool:
-    fqn: list[str] = list(node.attrs.get('fqn') or [])
+    fqn = _parts(node.attrs.get('fqn'))
     name = str(node.attrs.get('dbt_name') or node.name)
     if method == 'default':
         if '/' in value or value.endswith(('.sql', '.py', '.csv')):
@@ -779,7 +872,7 @@ def _matches(method: str, value: str, node: Node) -> bool:
     if method == 'fqn':
         return _fqn_match(value, fqn, name)
     if method == 'tag':
-        return any(fnmatch(tag, value) for tag in node.attrs.get('tags', []))
+        return any(fnmatch(tag, value) for tag in _texts(node.attrs.get('tags')))
     if method == 'path':
         path = (node.path or '').replace(os.sep, '/')
         value = value.rstrip('/')
@@ -796,12 +889,14 @@ def _matches(method: str, value: str, node: Node) -> bool:
     return False
 
 
-def _fqn_match(value: str, fqn: list[str], name: str) -> bool:
+def _fqn_match(value: str, fqn: list[str | None], name: str) -> bool:
     if fnmatch(name, value):
         return True
     parts = value.split('.')
     for start in (0, 1):
         window = fqn[start : start + len(parts)]
-        if len(window) == len(parts) and all(fnmatch(f, p) for f, p in zip(window, parts, strict=True)):
+        if len(window) == len(parts) and all(
+            f is not None and fnmatch(f, p) for f, p in zip(window, parts, strict=True)
+        ):
             return True
     return False
