@@ -427,7 +427,7 @@ class Checker:
         self._conjuncts: dict[str, list[_Condition]] = {}
         self._forms: dict[str, _Form] = {}
         self._keys: dict[str, list[frozenset[str]]] = {}
-        self._names: dict[str, list[Node]] | None = None
+        self._names: dict[str, list[tuple[int, Node]]] | None = None
         self._named: dict[str, list[Node]] = {}
         self._additive: set[str] | None = None
         measures = {m.name for m in self.ontology.measures if not m.expression}
@@ -520,13 +520,28 @@ class Checker:
         found = self._named.get(output)
         if found is None:
             if self._names is None:
+                # By name first: only the columns of a name an output has are asked for their
+                # edges, which the graph makes as they are asked for.
                 self._names = defaultdict(list)
-                for node in self.graph.nodes.values():
+                for position, node in enumerate(self.graph.nodes.values()):
                     if node.kind == 'column' and isinstance(node.attrs.get('expression'), str):
-                        edges = self.graph.out_edges(node.id, 'derived_from')
-                        if edges and any(e.attrs.get('transform') != 'direct' for e in edges):
-                            self._names[node.name.lower()].append(node)
-            found = [n for name, nodes in self._names.items() if name_matches(output, name) for n in nodes]
+                        self._names[node.name.lower()].append((position, node))
+            named = sorted(
+                (item for name, items in self._names.items() if name_matches(output, name) for item in items),
+                key=lambda item: item[0],
+            )
+            computed: list[Node] = []
+            for _, node in named:
+                edges = self.graph.out_edges(node.id, 'derived_from')
+                if edges and any(e.attrs.get('transform') != 'direct' for e in edges):
+                    computed.append(node)
+                    if len(computed) > _MOST_NAMED:
+                        break
+            # Each name's columns together, the names in the order their first columns come.
+            by_name: dict[str, list[Node]] = {}
+            for node in computed:
+                by_name.setdefault(node.name.lower(), []).append(node)
+            found = [n for nodes in by_name.values() for n in nodes]
             self._named[output] = found = found if len(found) <= _MOST_NAMED else []
         return found
 

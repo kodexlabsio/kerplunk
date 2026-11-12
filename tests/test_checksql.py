@@ -2121,3 +2121,41 @@ def test_a_relationship_only_a_pack_gives_is_labelled_so(stripe: Graph) -> None:
         'charge.customer_id refers to stripe_customer (charge.customer_id = customer.id), as the stripe pack '
         'gives it, so many charge rows can match one invoice row'
     ]
+
+
+def test_columns_named_keeps_each_name_together_in_the_order_names_are_first_computed() -> None:
+    """Only the columns of a matching name are asked for their edges; the columns found are as
+    before: each name's computed columns together, the names in the order their first computed
+    column comes in the graph, and none when more than twenty share the name."""
+    from konstruct.core.graph import Node
+
+    graph = Graph()
+    graph.meta['dialect'] = 'duckdb'
+    source = graph.add_node(Node(id='source.raw', kind='source', name='raw', relation='raw'))
+    graph.add_column(source, 'amount')
+    for index, (name, transform) in enumerate(
+        [
+            ('revenue', 'direct'),
+            ('revenues', 'aggregate'),
+            ('revenue', 'aggregate'),
+            ('revenues', 'aggregate'),
+        ]
+    ):
+        model = graph.add_node(
+            Node(id=f'model.t{index}', kind='model', name=f't{index}', relation=f't{index}')
+        )
+        column = graph.add_column(model, name, attrs={'expression': 'SUM(raw.amount)'})
+        graph.add_edge(column.id, 'source.raw#amount', 'derived_from', transform=transform)
+    for index in range(4, 25):
+        model = graph.add_node(
+            Node(id=f'model.t{index}', kind='model', name=f't{index}', relation=f't{index}')
+        )
+        column = graph.add_column(model, 'cost', attrs={'expression': 'SUM(raw.amount)'})
+        graph.add_edge(column.id, 'source.raw#amount', 'derived_from', transform='aggregate')
+    checker = Checker(graph)
+    assert [n.id for n in checker.columns_named('revenues')] == [
+        'model.t1#revenues',
+        'model.t3#revenues',
+        'model.t2#revenue',
+    ]
+    assert checker.columns_named('cost') == []
