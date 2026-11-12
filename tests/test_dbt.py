@@ -487,3 +487,48 @@ def test_dbt_semantic_layer_metrics_are_read_from_the_manifest() -> None:
         },
     ]
     assert dbt.semantic_metrics({}, lambda item: None) == []
+
+
+def test_a_model_the_catalog_does_not_list_keeps_its_columns_for_sql_that_reads_it(tmp_path: Path) -> None:
+    """A model built after the catalog was generated is in the manifest but not the catalog: its
+    documented columns are its SQL's own, and SQL that reads it still has their lineage."""
+    from konstruct import Project
+
+    (tmp_path / 'models').mkdir()
+    (tmp_path / 'dbt_project.yml').write_text('name: shop\nprofile: shop\n')
+    sql = "select id as customer_id, name as customer_name, 'new' as segment from raw.customers"
+    (tmp_path / 'models' / 'customers.sql').write_text(sql)
+    model = {
+        'unique_id': 'model.shop.customers',
+        'resource_type': 'model',
+        'name': 'customers',
+        'alias': 'customers',
+        'package_name': 'shop',
+        'database': 'wh',
+        'schema': 'main',
+        'relation_name': '"wh"."main"."customers"',
+        'original_file_path': 'models/customers.sql',
+        'raw_code': sql,
+        'compiled_code': sql,
+        'language': 'sql',
+        'depends_on': {'nodes': []},
+        'columns': {'customer_id': {'name': 'customer_id'}, 'customer_name': {'name': 'customer_name'}},
+    }
+    (tmp_path / 'target').mkdir()
+    (tmp_path / 'target' / 'manifest.json').write_text(
+        json.dumps(
+            {'metadata': {'adapter_type': 'duckdb'}, 'nodes': {model['unique_id']: model}, 'sources': {}}
+        )
+    )
+    (tmp_path / 'target' / 'catalog.json').write_text(json.dumps({'nodes': {}, 'sources': {}}))
+    (tmp_path / 'report.sql').write_text(
+        'create table wh.main.report as select c.customer_id, c.segment from wh.main.customers as c'
+    )
+    graph = Project(tmp_path).build(run_dbt=False, warehouses=False).graph
+    assert not [w for w in graph.warnings if 'lineage failed' in w]
+    report = next(n for n in graph.relations() if n.name == 'report')
+    column = graph.column(report.id, 'customer_id')
+    assert column is not None
+    assert [e.target for e in graph.out_edges(column.id, 'derived_from')] == [
+        'model.shop.customers#customer_id'
+    ]

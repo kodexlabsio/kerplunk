@@ -491,6 +491,9 @@ class Builder:
             self.complete.add(target.id)
         for name, sources in statement.columns.items():
             out = self.column(target, name, origin)
+            # The SQL gives the column, so it is the model's own and not only in its YAML, whether
+            # or not a dbt catalog lists it (one generated before the model was).
+            out.attrs.pop('documented_only', None)
             expression = statement.expressions.get(name)
             if expression and not expression.endswith('.*'):
                 # The column as SQL over physical columns, with CTEs and aliases inlined.
