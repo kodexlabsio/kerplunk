@@ -1,3 +1,14 @@
+## v0.13.18 (2026-11-12)
+
+### Fix
+
+- **build**: Report YAML that PyYAML cannot read in every reader instead of raising
+
+### Perf
+
+- **dagster**: Read Dagster definitions in the Rust core
+- **airflow**: Read Airflow DAG files in the Rust core
+
 ## v0.13.17 (2026-11-12)
 
 ### Fix
