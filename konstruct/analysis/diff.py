@@ -396,11 +396,11 @@ def _yaml_facts(text: str | None) -> dict[str, Any]:
             if not isinstance(model, dict) or not model.get('name'):
                 continue
             name = str(model['name'])
-            facts['descriptions'][name] = (model.get('description') or '').strip()
+            facts['descriptions'][name] = str(model.get('description') or '').strip()
             for column in model.get('columns') or []:
                 if isinstance(column, dict) and column.get('name'):
                     label = f'{name}.{column["name"]}'
-                    facts['descriptions'][label] = (column.get('description') or '').strip()
+                    facts['descriptions'][label] = str(column.get('description') or '').strip()
     for source in data.get('sources') or []:
         if isinstance(source, dict):
             for table in source.get('tables') or []:

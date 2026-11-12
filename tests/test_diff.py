@@ -604,3 +604,20 @@ def test_the_sides_of_an_equality_written_the_other_way_round_are_no_change(repo
     git(repo, 'commit', '-qm', 'pairs')
     (repo / 'sql' / 'pairs.sql').write_text(PAIRS.format(o='o', p='p', on=f'0 < o.id and {on}'))
     assert not [r for r in Project(repo).diff(base='HEAD').relations if r.changed]
+
+
+def test_a_description_that_is_not_text_is_read_as_its_text() -> None:
+    from konstruct.analysis.diff import _yaml_facts
+
+    facts = _yaml_facts('models:\n  - name: a\n    description: 5\n  - name: b\n    description: [x]\n')
+    assert facts['descriptions'] == {'a': '5', 'b': "['x']"}
+    assert _yaml_facts('models:\n  - name: c\n    description: 0\n')['descriptions'] == {'c': ''}
+
+
+def test_a_column_description_that_is_not_text_is_read_as_its_text() -> None:
+    from konstruct.analysis.diff import _yaml_facts
+
+    facts = _yaml_facts(
+        'models:\n  - name: m\n    columns: [{name: c, description: [1]}, {name: d, description: 7}]\n'
+    )
+    assert facts['descriptions'] == {'m': '', 'm.c': '[1]', 'm.d': '7'}

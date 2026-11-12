@@ -1,4 +1,4 @@
-# libFuzzer dictionary for fuzz_yaml.py: the tags, escapes and scalars that reach PyYAML's
+# libFuzzer dictionary for fuzz_yaml.py: the tags, escapes and scalars that reach the core's
 # constructors and the scanner's escapes, which random mutation rarely spells out.
 "!!bool"
 "!!int"

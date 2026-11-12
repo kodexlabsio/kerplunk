@@ -154,19 +154,6 @@ def slug(name: str) -> str:
     return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_') or 'term'
 
 
-class _LineLoader(yaml.SafeLoader):
-    """A safe loader that records the line each mapping starts on, as ``__line__``."""
-
-
-def _mapping_with_line(loader: _LineLoader, node: yaml.MappingNode) -> dict[str, Any]:
-    mapping = {str(k): v for k, v in loader.construct_mapping(node, deep=True).items()}
-    mapping['__line__'] = node.start_mark.line + 1
-    return mapping
-
-
-_LineLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping_with_line)
-
-
 def _text(value: Any) -> str | None:
     if value is None:
         return None
@@ -191,7 +178,7 @@ def _strings(value: Any) -> list[str] | None:
 def parse(text: str, path: str) -> DefinitionsFile:
     """Parse a definitions file. Problems are collected as ``path:line: message``, so one bad
     term does not hide the rest."""
-    return _parse(lambda: yamlio.load(text, _LineLoader), path)
+    return _parse(lambda: yamlio.load(text, lines=True), path)
 
 
 def _parse(load: Callable[[], Any], path: str) -> DefinitionsFile:
@@ -320,7 +307,7 @@ def _term(entry: dict[str, Any], path: str, problem: Any) -> Term | None:
 
 def parse_file(path: Path, relative: str | None = None) -> DefinitionsFile:
     """Parse a definitions file from disk; ``relative`` is the path reported in problems."""
-    return _parse(lambda: yamlio.read(path, _LineLoader), relative or str(path))
+    return _parse(lambda: yamlio.read(path, lines=True), relative or str(path))
 
 
 def validate(terms: list[Term]) -> list[str]:

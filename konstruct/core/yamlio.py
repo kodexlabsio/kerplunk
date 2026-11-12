@@ -1,221 +1,128 @@
-"""YAML in, through PyYAML's safe loader. Every YAML file Konstruct reads, the repository's or its own,
-goes through :func:`read` or :func:`load`, so a reader handles one error, :class:`yaml.YAMLError`,
-for any text it cannot read, rather than its own list of what PyYAML raises."""
+"""YAML in, through the core. Every YAML file Konstruct reads, the repository's or its own, goes
+through :func:`read`, :func:`load` or :func:`load_all` (the documents of a stream), and the core
+(``src/yaml/``) reads it as PyYAML's safe loader did: YAML 1.1, so a reader handles one error,
+:class:`yaml.YAMLError`, for any text it cannot read. PyYAML is imported for its exception
+classes, which callers catch, and for the writers that emit YAML; it reads nothing."""
 
 from __future__ import annotations
 
 import codecs
-import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import yaml
-from yaml.constructor import ConstructorError
 from yaml.error import Mark
-from yaml.reader import ReaderError
+
+from konstruct import _core
 
 MAX_VALUES = 1_000_000
 """The most values a YAML document's aliases may add once they are expanded: a few hundred bytes
 of aliases to aliases stand for millions, which a reader walking the value would expand. Values
 written out are not counted, so a large file without aliases is read whole."""
+LOAD_DEPTH = 250
+"""The deepest nesting of collections :func:`load` reads, counted through aliases: PyYAML's own
+recursion gave out between 300 and 400 levels, and no document a person writes comes near either."""
+LOAD_ALL_DEPTH = 100
+"""The deepest nesting :func:`load_all` reads, aliases expanded. It is lower than
+:data:`LOAD_DEPTH` because its documents feed engines that read 128 levels of JSON, so a
+document that goes deeper would be read here and refused there."""
 DIGITS = sys.get_int_max_str_digits() or sys.int_info.default_max_str_digits
 """The most digits an integer may have: Python's limit for converting one to text, which a reader
-does with each value it reports. PyYAML computes a sexagesimal integer (``1:30:59``) in time
-quadratic in its length, so the literal is held to the limit too."""
+does with each value it reports. A sexagesimal integer (``1:30:59``) is read in linear time, and
+held to the limit too."""
 
-_UNREADABLE = (ValueError, OverflowError, LookupError, AttributeError, TypeError, RecursionError)
-"""What PyYAML raises, besides its own errors, on text it cannot read: ``chr()`` of an escape past
-Unicode (ValueError) or past a C int (OverflowError) in the scanner; in the constructors, a date
-that does not exist (ValueError), ``!!bool maybe`` (KeyError), ``!!timestamp foo``
-(AttributeError) and an empty ``!!int`` or ``!!float`` (IndexError); and nesting past Python's
-recursion limit."""
-_INT_TAG = 'tag:yaml.org,2002:int'
-_SURROGATE = re.compile('[\ud800-\udfff]')
+_ERRORS: dict[str, type[yaml.MarkedYAMLError]] = {
+    'scanner': yaml.scanner.ScannerError,
+    'parser': yaml.parser.ParserError,
+    'composer': yaml.composer.ComposerError,
+    'constructor': yaml.constructor.ConstructorError,
+}
 
 
-def read(path: Path, loader: type[yaml.SafeLoader] = yaml.SafeLoader) -> Any:
-    """The value of the YAML file at ``path``, as :func:`load` reads it. The file's bytes go to
-    PyYAML, which reads a byte order mark and refuses text that is not UTF-8 or UTF-16 with a
+def read(path: Path, loader: type | None = None, *, lines: bool = False) -> Any:
+    """The value of the YAML file at ``path``, as :func:`load` reads it. The core reads the file's
+    bytes: a byte order mark, UTF-8 or UTF-16, is understood, and text that is neither raises a
     :class:`yaml.YAMLError`. Raises OSError if the file cannot be read."""
-    return load(path.read_bytes(), loader)
+    return load(path.read_bytes(), loader, lines=lines)
 
 
-def load(text: str | bytes, loader: type[yaml.SafeLoader] = yaml.SafeLoader) -> Any:
-    """The value of the YAML document ``text``, None for an empty one, read by ``loader`` (a
-    :class:`yaml.SafeLoader` or a subclass). Raises :class:`yaml.YAMLError` for any text it
-    cannot read: not YAML, a value PyYAML cannot construct, an unpaired surrogate, an integer of
-    more than :data:`DIGITS` digits, nesting too deep, or aliases that add more than
+_LOADERS = tuple(c for c in (yaml.SafeLoader, getattr(yaml, 'CSafeLoader', None)) if c is not None)
+
+
+def _check(text: object, loader: type | None) -> None:
+    """Refuses what the core does not read: a loader other than PyYAML's two safe loaders, since
+    a subclass can change what is read by overriding a method or setting an attribute, which the
+    core would ignore; and a source that is not text, which is a :class:`yaml.YAMLError` as it was
+    when PyYAML read it."""
+    if loader is not None and loader not in _LOADERS:
+        raise TypeError(
+            'the YAML reader is the core, which reads as yaml.SafeLoader and yaml.CSafeLoader do: '
+            f'{loader!r} is neither, and a subclass of one is not read either'
+        )
+    if not isinstance(text, (str, bytes)):
+        raise yaml.MarkedYAMLError(problem=f'YAML is read from str or bytes, not {type(text).__name__}')
+
+
+def load(text: str | bytes, loader: type | None = None, *, lines: bool = False) -> Any:
+    """The value of the YAML document ``text``, None for an empty one. Raises
+    :class:`yaml.YAMLError` for any text it cannot read: not YAML, a value that has no meaning
+    (a date that does not exist, ``!!bool maybe``), an unpaired surrogate, an integer of more than
+    :data:`DIGITS` digits, nesting past :data:`LOAD_DEPTH`, or aliases that add more than
     :data:`MAX_VALUES` values, which is refused before anything expands them. The error's
-    ``problem_mark``, when it has one, is the value at fault, or where reading stopped."""
-    reader = None
+    ``problem_mark``, when it has one, is the value at fault, or where reading stopped.
+
+    ``loader`` is accepted for callers that passed one: ``yaml.SafeLoader``, ``yaml.CSafeLoader`` or
+    None, all read by the core as PyYAML's safe loader reads. Any other loader, a subclass too,
+    raises TypeError.
+
+    With ``lines`` every mapping is a dict of string keys and holds the line it starts on, from
+    one, as ``__line__``."""
+    _check(text, loader)
     try:
-        reader = _guarded(loader)(text)
-        node = reader.get_single_node()
-        if node is None:
+        return _core.yaml_load(text, lines=lines, max_values=MAX_VALUES, max_depth=LOAD_DEPTH, digits=DIGITS)
+    except _core.YamlFailure as failure:
+        _raise(failure, text)
+
+
+def load_all(text: str | bytes, loader: type | None = None, *, lines: bool = False) -> list[Any]:
+    """The value of every document of ``text``, a stream of ``---`` separated documents, empty
+    documents left out. Each is read as :func:`load` reads one, with its limits and its errors,
+    and nesting past :data:`LOAD_ALL_DEPTH` is refused as well, through aliases too. The values that
+    aliases add are one budget of :data:`MAX_VALUES` for the whole stream, so that many small
+    bombs are no more than one large one."""
+    _check(text, loader)
+    try:
+        return _core.yaml_load_all(
+            text, lines=lines, max_values=MAX_VALUES, max_depth=LOAD_ALL_DEPTH, digits=DIGITS
+        )
+    except _core.YamlFailure as failure:
+        _raise(failure, text)
+
+
+def _raise(failure: _core.YamlFailure, source: str | bytes) -> NoReturn:
+    """The PyYAML exception that describes ``failure``: the class of the stage that refused the
+    text, so a reader that caught one still does, with the marks and the problem it carried."""
+    stage, context, context_mark, problem, problem_mark = failure.args
+    # A mark gets the text it points into, as PyYAML's do, so that a message shows the line.
+    # What the reader refused is a byte or a character it could not use, and has none.
+    buffer = None if stage == 'reader' else _decode(source) + '\0'
+    name = '<byte string>' if isinstance(source, bytes) else '<unicode string>'
+
+    def mark(place: tuple[int, int, int] | None) -> Mark | None:
+        if place is None:
             return None
-        if reader.aliases:
-            _check_aliases(node, reader.aliases)
-        return reader.construct_document(node)
-    except ReaderError as error:
-        raise yaml.MarkedYAMLError(
-            problem=str(error).splitlines()[0], problem_mark=_reader_mark(text, error)
-        ) from error
-    except _UNREADABLE as error:
-        problem = 'nested too deeply to read' if isinstance(error, RecursionError) else str(error)
-        mark = reader.get_mark() if reader is not None else None
-        raise yaml.MarkedYAMLError(problem=problem or type(error).__name__, problem_mark=mark) from error
-    finally:
-        if reader is not None:
-            reader.dispose()
+        index, line, column = place
+        return Mark(name, index, line, column, buffer, 0 if buffer is None else index)
+
+    error = _ERRORS.get(stage, yaml.MarkedYAMLError)
+    raise error(context, mark(context_mark), problem, mark(problem_mark)) from None
 
 
-class _Guard(yaml.SafeLoader):
-    """Placed before a loader in its method order: it records each alias as it is composed, and
-    refuses, at the node at fault, a value its constructor cannot build or a reader cannot use."""
-
-    def __init__(self, stream: str | bytes) -> None:
-        super().__init__(stream)
-        self.aliases: list[tuple[yaml.Node, Mark]] = []
-
-    def compose_node(self, parent: yaml.Node | None, index: int) -> yaml.Node | None:
-        if not self.check_event(yaml.AliasEvent):
-            return super().compose_node(parent, index)
-        mark: Mark = self.peek_event().start_mark  # type: ignore[no-untyped-call]
-        node = super().compose_node(parent, index)
-        if node is not None:
-            self.aliases.append((node, mark))
-        return node
-
-    def construct_object(self, node: yaml.Node, deep: bool = False) -> Any:
-        if node in self.constructed_objects:
-            return super().construct_object(node, deep)
-        if node.tag == _INT_TAG and isinstance(node.value, str) and len(node.value) > DIGITS:
-            raise ConstructorError(None, None, f'an integer of more than {DIGITS:,} digits', node.start_mark)
-        try:
-            data = super().construct_object(node, deep)
-        except _UNREADABLE as error:
-            raise ConstructorError(None, None, _problem(node, error), node.start_mark) from error
-        if isinstance(data, str) and _SURROGATE.search(data):
-            data = self.constructed_objects[node] = _paired(data, node)
-        if type(data) is int and not _printable(data):
-            raise ConstructorError(None, None, f'an integer of more than {DIGITS:,} digits', node.start_mark)
-        return data
-
-
-_GUARDED: dict[type[yaml.SafeLoader], type[_Guard]] = {}
-
-
-def _guarded(loader: type[yaml.SafeLoader]) -> type[_Guard]:
-    """``loader`` with :class:`_Guard` before it, made once for each loader."""
-    if issubclass(loader, _Guard):
-        return loader
-    if loader not in _GUARDED:
-        _GUARDED[loader] = type(f'Guarded{loader.__name__}', (_Guard, loader), {})
-    return _GUARDED[loader]
-
-
-def _paired(text: str, node: yaml.Node) -> str:
-    """``text`` with each escaped surrogate pair (``"\\ud83d\\udce6"``, as JSON writes a character
-    past the Basic Multilingual Plane) joined into its character. A half left unpaired is refused:
-    no encoding can write it, so a reader would fail on it later."""
-    try:
-        return text.encode('utf-16', 'surrogatepass').decode('utf-16')
-    except UnicodeDecodeError:
-        raise ConstructorError(None, None, 'a lone surrogate is not allowed', node.start_mark) from None
-
-
-def _problem(node: yaml.Node, error: BaseException) -> str:
-    if isinstance(error, RecursionError):
-        return 'nested too deeply to read'
-    kind = str(node.tag).rsplit(':', 1)[-1]
-    if not isinstance(node, yaml.ScalarNode):
-        return f'cannot read this {kind}: {error}'
-    value = node.value if len(node.value) <= 40 else node.value[:40] + '...'
-    detail = f': {error}' if isinstance(error, ValueError) and str(error) else ''
-    return f'{value!r} is not a valid {kind}{detail}'
-
-
-_BREAKS = re.compile('\r\n|[\n\r\x85\u2028\u2029]')
-
-
-def _reader_mark(text: str | bytes, error: ReaderError) -> Mark:
-    """Where the byte or character PyYAML's reader refused is: its position counts characters
-    when the text decoded and it is one YAML does not allow, and bytes when it did not decode."""
-    if isinstance(text, bytes):
-        if error.encoding == 'unicode':
-            # As PyYAML decodes it, keeping a byte order mark, which its position counts.
-            codec = {codecs.BOM_UTF16_LE: 'utf-16-le', codecs.BOM_UTF16_BE: 'utf-16-be'}.get(
-                text[:2], 'utf-8'
-            )
-            before = text.decode(codec, 'replace')[: error.position]
-        else:
-            before = text[: error.position].decode(error.encoding, 'replace')
-    else:
-        before = text[: error.position]
-    lines = _BREAKS.split(before)
-    return Mark(error.name, error.position, len(lines) - 1, len(lines[-1]), None, 0)
-
-
-def _printable(number: int) -> bool:
-    """Whether ``number`` has at most :data:`DIGITS` decimal digits. A number of at most three
-    bits for each digit always has; nearer the limit, the conversion itself decides."""
-    if number.bit_length() <= 3 * DIGITS:
-        return True
-    try:
-        return len(str(abs(number))) <= DIGITS
-    except ValueError:
-        return False
-
-
-def _check_aliases(root: yaml.Node, aliases: list[tuple[yaml.Node, Mark]]) -> None:
-    """Refuse a document whose aliases add more than :data:`MAX_VALUES` values: the values it
-    stands for with each alias expanded, less the nodes written out. The error is at the alias
-    that adds the most."""
-    limit = MAX_VALUES + _distinct(root)
-    sizes: dict[int, int] = {}
-    if _expanded(root, sizes, limit) <= limit:
-        return
-    _, mark = max(aliases, key=lambda alias: sizes.get(id(alias[0]), 0))
-    raise yaml.MarkedYAMLError(
-        problem=f'its aliases stand for more than {MAX_VALUES:,} values', problem_mark=mark
-    )
-
-
-def _distinct(root: yaml.Node) -> int:
-    """How many nodes a document has, each written out once."""
-    seen = {id(root)}
-    stack = [root]
-    while stack:
-        node = stack.pop()
-        children = (
-            node.value
-            if isinstance(node, yaml.SequenceNode)
-            else [part for pair in node.value for part in pair]
-            if isinstance(node, yaml.MappingNode)
-            else []
-        )
-        for child in children:
-            if id(child) not in seen:
-                seen.add(id(child))
-                stack.append(child)
-    return len(seen)
-
-
-def _expanded(node: yaml.Node, sizes: dict[int, int], limit: int) -> int:
-    """How many values a YAML node stands for with its aliases expanded, up to ``limit`` and one
-    more, each shared node counted once and remembered; a node that contains itself stands for
-    too many."""
-    known = sizes.get(id(node))
-    if known is not None:
-        return known
-    sizes[id(node)] = limit + 1
-    total = 1
-    if isinstance(node, yaml.SequenceNode):
-        total += sum(_expanded(item, sizes, limit) for item in node.value)
-    elif isinstance(node, yaml.MappingNode):
-        total += sum(
-            _expanded(key, sizes, limit) + _expanded(value, sizes, limit) for key, value in node.value
-        )
-    sizes[id(node)] = min(total, limit + 1)
-    return sizes[id(node)]
+def _decode(source: str | bytes) -> str:
+    """The characters PyYAML's reader indexes: the text of ``source`` as it decodes, with a byte
+    order mark kept as a character."""
+    if isinstance(source, str):
+        return source
+    codec = {codecs.BOM_UTF16_LE: 'utf-16-le', codecs.BOM_UTF16_BE: 'utf-16-be'}.get(source[:2], 'utf-8')
+    return source.decode(codec, 'replace')

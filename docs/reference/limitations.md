@@ -28,3 +28,4 @@
 
 - Column-level lineage for dbt Python models and through UDFs.
 - Incremental warehouse metadata (it is re-read on every build; it is fast for local warehouses but not for large remote ones).
+- A YAML file nested more than 250 levels deep, with its aliases expanded, is not read, nor is one whose aliases add more than a million values. A stream of documents is limited to 100 levels.

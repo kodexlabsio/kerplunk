@@ -28,7 +28,7 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 
 | Package | Modules |
 |---------|---------|
-| `konstruct.core` | `graph` (the graph and its traversal), `sql` (column lineage from SQL), `mutate` (mutants of a query), `jsonio`, `yamlio` (YAML read through one loader) |
+| `konstruct.core` | `graph` (the graph and its traversal), `sql` (column lineage from SQL), `mutate` (mutants of a query), `jsonio`, `yamlio` (YAML read by the core) |
 | `konstruct.inputs` | `dbt`, `dbt_commit` (a dbt manifest as a commit's files are), `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `ingestion`, `hcl`, `warehouse`, `usage` |
 | `konstruct.engine` | `build`, `config`, `worker`, `snapshot` (a commit's files, and the user's private cache) |
 | `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `world`, `world_facts` (the world as facts to compare), `ossie`, `rows` (whether a composed formula counts its column's rows), `registry` |
@@ -36,6 +36,8 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 | `konstruct.outputs` | `report`, `html`, `export`, `compiled` (the ontology as tables, relationships and metrics for the platform exports), `owl`, `semantic_view`, `metric_view` |
 | `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
 | `konstruct.plugins` | `api` (the plugin API: protocols and types), `registry` (finding, enabling and loading plugins) |
+
+`konstruct.core.yamlio` has `load(text, loader=None, *, lines=False)`, `load_all` and `read(path, loader=None, *, lines=False)`. They read as PyYAML's safe loader reads, YAML 1.1: `loader` may be `yaml.SafeLoader`, `yaml.CSafeLoader` or None, and any other, a subclass of them too, raises `TypeError`; text that cannot be read, or a source that is not `str` or `bytes`, raises a `yaml.YAMLError`; with `lines` every mapping is a dict of string keys that holds its line as `__line__`.
 
 ## Opening and Building a Project
 
