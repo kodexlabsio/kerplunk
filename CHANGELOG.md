@@ -1,3 +1,16 @@
+## v0.13.23 (2026-11-12)
+
+### Fix
+
+- **sql**: Report failed lineage for a relation whose name holds a semicolon
+
+### Perf
+
+- **query**: Answer an unchanged hook without loading the MCP SDK or sqlglot
+- **query**: Import sqlglot in verify only where a query is read
+- **build**: Read every YAML file through the core and drop the PyYAML reader
+- **build**: Read YAML in the Rust core as PyYAML's safe loader reads it
+
 ## v0.13.22 (2026-11-12)
 
 ### Feat
