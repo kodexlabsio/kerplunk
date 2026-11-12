@@ -66,6 +66,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.release_notes import ReleaseNotes
     from konstruct.analysis.semantic import SimilarResult
     from konstruct.analysis.sensitivity import Sensitivity
+    from konstruct.analysis.timeline import Timeline
     from konstruct.analysis.verify import Verification
     from konstruct.analysis.why import Why
     from konstruct.engine.trust import Trust
@@ -1188,16 +1189,47 @@ def release_notes_lines(result: ReleaseNotes, style: Style) -> Lines:
     return lines
 
 
+def timeline_lines(result: Timeline, style: Style) -> Lines:
+    lines = [
+        header('Timeline', f'since {result.since}' if result.since else 'of the history read', result.until),
+        *_summary(style, result.summary()[:1].upper() + result.summary()[1:] + '.'),
+    ]
+    for entry in result.entries:
+        lines += [blank(), style.fit(_commit(entry.commit))]
+        if entry.compared_with is not None:
+            lines.append(
+                Text(
+                    ('    compared with ', 'dim'),
+                    (entry.compared_with.short, 'accent'),
+                    (', the last commit before it that built', 'dim'),
+                )
+            )
+        for change in entry.changes:
+            lines.append(Text('    ', (change.headline(), 'strong')))
+            for line in change.english:
+                lines += wrap(style, Text(line), first=Text('      - '), hanging=8)
+            if change.effect is not None:
+                lines += wrap(style, Text(change.effect.summary()), first=Text('      - '), hanging=8)
+    if result.warehouse:
+        lines += [blank(), Text((f'Effects run read-only against {result.warehouse}.', 'dim'))]
+    notes = result.notes + [f'the world could not be built at {c.short}' for c in result.unknown]
+    if notes:
+        lines.append(blank())
+        for note in notes:
+            lines += wrap(style, Text((note, 'dim')), first=Text('  ', ('note: ', 'dim')), hanging=8)
+    return lines
+
+
 def _commit(commit: Any) -> Text:
     if not commit.sha:
         return Text('  ', ('working tree', 'accent'), (' (uncommitted)', 'dim'))
     return Text(
         '  ',
-        (commit.date[:10], 'dim'),
+        ((commit.authored or commit.date)[:10], 'dim'),
         '  ',
         (commit.short, 'accent'),
         '  ',
-        commit.author,
+        commit.by,
         ('  ', ''),
         (commit.subject, 'strong'),
     )

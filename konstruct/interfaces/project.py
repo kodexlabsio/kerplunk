@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from konstruct.analysis.receipts import Receipt, ReceiptCheck
     from konstruct.analysis.release_notes import ReleaseNotes
     from konstruct.analysis.sensitivity import Sensitivity, Settings
+    from konstruct.analysis.timeline import Timeline
     from konstruct.analysis.verify import Engine, Verification
     from konstruct.analysis.why import Why
     from konstruct.engine.build import BuildResult
@@ -1296,6 +1297,103 @@ class Project:
             return release_notes(self.graph, self.root, since=since, until=until, limit=limit)
         except DiffError as error:
             raise query.QueryError(str(error)) from error
+
+    def timeline(
+        self,
+        since: str | None = None,
+        *,
+        until: str | None = None,
+        paths: Sequence[str] = (),
+        limit: int = 50,
+    ) -> Timeline:
+        """How the business's meaning changed, commit by commit.
+
+        Builds the world (entities, relationships, properties and metrics) at each commit from that
+        commit's own files and compares it with the world at the commit before: what was added,
+        removed, renamed or changed, a formula or the rows a metric is computed over, required
+        filters, trust, and each definition's status, owner and approval date, with the commit's
+        author, co-authors and date and in plain English. A commit that changes none of that, such
+        as one that only reformats SQL, has no entry. dbt models are rendered with each commit's
+        macros and today's manifest; nothing runs dbt or connects to a warehouse. Each commit's
+        world is kept in the user's cache directory, so a second call builds only new commits.
+
+        Args:
+            since: A commit, tag or date (``2026-10-01``) the range starts after; by default the
+                whole history.
+            until: A commit, tag or date the range ends at (default HEAD).
+            paths: Only commits that changed these files or directories, relative to the project.
+            limit: The most commits read, the most recent.
+
+        Returns:
+            The entries, oldest first; ``release_notes()`` gives a sentence for each metric change
+            and ``markdown()`` the whole as Markdown to post.
+
+        Raises:
+            konstruct.QueryError: ``since`` or ``until`` is not a commit, tag or date, the project is
+                not in a git repository, or ``limit`` is below 1.
+
+        Example::
+
+            timeline = project.timeline('v1.4')
+            [(e.commit.author, [c.headline() for c in e.changes]) for e in timeline.entries]
+            timeline.release_notes()
+        """
+        from konstruct.analysis.diff import DiffError
+        from konstruct.analysis.timeline import timeline
+
+        if limit < 1:
+            raise query.QueryError('the limit must be at least 1 commit')
+        try:
+            return timeline(self.root, since=since, until=until, paths=paths, limit=limit, graph=self.graph)
+        except DiffError as error:
+            raise query.QueryError(str(error)) from error
+
+    def timeline_effect(
+        self,
+        since: str | None = None,
+        *,
+        until: str | None = None,
+        paths: Sequence[str] = (),
+        limit: int = 50,
+        warehouse: str | Path | None = None,
+        max_rows: int = 1_000_000,
+    ) -> Timeline:
+        """The timeline, with what each change to a metric's formula or rows does on today's data.
+
+        For each such change, the change in the same commit to one of the metric's columns or
+        relations, or to one upstream of them, is run as it was before the commit and as it was
+        after on the same data, as :meth:`effect` runs it: read-only in verify's engines, the tables
+        it reads copied, nothing written to the warehouse.
+
+        Args:
+            since: As for :meth:`timeline`.
+            until: As for :meth:`timeline`.
+            paths: As for :meth:`timeline`.
+            limit: As for :meth:`timeline`.
+            warehouse: As for :meth:`verify`.
+            max_rows: The most rows copied from any table.
+
+        Returns:
+            The timeline, each metric change of formula or rows with its ``effect``, and its release
+            notes saying what the change does on today's data.
+
+        Raises:
+            konstruct.QueryError: As for :meth:`timeline`, or no warehouse is found.
+
+        Example::
+
+            timeline = project.timeline_effect('v1.4')
+            timeline.release_notes()
+        """
+        from konstruct.analysis.timeline import effects
+
+        result = self.timeline(since, until=until, paths=paths, limit=limit)
+        if not any({'formula', 'rows'} & set(c.fields) for _, c in result.changes('metric')):
+            return result  # nothing to run, so no warehouse is opened
+        target = self._target(warehouse)
+        effects(result, self.graph, self.root, target, max_rows=max_rows, ontology=self.ontology())
+        result.warehouse = self._shown(target, result.warehouse or '')
+        return result
 
     def effect(
         self,

@@ -15,7 +15,6 @@ from hypothesis import strategies as st
 
 from konstruct import Project
 from konstruct.analysis import sensitivity as analysis
-from konstruct.analysis.diff import DiffError
 from konstruct.analysis.erasure import erasure
 from konstruct.analysis.query import QueryError
 from konstruct.analysis.sensitivity import (
@@ -1090,24 +1089,6 @@ def test_a_term_the_base_does_not_have_fails_closed(tmp_path: Path, monkeypatch:
     ]
 
 
-def test_the_base_tree_is_the_commit_as_it_holds_it(tmp_path: Path) -> None:
-    """Every regular file of the commit, whatever .gitattributes says, and no link: a link could
-    lead outside the tree."""
-    (tmp_path / 'dir').mkdir()
-    (tmp_path / 'dir' / 'kept.sql').write_text('select 1')
-    (tmp_path / 'stamp.txt').write_text('$Format:%H$')
-    (tmp_path / '.gitattributes').write_text('dir/** export-ignore\nstamp.txt export-subst\n')
-    (tmp_path / 'link').symlink_to('/etc/hostname')
-    _repository(tmp_path)
-    tree = tmp_path / 'konstruct-out' / 'tree'
-    analysis._write_tree(tmp_path, 'HEAD', Path(), tree)
-    assert (tree / 'dir' / 'kept.sql').read_text() == 'select 1'
-    assert (tree / 'stamp.txt').read_text() == '$Format:%H$'
-    assert not (tree / 'link').exists() and not (tree / 'link').is_symlink()
-    with pytest.raises(DiffError):
-        analysis._write_tree(tmp_path, 'no-such-ref', Path(), tmp_path / 'konstruct-out' / 'other')
-
-
 def test_the_base_graph_is_kept_by_commit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project = _vanishing(tmp_path, HIDE)
     cache = tmp_path / 'cache'
@@ -1171,7 +1152,6 @@ def test_a_cache_others_can_write_is_not_read(tmp_path: Path, monkeypatch: pytes
         os.chown(kept, 4242, -1)  # another user's file
         analysis.base_graph(project.root, 'main', cache)
         assert len(builds) == 4
-    assert not analysis._private(tmp_path / 'missing')
 
 
 def test_the_base_cache_is_the_users_own(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1206,7 +1186,7 @@ def test_a_graph_of_the_base_the_change_commits_is_not_read(
     term = next(n for n in forged.nodes.values() if n.kind == 'term' and n.name == 'Pay')
     del term.attrs['sensitivity']
     located = analysis._located(tmp_path, 'main')
-    assert located is not None
+    assert located is not None and located[3] is not None
     name = located[3]
     planted = tmp_path / out / 'base' / name
     forged.write(planted)

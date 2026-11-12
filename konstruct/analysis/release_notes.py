@@ -44,7 +44,7 @@ from konstruct.analysis.english import (
     word_condition,
 )
 from konstruct.analysis.explain import Explainer
-from konstruct.analysis.history import Commit, Repository, TermChange, term_history, utc
+from konstruct.analysis.history import Commit, Repository, TermChange, term_history
 from konstruct.core.graph import Graph, Node
 from konstruct.core.sql import PLACEHOLDER
 from konstruct.inputs import dbt
@@ -52,8 +52,6 @@ from konstruct.inputs import dbt
 if TYPE_CHECKING:
     from konstruct.analysis.effect import Effect
     from konstruct.interfaces.layout import Style
-
-_SEPARATOR = '\x1f'
 
 
 @dataclass
@@ -324,8 +322,13 @@ def latest_tag(root: Path, until: str = 'HEAD') -> str | None:
     return found or None
 
 
-def _range(root: Path, since: str | None, end: str) -> list[str]:
-    """``git log`` arguments for the commits after ``since`` up to the commit ``end``."""
+def commit_range(root: Path, since: str | None, end: str) -> list[str]:
+    """``git log`` arguments for the commits after ``since`` (a commit, tag or date, or None for
+    the whole history) up to the commit ``end``.
+
+    Raises:
+        konstruct.analysis.diff.DiffError: ``since`` is not a commit, branch, tag or date.
+    """
     if since is None:
         return [end]
     check_ref(since)
@@ -356,50 +359,38 @@ def release_notes(
     since: str | None = None,
     until: str | None = None,
     limit: int = 200,
+    whole_history: bool = False,
 ) -> ReleaseNotes:
     """The changes to formulas, rows and business terms between ``since`` (a commit, tag or date;
-    by default the latest tag reachable from ``until``, or the whole history when there is none)
-    and ``until`` (default HEAD), newest first. At most ``limit`` commits are read. A file a commit
-    moves is compared with itself at its old path."""
+    by default the latest tag reachable from ``until``, or the whole history when there is none or
+    with ``whole_history``) and ``until`` (default HEAD), newest first. At most ``limit`` commits
+    are read. A file a commit moves is compared with itself at its old path."""
     if limit < 1:
         raise ValueError('limit must be at least 1')
     top = Path(run_git(root, 'rev-parse', '--show-toplevel').strip())
     end = resolve_ref(root, until) if until else 'HEAD'
     given = since
-    if since is None:
+    if since is None and not whole_history:
         since = latest_tag(root, end)
     result = ReleaseNotes(since=since, until=until or 'HEAD')
     if given is None and since is not None:
         result.notes.append(f'from the latest tag, {since}; pass --since for another start')
     prefix = Path(root).resolve().relative_to(top.resolve())
-    output = run_git(
-        top,
-        '-c',
-        'core.quotePath=false',
-        'log',
-        '--no-merges',
-        f'--max-count={limit + 1}',  # one more, to tell whether any were left
-        '--name-status',
-        '-M',
-        f'--format=%x1e%H{_SEPARATOR}%an{_SEPARATOR}%cI{_SEPARATOR}%s',
-        *_range(root, since, end),
-        '--',
-        str(prefix) if str(prefix) != '.' else '.',
-    )
     repository = Repository(top)
+    listed, more = repository.commits(
+        *commit_range(root, since, end),
+        paths=[str(prefix) if str(prefix) != '.' else '.'],
+        limit=limit,
+        files='status',
+        check=True,
+    )
     commits: list[tuple[Commit, list[_File]]] = []
     # Newest first, as git lists them, so each file's path now is known from the moves after it.
     now: dict[str, str] = {}
-    blocks = [
-        lines for b in output.split('\x1e') if (lines := [x for x in b.strip().split('\n') if x.strip()])
-    ]
-    more = len(blocks) > limit
-    for lines in blocks[:limit]:
-        sha, author, date, subject = [*lines[0].split(_SEPARATOR), '', '', ''][:4]
-        commit = Commit(sha, author, utc(date), subject, repository.order.get(sha, -1), top)
+    for commit, lines in listed:
         files = []
         moves = {}
-        for line in lines[1:]:
+        for line in lines:
             status, *paths = line.split('\t')
             if status.startswith('R') and len(paths) == 2:
                 old, new = paths

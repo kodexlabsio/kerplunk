@@ -29,10 +29,10 @@ and a `graph.json` written by a newer Konstruct raises {class}`konstruct.FormatE
 | Package | Modules |
 |---------|---------|
 | `konstruct.core` | `graph` (the graph and its traversal), `sql` (column lineage from SQL), `mutate` (mutants of a query), `jsonio`, `yamlio` (YAML read through one loader) |
-| `konstruct.inputs` | `dbt`, `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `ingestion`, `hcl`, `warehouse`, `usage` |
-| `konstruct.engine` | `build`, `config`, `worker` |
-| `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `world`, `ossie`, `rows` (whether a composed formula counts its column's rows), `registry` |
-| `konstruct.analysis` | `query`, `semantic`, `explain`, `english`, `conflicts`, `diff`, `gate`, `verify`, `integrity`, `mutation`, `why`, `release_notes`, `effect`, `laws`, `history`, `receipts`, `lock`, `sensitivity`, `erasure` |
+| `konstruct.inputs` | `dbt`, `dbt_commit` (a dbt manifest as a commit's files are), `jinja`, `airflow`, `dagster`, `spark`, `looker`, `powerbi`, `loaders`, `ingestion`, `hcl`, `warehouse`, `usage` |
+| `konstruct.engine` | `build`, `config`, `worker`, `snapshot` (a commit's files, and the user's private cache) |
+| `konstruct.semantics` | `definitions`, `vocabulary`, `ontology`, `world`, `world_facts` (the world as facts to compare), `ossie`, `rows` (whether a composed formula counts its column's rows), `registry` |
+| `konstruct.analysis` | `query`, `semantic`, `explain`, `english`, `conflicts`, `diff`, `gate`, `verify`, `integrity`, `mutation`, `why`, `release_notes`, `effect`, `timeline`, `laws`, `history`, `receipts`, `lock`, `sensitivity`, `erasure` |
 | `konstruct.outputs` | `report`, `html`, `export`, `compiled` (the ontology as tables, relationships and metrics for the platform exports), `owl`, `semantic_view`, `metric_view` |
 | `konstruct.interfaces` | `cli`, `project`, `mcp_server`, `skill`, `console`, `status` |
 | `konstruct.plugins` | `api` (the plugin API: protocols and types), `registry` (finding, enabling and loading plugins) |
@@ -189,6 +189,10 @@ print(notes.markdown())
 effects = project.effect('v1.4', models=['customers'])
 print([(c.headline(), c.effect.summary()) for c in effects.changes if c.effect])
 
+timeline = project.timeline('v1.4')  # how the business's meaning changed, commit by commit
+print([(e.commit.by, [c.headline() for c in e.changes]) for e in timeline.entries])
+print(project.timeline_effect('v1.4').release_notes())
+
 receipt = project.receipt(['customer_ltv.lifetime_value'], question='LTV of customer 3?')
 print(receipt.citation)
 print([(r.id, r.status) for r in project.check_receipts().receipts])
@@ -211,6 +215,8 @@ for pinned in pins.changes:
 .. automethod:: konstruct.Project.why
 .. automethod:: konstruct.Project.release_notes
 .. automethod:: konstruct.Project.effect
+.. automethod:: konstruct.Project.timeline
+.. automethod:: konstruct.Project.timeline_effect
 .. automethod:: konstruct.Project.receipt
 .. automethod:: konstruct.Project.receipts
 .. automethod:: konstruct.Project.check_receipts
@@ -686,6 +692,24 @@ These are stable enough to build on, but `Project` is the supported entry point.
 
 .. autoclass:: konstruct.analysis.effect.ColumnEffect
    :members:
+```
+
+### Timeline
+
+```{eval-rst}
+.. autoclass:: konstruct.analysis.timeline.Timeline
+   :members:
+
+.. autoclass:: konstruct.analysis.timeline.Entry
+   :members:
+
+.. autoclass:: konstruct.semantics.world_facts.WorldChange
+   :members:
+
+.. autoclass:: konstruct.semantics.world_facts.World
+   :members:
+
+.. autofunction:: konstruct.semantics.world_facts.world_diff
 ```
 
 ### Search by Meaning

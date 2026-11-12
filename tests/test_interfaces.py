@@ -236,13 +236,29 @@ def changed_jaffle(jaffle_built_graph: Path, tmp_path_factory: pytest.TempPathFa
     _git(root, 'commit', '-qm', 'Add the project')
     payments = root / 'models' / 'staging' / 'stg_payments.sql'
     _edit(payments, 'amount / 100', 'amount / 100.0')
-    _git(root, 'commit', '-qam', 'Divide exactly')
+    _git(
+        root,
+        'commit',
+        '-qa',
+        '-m',
+        'Divide exactly',
+        '-m',
+        'Co-authored-by: Grace Hopper <grace@example.com>',
+    )
     working = payments.read_text()
     payments.write_text('select from where')
     exposures = root / 'models' / 'exposures.yml'
     exposures_text = exposures.read_text()
     exposures.write_text(exposures_text + 'broken: [\n')
-    _git(root, 'commit', '-qam', 'Break the payments model and the exposures')
+    _git(
+        root,
+        'commit',
+        '-qa',
+        '-m',
+        'Break the payments model and the exposures',
+        '-m',
+        'Co-authored-by: Grace Hopper <grace@example.com>',
+    )
     _git(root, 'tag', 'broken')
     payments.write_text(working)
     exposures.write_text(exposures_text)
@@ -251,12 +267,28 @@ def changed_jaffle(jaffle_built_graph: Path, tmp_path_factory: pytest.TempPathFa
     _edit(
         definitions, 'owner: {name: Priya Shah, role: Head of Finance}', 'owner: {name: Ada, role: Analyst}'
     )
-    _git(root, 'commit', '-qam', 'Hand the lifetime value term over')
+    _git(
+        root,
+        'commit',
+        '-qa',
+        '-m',
+        'Hand the lifetime value term over',
+        '-m',
+        'Co-authored-by: Grace Hopper <grace@example.com>',
+    )
     _edit(definitions, 'status: approved\n    approved: 2026-10-30\n', 'status: agreed\n')
     _git(root, 'commit', '-qam', 'Take the lifetime value term back to agreed')
     _edit(definitions, 'Total value of every payment', 'Total value of all the payments')
     _edit(definitions, 'status: agreed\n', 'status: approved\n    approved: 2026-11-02\n')
-    _git(root, 'commit', '-qam', 'Approve the lifetime value term in new words')
+    _git(
+        root,
+        'commit',
+        '-qa',
+        '-m',
+        'Approve the lifetime value term in new words',
+        '-m',
+        'Co-authored-by: Grace Hopper <grace@example.com>',
+    )
     sources = root / 'models' / 'sources.yml'
     sources.write_text('version: 2\nsources:\n  - name: events\n    tables:\n      - name: raw_events\n')
     _git(root, 'add', '-A')
@@ -919,9 +951,41 @@ EMPTY: dict[str, str] = {
 }
 # Fields the projects only ever fill with null, each with why; every other field must show the
 # type it holds, or a change to that type would pass.
+_COMMIT = 'a commit shows its co-authors in .entries[].commit.co_authors; this one has none'
+_EFFECT = 'the effect is the same document as release-notes .changes[].effect, filled there'
+EMPTY.update(
+    {
+        f'json timeline {path}.co_authors': _COMMIT
+        for path in ('.entries[].changes[].approval', '.entries[].compared_with', '.start', '.unknown[]')
+    }
+)
+EMPTY.update(
+    {
+        'json timeline .entries[].changes[].before.synonyms': 'synonyms are added, as .after.synonyms shows',
+        'json timeline .entries[].changes[].effect.key': _EFFECT,
+        'json timeline .notes': 'the projects build at every commit with nothing to note (tests/test_timeline.py)',
+    }
+)
 UNFILLED: dict[str, str] = {
     'json release-notes .changes[].effect': 'release-notes runs no SQL; verify --effect fills it',
     'json release-notes .warehouse': 'release-notes runs no SQL; verify --effect fills it',
+    **{
+        f'json timeline .entries[].changes[].{side}.{fact}': (
+            "only verify's checks of keys and relationships fill it"
+            if fact == 'check'
+            else "the business terms that name the projects' entities change in no commit (tests/test_timeline.py)"
+        )
+        for side in ('before', 'after')
+        for fact in ('check', 'term', 'description')
+    },
+    **{
+        f'json timeline .entries[].changes[].before.{fact}': 'it is added, as .after shows'
+        for fact in ('unit', 'currency')
+    },
+    **{
+        f'json timeline .entries[].changes[].effect.{path}': _EFFECT
+        for path in ('columns[].changed', 'columns[].matched', 'gained', 'lost', 'skipped')
+    },
     'json lock --check .consumer': (
         "only the gate checks a consumer's lockfile from its producer; `lock --check` checks the project's own"
     ),
@@ -1068,11 +1132,50 @@ def test_json_documents(
     (shop / 'lifetime.sql').write_text(
         'create table main.ltv as select customer_id, sum(amount) * 2 as total from raw.orders group by customer_id'
     )
-    commit_to(shop, 'Move lifetime value and double it', 'Ada', '2026-07-01T10:00:00+00:00')
+    commit_to(
+        shop,
+        'Move lifetime value and double it\n\nCo-authored-by: Grace Hopper <grace@example.com>',
+        'Ada',
+        '2026-07-01T10:00:00+00:00',
+    )
     Project(shop).build()
     released = ['-C', str(shop)]
     add('release-notes', *released, 'release-notes', '--json')
     add('verify', *released, 'verify', '--effect', '--json')
+    # verify --effect --timeline prints the timeline's document, with each change's effect.
+    add('timeline', *released, 'verify', '--effect', '--timeline', '--json')
+    from tests.test_timeline import _definitions, _files
+    from tests.test_timeline import make_shop as make_timeline_shop
+
+    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path / 'user-cache'))
+    meaning = make_timeline_shop(tmp_path / 'timeline' / 'shop')
+    (meaning / 'konstruct.toml').write_text('not toml = = =\n')
+    commit_to(meaning, 'Break the configuration', 'Linus', '2026-04-01T10:00:00+00:00')
+    (meaning / 'konstruct.toml').unlink()
+    required = _definitions(filters=True, name='Customer lifetime value', status='approved')
+    _files(
+        meaning,
+        **{
+            'definitions.yml': required.replace(
+                '    grain: one row per order\n',
+                '    grain: one row per order\n    synonyms: [sales]\n    unit: currency\n    currency: GBP\n',
+            )
+        },
+    )
+    commit_to(
+        meaning,
+        'Require the filter again\n\nCo-authored-by: Grace Hopper <grace@example.com>',
+        'Sam',
+        '2026-04-02T10:00:00+00:00',
+    )
+    # A business term renamed: the properties bound to it name another term.
+    definitions = meaning / 'definitions.yml'
+    renamed = definitions.read_text().replace('- name: Customer lifetime value', '- name: Customer value')
+    definitions.write_text(renamed)
+    commit_to(meaning, 'Rename customer lifetime value', 'Priya', '2026-04-03T10:00:00+00:00')
+    timed = ['-C', str(meaning)]
+    add('timeline', *timed, 'timeline', '--json')  # from the first commit, with every kind of change
+    add('timeline', *timed, 'timeline', '--since', 'v0', '--file', 'definitions.yml', '--json')
     add('diff', *git, 'diff', '--base', 'HEAD', '--format', 'json')
     add('diff', *git, 'diff', '--base', 'broken', '--format', 'json')  # a version that does not parse
     add('gate', *git, 'gate', '--base', 'HEAD', '--no-update', '--format', 'json')

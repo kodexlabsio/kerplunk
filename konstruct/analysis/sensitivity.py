@@ -76,6 +76,7 @@ from sqlglot import exp
 from konstruct.core.graph import RELATION_KINDS, Graph, Node, split_reading
 from konstruct.core.graph import column_id as _column_id
 from konstruct.core.sql import PARSE_ERRORS
+from konstruct.engine import snapshot
 
 if TYPE_CHECKING:
     from konstruct.interfaces.layout import Style
@@ -1685,27 +1686,11 @@ BASE_GRAPHS = 8
 
 
 def base_cache() -> Path | None:
-    """Where the gate keeps the graphs of base commits: ``$XDG_CACHE_HOME/konstruct/base``,
-    otherwise in the platform's user cache directory (``~/.cache``, ``~/Library/Caches`` or
-    ``%LOCALAPPDATA%``). It is the user's own, never a path in the repository or one its
-    configuration names, so a change cannot commit a graph of its base for the gate to read.
-    None in CI (``CI`` or ``GITHUB_ACTIONS`` set): a fresh runner gains nothing from a cache, and
-    one a workflow restores could hold a graph the change wrote."""
-    import os
-    import sys
-
-    if os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'):
-        return None
-    xdg = os.environ.get('XDG_CACHE_HOME')
-    if xdg and Path(xdg).is_absolute():
-        base = Path(xdg)
-    elif sys.platform == 'win32' and os.environ.get('LOCALAPPDATA'):
-        base = Path(os.environ['LOCALAPPDATA'])
-    elif sys.platform == 'darwin':
-        base = Path.home() / 'Library' / 'Caches'
-    else:
-        base = Path.home() / '.cache'
-    return base / 'konstruct' / 'base'
+    """Where the gate keeps the graphs of base commits: the user's own cache directory for
+    ``base`` (:func:`konstruct.engine.snapshot.user_cache`), never a path in the repository or one
+    its configuration names, so a change cannot commit a graph of its base for the gate to read;
+    None in CI."""
+    return snapshot.user_cache('base')
 
 
 def base_graph(root: Path, ref: str, cache: Path | None = None) -> Graph | None:
@@ -1714,9 +1699,12 @@ def base_graph(root: Path, ref: str, cache: Path | None = None) -> Graph | None:
 
     The files are the commit's own blobs, read with ``git cat-file`` and not through ``git
     archive``, which a ``.gitattributes`` ``export-ignore`` or ``export-subst`` the commit sets
-    would change. A symbolic link or a submodule is not followed. With ``cache``, the graph is
-    kept there, by repository, commit, the project's directory in it and Konstruct version, and
-    read back instead of built again."""
+    would change. A symbolic link whose target, followed within the commit, is a regular file of
+    the project is written as that file; any other link, and a submodule, is left out. With
+    ``cache``, the graph is kept there, by repository, work tree, commit, the project's directory
+    in it and the versions :func:`konstruct.engine.snapshot.cache_name` covers, and read back
+    instead of built again; where the files do not name the repository as git does, it is built
+    every time."""
     import tempfile
 
     from konstruct.analysis.diff import DiffError
@@ -1728,8 +1716,8 @@ def base_graph(root: Path, ref: str, cache: Path | None = None) -> Graph | None:
     if located is None:
         return None
     top, commit, prefix, name = located
-    kept = cache / name if cache is not None else None
-    if kept is not None and _private(kept.parent) and _private(kept):
+    kept = cache / name if cache is not None and name is not None else None
+    if kept is not None and snapshot.private(kept.parent) and snapshot.private(kept):
         try:
             return Graph.read(kept)
         except (OSError, ValueError, FormatError):
@@ -1737,7 +1725,7 @@ def base_graph(root: Path, ref: str, cache: Path | None = None) -> Graph | None:
     with tempfile.TemporaryDirectory(prefix='konstruct-base-') as scratch:
         tree = Path(scratch) / 'tree'
         try:
-            _write_tree(top, commit, prefix, tree)
+            snapshot.write_tree(top, commit, prefix, tree)
             config = load_config(tree / prefix, Path(scratch) / 'out', trusted=False)
             config.override(run_dbt=False, warehouses=False)
             config.html = config.report = False
@@ -1747,7 +1735,7 @@ def base_graph(root: Path, ref: str, cache: Path | None = None) -> Graph | None:
     if kept is not None:
         try:
             kept.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            if not _private(kept.parent):
+            if not snapshot.private(kept.parent):
                 return graph
             graph.write(kept)  # through a new file renamed over it, so a reader sees all or none
             kept.chmod(0o600)
@@ -1758,120 +1746,14 @@ def base_graph(root: Path, ref: str, cache: Path | None = None) -> Graph | None:
     return graph
 
 
-def _located(root: Path, ref: str) -> tuple[Path, str, Path, str] | None:
+def _located(root: Path, ref: str) -> tuple[Path, str, Path, str | None] | None:
     """The repository's top, the commit ``ref`` names, the project's directory in the repository
-    and the name of the commit's graph in the cache, or None when git cannot tell. The name
-    covers everything the graph depends on beyond the commit's files: which repository (two
-    clones keep apart), the project's directory, and the versions of Konstruct, sqlglot and every
-    installed plugin."""
-    import hashlib
-    import os
-    from importlib.metadata import entry_points, version
-
-    from konstruct import __version__
-    from konstruct.analysis.diff import DiffError, run_git
-    from konstruct.plugins.registry import GROUPS
-
-    try:
-        top = Path(run_git(root, 'rev-parse', '--show-toplevel').strip())
-        commit = run_git(root, 'rev-parse', '--verify', '--quiet', f'{ref}^{{commit}}').strip()
-        repository = run_git(root, 'rev-parse', '--absolute-git-dir').strip()
-        prefix = root.resolve().relative_to(top.resolve())
-    except (DiffError, OSError, ValueError):
+    and the file of the commit's graph in the cache (:func:`konstruct.engine.snapshot.cache_name`),
+    None where it is not cached, or None when git cannot tell."""
+    found = snapshot.cache_name(root, ref)
+    if found is None:
         return None
-    if not re.fullmatch(r'[0-9a-f]{40,64}', commit):
-        return None
-    every = entry_points()
-    plugins = sorted(
-        {
-            f'{e.dist.name}=={e.dist.version}' if e.dist is not None else e.value
-            for group in GROUPS
-            for e in every.select(group=f'konstruct.{group}')
-        }
-    )
-    key = '\0'.join(
-        (
-            str(Path(repository).resolve()),
-            commit,
-            prefix.as_posix(),
-            __version__,
-            version('sqlglot'),
-            os.environ.get('KONSTRUCT_NO_PLUGINS', ''),
-            *plugins,
-        )
-    )
-    return top, commit, prefix, f'{hashlib.sha256(key.encode()).hexdigest()}.json'
-
-
-def _private(path: Path) -> bool:
-    """Whether ``path`` is the user's own: not a link, owned by the user where the system has
-    owners, and writable by no one else. A cache that is not is not read or written."""
-    import os
-    import stat
-
-    try:
-        found = path.lstat()
-    except OSError:
-        return False
-    if stat.S_ISLNK(found.st_mode) or found.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
-        return False
-    owner = getattr(os, 'getuid', None)
-    return owner is None or found.st_uid == owner()
-
-
-def _write_tree(top: Path, commit: str, prefix: Path, tree: Path) -> None:
-    """Write the files under ``prefix`` of ``commit`` in the repository at ``top`` into ``tree``,
-    as the commit holds them: every regular file, at a path inside ``tree``.
-
-    Raises:
-        konstruct.analysis.diff.DiffError: git cannot list or read the commit.
-    """
-    import subprocess
-
-    from konstruct.analysis.diff import DiffError
-
-    where = [] if str(prefix) == '.' else ['--', prefix.as_posix()]
-    git = ['git', '--literal-pathspecs', '-C', str(top)]
-    listing = subprocess.run(
-        [*git, 'ls-tree', '-r', '-z', '--full-tree', commit, *where], capture_output=True
-    )
-    if listing.returncode != 0:
-        raise DiffError(f'git cannot list {commit}: {listing.stderr.decode(errors="replace").strip()}')
-    tree.mkdir(parents=True)
-    inside = tree.resolve()
-    files: list[tuple[bytes, Path]] = []
-    for record in listing.stdout.split(b'\0'):
-        info, _, name = record.partition(b'\t')
-        fields = info.split()
-        # Only regular files: a link could point outside the tree, and a submodule is another
-        # repository.
-        if len(fields) != 3 or fields[0] not in (b'100644', b'100755') or fields[1] != b'blob':
-            continue
-        parts = name.decode('utf-8', 'surrogateescape').split('/')
-        if any(part in ('', '.', '..') or '\\' in part for part in parts):
-            continue
-        target = tree.joinpath(*parts)
-        if not target.resolve().is_relative_to(inside):
-            continue
-        files.append((fields[2], target))
-    with subprocess.Popen(
-        [*git, 'cat-file', '--batch'], stdin=subprocess.PIPE, stdout=subprocess.PIPE
-    ) as reader:
-        if reader.stdin is None or reader.stdout is None:
-            raise DiffError('git cat-file has no pipes')
-        try:
-            for blob, target in files:
-                reader.stdin.write(blob + b'\n')
-                reader.stdin.flush()
-                header = reader.stdout.readline().split()
-                if len(header) != 3 or header[0] != blob or header[1] != b'blob':
-                    raise DiffError(f'git cannot read {blob.decode()} of {commit}')
-                data = reader.stdout.read(int(header[2]))
-                reader.stdout.read(1)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(data)
-        finally:
-            reader.stdin.close()
+    return (*found[:3], f'{found[3]}.json' if found[3] is not None else None)
 
 
 def _changed_file(files: Mapping[str, str], path: str | None) -> str | None:

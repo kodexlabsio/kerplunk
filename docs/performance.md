@@ -81,6 +81,17 @@ A build writes `graph.json` once, and every command that changes the graph (`kon
 
 `uv run .kodex/scripts/history_benchmark.py` measures both on your machine, and `--models` and `--changed` set the sizes.
 
+## The Timeline
+
+`konstruct timeline` builds the project at each commit it reads. On the 2,000-model project, with a primary key on each model so each holds an entity, and four commits (the project, a formula changed in one model, a key dropped from another, and a measure defined):
+
+| Run | CPU time | Wall time |
+|---|---:|---:|
+| `Project.timeline`, the first run (four worlds built, nothing cached) | 30.9 s to 32.7 s | 38.0 s to 52.5 s |
+| `Project.timeline` again, every world read from the cache | 2.3 s | 3.0 s to 3.7 s |
+
+CPU time counts Konstruct's process and the worker processes the builds start; the wall times were taken on a shared machine of four cores. The first commit the timeline builds analyses every model; each commit after it is analysed only where its SQL differs, and a property's formula is composed only where what it is computed from changed. `uv run .kodex/scripts/timeline_benchmark.py` measures both on your machine, and `--models` sets the size.
+
 ## The Ontology's Questions
 
 The generated projects have no keys or measures, so the benchmark gives each model of the 2,000-model project an entity, with a primary key on its first column under an enforced contract, and a measure, a `SUM` around its third. The ontology then has 2,000 entities and 2,652 relationships, and `metric` lists 4,000 proposals: a sum and an entity count for each model.

@@ -339,6 +339,9 @@ each formula change in a range of commits does on today's data, and with \cmd{--
 equalities between totals that each model's SQL implies, checked per day;
 \cmd{konstruct release-notes} lists the changes to formulas, filters and business terms in that
 range, worded in plain English, with what each affects and whether its terms were approved after it;
+\cmd{konstruct timeline} builds the ontology at each commit of a range from that commit's own
+files and lists what each commit added, removed, renamed or changed in its entities,
+relationships, properties and metrics, with their trust and approvals;
 \cmd{konstruct diff} and \cmd{konstruct gate} review changes, and \cmd{konstruct lock} pins, in
 a lockfile, what each upstream column a project reads means and fails when that changes;
 \cmd{konstruct receipts} records
@@ -375,7 +378,7 @@ with the question.
 \paragraph{Grounding agents} \cmd{konstruct mcp} runs a Model Context Protocol server with
 \mcpTools{} tools: \cmd{impact}, \cmd{trace}, \cmd{path}, \cmd{search}, \cmd{describe},
 \cmd{query}, \cmd{explain}, \cmd{history}, \cmd{define}, \cmd{conflicts}, \cmd{ontology},
-\cmd{entity}, \cmd{metric}, \cmd{relate}, \cmd{compile\_metric}, \cmd{sensitivity}, \cmd{erasure}, \cmd{diff}, \cmd{gate}, \cmd{check\_sql}, \cmd{check\_history}, \cmd{release\_notes},
+\cmd{entity}, \cmd{metric}, \cmd{relate}, \cmd{compile\_metric}, \cmd{sensitivity}, \cmd{erasure}, \cmd{diff}, \cmd{gate}, \cmd{check\_sql}, \cmd{check\_history}, \cmd{release\_notes}, \cmd{timeline},
 \cmd{mutation\_test}, \cmd{why}, \cmd{definition\_effect}, \cmd{receipt}, \cmd{laws} and \cmd{lock\_check}. Answers are the same structured results the Python API returns, so an
 agent learns a column's formula, its sources, which of its edges the data confirmed, the approved
 definition of the business term it holds, its owner and the entities it touches, before it writes

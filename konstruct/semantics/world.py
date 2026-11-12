@@ -326,7 +326,7 @@ def entity(graph: Graph, name: str, ontology: Ontology | None = None) -> EntityD
     # Copies: the ontology may be kept for later questions, so nothing handed out may change it.
     return EntityDetail(
         entity=copy.deepcopy(found),
-        properties=_properties(graph, ontology, found),
+        properties=properties(graph, ontology, found),
         relationships=[
             copy.deepcopy(r) for r in ontology.relationships if found.name in (r.source, r.target)
         ],
@@ -334,7 +334,9 @@ def entity(graph: Graph, name: str, ontology: Ontology | None = None) -> EntityD
     )
 
 
-def _properties(graph: Graph, ontology: Ontology, found: Entity) -> list[Property]:
+def properties(graph: Graph, ontology: Ontology, found: Entity) -> list[Property]:
+    """The columns that describe the entity ``found``, across the relations that hold it, keys
+    left out, by name; without its metrics, which :func:`entity` also finds."""
     keys = set(found.key_ids)
     refers = {r.columns[0]: r.target for r in ontology.relationships if r.columns and r.source == found.name}
     relations = []

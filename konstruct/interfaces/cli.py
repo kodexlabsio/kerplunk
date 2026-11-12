@@ -33,6 +33,7 @@ from konstruct.plugins.registry import BUILTINS
 if TYPE_CHECKING:
     from konstruct.analysis.query import SearchMode
     from konstruct.analysis.release_notes import ReleaseNotes
+    from konstruct.analysis.timeline import Timeline
 
 __all__ = ['OUT_DIR', 'find_out_dir', 'main', 'parser']
 
@@ -411,7 +412,16 @@ def cmd_release_notes(args: argparse.Namespace, console: Console) -> int:
     return 0
 
 
-def _notes(console: Console, result: ReleaseNotes, args: argparse.Namespace) -> None:
+def cmd_timeline(args: argparse.Namespace, console: Console) -> int:
+    # Each commit's world is built from its own files, so changed inputs since the build do not matter.
+    project = _ready(_project(args), args, console, warn_stale=False)
+    with console.progress(f'Building the world at each commit since {args.since or "the first"}'):
+        result = project.timeline(args.since, until=args.until, paths=args.file or (), limit=args.limit)
+    _notes(console, result, args)
+    return 0
+
+
+def _notes(console: Console, result: ReleaseNotes | Timeline, args: argparse.Namespace) -> None:
     if args.format == 'markdown':
         console.print(result.markdown().rstrip())
     else:
@@ -466,6 +476,9 @@ def cmd_verify(args: argparse.Namespace, console: Console) -> int:
         return _why(project, args, console)
     if args.effect:
         return _effect(project, args, console)
+    if args.timeline:
+        console.error('--timeline picks how --effect reads the changes; add --effect')
+        return 2
     if args.since or args.until:
         console.error('--since and --until pick the commits for --effect; add --effect')
         return 2
@@ -544,6 +557,15 @@ def _effect(project: Project, args: argparse.Namespace, console: Console) -> int
         console.info(
             'running each changed model as it was before and after; this reads the warehouse but never writes to it'
         )
+    if args.timeline:
+        with console.progress(
+            f"Running each metric's changes since {args.since or 'the first commit'} on today's data"
+        ):
+            timeline = project.timeline_effect(
+                args.since, until=args.until, warehouse=args.warehouse, max_rows=_rows(args, 1_000_000)
+            )
+        _notes(console, timeline, args)
+        return 0
     with console.progress(f"Running the changes since {args.since or 'the latest tag'} on today's data"):
         result = project.effect(
             args.since,
@@ -798,7 +820,7 @@ GROUPS = (
         ('define', 'ontology', 'entity', 'metric', 'relate', 'compile-metric', 'conflicts', 'check-sql'),
     ),
     ('Sensitive data', ('sensitivity', 'erasure')),
-    ('Changes', ('diff', 'gate', 'release-notes', 'verify', 'lock')),
+    ('Changes', ('diff', 'gate', 'release-notes', 'timeline', 'verify', 'lock')),
     ('Agents', ('install', 'mcp', 'receipts', 'hook')),
     ('Plugins', ('plugins',)),
 )
@@ -947,6 +969,11 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         ('konstruct release-notes', 'what changed in each formula since the latest tag, in plain English'),
         ('konstruct release-notes --since 2026-10-01 --format markdown', 'to post to a wiki or a channel'),
     ),
+    'timeline': (
+        ('konstruct timeline', "how the business's meaning changed, commit by commit, in plain English"),
+        ('konstruct timeline --since v1.4 --format markdown', 'the changes since a release, to post'),
+        ('konstruct timeline --file models/marts', 'only the commits that changed the marts'),
+    ),
     'verify': (
         ('konstruct verify', 'check every model in the discovered warehouse'),
         ('konstruct verify -m orders --strict', 'one model; exit 1 on an unexplained influence'),
@@ -959,6 +986,10 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
         (
             'konstruct verify --effect --since v1.4',
             "what each formula change since v1.4 does on today's data",
+        ),
+        (
+            'konstruct verify --effect --timeline --since v1.4',
+            "the timeline, with what each metric's change does on today's data",
         ),
         ('konstruct verify --laws', 'the totals the lineage says must agree, checked per day'),
         ('konstruct verify --laws --propose', 'the laws alone, reading no warehouse'),
@@ -1609,6 +1640,39 @@ def parser() -> argparse.ArgumentParser:
     _query_options(noting)
     noting.set_defaults(func=cmd_release_notes)
 
+    timing = add('timeline', "how the business's meaning changed, commit by commit (git)")
+    timing.add_argument(
+        '--since',
+        metavar='REF',
+        help='commit, tag or date (2026-10-01) the timeline starts after (default: the first)',
+    )
+    timing.add_argument(
+        '--until', metavar='REF', help='commit, tag or date the timeline ends at (default HEAD)'
+    )
+    timing.add_argument(
+        '--file',
+        action='append',
+        metavar='PATH',
+        help='only the commits that changed this file or directory, relative to the project (repeatable)',
+    )
+    timing.add_argument(
+        '-n',
+        '--limit',
+        type=int,
+        default=50,
+        metavar='N',
+        help='the most commits read, the most recent (default 50)',
+    )
+    timing.add_argument(
+        '--format',
+        choices=['text', 'markdown', 'json'],
+        default='text',
+        metavar='FORMAT',
+        help='text, markdown or json: markdown suits a wiki page or a chat message',
+    )
+    _query_options(timing)
+    timing.set_defaults(func=cmd_timeline)
+
     gate_ = add('gate', 'the check a change must pass before it is proposed (exits 1 when it fails)')
     gate_.add_argument(
         '--base', metavar='REF', help='commit or date to compare with (default: the merge base with main)'
@@ -1714,6 +1778,11 @@ def parser() -> argparse.ArgumentParser:
         action='store_true',
         help='run each changed model as it was before and after each commit on the same data, and '
         'print the release notes with the difference',
+    )
+    affecting.add_argument(
+        '--timeline',
+        action='store_true',
+        help='with --effect: read the changes as the timeline does, metric by metric, and print the timeline',
     )
     affecting.add_argument(
         '--since', metavar='REF', help='commit, tag or date the changes start after (default: the latest tag)'

@@ -117,8 +117,15 @@ class Cache:
         else:
             self.misses += count
             value = compute()
+            # Kept for any later build that shares this cache, such as the next commit's.
+            self.entries[key] = value
         self.used[key] = value
         return value
+
+    def extend(self, entries: Mapping[str, Any]) -> None:
+        """Add ``entries`` (another cache's), keeping this cache's value for a key both hold."""
+        for key, value in entries.items():
+            self.entries.setdefault(key, value)
 
     def quiet(self) -> _QuietCache:
         """The same cache for derived outputs (the viewer's formulas), which are not counted
@@ -213,7 +220,10 @@ class _Shape:
 
 
 class Builder:
-    def __init__(self, config: Config, *, update: bool) -> None:
+    def __init__(self, config: Config, *, update: bool, cache: Cache | None = None) -> None:
+        """A build of ``config``. ``cache`` is the analysis cache to use, such as one shared by
+        the builds of several commits; by default ``cache.json`` in the output directory, read only
+        with ``update``."""
         self.config = config
         self.graph = Graph()
         self.graph.meta = {
@@ -221,7 +231,7 @@ class Builder:
             'root': str(config.root),
             'generated_at': datetime.now(UTC).isoformat(timespec='seconds'),
         }
-        self.cache = Cache(config.out_dir / 'cache.json', enabled=update)
+        self.cache = cache if cache is not None else Cache(config.out_dir / 'cache.json', enabled=update)
         self.vocabulary_files: set[str] = set()
         self.workers = _Workers()
         self.index = RelationIndex(self.graph)
@@ -3071,24 +3081,8 @@ def build(config: Config, *, update: bool = False) -> BuildResult:
     from konstruct.semantics.ontology import derive as derive_ontology
 
     started = time.perf_counter()
-    builder = Builder(config, update=update)
-    with config.shared_walk():
-        graph = builder.run()
-    names: list[str] = []
-    others: list[Builder] = []
-    wheres: dict[str, str] = {}
-    for repository in config.repositories:
-        names.append(repository_name(config, repository, names))
-        merged = merge_repository(graph, config, repository, names[-1], update=update, terms=wheres)
-        if merged is not None:
-            others.append(merged)
-    if config.repositories:
-        link_shared_relations(graph)
-        bind_across_repositories(graph, wheres)
-    # Packs bind once, to the merged graph, so repositories that share a warehouse share its terms.
-    builder.bind_ontology_packs()
+    graph, builder, others = build_graph(config, update=update)
     log.info('deriving the ontology')
-    graph.meta['dialect'] = builder.dialect or dialect_for(None)
     config.out_dir.mkdir(parents=True, exist_ok=True)
     graph_path = config.out_dir / 'graph.json'
     governed = config.governance_from or graph_path
@@ -3152,6 +3146,33 @@ def build(config: Config, *, update: bool = False) -> BuildResult:
         cache_misses=builder.cache.misses + sum(o.cache.misses for o in others),
         inputs=_total_inputs([builder, *others]),
     )
+
+
+def build_graph(
+    config: Config, *, update: bool = False, cache: Cache | None = None
+) -> tuple[Graph, Builder, list[Builder]]:
+    """The graph of ``config``, with every repository it lists merged in and the ontology packs
+    bound, before the ontology is derived and anything is written; the builder of this project and
+    those of the other repositories. ``cache`` is this project's analysis cache (see
+    :class:`Builder`)."""
+    builder = Builder(config, update=update, cache=cache)
+    with config.shared_walk():
+        graph = builder.run()
+    names: list[str] = []
+    others: list[Builder] = []
+    wheres: dict[str, str] = {}
+    for repository in config.repositories:
+        names.append(repository_name(config, repository, names))
+        merged = merge_repository(graph, config, repository, names[-1], update=update, terms=wheres)
+        if merged is not None:
+            others.append(merged)
+    if config.repositories:
+        link_shared_relations(graph)
+        bind_across_repositories(graph, wheres)
+    # Packs bind once, to the merged graph, so repositories that share a warehouse share its terms.
+    builder.bind_ontology_packs()
+    graph.meta['dialect'] = builder.dialect or dialect_for(None)
+    return graph, builder, others
 
 
 def _total_inputs(builders: list[Builder]) -> dict[str, int]:

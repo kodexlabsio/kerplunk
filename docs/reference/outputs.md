@@ -89,6 +89,7 @@ misread it; `konstruct status` reports such a graph rather than failing.
 | `explain` | 1 |
 | `history` | 1 |
 | `release-notes` | 1 |
+| `timeline` | 1 |
 | `conflicts` and `conflicts.json` | 1 |
 | `verify` and `verify.json` | 1 |
 | `verify --laws` and `laws.json` | 1 |

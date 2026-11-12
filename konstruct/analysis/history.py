@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import datetime as dt
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -29,6 +30,9 @@ if TYPE_CHECKING:
 
 _SEPARATOR = '\x1f'
 _UNKNOWN = '?'
+_FORMAT = '%x1e%H%x1f%an%x1f%cI%x1f%aI%x1f%s%x1f%(trailers:key=Co-authored-by,valueonly,separator=%x1d)'
+"""Each commit as ``git log`` lists it: its id, author, committer and author dates, subject and
+co-authors."""
 
 
 @dataclass
@@ -43,6 +47,10 @@ class Commit:
     """Its place in a topological order of history, oldest first, for display."""
     repository: Path | None = field(default=None, repr=False, compare=False)
     """The repository it is in, to ask git about ancestry."""
+    authored: str = ''
+    """When its author wrote it (its author date), in UTC, ISO 8601; a rebase keeps it."""
+    co_authors: list[str] = field(default_factory=list)
+    """The people its ``Co-authored-by`` trailers name."""
 
     def follows(self, other: Commit) -> bool:
         """Whether this commit comes after ``other`` in history: ``other`` is one of its ancestors,
@@ -67,8 +75,21 @@ class Commit:
     def short(self) -> str:
         return self.sha[:7] if self.sha else 'working tree'
 
+    @property
+    def by(self) -> str:
+        """Who wrote it: its author, with any co-authors (``Sam with Ada``)."""
+        author = self.author or 'unknown author'
+        return f'{author} with {", ".join(self.co_authors)}' if self.co_authors else author
+
     def to_dict(self) -> dict[str, Any]:
-        return {'sha': self.sha or None, 'author': self.author, 'date': self.date, 'subject': self.subject}
+        return {
+            'sha': self.sha or None,
+            'author': self.author,
+            'date': self.date,
+            'subject': self.subject,
+            'authored': self.authored or None,
+            'co_authors': self.co_authors,
+        }
 
 
 def _working_tree(order: int, repository: Path | None = None) -> Commit:
@@ -268,34 +289,82 @@ class Repository:
     def git(self, *args: str) -> str:
         return run_git(self.top, '-c', 'core.quotePath=false', *args, check=False)
 
-    def log(self, path: str, limit: int) -> tuple[list[tuple[Commit, str]], bool]:
-        """The commits that changed ``path``, oldest first, each with the file's path then (renames
-        are followed), and whether more commits than ``limit`` changed it."""
-        output = self.git(
+    def commits(
+        self,
+        *revisions: str,
+        paths: Sequence[str] = (),
+        limit: int,
+        files: str = '',
+        follow: bool = False,
+        check: bool = False,
+    ) -> tuple[list[tuple[Commit, list[str]]], bool]:
+        """The commits ``git log`` lists for ``revisions`` and ``paths``, newest first, each with the
+        files it changed (``files`` is ``names``, ``status`` with moves found, or empty for none),
+        and whether there are more than ``limit``. Merges are left out: what a merge brings is the
+        commits it merges, which are listed themselves. With ``follow``, the one path is followed
+        through renames.
+
+        Raises:
+            konstruct.analysis.diff.DiffError: With ``check``, git refused the revisions.
+        """
+        options = {'names': ['--name-only'], 'status': ['--name-status', '-M']}.get(files, [])
+        output = run_git(
+            self.top,
+            '-c',
+            'core.quotePath=false',
             'log',
-            '--follow',
             '--no-merges',
-            f'--max-count={limit + 1}',  # one more, to tell whether any were left
-            '--name-only',
-            f'--format=%x1e%H{_SEPARATOR}%an{_SEPARATOR}%cI{_SEPARATOR}%s',
+            *(['--follow'] if follow else []),
+            f'--max-count={limit + 1}',
+            *options,
+            f'--format={_FORMAT}',
+            *revisions,
             '--',
-            path,
+            *paths,
+            check=check,
         )
         found = []
         for block in output.split('\x1e'):
-            lines = [line for line in block.strip().split('\n') if line.strip()]
+            lines = [line for line in block.strip('\n').split('\n') if line.strip()]
             if not lines:
                 continue
-            sha, author, date, subject = [*lines[0].split(_SEPARATOR), '', '', ''][:4]
-            commit = Commit(sha, author, utc(date), subject, self.order.get(sha, -1), self.top)
-            found.append((commit, lines[-1] if len(lines) > 1 else path))
-        return list(reversed(found[:limit])), len(found) > limit
+            sha, author, date, authored, subject, trailers = [
+                *lines[0].split(_SEPARATOR),
+                '',
+                '',
+                '',
+                '',
+                '',
+            ][:6]
+            commit = Commit(
+                sha,
+                author,
+                utc(date),
+                subject,
+                self.order.get(sha, -1),
+                self.top,
+                utc(authored),
+                [_name(t) for t in trailers.split('\x1d') if t.strip()],
+            )
+            found.append((commit, lines[1:]))
+        return found[:limit], len(found) > limit
+
+    def log(self, path: str, limit: int) -> tuple[list[tuple[Commit, str]], bool]:
+        """The commits that changed ``path``, oldest first, each with the file's path then (renames
+        are followed), and whether more commits than ``limit`` changed it."""
+        found, more = self.commits(paths=[path], limit=limit, files='names', follow=True)
+        return [(commit, files[-1] if files else path) for commit, files in reversed(found)], more
 
     def has_parent(self, sha: str) -> bool:
         return bool(self.git('rev-parse', '--verify', '--quiet', f'{sha}^').strip())
 
     def file(self, ref: str | None, path: str) -> str | None:
         return file_at(self.top, ref, path)
+
+
+def _name(trailer: str) -> str:
+    """A person as a trailer names them, without the address (``Ada <ada@example.com>``)."""
+    return trailer.split('<', 1)[0].strip() or trailer.strip()
 
 
 def _repository_of(path: Path) -> tuple[Repository, str] | None:

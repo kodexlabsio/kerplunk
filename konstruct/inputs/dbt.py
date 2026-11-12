@@ -52,6 +52,9 @@ class DbtProject:
     source_paths: list[Path] = field(default_factory=list)
     found: list[int] | None = None
     """``dbt_project.yml`` as it was just before it was read (``konstruct._core.file_identity``)."""
+    paths: dict[str, list[Path]] = field(default_factory=dict)
+    """The paths of each kind of file, by its key in dbt_project.yml without ``-paths``
+    (``model``, ``seed``, ``snapshot``, ``macro``, ``test``)."""
 
     @property
     def manifest_path(self) -> Path:
@@ -108,7 +111,7 @@ def read_project(root: Path) -> DbtProject | None:
         return None
     if not isinstance(config, dict):
         return None
-    paths: list[Path] = []
+    paths: dict[str, list[Path]] = {}
     for key, default in (
         ('model-paths', ['models']),
         ('seed-paths', ['seeds']),
@@ -116,14 +119,18 @@ def read_project(root: Path) -> DbtProject | None:
         ('macro-paths', ['macros']),
         ('test-paths', ['tests']),
     ):
-        paths.extend(root / p for p in config.get(key, default) if isinstance(p, str))
+        listed = config.get(key, default)
+        paths[key.removesuffix('-paths')] = (
+            [root / p for p in listed if isinstance(p, str)] if isinstance(listed, list) else []
+        )
     return DbtProject(
         root=root,
         name=str(config.get('name', root.name)),
         target_path=root / str(config.get('target-path', 'target')),
         profile=config.get('profile'),
-        source_paths=paths,
+        source_paths=[p for listed in paths.values() for p in listed],
         found=found,
+        paths=paths,
     )
 
 

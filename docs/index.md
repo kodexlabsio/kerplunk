@@ -48,6 +48,7 @@ guide/search
 guide/verify
 guide/reviewing-changes
 guide/release-notes
+guide/timeline
 guide/github-action
 guide/definitions
 guide/ontology
