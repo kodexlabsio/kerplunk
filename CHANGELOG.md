@@ -1,3 +1,9 @@
+## v0.13.21 (2026-11-12)
+
+### Fix
+
+- **lineage**: Place each reading through a CTE on its own side of a join
+
 ## v0.13.20 (2026-11-12)
 
 ### Perf

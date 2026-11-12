@@ -1,7 +1,7 @@
 {
   "name": "konstruct",
   "displayName": "Konstruct",
-  "version": "0.13.20",
+  "version": "0.13.21",
   "description": "An ontology of your data stack (entities, measures, definitions and relationships) with column-level lineage checked against the warehouse, for dbt, SQL, Airflow and Dagster: skills for safe changes, data reviews, reconciling numbers, writing correct queries and semantic layer exports, slash commands, a data-reviewer subagent, the Konstruct MCP server and a hook that runs konstruct gate after SQL and dbt YAML edits.",
   "author": {
     "name": "Kodex Labs",
