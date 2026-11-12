@@ -14,7 +14,9 @@ names:
   removed or changed column.
 - Before writing a query that joins or aggregates, run `konstruct ontology` and
   `konstruct define <term>`; apply the term's required filters and grain, and join along the
-  relationships the ontology lists (`konstruct relate <from> <to>` gives the joins). A metric
+  relationships the ontology lists (`konstruct relate <from> <to>` gives the joins). For a metric
+  by entities and properties, `konstruct compile-metric <metric> --by <entity.property>` writes
+  that SQL, with the required filters, and refuses a join that would repeat rows. A metric
   `konstruct metric` marks `proposed` is inferred from the code and approved by no one: say so
   when an answer relies on one.
 - Where a value comes from: `konstruct trace <table.column>`; how it is calculated:

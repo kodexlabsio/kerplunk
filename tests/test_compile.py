@@ -3,6 +3,7 @@ along relationships that keep each row once, with its required filters and the t
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 from collections.abc import Iterator
@@ -22,6 +23,7 @@ from konstruct.analysis.checksql import Checker, check_sql
 from konstruct.analysis.compile import Compiled, OntologyQuery, compile_query
 from konstruct.analysis.query import QueryError
 from konstruct.core.graph import Graph, Node
+from konstruct.interfaces.cli import main
 from konstruct.semantics.ontology import derive as derive_ontology
 from konstruct.semantics.world import relate
 
@@ -464,6 +466,30 @@ def test_compiled_sql_adds_up_to_the_models_column(
     completed = total("select sum(amount) from main.orders where status = 'completed'")
     result = project.compile_metric('order amount', where=["status = 'completed'"], by=['customer'])
     assert summed(result, 'order_amount') == completed
+
+
+@pytest.mark.dbt
+def test_lifetime_value_by_an_order_property_is_refused(
+    jaffle_built_graph: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = str(jaffle_built_graph)
+    assert (
+        main(['--no-color', '-C', root, 'compile-metric', 'lifetime', 'value', '--by', 'order.status']) == 1
+    )
+    out = capsys.readouterr().out
+    assert out.startswith('Refused Customer lifetime value by order.status\n')
+    assert 'link  orders.customer_id = customers.customer_id' in out
+    assert main(['--no-color', '-C', root, 'compile-metric', 'lifetime', 'value', '--by', 'customer']) == 0
+    out = capsys.readouterr().out
+    assert out.startswith('Compiled Customer lifetime value by customer\n')
+    assert '\nSQL\n  SELECT\n' in out
+    assert main(['-C', root, 'compile-metric', 'order', 'amount', '--by', 'month', '--format', 'sql']) == 0
+    assert capsys.readouterr().out.startswith('SELECT\n')
+    assert main(['-C', root, 'compile-metric', 'order', 'amount', '--by', 'status', '--json']) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data['compiled'] is True and data['format_version'] == 1
+    assert main(['-C', root, 'compile-metric', 'nothing', 'at', 'all']) == 3
+    assert 'no metric called' in capsys.readouterr().err
 
 
 @pytest.fixture(scope='module')

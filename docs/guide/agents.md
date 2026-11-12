@@ -12,7 +12,7 @@ Each skill is an [Agent Skill](https://agentskills.io/), a `SKILL.md` an agent l
 | `konstruct-safe-change` | Runs `impact` before changing a model, table or column, makes the edit with everything that reads it, then runs `gate` and fixes each finding until it passes |
 | `konstruct-review-change` | Reviews a branch or pull request with `diff`, `gate` and `impact`, and ends with a verdict (block, needs owner sign-off, or safe to merge), the breaking changes, what the change reaches and the `dbt build --select` to run |
 | `konstruct-reconcile` | Explains why two numbers differ with `conflicts`, `explain`, `trace`, `history` and `verify`: the filter, join, source, grain or aggregation that differs, and which side follows the approved definition |
-| `konstruct-write-query` | Writes a query from the `ontology` and `define`: the approved term's required filters and grain, an existing column that holds the measure, and joins only along the relationships the ontology lists |
+| `konstruct-write-query` | Writes a query from the `ontology` and `define`: compiles a metric by entities and properties with `compile-metric`, and otherwise takes the approved term's required filters and grain, an existing column that holds the measure, and joins only along the relationships the ontology lists |
 | `konstruct-define-terms` | Records a term in `definitions.yml` with its owner, status, grain, filters and columns, leaves approval to the owner, and checks the build's warnings |
 | `konstruct-onboard` | Gives an overview of a repository from `status`, `REPORT.md`, the ontology and the most used models |
 | `konstruct-export-semantic-layer` | Exports the ontology as an [Apache Ossie](ossie.md) model and reports each measure left out and why |

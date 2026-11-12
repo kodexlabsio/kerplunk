@@ -51,6 +51,7 @@ guide/release-notes
 guide/github-action
 guide/definitions
 guide/ontology
+guide/metric-queries
 guide/ontology-packs
 guide/ossie
 guide/conflicts

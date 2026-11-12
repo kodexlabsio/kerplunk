@@ -258,6 +258,14 @@ Power BI, and, where nothing defines one, a proposal read from the code (an aggr
 grain, a numeric column named as a measure, an entity count), which is always inferred and never
 approved; and the shortest, most trusted path of relationships between a pair of entities, whose
 confidence is the weakest on the way, with its composed cardinality and the joins that follow it.
+\cmd{konstruct compile-metric} compiles a metric, grouped by entities, properties and time grains
+and filtered by conditions on properties, to SQL without running it: from the relation whose rows
+hold the metric, it joins only along relationships the project shows many-to-one or one-to-one, onto
+keys a test, a primary key or a check against the data shows unique, refuses to add up a value its
+lineage shows copied from another grain, adds every filter the metric's definition requires, and lists
+each fact the SQL rests on with its confidence, the result being as trusted as the weakest; a
+question that would need a join repeating rows, or a link \cmd{konstruct verify} found
+contradicted, is refused, naming the link.
 
 \paragraph{Rules} The build holds the ontology to \ontologyRules{} rules; a violation is a warning,
 so \cmd{konstruct build --strict} fails on it. The strongest is \emph{one formula per measure}:
@@ -338,7 +346,8 @@ what an answer rests on (each column's composed formula, row conditions, sources
 verification state) and later reports the answers whose basis has changed;
 \cmd{konstruct define},
 \cmd{konstruct ontology}, \cmd{konstruct entity}, \cmd{konstruct metric}, \cmd{konstruct relate}
-and \cmd{konstruct conflicts} answer what things mean, and
+and \cmd{konstruct conflicts} answer what things mean, \cmd{konstruct compile-metric} writes the
+SQL of a metric asked for by entities and properties, and
 \cmd{konstruct check-sql} checks a query against them without running it;
 \cmd{konstruct sensitivity} follows columns that a business term, an ontology pack or a warehouse
 tag or masking policy marks sensitive through the column lineage, hashes included, until every

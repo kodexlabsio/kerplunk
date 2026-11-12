@@ -130,8 +130,9 @@ def identity(graph: Graph) -> tuple[int, float, float]:
 def world_model(graph: Graph, models: int) -> dict[str, float]:
     """The world model's questions on ``graph`` once each model has an entity, a primary key on
     ``c00``, and a measure, a ``SUM`` around ``c02``: every metric (with a proposal from each
-    model), one entity, and how the middle model's entity relates to the 11th's, through the
-    joins of the models that read them."""
+    model), one entity, how the middle model's entity relates to the 11th's, through the joins of
+    the models that read them, and the middle model's measure compiled by a property of the 11th's."""
+    from konstruct.analysis.compile import OntologyQuery, compile_query
     from konstruct.semantics import world
     from konstruct.semantics.ontology import derive
 
@@ -140,6 +141,10 @@ def world_model(graph: Graph, models: int) -> dict[str, float]:
     last, eleventh = f'm{(models - 1) // 2:03}', f'm{min(10, models - 1):03}'
     metrics_s, found = timed(world.metrics, graph, None, ontology)
     named = f'{last}.c02'
+    asked = OntologyQuery(named, by=[f'{eleventh}.c05'])
+    compiled = compile_query(graph, asked, ontology=ontology)
+    # A refusal returns early: the time is of SQL written across the joins, or it measures nothing.
+    assert compiled.compiled and compiled.sql and len(compiled.path) > 1, compiled.refused
     return {
         'entities': len(ontology.entities),
         'relationships': len(ontology.relationships),
@@ -150,6 +155,8 @@ def world_model(graph: Graph, models: int) -> dict[str, float]:
         'entity_ms': round(1000 * median_time(world.entity, graph, last, ontology), 1),
         'relate_ms': round(1000 * median_time(world.relate, graph, last, eleventh, ontology), 1),
         'relate_hops': len(world.relate(graph, last, eleventh, ontology).hops),
+        'compile_ms': round(1000 * median_time(lambda: compile_query(graph, asked, ontology=ontology)), 1),
+        'compile_hops': len(compiled.path),
     }
 
 
@@ -542,15 +549,16 @@ def markdown(rows: list[dict[str, Any]]) -> str:
     lines += [
         '',
         '| Models | Entities | Relationships | Metrics | Ontology | Every metric | One metric | One entity '
-        '| relate |',
-        '|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
+        '| relate | compile-metric |',
+        '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
     ]
     for r in rows:
         lines.append(
             f'| {r["models"]:,} | {r["world_entities"]:,} | {r["world_relationships"]:,} '
             f'| {r["world_metrics"]:,} | {r["world_ontology_s"]} s | {r["world_metrics_s"]} s '
             f'| {r["world_metric_ms"]} ms '
-            f'| {r["world_entity_ms"]} ms | {r["world_relate_ms"]} ms ({r["world_relate_hops"]} relationships) |'
+            f'| {r["world_entity_ms"]} ms | {r["world_relate_ms"]} ms ({r["world_relate_hops"]} relationships) '
+            f'| {r["world_compile_ms"]} ms ({r["world_compile_hops"]} relationships) |'
         )
     fresh = next((r for r in rows if 'meaning_cpu_ms' in r), None)
     if fresh:

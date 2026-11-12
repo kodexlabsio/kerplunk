@@ -145,8 +145,8 @@ def test_large_project(tmp_path: Path) -> None:
 
 
 def test_the_world_model_at_scale(tmp_path: Path) -> None:
-    """Every metric, one entity and a relate on the generated project, once each model has an
-    entity and a measure (as .kodex/scripts/benchmark.py gives them)."""
+    """Every metric, one entity, a relate and a compiled metric on the generated project, once each
+    model has an entity and a measure (as .kodex/scripts/benchmark.py gives them)."""
     import importlib.util
 
     script = Path(__file__).resolve().parents[1] / '.kodex' / 'scripts' / 'benchmark.py'
@@ -160,6 +160,7 @@ def test_the_world_model_at_scale(tmp_path: Path) -> None:
     assert found['entities'] == MODELS and found['metrics'] == 2 * MODELS
     assert found['relate_hops'] > 1
     assert found['metrics_s'] < 10 and found['entity_ms'] < 1000 and found['relate_ms'] < 500, found
+    assert found['compile_hops'] > 1 and found['compile_ms'] < 2000, found
     print(f'\n{MODELS} models: {found}')
 
 

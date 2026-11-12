@@ -543,6 +543,18 @@ CHECKED_QUERIES = {
 }
 
 
+COMPLETED_ORDER_AMOUNT = """\
+  - name: Completed order amount
+    kind: measure
+    definition: What the customer was charged for an order they received and kept.
+    status: approved
+    owner: {name: Ana Ruiz, role: Finance}
+    approved: 2026-10-01
+    columns: [orders.amount]
+    filters: ["orders.status = 'completed'"]
+"""
+
+
 @pytest.fixture(scope='module')
 def checked(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A shop with business terms and a query file for each outcome of check-sql: one that passes,
@@ -642,6 +654,13 @@ def test_exit_statuses(
         'path finds no connection': status('-C', str(small), 'path', 'orders', 'refunds'),
         'entity matches nothing': status('-C', str(small), 'entity', 'no such entity'),
         'relate finds no connection': status('-C', str(apart), 'relate', 'store', 'region'),
+        'compile-metric compiles': status(
+            '-C', str(jaffle_built_graph), 'compile-metric', 'lifetime value', '--by', 'customer'
+        ),
+        'compile-metric refuses a join that repeats rows': status(
+            '-C', str(jaffle_built_graph), 'compile-metric', 'lifetime value', '--by', 'order.status'
+        ),
+        'compile-metric matches nothing': status('-C', str(small), 'compile-metric', 'no such metric'),
         'metric matches nothing': status('-C', str(small), 'metric', 'no such metric'),
         'define matches nothing': status('-C', str(small), 'define', 'no such term'),
         'define finds no term on a column': status('-C', str(small), 'define', 'orders.amount'),
@@ -835,6 +854,23 @@ QUESTIONS: dict[str, list[list[str]]] = {
     'entity': [['entity', 'customer'], ['entity', 'order']],
     'metric': [['metric'], ['metric', 'lifetime', 'value']],
     'relate': [['relate', 'customer', 'payment'], ['relate', 'payment', 'customer']],
+    'compile-metric': [
+        ['compile-metric', 'lifetime', 'value', '--by', 'customer'],
+        ['compile-metric', 'lifetime', 'value', '--by', 'order.status'],
+        [
+            'compile-metric',
+            'payment',
+            'amount',
+            '--by',
+            'customer.first_name',
+            '--by',
+            'order.order_date:month',
+            '--where',
+            "payment_method = 'coupon'",
+            '--since',
+            '2018-01-01',
+        ],
+    ],
     'explain': [
         ['explain', 'customers.customer_lifetime_value'],
         ['explain', 'customer_ltv.lifetime_value'],
@@ -992,6 +1028,23 @@ def test_json_documents(
     add('verify', '-C', str(noisy.root), 'verify', '--json')  # a model verify skips, and why
     add('verify', '-C', str(emptied), 'verify', '--json')  # keys and relationships it cannot check
     add('metric', '-C', str(measured), 'metric', '--json')
+    from tests import test_checksql
+
+    filtered = tmp_path / 'filtered'
+    filtered.mkdir()
+    test_checksql.make_shop(filtered, definitions=test_checksql.DEFINITIONS + COMPLETED_ORDER_AMOUNT)
+    # A required filter the query applies, and one the metric's own column already applies.
+    add(
+        'compile-metric',
+        '-C',
+        str(filtered),
+        'compile-metric',
+        'completed order amount',
+        '--by',
+        'order',
+        '--json',
+    )
+    add('compile-metric', '-C', str(filtered), 'compile-metric', 'net revenue', '--by', 'region', '--json')
     for root in (copy, small, revenue, unexplained, landed, measured):
         documents.setdefault('graph.json', []).append(
             json.loads((root / 'konstruct-out' / 'graph.json').read_text())

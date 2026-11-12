@@ -44,6 +44,8 @@ For a whole task, follow the focused skill:
    - `konstruct entity <name>`, `konstruct metric [name]` and `konstruct relate <from> <to>`: one
      entity with its properties, the metrics (defined, or proposed from the code), and the joins
      between two entities, each with how far to trust it.
+   - `konstruct compile-metric <metric> --by <entity.property>`: the SQL of a metric by entities,
+     properties and time grains, with its required filters, joined only onto keys shown unique.
    - `konstruct conflicts --no-write`: columns that compute the same business idea differently.
    - `konstruct history <table.column>`: when the formula changed in git, and who approved the terms.
    - `konstruct path <from> <to>`: how two tables or columns are connected.

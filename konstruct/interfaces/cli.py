@@ -1,8 +1,9 @@
 """The Konstruct command line.
 
-Exit status: 0 on success, 1 on an error (or, with ``build --strict``, on warnings), 2 on a usage
-error, 3 when ``path`` or ``relate`` finds no connection, or ``define``, ``entity``, ``metric`` or
-``relate`` finds nothing by that name.
+Exit status: 0 on success, 1 on an error (or, with ``build --strict``, on warnings, and when
+``compile-metric`` refuses a query), 2 on a usage error, 3 when ``path`` or ``relate`` finds no
+connection, or ``define``, ``entity``, ``metric``, ``relate`` or ``compile-metric`` finds nothing by
+that name.
 """
 
 from __future__ import annotations
@@ -328,6 +329,33 @@ def cmd_metric(args: argparse.Namespace, console: Console) -> int:
         return 3
     _emit(console, result, args.json)
     return 0
+
+
+def cmd_compile_metric(args: argparse.Namespace, console: Console) -> int:
+    project = _ready(_project(args), args, console)
+    result = _found(
+        console,
+        lambda: project.compile_metric(
+            ' '.join(args.name),
+            by=args.by or [],
+            where=args.where or [],
+            since=args.since,
+            until=args.until,
+            time=args.time,
+            dialect=args.dialect,
+        ),
+    )
+    if result is None:
+        return 3
+    if args.format == 'sql' and not args.json:
+        if result.sql is None:
+            for refusal in result.refused:
+                console.error(f'refused {refusal.item}: {refusal.reason}')
+        else:
+            console.print(result.sql)
+    else:
+        _emit(console, result, args.json or args.format == 'json')
+    return 0 if result.compiled else 1
 
 
 def cmd_relate(args: argparse.Namespace, console: Console) -> int:
@@ -765,7 +793,10 @@ GROUPS = (
     ('Build', ('build', 'status', 'trust', 'init', 'open', 'serve')),
     ('Lineage', ('impact', 'trace', 'path', 'explain', 'history')),
     ('Explore', ('search', 'describe', 'list', 'query', 'export')),
-    ('Business meaning', ('define', 'ontology', 'entity', 'metric', 'relate', 'conflicts', 'check-sql')),
+    (
+        'Business meaning',
+        ('define', 'ontology', 'entity', 'metric', 'relate', 'compile-metric', 'conflicts', 'check-sql'),
+    ),
     ('Sensitive data', ('sensitivity', 'erasure')),
     ('Changes', ('diff', 'gate', 'release-notes', 'verify', 'lock')),
     ('Agents', ('install', 'mcp', 'receipts', 'hook')),
@@ -853,6 +884,18 @@ EXAMPLES: dict[str, tuple[tuple[str, str], ...]] = {
     'relate': (
         ('konstruct relate customer payment', 'the relationships between them and the joins'),
         ('konstruct relate order customer --json', 'the same as JSON'),
+    ),
+    'compile-metric': (
+        ('konstruct compile-metric lifetime value --by customer', 'the SQL of a metric by an entity'),
+        (
+            'konstruct compile-metric order amount --by customer.first_name --by month',
+            'by a property and a month',
+        ),
+        (
+            'konstruct compile-metric order amount --where "status = \'completed\'" --since 2024-01-01',
+            'on some rows, from a date',
+        ),
+        ('konstruct compile-metric order amount --format sql --dialect snowflake', 'only the SQL'),
     ),
     'sensitivity': (
         ('konstruct sensitivity', 'sensitive columns, where the lineage takes them and what stops it'),
@@ -1385,6 +1428,43 @@ def parser() -> argparse.ArgumentParser:
     relating.add_argument('end', metavar='TO', help='another entity, such as payment')
     _query_options(relating)
     relating.set_defaults(func=cmd_relate)
+
+    compiling = add(
+        'compile-metric', 'a metric by entities and properties, compiled to SQL that joins safely, unrun'
+    )
+    compiling.add_argument(
+        'name', nargs='+', metavar='METRIC', help='a metric, as `konstruct metric` finds it'
+    )
+    compiling.add_argument(
+        '--by',
+        action='append',
+        metavar='PROP',
+        help='group by an entity (its key), a property (customer.first_name) or a time grain (month, '
+        'order_date:month); repeatable',
+    )
+    compiling.add_argument(
+        '--where',
+        action='append',
+        metavar='EXPR',
+        help='a condition on properties, as SQL ("customer.first_name = \'Ann\'"); repeatable',
+    )
+    compiling.add_argument('--since', metavar='DATE', help='the first date covered (YYYY-MM-DD)')
+    compiling.add_argument('--until', metavar='DATE', help='the date after the last one covered')
+    compiling.add_argument(
+        '--time', metavar='PROP', help="the property that dates the metric (default: its relation's one date)"
+    )
+    compiling.add_argument(
+        '--dialect', metavar='NAME', help="the SQL dialect to write (default: the project's)"
+    )
+    compiling.add_argument(
+        '--format',
+        choices=['text', 'sql', 'json'],
+        default='text',
+        metavar='FORMAT',
+        help='text, sql or json',
+    )
+    _query_options(compiling)
+    compiling.set_defaults(func=cmd_compile_metric)
 
     sensitive = add(
         'sensitivity', 'where sensitive data is, where the lineage takes it and which transforms stop it'

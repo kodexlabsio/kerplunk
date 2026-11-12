@@ -85,6 +85,7 @@ misread it; `konstruct status` reports such a graph rather than failing.
 | `relate` | 1 |
 | `sensitivity` | 1 |
 | `erasure` | 1 |
+| `compile-metric` | 1 |
 | `explain` | 1 |
 | `history` | 1 |
 | `release-notes` | 1 |

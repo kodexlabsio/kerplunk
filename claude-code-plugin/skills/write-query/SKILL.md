@@ -57,6 +57,18 @@ there is one, and say when you rely on a draft. Apply every line of the definiti
 
 ## 3. Write the Query
 
+For a metric by entities, properties and dates, compile it rather than writing it:
+
+```bash
+konstruct compile-metric <metric> --by <entity.property> --where "<condition>" --since <YYYY-MM-DD>
+```
+
+It reads the metric from the column that holds it, joins only many-to-one and one-to-one
+relationships, adds every filter the definition requires, and lists the facts it rests on with
+their confidence. Say so in the answer when a fact is flagged as only inferred. When it refuses a
+query, it names the link that would repeat rows: ask by properties the metric reaches instead,
+rather than writing that join by hand. Otherwise:
+
 - Start from a column `define` lists, at the grain it states.
 - Join along the ontology's relationships, on its columns. A many-to-one join from the many side
   keeps the grain; joining the other way repeats rows, so aggregate before joining.
