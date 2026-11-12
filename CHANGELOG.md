@@ -1,3 +1,9 @@
+## v0.13.20 (2026-11-12)
+
+### Perf
+
+- **graph**: Move the graph model and graph.json writing into the native core
+
 ## v0.13.19 (2026-11-12)
 
 ### Perf
