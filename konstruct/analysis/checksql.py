@@ -2,14 +2,16 @@
 
 An agent or an analyst writes SQL to answer a business question; this module reads it, without
 running it, and says where it disagrees with the project. Every finding must be one an analyst
-would accept: an agent told that its correct SQL is wrong will break it, so a check that cannot
-tell stays silent.
+would accept: an agent told that its correct SQL is wrong will break it. A check never claims a
+filter is applied unless it can show it is, and when it cannot show it, it reports the filter
+missing, and says so when what it cannot show is the graph's (one an earlier Konstruct built).
 
 The query is qualified once and read scope by scope. Each output column that aggregates is a
 *measure*: the aggregate that produces it (followed through CTEs, subqueries, wrappers such as
 ``ROUND`` or ``COALESCE(..., 0)``, each branch of a UNION and each scalar subquery), the rows it
 reads (the WHERE, ON and HAVING clauses on the way, the condition of a ``FILTER`` or ``CASE`` inside
-the aggregate, and the filters on the routes of the columns it reads in the graph) and its formula
+the aggregate, and the filters that hold on every source row of the columns it reads in the graph,
+as :meth:`Checker.held_filters` gives them) and its formula
 composed down to source columns, as :mod:`konstruct.analysis.conflicts` composes the graph's. The
 checks:
 
@@ -429,6 +431,7 @@ class Checker:
         self._made: dict[str, bool] = {}
         self._aligned: dict[tuple[str, str], bool] = {}
         self._ended: dict[str, frozenset[str]] = {}
+        self._untold: dict[str, bool] = {}
         self._forms: dict[str, _Form] = {}
         self._keys: dict[str, list[frozenset[str]]] = {}
         self._names: dict[str, list[tuple[int, Node]]] | None = None
@@ -911,6 +914,21 @@ class Checker:
             column_id, lambda node: node.attrs.get('aggregates_rows') is True, self._made, walking
         )
 
+    def unshown(self, column_id: str) -> bool:
+        """Whether the graph does not say which filters hold on the column's rows, or on those of a
+        column it is derived from: their relation has conditions and none of its columns
+        ``row_conditions``, as in a graph an earlier Konstruct built."""
+
+        def untold(node: Node) -> bool:
+            relation = self.graph.parent_of(node)
+            if relation is None or not relation.attrs.get('conditions'):
+                return False
+            return not any(
+                isinstance(c.attrs.get('row_conditions'), list) for c in self.graph.columns_of(relation.id)
+            )
+
+        return self._anywhere(column_id, untold, self._untold, set())
+
     def _anywhere(
         self, column_id: str, test: Callable[[Node], bool], memo: dict[str, bool], walking: set[str]
     ) -> bool:
@@ -931,31 +949,13 @@ class Checker:
         memo[column_id] = found
         return found
 
-    def relation_conjuncts(self, relation: Node) -> list[_Condition]:
-        """The filters of a relation's conditions, worked out once per relation."""
-        found = self._conjuncts.get(relation.id)
-        if found is None:
-            where = self.graph.label(relation) + (f' ({relation.path})' if relation.path else '')
-            found = [
-                part
-                for condition in relation.attrs.get('conditions', []) or []
-                for part in self.conjuncts(str(condition), where)
-                if part.label in _FILTER_LABELS
-            ]
-            self._conjuncts[relation.id] = found
-        return found
-
-    def route_filters(self, column: Node) -> list[_Condition]:
-        """The filters on ``column``'s route back to source, with the relation that applies each: a
-        filter on one side of an outer join only where the route reads that side."""
-        route = self.route(column)
-        reads = {r.id for r in route}
-        return [
-            part
-            for relation in route
-            for part in self.relation_conjuncts(relation)
-            if not part.limited or part.limited & reads
-        ]
+    def held_on(self, columns: list[Node]) -> list[_Condition]:
+        """The filters that hold on the rows of every one of ``columns``."""
+        found = [{p.key: p for p in self.held_filters(c)} for c in columns]
+        if not found:
+            return []
+        shared = set(found[0]).intersection(*found[1:])
+        return [found[0][k] for k in sorted(shared)]
 
     # Formulas
 
@@ -1728,13 +1728,11 @@ class _Run:
                 if relation is None:
                     continue
                 found.tables.append((scope, alias, relation))
+                # The filters that hold on every row the measure reads here: on each of its
+                # columns, or on every column of the relation for a count of its rows.
                 nodes = [n for name in names if (n := self.graph.column(relation.id, name)) is not None]
-                routed = [p for n in nodes for p in checker.route_filters(n)]
-                every = (
-                    [p for p in checker.relation_conjuncts(relation) if not p.limited] if not names else []
-                )
-                for routed_part in routed or every:
-                    found.conditions.setdefault(routed_part.key, routed_part)
+                for held_part in checker.held_on(nodes or self.graph.columns_of(relation.id)):
+                    found.conditions.setdefault(held_part.key, held_part)
             elif isinstance(source, Scope):
                 found.merge(self.inner_rows(source, names or None, depth + 1))
         return found
@@ -1925,7 +1923,7 @@ class _Run:
         present = site.rows.conditions
         verdicts = []
         for candidate, theirs in same:
-            conditions = {p.key: p for p in [*checker.route_filters(candidate), *theirs.conditions]}
+            conditions = {p.key: p for p in [*checker.held_filters(candidate), *theirs.conditions]}
             missing = [p for k, p in conditions.items() if k not in present]
             extra = [p for k, p in present.items() if p.written and k not in conditions]
             verdicts.append((len(missing) + len(extra), graph.label(candidate), candidate, missing, extra))
@@ -1951,7 +1949,7 @@ class _Run:
 
         # A column the definition filters is one it has a view on; any other the query leaves rows
         # out by may be the question's own choice, so that is at most a warning.
-        defined = columns([*checker.route_filters(candidate), *(checker.required(term) if term else [])])
+        defined = columns([*checker.held_filters(candidate), *(checker.required(term) if term else [])])
         for condition in excluded:
             tested = columns([condition])
             if tested & columns(missing):
@@ -2056,7 +2054,24 @@ class _Run:
             and p.label in _FILTER_LABELS
             and origins & {checker.origin(n.id) for n in p.columns.values()}
         ]
-        if held is None:
+        unshown = next(
+            (
+                r
+                for _, _, r in site.rows.tables
+                if any(checker.unshown(c.id) for c in self.graph.columns_of(r.id))
+            ),
+            None,
+        )
+        if held is None and unshown is not None:
+            # Not a defect the SQL is shown to have: the graph does not say what the relation filters.
+            message = (
+                f'{name!r} requires {condition.text}, and the graph cannot show whether '
+                f'{self.graph.label(unshown)} applies it: it was built by an earlier Konstruct, which did '
+                "not record which filters hold on each column's rows"
+            )
+            evidence = [f'required by {condition.source}'] if condition.source else []
+            severity = _capped(severity)
+        elif held is None:
             message = f'{name!r} requires {condition.text}, which the query does not apply'
             evidence = [f'required by {condition.source}'] if condition.source else []
         else:
@@ -2075,6 +2090,8 @@ class _Run:
             severity = 'info'
         rewrite = self.place(condition, site) if condition.label == 'WHERE' and not similar else None
         fix = f'Add {condition.text} to the query.' if rewrite is None else f'Apply the filter: {rewrite}.'
+        if held is None and unshown is not None:
+            fix = f'Run konstruct build again, then check the query again. If it still reports this: {fix}'
         if held is not None:
             fix += f' Or read {checker.describe(held)}, which applies it.'
         self.add(

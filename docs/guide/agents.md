@@ -89,7 +89,7 @@ konstruct check-sql query.sql            # exit 1 when the query breaks an appro
 konstruct check-sql - --strict < query.sql   # from standard input; exit 1 on a warning too
 ```
 
-The query is read in the graph's dialect. Each output column that aggregates is a measure: its formula is composed through CTEs, subqueries and each branch of a UNION down to source columns, with the WHERE, ON and HAVING clauses on the way, the condition of a `FILTER` or `CASE` inside the aggregate, and the filters on the routes of the columns it reads in the graph. Each measure is compared with the business term it is named for (by name or synonym) and with the column of the project that already holds it.
+The query is read in the graph's dialect. Each output column that aggregates is a measure: its formula is composed through CTEs, subqueries and each branch of a UNION down to source columns, with the WHERE, ON and HAVING clauses on the way, the condition of a `FILTER` or `CASE` inside the aggregate, and the filters the graph shows hold on every source row of the columns it reads (a filter in a CTE beside a column, on one input of a COALESCE, on one branch of a union, on another alias of the same table or on a column copied from one, in the ON of a LEFT JOIN for the other side, or above a window or aggregate, in the same model or upstream, does not; a graph built by an earlier Konstruct shows none, and the finding says to rebuild it). Each measure is compared with the business term it is named for (by name or synonym) and with the column of the project that already holds it.
 
 | Rule | What it finds |
 |------|---------------|

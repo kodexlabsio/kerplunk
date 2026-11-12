@@ -477,7 +477,6 @@ join w on w.customer_id = c.customer_id
 where w.status <> 'returned'
 """
 
-
 SELF_JOINED_REVENUE = """\
 create table mart.customer_revenue as
 select c.customer_id, c.region, sum(o.amount) as net_revenue, sum(o.amount) as gross_revenue
@@ -588,14 +587,82 @@ def revenue_shop(root: Path, models: dict[str, str]) -> Graph:
 
 
 @pytest.mark.parametrize('models', list(MISSED_SHAPES.values()), ids=list(MISSED_SHAPES))
-def test_a_filter_that_does_not_hold_on_the_measures_rows_is_not_applied(
+def test_a_filter_that_does_not_hold_on_the_measures_rows_is_missing(
     tmp_path: Path, models: dict[str, str]
 ) -> None:
     """customer_revenue filters returns somewhere, but not on every row its net revenue adds up:
-    the filter is not applied there."""
+    the filter is not applied there, and a query reading the column leaves it out."""
     checker = Checker(revenue_shop(tmp_path, models))
     column = checker.graph.resolve('customer_revenue.net_revenue')[0]
     assert checker.applied_on_route('Net revenue', column) == {}
+    result = checker.check(
+        'select region, sum(net_revenue) as net_revenue from mart.customer_revenue group by 1'
+    )
+    assert 'missing-filter' in {f.rule for f in result.findings}
+
+
+TWO_READINGS_REVENUE = """\
+create table mart.customer_revenue as
+select c.customer_id, c.region, sum(o.amount) as net_revenue, sum(o.amount) as gross_revenue
+from raw.customers c
+join raw.orders o on o.customer_id = c.customer_id
+left join raw.orders o2 on o2.order_id = o.order_id - 1
+where o.status <> 'returned'
+group by 1, 2
+"""
+
+
+def test_a_filter_on_the_values_own_reading_is_applied(tmp_path: Path) -> None:
+    """orders is read twice, so the model's conditions name each reading (``"orders#1"``); the
+    term's filter on orders.status matches the one on the reading the revenue is summed from."""
+    checker = Checker(revenue_shop(tmp_path, {'customer_revenue.sql': TWO_READINGS_REVENUE}))
+    relation = checker.graph.resolve('customer_revenue')[0]
+    assert any('"orders#' in str(c) for c in relation.attrs['conditions'])
+    column = checker.graph.resolve('customer_revenue.net_revenue')[0]
+    assert set(checker.applied_on_route('Net revenue', column)) == {"orders.status <> 'returned'"}
+
+
+def test_a_filter_on_a_reading_the_graph_cannot_resolve_is_not_applied(tmp_path: Path) -> None:
+    """A condition on the side of an outer join that names a relation the graph does not have
+    could be on any rows: it is not taken as applied."""
+    graph = revenue_shop(tmp_path, {'customer_revenue.sql': TWO_READINGS_REVENUE})
+    relation = graph.resolve('customer_revenue')[0]
+    ghost = 'LEFT JOIN WHERE: raw."ghost#2".status <> \'returned\''
+    relation.attrs['conditions'] = [ghost]
+    for column in graph.columns_of(relation.id):
+        column.attrs['row_conditions'] = [0]
+    column = graph.resolve('customer_revenue.net_revenue')[0]
+    assert Checker(graph).applied_on_route('Net revenue', column) == {}
+
+
+def test_without_row_conditions_no_filter_counts_as_applied(tmp_path: Path) -> None:
+    """A graph an earlier Konstruct built says which conditions a relation has but not which
+    hold on each column: none is taken as applied, so the required filter is reported, as what
+    the graph cannot show rather than as a defect of the SQL."""
+    graph = make_shop(tmp_path)
+    for node in graph.nodes.values():
+        node.attrs.pop('row_conditions', None)
+    result = Checker(graph).check(
+        'select region, sum(net_revenue) as revenue from mart.customer_revenue group by 1'
+    )
+    finding = only(result, 'missing-filter')
+    assert finding.severity == 'warning'
+    assert finding.message == (
+        "'Net revenue' requires orders.status <> 'returned', and the graph cannot show whether "
+        'customer_revenue applies it: it was built by an earlier Konstruct, which did not record '
+        "which filters hold on each column's rows"
+    )
+    assert finding.fix.startswith('Run konstruct build again, then check the query again.')
+    # Rebuilt, the graph shows the model applies it.
+    assert (
+        Checker(Project(tmp_path).build(run_dbt=False).graph)
+        .check('select region, sum(net_revenue) as revenue from mart.customer_revenue group by 1')
+        .findings
+        == []
+    )
+    # A query of a relation SQL does not write is told plainly that it leaves the filter out.
+    raw = only(Checker(graph).check('select sum(amount) as net_revenue from raw.orders'), 'missing-filter')
+    assert raw.message == "'Net revenue' requires orders.status <> 'returned', which the query does not apply"
 
 
 def test_a_filter_on_a_relation_the_query_does_not_read_is_advice_only(shop: Checker) -> None:
@@ -2346,3 +2413,184 @@ def test_columns_named_keeps_each_name_together_in_the_order_names_are_first_com
         'model.t2#revenue',
     ]
     assert checker.columns_named('cost') == []
+
+
+# Which filters hold on a column, against the data
+
+
+_RETURNED = "where status <> 'returned'"
+
+
+def _trap_models() -> dict[str, str]:
+    """Small models of the shapes that decide whether a filter holds on a column's rows, each in
+    every placement of the filter: an aggregate, a COALESCE and a sum of two CTEs, the branches of
+    a UNION ALL in a subquery, a window under a filter, a filter above an aggregate, a column copied
+    or summed from upstream models, a relation two statements write, a filter on one of two readings
+    of a table or a CTE, a filter on a window an upstream table or view computes, a filter on a
+    column copied from another reading of the table (in a CTE, a subquery or an upstream model, and
+    the last order's status), a filter in WHERE on another alias, and one on the side of a LEFT JOIN
+    that keeps every row."""
+    models: dict[str, str] = {}
+    places = ['', _RETURNED]
+
+    def agg(where: str, extra: str = '') -> str:
+        return f'select customer_id{extra}, sum(amount) as v from raw.orders {where} group by all'
+
+    for i, w in enumerate(places):
+        models[f'agg_{i}'] = f'create table mart.agg_{i} as {agg(w)}'
+    for i, (wa, wb) in enumerate(itertools.product(places, places)):
+        ctes = f'with a as ({agg(wa)}), b as ({agg(wb)})'
+        joins = 'from raw.customers c left join a on a.customer_id = c.customer_id left join b on b.customer_id = c.customer_id'
+        models[f'either_{i}'] = (
+            f'create table mart.either_{i} as {ctes} select c.customer_id, coalesce(a.v, b.v) as v {joins}'
+        )
+        models[f'plus_{i}'] = (
+            f'create table mart.plus_{i} as {ctes} select c.customer_id, coalesce(a.v, 0) + coalesce(b.v, 0) as v {joins}'
+        )
+        models[f'branches_{i}'] = (
+            f'create table mart.branches_{i} as select customer_id, sum(amount) as v from ('
+            f'select customer_id, amount from raw.orders {wa} union all '
+            f'select customer_id, amount from raw.orders {wb}) u group by customer_id'
+        )
+        models[f'window_{i}'] = (
+            f'create table mart.window_{i} as with w as (select customer_id, status, sum(amount) over '
+            f'(partition by customer_id) as v from raw.orders {wa}) select distinct customer_id, v from w {wb}'
+        )
+        models[f'above_{i}'] = (
+            f'create table mart.above_{i} as with a as ({agg(wa, ", status")}) '
+            f'select customer_id, sum(v) as v from a {wb} group by customer_id'
+        )
+        models[f'twice_{i}'] = (
+            f'create table mart.twice_{i} as {agg(wa)};\ninsert into mart.twice_{i} {agg(wb)}'
+        )
+        models[f'joined_{i}'] = (
+            f'create table mart.joined_{i} as select c.customer_id, coalesce(x.v, 0) + coalesce(y.v, 0) as v '
+            f'from raw.customers c left join mart.agg_{i // 2} x on x.customer_id = c.customer_id '
+            f'left join mart.agg_{i % 2} y on y.customer_id = c.customer_id'
+        )
+    for i in range(2):
+        models[f'copy_{i}'] = f'create table mart.copy_{i} as select customer_id, v from mart.agg_{i}'
+    on_o2 = ['', "and o2.status <> 'returned'"]
+    for i, (read, on) in enumerate(itertools.product(['o', 'o2'], on_o2)):
+        models[f'selfjoin_{i}'] = (
+            f'create table mart.selfjoin_{i} as select o.customer_id, {read}.amount as v from raw.orders o '
+            f'left join raw.orders o2 on o2.order_id = o.order_id {on}'
+        )
+    on_f1 = ['', "and f1.status <> 'returned'"]
+    for i, (read, first, on) in enumerate(itertools.product(['f1', 'f2'], ['f', '(select * from f)'], on_f1)):
+        models[f'reread_{i}'] = (
+            f'create table mart.reread_{i} as with f as (select * from raw.orders) '
+            f'select f2.customer_id, {read}.amount as v from {first} f2 '
+            f'left join f f1 on f1.order_id = f2.order_id {on}'
+        )
+    for i, (kind, w) in enumerate(itertools.product(['table', 'view'], places)):
+        models[f'windowed_{i}'] = (
+            f'create {kind} mart.windowed_{i} as select order_id, customer_id, status, '
+            f'sum(amount) over (partition by customer_id) as v from raw.orders {w}'
+        )
+    for i, (upstream, w) in enumerate(itertools.product(range(4), places)):
+        models[f'after_{i}'] = (
+            f'create table mart.after_{i} as select customer_id, v from mart.windowed_{upstream} {w}'
+        )
+    for i, w in enumerate(places):
+        models[f'two_alias_where_{i}'] = (
+            f'create table mart.two_alias_where_{i} as select o.customer_id, o.amount as v from raw.orders o '
+            f'join raw.orders o2 on o2.customer_id = o.customer_id {w.replace("status", "o2.status")}'
+        )
+        on = "and o.status <> 'returned'" if w else ''
+        models[f'preserved_on_{i}'] = (
+            f'create table mart.preserved_on_{i} as select o.customer_id, o.amount as v from raw.orders o '
+            f'left join raw.customers c on c.customer_id = o.customer_id {on}'
+        )
+    paired = (
+        'select a.order_id, a.customer_id, a.amount, b.status as pst from raw.orders a '
+        'left join raw.orders b on b.order_id = a.order_id - 1'
+    )
+    shapes = {
+        'cte_on': (f'with sj as ({paired}) ', 'left join', 'sj', "and sj.pst <> 'returned'"),
+        'cte_where': (f'with sj as ({paired}) ', 'join', 'sj', "where sj.pst <> 'returned'"),
+        'subquery_on': ('', 'left join', f'({paired})', "and sj.pst <> 'returned'"),
+        'model_where': ('', 'join', 'mart.pairs', "where sj.pst <> 'returned'"),
+    }
+    models['pairs'] = f'create table mart.pairs as select p.*, p.amount as v from ({paired}) p'
+    for name, (ctes, join, source, w) in shapes.items():
+        # Downstream of mart.pairs, the model goes after it.
+        model = f'after_paired_{name}' if source == 'mart.pairs' else f'paired_{name}'
+        models[model] = (
+            f'create table mart.{model} as {ctes}select c.customer_id, sj.amount as v from raw.customers c '
+            f'{join} {source} sj on sj.customer_id = c.customer_id {w}'
+        )
+    models['last_status'] = (
+        'create table mart.last_status as with last as (select customer_id, max(order_id) as last_id '
+        'from raw.orders group by 1), x as (select o.customer_id, o.amount, l2.status as last_status '
+        'from raw.orders o join last l on l.customer_id = o.customer_id '
+        'join raw.orders l2 on l2.order_id = l.last_id) '
+        "select x.customer_id, x.amount as v from x where x.last_status <> 'returned'"
+    )
+    return models
+
+
+def _totals(path: Path, models: dict[str, str], *, keep_returned: bool) -> dict[str, Any]:
+    con = duckdb.connect(str(path))
+    try:
+        con.execute(WAREHOUSE)
+        shop_rows(con)
+        if not keep_returned:
+            con.execute("delete from raw.orders where status = 'returned'")
+        con.execute('create schema mart')
+        order = sorted(models, key=lambda m: m.startswith(('joined', 'copy', 'after')))
+        for name in order:
+            con.execute(models[name])
+        return {name: con.execute(f'select sum(v) from mart.{name}').fetchall()[0][0] for name in models}
+    finally:
+        con.close()
+
+
+def test_a_filter_is_held_only_where_the_data_shows_it_holds(tmp_path: Path) -> None:
+    """For every trap model, a filter Konstruct says holds on its column leaves the column's total
+    as the data without the filtered rows gives it, and where it does not, check-sql reports the
+    filter missing from a query of the column."""
+    models = _trap_models()
+    terms = '\n'.join(
+        f'  - name: Kept {name}\n    kind: measure\n    status: approved\n    owner: {{name: Ana Ruiz}}\n'
+        f'    approved: 2026-10-01\n    columns: [{name}.v]\n    filters: ["orders.status <> \'returned\'"]'
+        for name in models
+    )
+    root = tmp_path / 'traps'
+    root.mkdir()
+    make_shop(root, definitions=f'version: 1\nterms:\n{terms}\n')
+    for name, sql in models.items():
+        (root / 'mart' / f'{name}.sql').write_text(sql)
+    checker = Checker(Project(root).build(run_dbt=False).graph)
+    full = _totals(tmp_path / 'full.duckdb', models, keep_returned=True)
+    kept = _totals(tmp_path / 'kept.duckdb', models, keep_returned=False)
+    # The traps where only which reading or which side a filter is on decides, do not hold.
+    traps = ['two_alias_where_1', 'preserved_on_1', 'last_status', *(m for m in models if 'paired_' in m)]
+    assert all(full[name] != kept[name] for name in traps), [n for n in traps if full[n] == kept[n]]
+    claimed = []
+    for name in models:
+        column = checker.graph.resolve(f'{name}.v')[0]
+        holds = full[name] == kept[name]
+        if checker.applied_on_route(f'Kept {name}', column):
+            claimed.append(name)
+            assert holds, f'{name}: the filter is taken as held, but the data says it is not'
+        if not holds:
+            found = checker.check(f'select sum(v) as kept_{name} from mart.{name}')
+            assert 'missing-filter' in {f.rule for f in found.findings}, name
+    # The filter is shown held where it plainly is.
+    assert {
+        'agg_1',
+        'either_3',
+        'plus_3',
+        'branches_3',
+        'window_2',
+        'copy_1',
+        'twice_3',
+        'joined_3',
+        'selfjoin_3',
+        'reread_1',
+        'reread_3',
+        'windowed_1',
+        'after_2',
+        'after_3',
+    } <= set(claimed)
