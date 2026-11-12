@@ -24,6 +24,7 @@ first, and so are the required filters of a business term bound to the column.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -33,7 +34,7 @@ from sqlglot import exp
 from sqlglot.dialects.dialect import Dialect
 
 from konstruct.analysis.explain import Explainer, joined_reading, split_condition
-from konstruct.core.graph import Graph, Node
+from konstruct.core.graph import Graph, Node, split_reading
 from konstruct.core.sql import PARSE_ERRORS
 from konstruct.semantics.ontology import id_like
 
@@ -395,6 +396,14 @@ class Wording:
             return Phrase(f'{first}, or {fallback} when {first} has no value', CLAUSE)
         return Phrase(f'the first of {self.listed(values)} that has a value')
 
+    def _anonymous(self, node: exp.Anonymous) -> Phrase | None:
+        if str(node.this).upper() != 'UNION' or len(node.expressions) < 2:
+            return None
+        # A set operation's column: the value of whichever branch the row comes from.
+        first, *others = (self.operand(e, ATOM) for e in node.expressions)
+        joiner = ' or, in the other branch, ' if len(others) == 1 else ' or, in another branch, '
+        return Phrase(first + ''.join(joiner + o for o in others), CLAUSE)
+
     def _nullif(self, node: exp.Nullif) -> Phrase:
         value = self.operand(node.this, ARITHMETIC)
         same = self.operand(exp.EQ(this=node.this.copy(), expression=node.expression.copy()), CONNECTIVE)
@@ -634,6 +643,7 @@ _HANDLERS: dict[type[exp.Expr], Callable[[Wording, Any], Phrase | None]] = {
     exp.If: Wording._if,
     exp.Coalesce: Wording._coalesce,
     exp.Nullif: Wording._nullif,
+    exp.Anonymous: Wording._anonymous,
     exp.Count: Wording._count,
     exp.CountIf: Wording._count_if,
     exp.Filter: Wording._filter,
@@ -658,6 +668,45 @@ _HANDLERS: dict[type[exp.Expr], Callable[[Wording, Any], Phrase | None]] = {
 def words(name: str) -> str:
     """A column name as words: ``customer_id`` is ``customer id``."""
     return ' '.join(name.replace('_', ' ').split()) or name
+
+
+_ORDINALS = ('first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth')
+_READING = re.compile(r'(\d+)?((?:/\d+)*)(?:\((.+)\))?')
+
+
+def _ordinal(number: str) -> str:
+    value = int(number)
+    if 0 < value <= len(_ORDINALS):
+        return _ORDINALS[value - 1]
+    suffix = 'th' if 10 <= value % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(value % 10, 'th')
+    return f'{value}{suffix}'
+
+
+def reading_words(name: str) -> str:
+    """A relation's name as words, where it names one reading of a relation a query reads more
+    than once (see :func:`konstruct.core.graph.split_reading`): ``orders#2`` is ``the second
+    reading of orders``, ``orders#2/1`` the second reading through the first reference to the CTE
+    that reads it, ``orders#2/1/3`` through the first reference to one CTE and then the third to
+    another that reads that one, and ``orders#(base#1)`` orders as read through the first reading
+    of base."""
+    relation, reading = split_reading(name)
+    if not reading:
+        return relation
+    match = _READING.fullmatch(reading)
+    if match is None or not any(match.groups()):
+        return f'{relation} (reading {reading})'
+    number, path, through = match.groups()
+    text = f'the {_ordinal(number)} reading of {relation}' if number else relation
+    references = [_ordinal(r) for r in path.split('/') if r]
+    if len(references) == 1:
+        text += f', through the {references[0]} reference to its CTE'
+    elif references:
+        text += f', through the {references[0]} reference to one CTE' + ''.join(
+            f', then the {r} to another' for r in references[1:]
+        )
+    if through:
+        text += f', as read through {reading_words(through)}'
+    return text
 
 
 @dataclass
@@ -686,7 +735,9 @@ class Names:
         for found in by_words.values():
             for table, name in found:
                 plain = words(name)
-                shown[table, name] = f'{plain} ({table})' if len(found) > 1 and table else plain
+                # A column of one reading of a relation read more than once says which, always.
+                qualified = table and (len(found) > 1 or split_reading(table)[1])
+                shown[table, name] = f'{plain} ({reading_words(table)})' if qualified else plain
         # A wording can still meet another, qualified or not (a column named "x (t)" and t.x): those
         # read as written, and as SQL where even that is shared, which no two columns are.
         for fallback in (_written, _as_sql):
@@ -781,6 +832,20 @@ class Condition:
             self.trees = []
 
 
+def unrepeated(texts: Iterable[str]) -> list[str]:
+    """``texts``, recorded conditions, without each join that another of them repeats naming the
+    reading it joins (``LEFT JOIN ON: TRUE`` beside ``LEFT JOIN db.main."orders#2" ON: TRUE``,
+    see :func:`konstruct.analysis.explain.joined_reading`): worded, the two would say the same."""
+    listed = list(texts)
+    named = set()
+    for text in listed:
+        label, rest = split_condition(text)
+        base, reading = joined_reading(label)
+        if reading is not None:
+            named.add((base, rest))
+    return [t for t in listed if split_condition(t) not in named]
+
+
 def word_condition(condition: Condition, wording: Wording) -> str:
     """A condition in English, or its SQL between backticks where the grammar has no wording."""
     clause, trees = condition.clause, condition.trees
@@ -799,8 +864,15 @@ def word_condition(condition: Condition, wording: Wording) -> str:
         text = _JOINS[clause].format(c=one())
         if condition.joined is not None:
             # A join whose ON does not name the reading it joins, named for it.
-            named = condition.joined.replace('"', '').split('.')[-1]
+            named = reading_words(condition.joined.replace('"', '').split('.')[-1])
             text = text.replace('rows are joined', f'the rows of {named} are joined', 1)
+    elif clause in ('LEFT JOIN', 'FULL JOIN') and condition.rest:
+        # The relation read on the side of an outer join that may find no match.
+        side = clause.removesuffix(' JOIN').lower()
+        text = (
+            f'{reading_words(condition.rest.replace(chr(34), ""))} is on the side of a {side} join that '
+            'may find no match, so a row with no match in it is kept, with no values from it'
+        )
     elif clause.endswith(' JOIN WHERE') and trees:
         side = clause.removesuffix(' JOIN WHERE').lower()
         text = f'on the side a {side} join may find no match in, rows are joined only where {one()}'

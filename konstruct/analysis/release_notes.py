@@ -34,7 +34,15 @@ from konstruct.analysis.diff import (
     resolve_ref,
     run_git,
 )
-from konstruct.analysis.english import Condition, Names, Wording, column_keys, parse, word_condition
+from konstruct.analysis.english import (
+    Condition,
+    Names,
+    Wording,
+    column_keys,
+    parse,
+    unrepeated,
+    word_condition,
+)
 from konstruct.analysis.explain import Explainer
 from konstruct.analysis.history import Commit, Repository, TermChange, term_history, utc
 from konstruct.core.graph import Graph, Node
@@ -576,8 +584,8 @@ class _Reader:
         formulas = {
             k: parse(v, self.dialect) for k, v in (('before', change.before), ('after', change.after)) if v
         }
-        added = [Condition(c, self.dialect) for c in change.added]
-        removed = [Condition(c, self.dialect) for c in change.removed]
+        added = [Condition(c, self.dialect) for c in unrepeated(change.added)]
+        removed = [Condition(c, self.dialect) for c in unrepeated(change.removed)]
         trees = [t for t in formulas.values() if t is not None]
         trees += [t for c in added + removed for t in c.trees]
         wording = Wording(self.dialect_name, Names(column_keys(trees)))

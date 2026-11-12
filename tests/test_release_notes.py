@@ -549,3 +549,50 @@ def test_the_keyed_and_keyless_comparisons_agree(old: Any, new: Any, same: bool)
     assert by_key.changed == (0 if same else 1)
     assert (whole.only_before, whole.only_after) == ((0, 0) if same else (1, 1))
     assert by_key.moved == whole.moved == (not same)
+
+
+PAIRS = (
+    'create table main.pairs as select o.id, p.id as parent_id, o.amount + p.amount as total '
+    'from raw.orders o left join raw.orders p on {on}\n'
+)
+
+
+def make_pairs(root: Path) -> Path:
+    """A SQL project whose model reads orders twice, joining each to its parent and then to every
+    order with no void parent."""
+    root.mkdir(parents=True, exist_ok=True)
+    git(root, 'init', '-q', '-b', 'main')
+    for name, text in {
+        'konstruct.toml': 'dialect = "duckdb"\n',
+        '.gitignore': 'konstruct-out/\n',
+        'pairs.sql': PAIRS.format(on='p.id = o.parent_id'),
+        'definitions.yml': 'terms:\n  - name: Pair total\n    kind: measure\n    columns: [main.pairs.total]\n',
+    }.items():
+        (root / name).write_text(text)
+    commit(root, 'Add pairs', 'Ada', '2026-01-05T10:00:00+00:00')
+    git(root, 'tag', 'v1')
+    (root / 'pairs.sql').write_text(PAIRS.format(on="true where p.status <> 'void'"))
+    commit(root, 'Join every pair', 'Ada', '2026-01-06T10:00:00+00:00')
+    return root
+
+
+def test_the_readings_of_a_relation_read_twice_are_worded_in_the_notes(tmp_path: Path) -> None:
+    project = Project(make_pairs(tmp_path / 'pairs'))
+    project.build()
+    notes = project.release_notes('v1')
+    rows = next(c for c in notes.changes if c.headline() == 'pairs: joins, filters or grouping changed')
+    assert rows.removed_english == [
+        'rows are joined where [id (the second reading of orders)] and [parent id (the first reading of '
+        'orders)] both have values and are equal, keeping every row of the left side, with no values from '
+        'the right side where it has no match'
+    ]
+    # The join the build lists once more, naming the reading it joins, is worded once.
+    assert rows.added_english == [
+        'the rows of the first reading of orders are joined where true, keeping every row of the left side, '
+        'with no values from the right side where it has no match',
+        "rows are kept only where [status (the first reading of orders)] has a value other than 'void'",
+    ]
+    formula = next(c for c in notes.changes if c.headline() == 'pairs.total: formula changed')
+    assert formula.before_english == (
+        '[amount (the first reading of orders)] plus [amount (the second reading of orders)]'
+    )
