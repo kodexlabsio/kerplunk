@@ -127,6 +127,108 @@ def read_project(root: Path) -> DbtProject | None:
     )
 
 
+# Tests as dbt YAML declares them
+
+
+@dataclass
+class TestDeclaration:
+    """One generic test a dbt YAML file declares, on a model, seed, snapshot or source table, or on
+    one of its columns."""
+
+    __test__ = False  # not a pytest test class
+
+    resource: str
+    """``model``, ``seed``, ``snapshot`` or ``source``."""
+    owner: str
+    """The model's, seed's or snapshot's name, or for a source ``source.table``."""
+    column: str | None
+    """The column it tests, or None for a test of the whole relation."""
+    test: str
+    """The test as written, with any package (``dbt_utils.unique_combination_of_columns``)."""
+    custom_name: str | None = None
+    """The name a declaration gives the test (``name:``), if it gives one."""
+    kwargs: dict[str, Any] = field(default_factory=dict)
+    """Its arguments, with dbt 1.10's ``arguments:`` read as the arguments themselves."""
+    config: dict[str, Any] = field(default_factory=dict)
+    """Its configuration, ``severity`` and ``where`` included wherever they are written."""
+
+    @property
+    def short(self) -> str:
+        """The test's name without its package (``unique_combination_of_columns``)."""
+        return self.test.rsplit('.', 1)[-1]
+
+    @property
+    def package(self) -> str | None:
+        return self.test.rsplit('.', 1)[0] if '.' in self.test else None
+
+    @property
+    def label(self) -> str:
+        """The test as a change names it: its name as written, then any name it is given
+        (``unique (order_key_is_unique)``)."""
+        return f'{self.test} ({self.custom_name})' if self.custom_name else self.test
+
+
+def yaml_tests(data: Any) -> list[TestDeclaration]:
+    """Every generic test one parsed dbt YAML file declares, in the order it declares them. An
+    entry that is not a test (a number, an empty mapping) is left out."""
+    found: list[TestDeclaration] = []
+    if not isinstance(data, dict):
+        return found
+
+    def add(resource: str, owner: str, column: str | None, entries: Any) -> None:
+        for entry in entries if isinstance(entries, list) else []:
+            declared = _test_declaration(resource, owner, column, entry)
+            if declared is not None:
+                found.append(declared)
+
+    def declared(entry: dict[str, Any]) -> Any:
+        return entry.get('data_tests') or entry.get('tests')
+
+    for kind in ('models', 'seeds', 'snapshots'):
+        for item in data.get(kind) or []:
+            if not isinstance(item, dict) or not item.get('name'):
+                continue
+            name = str(item['name'])
+            add(kind[:-1], name, None, declared(item))
+            for column in item.get('columns') or []:
+                if isinstance(column, dict) and column.get('name'):
+                    add(kind[:-1], name, str(column['name']), declared(column))
+    for source in data.get('sources') or []:
+        if not isinstance(source, dict):
+            continue
+        for table in source.get('tables') or []:
+            if isinstance(table, dict) and table.get('name'):
+                owner = f'{source.get("name")}.{table["name"]}'
+                add('source', owner, None, declared(table))
+                for column in table.get('columns') or []:
+                    if isinstance(column, dict) and column.get('name'):
+                        add('source', owner, str(column['name']), declared(column))
+    return found
+
+
+def _test_declaration(resource: str, owner: str, column: str | None, entry: Any) -> TestDeclaration | None:
+    if isinstance(entry, str):
+        return TestDeclaration(resource, owner, column, entry)
+    if not isinstance(entry, dict) or not entry:
+        return None
+    if 'test_name' in entry:
+        # The long form: the test's arguments beside its own name and test_name.
+        test, custom = str(entry['test_name']), entry.get('name')
+        args = {k: v for k, v in entry.items() if k not in ('test_name', 'name')}
+    else:
+        key, value = next(iter(entry.items()))
+        test = str(key)
+        args = dict(value) if isinstance(value, dict) else {}
+        custom = args.pop('name', None)
+    config = dict(args.pop('config', None) or {})
+    for key in ('severity', 'where'):
+        if key in args:
+            config[key] = args.pop(key)
+    arguments = args.pop('arguments', None)
+    kwargs = {**args, **(arguments if isinstance(arguments, dict) else {})}
+    return TestDeclaration(resource, owner, column, test, str(custom) if custom else None, kwargs, config)
+
+
 def _newest_source_mtime(project: DbtProject) -> float:
     newest = (project.root / 'dbt_project.yml').stat().st_mtime
     for base in project.source_paths:

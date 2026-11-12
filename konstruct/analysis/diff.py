@@ -378,21 +378,6 @@ class YamlChange:
         ]
 
 
-def _test_names(entries: Any) -> set[str]:
-    names = set()
-    for entry in entries or []:
-        if isinstance(entry, str):
-            names.add(entry)
-        elif isinstance(entry, dict) and entry:
-            key = next(iter(entry))
-            value = entry[key]
-            label = str(entry.get('test_name') or entry.get('name') or key)
-            if isinstance(value, dict) and value.get('name'):
-                label = f'{key} ({value["name"]})'
-            names.add(label)
-    return names
-
-
 def _yaml_facts(text: str | None) -> dict[str, Any]:
     """Tests, descriptions, source tables and exposures declared in a dbt YAML file, none for a
     file that is not there. Raises :class:`yaml.YAMLError` for one that cannot be read."""
@@ -402,34 +387,25 @@ def _yaml_facts(text: str | None) -> dict[str, Any]:
     data = yamlio.load(text or '') or {}
     if not isinstance(data, dict):
         return facts
+    for test in dbt.yaml_tests(data):
+        where = f'{test.owner}.{test.column}' if test.column else test.owner
+        # A source's tests are named apart from a model's: source.table is not model.column.
+        facts['tests'].add(f'{"source " if test.resource == "source" else ""}{where}: {test.label}')
     for kind in ('models', 'seeds', 'snapshots'):
         for model in data.get(kind) or []:
             if not isinstance(model, dict) or not model.get('name'):
                 continue
             name = str(model['name'])
             facts['descriptions'][name] = (model.get('description') or '').strip()
-            for test in _test_names(model.get('data_tests') or model.get('tests')):
-                facts['tests'].add(f'{name}: {test}')
             for column in model.get('columns') or []:
-                if not isinstance(column, dict) or not column.get('name'):
-                    continue
-                label = f'{name}.{column["name"]}'
-                facts['descriptions'][label] = (column.get('description') or '').strip()
-                for test in _test_names(column.get('data_tests') or column.get('tests')):
-                    facts['tests'].add(f'{label}: {test}')
+                if isinstance(column, dict) and column.get('name'):
+                    label = f'{name}.{column["name"]}'
+                    facts['descriptions'][label] = (column.get('description') or '').strip()
     for source in data.get('sources') or []:
         if isinstance(source, dict):
             for table in source.get('tables') or []:
                 if isinstance(table, dict) and table.get('name'):
-                    name = f'{source.get("name")}.{table["name"]}'
-                    facts['sources'].add(name)
-                    # A source's tests are named apart from a model's: source.table is not model.column.
-                    for test in _test_names(table.get('data_tests') or table.get('tests')):
-                        facts['tests'].add(f'source {name}: {test}')
-                    for column in table.get('columns') or []:
-                        if isinstance(column, dict) and column.get('name'):
-                            for test in _test_names(column.get('data_tests') or column.get('tests')):
-                                facts['tests'].add(f'source {name}.{column["name"]}: {test}')
+                    facts['sources'].add(f'{source.get("name")}.{table["name"]}')
     for exposure in data.get('exposures') or []:
         if isinstance(exposure, dict) and exposure.get('name'):
             facts['exposures'][str(exposure['name'])] = sorted(map(str, exposure.get('depends_on') or []))

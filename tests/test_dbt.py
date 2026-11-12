@@ -489,6 +489,81 @@ def test_dbt_semantic_layer_metrics_are_read_from_the_manifest() -> None:
     assert dbt.semantic_metrics({}, lambda item: None) == []
 
 
+def test_yaml_tests_read_every_form_dbt_declares() -> None:
+    import yaml
+
+    from konstruct.inputs.dbt import yaml_tests
+
+    data = yaml.safe_load("""
+models:
+  - name: orders
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments: {combination_of_columns: [order_id, line]}
+          config: {severity: warn}
+    columns:
+      - name: order_id
+        tests:
+          - unique
+          - not_null: {where: "order_id > 0"}
+          - name: order_key_present
+            test_name: not_null
+            severity: error
+          - relationships: {name: orders_have_customers, to: "ref('customers')", field: id}
+          - 7
+          - {}
+sources:
+  - name: raw
+    tables:
+      - name: payments
+        data_tests: [unique_payment]
+        columns: [{name: id, data_tests: [unique]}]
+seeds: [{name: codes, columns: [{name: code, data_tests: [unique]}]}, not-a-model]
+""")
+    found = [
+        (t.resource, t.owner, t.column, t.label, t.short, t.package, t.kwargs, t.config)
+        for t in yaml_tests(data)
+    ]
+    assert found == [
+        (
+            'model',
+            'orders',
+            None,
+            'dbt_utils.unique_combination_of_columns',
+            'unique_combination_of_columns',
+            'dbt_utils',
+            {'combination_of_columns': ['order_id', 'line']},
+            {'severity': 'warn'},
+        ),
+        ('model', 'orders', 'order_id', 'unique', 'unique', None, {}, {}),
+        ('model', 'orders', 'order_id', 'not_null', 'not_null', None, {}, {'where': 'order_id > 0'}),
+        (
+            'model',
+            'orders',
+            'order_id',
+            'not_null (order_key_present)',
+            'not_null',
+            None,
+            {},
+            {'severity': 'error'},
+        ),
+        (
+            'model',
+            'orders',
+            'order_id',
+            'relationships (orders_have_customers)',
+            'relationships',
+            None,
+            {'to': "ref('customers')", 'field': 'id'},
+            {},
+        ),
+        ('seed', 'codes', 'code', 'unique', 'unique', None, {}, {}),
+        ('source', 'raw.payments', None, 'unique_payment', 'unique_payment', None, {}, {}),
+        ('source', 'raw.payments', 'id', 'unique', 'unique', None, {}, {}),
+    ]
+    assert yaml_tests(['not', 'a', 'mapping']) == []
+
+
 def test_a_model_the_catalog_does_not_list_keeps_its_columns_for_sql_that_reads_it(tmp_path: Path) -> None:
     """A model built after the catalog was generated is in the manifest but not the catalog: its
     documented columns are its SQL's own, and SQL that reads it still has their lineage."""

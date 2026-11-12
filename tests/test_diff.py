@@ -482,6 +482,13 @@ exposures:
     unreadable = compare_yaml('x.yml', 'not: [valid', 'models: []')
     assert unreadable.changed is False
     assert unreadable.note is not None and unreadable.note.startswith('could not compare the before version')
+    # A test given its own name is named the same way whichever form declares it.
+    named = 'models: [{name: o, columns: [{name: id, data_tests: [%s]}]}]'
+    long_form = named % '{name: id_is_unique, test_name: unique}'
+    short_form = named % '{unique: {name: id_is_unique}}'
+    assert compare_yaml('x.yml', None, long_form).tests_added == ['o.id: unique (id_is_unique)']
+    assert compare_yaml('x.yml', None, short_form).tests_added == ['o.id: unique (id_is_unique)']
+    assert not compare_yaml('x.yml', long_form, short_form).changed
 
 
 def test_the_summary_counts_yaml_files_that_could_not_be_compared() -> None:
