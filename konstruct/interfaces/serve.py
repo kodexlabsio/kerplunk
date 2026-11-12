@@ -63,7 +63,7 @@ class Rebuilder(threading.Thread):
     def _changes(self) -> list[tuple[str, list[int] | None]]:
         """Each changed input with what it is now; None for one that is gone, which is a change
         too, so deleting or renaming an input rebuilds."""
-        from konstruct.core.files import identity
+        from konstruct._core import file_identity as identity
 
         return [(name, identity(self.project.root / name)) for name in self.project.changed_inputs()]
 

@@ -60,9 +60,9 @@ import posixpath
 import re
 import sys
 import tomllib
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
-from fnmatch import fnmatch, fnmatchcase
+from fnmatch import fnmatch
 from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Any
 
@@ -71,9 +71,10 @@ import yaml
 if TYPE_CHECKING:
     from konstruct.inputs.usage import UsageSettings
 
+from konstruct._core import Tree, name_accepts
+from konstruct._core import file_identity as identity
 from konstruct.core import yamlio
-from konstruct.core.files import identity
-from konstruct.inputs.dbt import SKIP_DIRS, DbtProject, walk_dirs
+from konstruct.inputs.dbt import SKIP_DIRS, DbtProject
 from konstruct.inputs.warehouse import (
     BigQueryConnector,
     Connector,
@@ -85,6 +86,8 @@ from konstruct.inputs.warehouse import (
     TrinoConnector,
 )
 
+FOLD_PATHS = os.path.normcase('A') != 'A'
+"""Whether this system's file names do not distinguish case (Windows), so patterns do not either."""
 INPUT_PATH_FIELDS = {'looker': 'looker_paths'}
 """The registry inputs whose ``[<name>] paths`` the configuration keeps in a field of its own."""
 
@@ -310,7 +313,9 @@ class Config:
     """Files left unread because they lead outside the project through a symbolic link while it
     is untrusted: each directory holding such a link, with the links' names (see :meth:`inside`)."""
     config_found: list[int] | None = None
-    """``config_file`` as it was just before it was read (``konstruct.core.files.identity``)."""
+    """``config_file`` as it was just before it was read (``konstruct._core.file_identity``)."""
+    walked: Tree | None = field(default=None, repr=False, compare=False)
+    """The walk of the project while :meth:`shared_walk` is open, which every discovery shares."""
 
     def override(
         self,
@@ -352,6 +357,30 @@ class Config:
             link = _outside_link(path, root)
             self.outside_links.setdefault(link.parent, set()).add(link.name)
         return kept
+
+    @contextlib.contextmanager
+    def shared_walk(self) -> Iterator[None]:
+        """Walk the project once for everything discovered inside the block, which a build opens:
+        files made while it is open are not found, which no build makes."""
+        outer = self.walked
+        self.walked = outer or Tree(str(self.root), sorted(SKIP_DIRS), FOLD_PATHS)
+        try:
+            yield
+        finally:
+            self.walked = outer
+
+    def tree(self) -> Tree:
+        """The walk of the project: the shared one, or a new one."""
+        return self.walked or Tree(str(self.root), sorted(SKIP_DIRS), FOLD_PATHS)
+
+    def inside_walked(self, found: list[tuple[str, bool]]) -> list[Path]:
+        """The paths of files a walk found, as :meth:`inside` gives them. The walk enters no link
+        to a directory, so only a file that is itself a link can lead outside the project."""
+        paths = [Path(name) for name, _ in found]
+        if self.trusted or not any(link for _, link in found):
+            return paths
+        kept = set(self.inside(p for p, (_, link) in zip(paths, found, strict=True) if link))
+        return [p for p, (_, link) in zip(paths, found, strict=True) if not link or p in kept]
 
     def excluded(self, path: Path) -> bool:
         try:
@@ -731,17 +760,17 @@ def _is_spark(path: Path, relative: str, patterns: tuple[str, ...]) -> bool:
 def _is_definitions(path: Path, relative: str, patterns: tuple[str, ...]) -> bool:
     from konstruct.semantics.definitions import FILE_NAMES
 
-    return path.name in FILE_NAMES
+    return name_accepts(path.name, patterns=list(FILE_NAMES))
 
 
 def _is_ossie(path: Path, relative: str, patterns: tuple[str, ...]) -> bool:
     from konstruct.semantics.ossie import FILE_SUFFIXES
 
-    return path.name.endswith(FILE_SUFFIXES)
+    return name_accepts(path.name, suffixes=list(FILE_SUFFIXES))
 
 
 def _is_named(path: Path, relative: str, patterns: tuple[str, ...]) -> bool:
-    return any(fnmatchcase(path.name, pattern) for pattern in patterns)
+    return name_accepts(path.name, patterns=list(patterns))
 
 
 def _is_globbed(path: Path, relative: str, patterns: tuple[str, ...]) -> bool:
@@ -791,7 +820,10 @@ def _loader_kind(path: Path, relative: str) -> str | None:
 def _is_loader(path: Path, relative: str, patterns: tuple[str, ...]) -> bool:
     from konstruct.inputs.ingestion import SUFFIXES
 
-    return path.name.lower().endswith(SUFFIXES) and _loader_kind(path, relative) is not None
+    return (
+        name_accepts(path.name, suffixes=list(SUFFIXES), fold=True)
+        and _loader_kind(path, relative) is not None
+    )
 
 
 FINDS: dict[str, Callable[[Path, str, tuple[str, ...]], bool]] = {
@@ -805,10 +837,12 @@ FINDS: dict[str, Callable[[Path, str, tuple[str, ...]], bool]] = {
     'globs': _is_globbed,
     'loader': _is_loader,
 }
-"""What discovery requires of a file, by name, once it has the file: ``(path, its path relative
-to the repository as ``/``-separated text, patterns)`` gives whether discovery would take it. The
-discover functions use these, and so does the check for new files beside an input, which keeps
-the name with each folder it watches (see :func:`how_found`)."""
+"""What discovery requires of a file, once it has the file: ``(path, its path relative to the
+repository as ``/``-separated text, patterns)`` gives whether discovery would take it. A file's
+name is judged by the native matcher the walk uses (:func:`konstruct._core.name_accepts`), so a
+file met on its own and one the walk finds are taken by one rule; what these add is the reading
+of its content, and the globs of ``[sql] paths``. The check for new files beside an input uses
+them, keeping the name with each folder it watches (see :func:`how_found`)."""
 
 
 def relative_text(path: Path, base: Path) -> str:
@@ -862,54 +896,70 @@ def how_found(config: Config, kind: str, path: Path, patterns: Iterable[str] = (
     return None
 
 
+def _under(
+    path: Path,
+    *,
+    suffixes: list[str] | None = None,
+    patterns: list[str] | None = None,
+    fold: bool = False,
+    skip: bool = True,
+) -> list[Path]:
+    """The files under a directory a ``paths`` setting names, in the order of their paths, as the
+    ``rglob`` this replaced gave them: hidden directories are entered, and with ``skip`` the
+    directories in :data:`SKIP_DIRS` are not, nor is anything when the directory is itself in one."""
+    if skip and set(path.parts) & SKIP_DIRS:
+        return []
+    tree = Tree(str(path), sorted(SKIP_DIRS) if skip else [], FOLD_PATHS, True)
+    return sorted(Path(name) for name, _ in tree.files(suffixes=suffixes, patterns=patterns, fold=fold))
+
+
 def discover_input_files(config: Config, name: str, patterns: Iterable[str]) -> list[Path]:
     """The files of an input: those its ``[<name>] paths`` lists (a directory gives every file in it
     whose name matches one of ``patterns``), or every such file in the repository."""
     named = tuple(patterns)
-
-    def wanted(path: Path) -> bool:
-        return _is_named(path, '', named)
 
     listed = config.paths_for(name)
     if listed is not None:
         files: list[Path] = []
         for path in listed:
             if path.is_dir():
-                files.extend(
-                    sorted(
-                        p
-                        for p in path.rglob('*')
-                        if wanted(p) and p.is_file() and not set(p.parts) & SKIP_DIRS
-                    )
-                )
+                files.extend(_under(path, patterns=list(named)))
             elif path.is_file():
                 files.append(path)
         return config.inside(files)
-    found = []
-    for directory in walk_dirs(config.root):
-        if directory.resolve() == config.out_dir:
-            continue
-        for path in sorted(directory.iterdir()):
-            if wanted(path) and path.is_file() and not config.excluded(path):
-                found.append(path)
-    return config.inside(found)
+    return config.inside_walked(_walk(config, patterns=list(named)))
 
 
 def iter_files(config: Config, suffix: str) -> list[Path]:
     """The files ending in ``suffix`` in the project, without links leading outside it while it
     is untrusted (see :meth:`Config.inside`)."""
-    return config.inside(_walk_files(config, suffix))
+    return config.inside_walked(_walk(config, suffixes=[suffix]))
+
+
+def _walk(
+    config: Config,
+    *,
+    suffixes: list[str] | None = None,
+    patterns: list[str] | None = None,
+    fold: bool = False,
+) -> list[tuple[str, bool]]:
+    """The files of the walk whose names end with a suffix or match a pattern, outside the output
+    folder and the ``exclude`` patterns, each with whether it is a link."""
+    try:
+        out: str | None = config.out_dir.relative_to(config.root.resolve()).as_posix()
+    except ValueError:
+        out = None
+    return config.tree().files(
+        suffixes=suffixes,
+        patterns=patterns,
+        fold=fold,
+        exclude=config.exclude,
+        skip='' if out == '.' else out,
+    )
 
 
 def _walk_files(config: Config, suffix: str) -> list[Path]:
-    found = []
-    for directory in walk_dirs(config.root):
-        if directory.resolve() == config.out_dir:
-            continue
-        for path in sorted(directory.glob(f'*{suffix}')):
-            if path.is_file() and not config.excluded(path):
-                found.append(path)
-    return found
+    return [Path(name) for name, _ in _walk(config, suffixes=[suffix])]
 
 
 def discover_dag_files(config: Config) -> list[Path]:
@@ -919,7 +969,7 @@ def discover_dag_files(config: Config) -> list[Path]:
         files: list[Path] = []
         for path in config.dag_paths:
             if path.is_dir():
-                files.extend(sorted(p for p in path.rglob('*.py') if not set(p.parts) & SKIP_DIRS))
+                files.extend(_under(path, suffixes=['.py'], fold=FOLD_PATHS))
             elif path.is_file():
                 files.append(path)
         return config.inside(files)
@@ -934,7 +984,7 @@ def discover_dagster_files(config: Config) -> list[Path]:
         files: list[Path] = []
         for path in config.dagster_paths:
             if path.is_dir():
-                files.extend(sorted(p for p in path.rglob('*.py') if not set(p.parts) & SKIP_DIRS))
+                files.extend(_under(path, suffixes=['.py'], fold=FOLD_PATHS))
             elif path.is_file():
                 files.append(path)
         return config.inside(files)
@@ -950,7 +1000,7 @@ def discover_spark_files(config: Config) -> list[Path]:
         files: list[Path] = []
         for path in config.spark_paths:
             if path.is_dir():
-                files.extend(sorted(p for p in path.rglob('*.py') if not set(p.parts) & SKIP_DIRS))
+                files.extend(_under(path, suffixes=['.py'], fold=FOLD_PATHS))
             elif path.is_file():
                 files.append(path)
         return config.inside(files)
@@ -970,7 +1020,7 @@ def discover_powerbi_files(config: Config) -> list[Path]:
         files: list[Path] = []
         for path in config.powerbi_paths:
             if path.is_dir():
-                files.extend(sorted(p for p in path.rglob('*.tmdl') if not set(p.parts) & SKIP_DIRS))
+                files.extend(_under(path, suffixes=['.tmdl'], fold=FOLD_PATHS))
             elif path.is_file():
                 files.append(path)
         return config.inside(files)
@@ -985,30 +1035,27 @@ def discover_definitions_files(config: Config) -> list[Path]:
         files: list[Path] = []
         for path in config.definitions_paths:
             if path.is_dir():
-                files.extend(sorted(p for name in FILE_NAMES for p in path.rglob(name)))
+                files.extend(_under(path, patterns=list(FILE_NAMES), skip=False))
             elif path.is_file():
                 files.append(path)
         return config.inside(files)
-    return [
-        p for p in [*iter_files(config, '.yml'), *iter_files(config, '.yaml')] if _is_definitions(p, '', ())
-    ]
+    return [p for name in FILE_NAMES for p in config.inside_walked(_walk(config, patterns=[name]))]
 
 
 def discover_ossie_files(config: Config) -> list[Path]:
     """Apache Ossie semantic models: the configured paths, or every ``*.ossie.yaml`` in the repository."""
 
-    def wanted(path: Path) -> bool:
-        return _is_ossie(path, '', ())
+    from konstruct.semantics.ossie import FILE_SUFFIXES
 
     if config.ossie_paths is not None:
         files: list[Path] = []
         for path in config.ossie_paths:
             if path.is_dir():
-                files.extend(sorted(p for p in path.rglob('*') if p.is_file() and wanted(p)))
+                files.extend(_under(path, suffixes=list(FILE_SUFFIXES), skip=False))
             elif path.is_file():
                 files.append(path)
         return config.inside(files)
-    return [p for p in [*iter_files(config, '.yaml'), *iter_files(config, '.yml')] if wanted(p)]
+    return [p for suffix in FILE_SUFFIXES for p in iter_files(config, suffix)]
 
 
 def discover_ingestion_files(config: Config) -> list[tuple[Path, str]]:
@@ -1021,26 +1068,11 @@ def discover_ingestion_files(config: Config) -> list[tuple[Path, str]]:
     if config.ingestion_paths is not None:
         for path in config.ingestion_paths:
             if path.is_dir():
-                candidates.extend(
-                    sorted(
-                        p
-                        for p in path.rglob('*')
-                        if p.is_file() and p.name.lower().endswith(SUFFIXES) and not set(p.parts) & SKIP_DIRS
-                    )
-                )
+                candidates.extend(_under(path, suffixes=list(SUFFIXES), fold=True))
             elif path.is_file():
                 candidates.append(path)
     else:
-        for directory in walk_dirs(config.root):
-            if directory.resolve() == config.out_dir:
-                continue
-            candidates.extend(
-                sorted(
-                    p
-                    for p in directory.iterdir()
-                    if p.name.lower().endswith(SUFFIXES) and p.is_file() and not config.excluded(p)
-                )
-            )
+        candidates = [Path(name) for name, _ in _walk(config, suffixes=list(SUFFIXES), fold=True)]
     # The path inside the project: a tap-<name> directory says a state file is a tap's. String
     # slicing, as pathlib's relative paths cost more than discovery's reading of most files.
     root = f'{config.root}{os.sep}'
@@ -1066,10 +1098,17 @@ def discover_sql_files(config: Config, projects: list[DbtProject], used: set[Pat
         return [f for f in config.inside(files) if f.resolve() not in used]
     owned = [p.resolve() for project in projects for p in [*project.source_paths, project.target_path]]
     owned += [(project.root / name).resolve() for project in projects for name in ('analyses', 'analysis')]
+    # A path is under a base when it is the base or starts with it and a separator.
+    inside = tuple(f'{base}{os.sep}' for base in owned)
+    # A file the walk found that is not a link has no link in its path, so it is its own resolved path
+    # when the root is.
+    real = config.root.resolve() == config.root
+    found = _walk(config, suffixes=['.sql'])
+    links = {name for name, link in found if link}
     result = []
-    for path in iter_files(config, '.sql'):
-        resolved = path.resolve()
-        if resolved in used or any(resolved.is_relative_to(base) for base in owned):
+    for path in config.inside_walked(found):
+        resolved = path.resolve() if not real or str(path) in links else path
+        if resolved in used or str(resolved).startswith(inside) or resolved in owned:
             continue
         result.append(path)
     return result
@@ -1204,7 +1243,7 @@ def dbt_projects(config: Config) -> list[DbtProject]:
 
     if config.dbt_projects is not None:
         return [p for r in config.dbt_projects if (p := dbt.read_project(r))]
-    return [p for p in dbt.find_projects(config.root) if not config.excluded(p.root)]
+    return [p for p in dbt.find_projects(config.root, config.tree()) if not config.excluded(p.root)]
 
 
 def repository_profiles(config: Config, projects: list[DbtProject]) -> list[Path]:

@@ -13,6 +13,8 @@ from collections.abc import Callable, Sequence
 from os import PathLike
 from typing import Any, Self, final
 
+StrPath = str | PathLike[str]
+
 GRAPH_FORMAT_VERSION: int
 """The newest graph.json format this Konstruct reads and writes."""
 
@@ -517,3 +519,57 @@ def scan_python_files(paths: Sequence[str | PathLike[str]]) -> list[tuple[bool, 
     """For each path, whether the file looks like an Airflow DAG file and whether it looks like a
     Dagster file (``looks_like_dag_file`` and ``looks_like_dagster_file`` of its bytes), with the
     files read in parallel. A file that cannot be read is neither."""
+
+@final
+class Tree:
+    """The files under a root, walked once on every CPU: directories in the order ``os.walk``
+    yields them, each with its files in name order. A directory that is a link, hidden (a leading
+    ``.``) or named in ``skip`` is not entered."""
+
+    def __init__(
+        self, root: StrPath, skip: list[str], fold_paths: bool = False, enter_hidden: bool = False
+    ) -> None:
+        """With ``fold_paths``, ``exclude`` patterns ignore case, as ``fnmatch`` does where file
+        names do; with ``enter_hidden``, a directory with a leading ``.`` is entered."""
+    def directories(self) -> list[str]:
+        """The directories, as paths."""
+    def files(
+        self,
+        *,
+        suffixes: list[str] | None = None,
+        patterns: list[str] | None = None,
+        fold: bool = False,
+        exclude: list[str] = ...,
+        skip: StrPath | None = None,
+    ) -> list[tuple[str, bool]]:
+        """The files whose names end with one of ``suffixes`` (whatever the case with ``fold``)
+        or match one of ``patterns`` as ``fnmatch.fnmatchcase`` reads them, each with whether it
+        is a link, except those directly in the directory ``skip`` (from the root, ``''`` for the
+        root) and those whose path from the root matches one of the ``exclude`` patterns."""
+
+def name_accepts(
+    name: StrPath, *, suffixes: list[str] | None = None, patterns: list[str] | None = None, fold: bool = False
+) -> bool:
+    """Whether a file name ends with one of ``suffixes`` (whatever the case with ``fold``) or
+    matches one of ``patterns``: the rule :meth:`Tree.files` applies, for a file met on its own."""
+
+def file_identity(path: StrPath) -> list[int] | None:
+    """What says a file changed: size, modification and change times in nanoseconds, device and
+    inode; None when it is not a regular file."""
+
+def file_digest(found: list[int]) -> str:
+    """An identity in 16 hexadecimal digits: BLAKE2b with an 8-byte digest of the fields in
+    decimal separated by spaces."""
+
+def folder_files(folder: StrPath, extension: str) -> tuple[str, list[tuple[str, list[int], str]]]:
+    """The regular files in ``folder`` whose names end with ``extension``, in the order the folder
+    lists them, each with its identity and the digest of it; and a digest of all of them (BLAKE2b
+    with an 8-byte digest of the names joined by NUL, then each identity as 64-bit integers in the
+    machine's byte order). Raises ``OSError`` when the folder cannot be listed."""
+
+def folder_digest(folder: StrPath, extension: str) -> str:
+    """The first of what :func:`folder_files` gives, alone."""
+
+def files_under(folder: StrPath) -> list[tuple[str, list[int]]]:
+    """Every regular file under ``folder`` at any depth, with its path from ``folder`` and its
+    identity."""

@@ -6,6 +6,8 @@ models through CTEs, with a manifest, a catalog and Airflow DAGs. For each size 
 * a cold build (no cache), which parses every model and writes graph.json, REPORT.md and
   graph.html (including every column's composed formula);
 * --update with nothing changed, and --update after editing one model in the middle;
+* discovery: the time to find every input's files in the project, as a build does it, over one
+  walk of the repository;
 * the median time of an impact, a trace and an explain on the deepest model;
 * the median time to render a large impact as text (``str()``, as a pipe gets it);
 * the coding agent hook (`konstruct hook post-edit`) after an edit that changes nothing and after
@@ -166,6 +168,24 @@ def render_times(page_path: Path) -> tuple[float | None, float | None]:
     return statistics.median(opened), statistics.median(drawn)
 
 
+def discover_everything(config: Any) -> None:
+    """Every discovery a build makes, over the one walk it shares."""
+    from konstruct.engine import config as discovery
+
+    with config.shared_walk():
+        projects = discovery.dbt_projects(config)
+        discovery.discover_dag_files(config)
+        discovery.discover_dagster_files(config)
+        discovery.discover_spark_files(config)
+        discovery.discover_looker_files(config)
+        discovery.discover_powerbi_files(config)
+        discovery.discover_definitions_files(config)
+        discovery.discover_ossie_files(config)
+        discovery.discover_ingestion_files(config)
+        discovery.discover_sql_files(config, projects, set())
+        discovery.discover_warehouses(config, projects)
+
+
 def measure(models: int) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix='konstruct-bench-') as directory:
         root = Path(directory)
@@ -174,6 +194,7 @@ def measure(models: int) -> dict[str, Any]:
         cold, result = timed(project.build, run_dbt=False, warehouses=False)
         graph = result.graph
         unchanged, _ = timed(project.build, update=True, run_dbt=False, warehouses=False)
+        discovery = min(timed(discover_everything, project.config())[0] for _ in range(3))
         middle = root / 'models' / f'm{models // 2:03}.sql'
         middle.write_text(middle.read_text().replace('where b.c01 > 0', 'where b.c01 > 1'))
         manifest = root / 'target' / 'manifest.json'
@@ -208,6 +229,7 @@ def measure(models: int) -> dict[str, Any]:
             'warnings': len(graph.warnings),
             'cold_build_s': round(cold, 2),
             'update_unchanged_s': round(unchanged, 2),
+            'discovery_ms': round(1000 * discovery),
             'update_one_model_s': round(one_edit, 2),
             'hook_unchanged_s': round(hook_unchanged, 2),
             'hook_one_model_s': round(hook_edit, 2),
@@ -537,6 +559,11 @@ def main() -> int:
         print(
             f'A model of the scale test joined to itself: {joined["template"]} ms; 400 columns of a table set '
             f"against its parent row's: {joined['wide']} ms."
+        )
+        print(
+            'Discovery of every input: '
+            + ', '.join(f'{r["models"]} models {r["discovery_ms"]} ms' for r in rows)
+            + '.'
         )
         print(
             f'{sql_files["sql_files"]} SQL files and no warehouse: cold build {sql_files["sql_cold_build_s"]} s, '

@@ -595,6 +595,10 @@ mod core_module {
         parse_dagster_file, parse_dagster_source,
     };
     #[pymodule_export]
+    use crate::discover::python::{
+        Tree, file_digest, file_identity, files_under, folder_digest, folder_files, name_accepts,
+    };
+    #[pymodule_export]
     use crate::identity::python::FormulaSet;
     #[pymodule_export]
     use crate::load::python::GraphFile;

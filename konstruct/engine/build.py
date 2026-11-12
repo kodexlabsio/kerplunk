@@ -16,8 +16,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from konstruct import __version__
+from konstruct._core import file_identity as identity
+from konstruct._core import files_under, folder_digest, folder_files
 from konstruct.core import jsonio
-from konstruct.core.files import digest, identity, listing, regular_files, stated
 from konstruct.core.graph import RELATION_KINDS, Edge, Graph, Node, relation_key
 from konstruct.core.sql import (
     PARSE_ERRORS,
@@ -83,6 +84,10 @@ def _small_file(path: Path, limit: int) -> bool:
         return path.is_file() and path.stat().st_size <= limit
     except OSError:
         return False
+
+
+_NOTHING = hashlib.blake2b(digest_size=8).hexdigest()
+"""The digest of the listing of a folder with no files, which one that cannot be listed has."""
 
 
 class Cache:
@@ -199,13 +204,13 @@ class Builder:
         # One entry per input, for the build summary and `konstruct status`.
         self.sources: list[dict[str, str]] = []
         # The inputs the build reads, files or directories, relative to the root; and each file in
-        # them as the build found it just before reading it (konstruct.core.files.identity).
+        # them as the build found it just before reading it (konstruct._core.file_identity).
         self.watched: set[str] = set()
         self.seen: dict[str, list[int]] = {}
         # The files beside each file read with its extension, by its folder (relative to the root),
         # extension and the rule discovery found it by: a digest of the folder's files with that
-        # extension (konstruct.core.files.listing), and each name with a digest of it as it was
-        # found (konstruct.core.files.identity), enough to see a name appear, or any rewrite of a
+        # extension (konstruct._core.folder_files), and each name with a digest of it as it was
+        # found (konstruct._core.file_identity), enough to see a name appear, or any rewrite of a
         # file that may have made it an input (one written into a file created empty, say),
         # without reading it.
         self.siblings: dict[tuple[str, str, Found], tuple[str, dict[str, str]]] = {}
@@ -233,7 +238,7 @@ class Builder:
         ``found`` is the rule discovery found the files by (:func:`how_found`): the files beside
         each with its extension are noted too, as discovery would see them (under its exclude
         patterns if it applied them, never in the output folder), each by its name and a digest
-        of :func:`konstruct.core.files.identity` only, as the build may not read them. A new one, or
+        of :func:`konstruct._core.file_identity` only, as the build may not read them. A new one, or
         one no longer as found, is judged by the same rule, so a file there that becomes an input
         counts as a change.
         Files the build is told where to find (dbt's artefacts, profiles) have no such rule."""
@@ -241,8 +246,8 @@ class Builder:
             if path.is_dir():
                 name = self.rel_path(path)
                 self.watched.add(name)
-                for file in path.rglob('*'):
-                    self._seen(str(Path(name) / file.relative_to(path)), identity(file))
+                for relative, found_file in files_under(path):
+                    self._seen(str(Path(name) / relative), found_file)
                 continue
             self.watch_read(path, identity(path))
             folder = path.parent
@@ -253,15 +258,14 @@ class Builder:
                 continue
             # Listed as changed_inputs lists them, so both find each file the same on every system.
             try:
-                files = list(regular_files(folder, path.suffix))
+                whole, files = folder_files(folder, path.suffix)
             except OSError:
-                files = []
-            whole = listing(files)
+                whole, files = _NOTHING, []
             self.siblings[key] = (
                 whole,
                 {
-                    name: digest(stated(status))
-                    for name, status in files
+                    name: hashed
+                    for name, _, hashed in files
                     if not (found.exclude and self.config.excluded(folder / name))
                 },
             )
@@ -2506,7 +2510,7 @@ def _selected_assets(
 
 IDENTITY = ('size', 'mtime_ns', 'ctime_ns', 'device', 'inode')
 """The fields of each ``watched_files`` entry besides its path, in the order of
-:func:`konstruct.core.files.identity`."""
+:func:`konstruct._core.file_identity`."""
 
 
 def _found(seen: dict[str, list[int]]) -> list[dict[str, Any]]:
@@ -2515,7 +2519,7 @@ def _found(seen: dict[str, list[int]]) -> list[dict[str, Any]]:
 
 
 def _seen(meta: dict[str, Any]) -> dict[str, list[Any]] | None:
-    """The files a graph's build found, by path, as :func:`konstruct.core.files.identity` gives
+    """The files a graph's build found, by path, as :func:`konstruct._core.file_identity` gives
     them; None for a graph from before builds recorded them."""
     found = meta.get('watched_files')
     if not isinstance(found, list):
@@ -2525,14 +2529,14 @@ def _seen(meta: dict[str, Any]) -> dict[str, list[Any]] | None:
 
 Verdicts = dict[str, tuple[list[int], bool]]
 """Each file in a folder beside an input that is no longer as the build found it, by its name: the
-file as it was judged (:func:`konstruct.core.files.identity`) and whether it would now be an
+file as it was judged (:func:`konstruct._core.file_identity`) and whether it would now be an
 input."""
 
 Judged = dict[tuple[str, str, str, tuple[str, ...], tuple[str, ...], str, str], tuple[str, Verdicts]]
 """What :func:`changed_inputs` concluded of the folders beside an input whose files are not all
 as the build found them: by the folder, the extension, the test, its patterns, the exclude
 patterns, the repository's root and the digest the build recorded of the folder's listing, the
-digest of the listing when it was judged (:func:`konstruct.core.files.listing`) and the
+digest of the listing when it was judged (:func:`konstruct._core.folder_files`) and the
 :data:`Verdicts` on its changed files. A folder listed as it was then is not looked at file by
 file again, and a file as it was then is not read again, so files that are no inputs and start no
 build (helper modules a branch switch rewrote) cost one hash of their folder at each check, as
@@ -2558,7 +2562,7 @@ def _new_siblings(meta: dict[str, Any], root: Path, out_dir: Path, judged: Judge
         if folder.resolve() == out_dir:
             continue
         try:
-            listed = listing(regular_files(folder, extension))
+            listed = folder_digest(str(folder), extension)
         except OSError:
             continue
         recorded = str(entry.get('digest'))
@@ -2572,17 +2576,16 @@ def _new_siblings(meta: dict[str, Any], root: Path, out_dir: Path, judged: Judge
             verdicts = before[1]
         else:
             try:
-                files = list(regular_files(folder, extension))
+                _, files = folder_files(str(folder), extension)
             except OSError:
                 continue
             known = dict(zip(entry.get('names', []), entry.get('found', []), strict=False))
             earlier = before[1] if before is not None else {}
             verdicts = {}
-            for file_name, status in files:
-                now = stated(status)
+            for file_name, now, hashed in files:
                 verdict = earlier.get(file_name)
                 if verdict is None or verdict[0] != now:
-                    if known.get(file_name) == digest(now):
+                    if known.get(file_name) == hashed:
                         continue
                     file = folder / file_name
                     relative = relative_text(file, base)
@@ -2599,7 +2602,7 @@ def _new_siblings(meta: dict[str, Any], root: Path, out_dir: Path, judged: Judge
 def changed_inputs(graph_path: Path, graph: Graph, judged: Judged | None = None) -> list[str]:
     """Files the last build read that have changed since it read them, relative to the project
     root: each file it recorded (``watched_files`` in the graph's meta) that is no longer as it
-    was just before it was read (:func:`konstruct.core.files.identity`: its size, times, device
+    was just before it was read (:func:`konstruct._core.file_identity`: its size, times, device
     or inode differ, or it is gone), each file it did not find in a directory it read, and each
     file beside a file it read with that file's extension (``watched_siblings``), new or no
     longer as the build found it, that discovery would now take (not excluded, not in the output
@@ -2624,17 +2627,19 @@ def changed_inputs(graph_path: Path, graph: Graph, judged: Judged | None = None)
         )
     for name in graph.meta.get('watched', []):
         path = root / name
-        for candidate in path.rglob('*') if path.is_dir() else [path]:
-            relative = os.path.relpath(candidate, root)
+        found_here = (
+            [(os.path.relpath(path / relative, root), found) for relative, found in files_under(path)]
+            if path.is_dir()
+            else [(os.path.relpath(path, root), identity(path))]
+        )
+        for relative, found in found_here:
+            if found is None:
+                continue
             if seen is not None:
-                if relative not in seen and identity(candidate) is not None:
+                if relative not in seen:
                     changed.append(relative)
-                continue
-            try:
-                if candidate.is_file() and candidate.stat().st_mtime_ns > written:
-                    changed.append(relative)
-            except OSError:
-                continue
+            elif found[1] > written:
+                changed.append(relative)
     return sorted(set(changed))
 
 
@@ -3059,7 +3064,8 @@ def build(config: Config, *, update: bool = False) -> BuildResult:
 
     started = time.perf_counter()
     builder = Builder(config, update=update)
-    graph = builder.run()
+    with config.shared_walk():
+        graph = builder.run()
     names: list[str] = []
     others: list[Builder] = []
     wheres: dict[str, str] = {}

@@ -26,6 +26,7 @@ macro_rules! routine {
 
 pub mod airflow;
 pub mod dagster;
+pub mod discover;
 pub mod fnv;
 pub mod graph;
 pub mod identity;

@@ -699,7 +699,7 @@ def _jobs_project(root: Path) -> Path:
 
 @pytest.mark.parametrize('change', ['delete', 'rename', 'same size, time put back', 'atomic save', 'chmod'])
 def test_every_change_to_a_file_read_counts(change: str, tmp_path: Path) -> None:
-    """The rule the viewer's SQL uses (konstruct.core.files.identity): size, both times, device
+    """The rule the viewer's SQL uses (konstruct._core.file_identity): size, both times, device
     and inode, and a file that is gone."""
     from konstruct import Project
 
@@ -1064,7 +1064,7 @@ def test_removing_an_exclude_pattern_is_a_change(tmp_path: Path) -> None:
 
 def test_a_helper_rewritten_as_a_dag_of_the_same_size_counts(tmp_path: Path) -> None:
     """Block K of the review: a file beside an input is kept as the build found it, by the rule
-    for every file (konstruct.core.files.identity), not by its size alone."""
+    for every file (konstruct._core.file_identity), not by its size alone."""
     from konstruct import Project
 
     dags = _dags_project(tmp_path)
@@ -1154,24 +1154,24 @@ def test_a_folder_as_the_build_found_it_is_seen_in_one_hash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A check with nothing changed lists each folder beside an input and hashes the listing
-    once, digesting no file and keeping nothing; after a change it keeps only the changed file."""
+    once, listing no file and keeping nothing; after a change it keeps only the changed file."""
     from konstruct import Project
-    from konstruct.core.files import digest
+    from konstruct._core import folder_files
 
     dags = _dags_project(tmp_path)
     for number in range(100):
         (dags / f'h{number:02}.py').write_text('X = 1\n')
     project = Project(tmp_path)
     project.build()
-    digested: list[list[int]] = []
+    listed: list[str] = []
 
-    def counted(found: list[int]) -> str:
-        digested.append(found)
-        return digest(found)
+    def counted(folder: str, extension: str) -> object:
+        listed.append(str(folder))
+        return folder_files(folder, extension)
 
-    monkeypatch.setattr('konstruct.engine.build.digest', counted)
+    monkeypatch.setattr('konstruct.engine.build.folder_files', counted)
     assert project.changed_inputs() == [] and Project(tmp_path).changed_inputs() == []
-    assert digested == [] and project._judged == {}
+    assert listed == [] and project._judged == {}
     (dags / 'h03.py').write_text('X = 2\n')
     assert project.changed_inputs() == []
     assert [list(verdicts) for _, verdicts in project._judged.values()] == [['h03.py']]

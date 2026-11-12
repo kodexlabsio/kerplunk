@@ -122,6 +122,10 @@ A build makes no index for search by meaning; the first search by meaning does, 
 
 `vectors.bin` is 17.8 MB at that size: the index and every node's blocks, so a process whose graph is the one the file was made from reads them rather than computing them.
 
+## Finding Files
+
+A build walks the repository once, on every CPU, and each input finds its files in that walk: the directories are read by a pool of threads, put in name order afterwards so the answer does not depend on which thread was first, and matched against suffixes, name patterns and `exclude` patterns as they are found. The record a build keeps of each file it read (size, times, device and inode) and of the folders beside it is made in the same native code. On the 2,000-model project of `tests/test_scale.py` (four cores, a release build), the time spent finding files in an `--update` build fell from about 0.22 s to 0.016 s, the median of three builds, and the whole build from about 3.3 s to 2.8 s; on the 500-model project discovery fell from about 55 ms to 6 ms. `.kodex/scripts/benchmark.py` prints the time to discover every input of each size it builds. The rest of an `--update` build is spent reading dbt's selectors for each Airflow task, building nodes and edges and writing graph.json, and the viewer's formulas.
+
 ## Loaders
 
 Recognising which loader landed each table checks a table only against the marks its own columns could satisfy. On 50,000 warehouse relations of twelve columns each, one in ten landed, detection takes about 0.05 s of CPU and the whole landing step about 1 s, most of it reading each relation's columns from the graph (`test_detection_over_fifty_thousand_relations_stays_fast` in `tests/test_loaders.py`). Finding loader configuration files reads each Python, YAML, JSON, Terraform and `.properties` file once and parses only those whose name and text show a known format: about 0.2 s of CPU over 3,000 files (`test_discovery_over_thousands_of_files_stays_cheap` in `tests/test_ingestion.py`).

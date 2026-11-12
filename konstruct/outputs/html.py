@@ -28,8 +28,8 @@ from importlib import resources
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from konstruct._core import file_identity as identity
 from konstruct.core import jsonio
-from konstruct.core.files import identity
 from konstruct.core.graph import Graph, Node
 
 if TYPE_CHECKING:

@@ -18,8 +18,9 @@ import yaml
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
 
+from konstruct._core import Tree
+from konstruct._core import file_identity as identity
 from konstruct.core import jsonio, yamlio
-from konstruct.core.files import identity
 from konstruct.core.graph import Graph, Node, NodeKind, column_id, relation_key
 from konstruct.core.sql import dialect_for, strip_templating
 from konstruct.inputs.jinja import Renderer, render_model
@@ -50,7 +51,7 @@ class DbtProject:
     profile: str | None = None
     source_paths: list[Path] = field(default_factory=list)
     found: list[int] | None = None
-    """``dbt_project.yml`` as it was just before it was read (``konstruct.core.files.identity``)."""
+    """``dbt_project.yml`` as it was just before it was read (``konstruct._core.file_identity``)."""
 
     @property
     def manifest_path(self) -> Path:
@@ -86,19 +87,15 @@ class DbtLoad:
     """The nodes whose columns the catalog lists."""
 
 
-def walk_dirs(root: Path) -> Iterator[Path]:
-    for current, dirs, _ in os.walk(root):
-        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.startswith('.'))
-        yield Path(current)
-
-
-def find_projects(root: Path) -> list[DbtProject]:
+def find_projects(root: Path, tree: Tree | None = None) -> list[DbtProject]:
+    """The dbt projects under ``root``, in the order the walk meets their folders; ``tree`` is a
+    walk of ``root`` already made."""
+    tree = tree or Tree(str(root), sorted(SKIP_DIRS))
     projects = []
-    for directory in walk_dirs(root):
-        if (directory / 'dbt_project.yml').is_file():
-            project = read_project(directory)
-            if project:
-                projects.append(project)
+    for name, _ in tree.files(patterns=['dbt_project.yml']):
+        project = read_project(Path(name).parent)
+        if project:
+            projects.append(project)
     return projects
 
 
