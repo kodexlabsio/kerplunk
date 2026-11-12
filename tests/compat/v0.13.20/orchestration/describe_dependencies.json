@@ -1,0 +1,33 @@
+{
+ "format_version": 1,
+ "id": "dag.dependencies",
+ "kind": "dag",
+ "label": "dependencies",
+ "name": "dependencies",
+ "path": "dags/dependencies.py",
+ "origins": [
+  "airflow"
+ ],
+ "attrs": {
+  "line": 8
+ },
+ "terms": [],
+ "defines": [],
+ "related": [],
+ "conditions": [],
+ "tests": [],
+ "upstream": [],
+ "downstream": [],
+ "tasks": [
+  "a",
+  "b",
+  "c",
+  "d",
+  "x",
+  "y",
+  "z"
+ ],
+ "runs": [],
+ "after": [],
+ "before": []
+}
