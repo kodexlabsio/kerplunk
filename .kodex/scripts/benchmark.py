@@ -41,10 +41,18 @@ It also measures start-up: the CPU time of ``konstruct --help``, of ``konstruct 
 ``konstruct impact`` on a column on the largest project, each in a fresh process, and in the same way ``konstruct search`` with and
 without ``--meaning``, which reads the saved vectors.bin.
 
+With ``--yaml``, it measures YAML alone: the time to read the schema files of a project of that
+many models (20 columns each, as the scale test builds them) with the core's reader
+(``konstruct.core.yamlio.load``), with PyYAML's pure Python safe loader, and with libyaml's
+(``CSafeLoader``), which is the fastest reader of YAML for Python besides the core. ``--old-yamlio
+PATH`` adds a module to time as well: ``konstruct/core/yamlio.py`` as an earlier commit has it
+(``git show d08c73d:konstruct/core/yamlio.py``), which read through PyYAML's pure Python loader.
+
 Usage:
     uv run .kodex/scripts/benchmark.py                  # 100, 500, 1000 and 2000 models
     uv run .kodex/scripts/benchmark.py 300 3000 --json results.json
     uv run .kodex/scripts/benchmark.py --tables 100 400  # conflicts and the gate alone
+    uv run .kodex/scripts/benchmark.py --yaml 2000       # the schema files of 2,000 models
 """
 
 from __future__ import annotations
@@ -299,6 +307,85 @@ def measure(models: int) -> dict[str, Any]:
 
 
 SIZES: list[int] = []
+
+
+def schema_files(models: int, columns: int = COLUMNS) -> list[bytes]:
+    """The schema files of a dbt project of ``models`` models, one for each group of 50: the
+    shape people write, with descriptions in quotes and folded blocks, tests with arguments,
+    tags, metadata, and anchors for what models share."""
+    files = []
+    for group in range(0, models, 50):
+        lines = ['version: 2', '', 'x-owner: &owner', '  team: data-platform', '  oncall: "#data-oncall"', '']
+        lines += ['x-config: &config', '  materialized: table', '  tags: [daily, "pii: no"]', '']
+        lines += ['models:']
+        for index in range(group, min(group + 50, models)):
+            lines += [
+                f'  - name: m{index:03}',
+                f'    description: "Model {index} of group {group // 50}: one row per order, joined to its customer."',
+                '    config:',
+                '      <<: *config',
+                f'      alias: group{group // 50}',
+                '    meta:',
+                '      owner: *owner',
+                '      contains_pii: false',
+                '    columns:',
+            ]
+            for column in range(columns):
+                lines += [
+                    f'      - name: c{column:02}',
+                    '        description: >',
+                    f'          The value of column {column}, as the model above it lands it.',
+                    '          It is null before 2024-01-01 and never negative.',
+                    '        data_type: integer',
+                    '        data_tests:',
+                    '          - not_null',
+                    '          - unique' if column == 0 else '          - dbt_utils.accepted_range:',
+                ]
+                if column:
+                    lines += ['              min_value: 0', '              max_value: 1000000']
+        files.append(('\n'.join(lines) + '\n').encode())
+    return files
+
+
+def cpu_time(read: Any, files: list[bytes]) -> float:
+    began = time.process_time()
+    for data in files:
+        read(data)
+    return time.process_time() - began
+
+
+def measure_yaml(models: int, old: Path | None) -> dict[str, Any]:
+    """CPU seconds to read the schema files of ``models`` models with each reader, the best of
+    several runs, on the bytes of the files already read. CPU time, so that a busy machine
+    changes it little; each reader is one thread."""
+    import importlib.util
+
+    import yaml
+
+    from konstruct.core import yamlio
+
+    files = schema_files(models)
+    readers: dict[str, Any] = {
+        'yamlio.load (the core)': yamlio.load,
+        'PyYAML, SafeLoader': lambda data: yaml.load(data, yaml.SafeLoader),
+        'PyYAML, CSafeLoader (libyaml)': lambda data: yaml.load(data, yaml.CSafeLoader),
+    }
+    if old is not None:
+        spec = importlib.util.spec_from_file_location('old_yamlio', old)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        readers['yamlio.load before the core'] = module.load
+    expected = [yaml.load(data, yaml.CSafeLoader) for data in files]
+    size = sum(len(data) for data in files)
+    results: dict[str, Any] = {'models': models, 'files': len(files), 'megabytes': round(size / 1e6, 1)}
+    for name, read in readers.items():
+        assert [read(data) for data in files] == expected, name
+        # The readers in Python take seconds; one run of them is enough.
+        runs = 1 if name in {'PyYAML, SafeLoader', 'yamlio.load before the core'} else 5
+        best = min(cpu_time(read, files) for _ in range(runs))
+        results[name] = {'seconds': round(best, 3), 'mb_per_s': round(size / 1e6 / best, 1)}
+    return results
 
 
 def measure_measures(tables: int) -> dict[str, Any]:
@@ -576,16 +663,29 @@ def main() -> int:
     parser.add_argument(
         '--tables', nargs='+', type=int, default=[], help='also measure conflicts and the gate at these sizes'
     )
+    parser.add_argument(
+        '--yaml',
+        nargs='+',
+        type=int,
+        default=[],
+        help='also time reading the schema files of this many models',
+    )
+    parser.add_argument('--old-yamlio', type=Path, help='a yamlio.py to time beside the core with --yaml')
     parser.add_argument('--json', type=Path, help='also write the results as JSON')
     args = parser.parse_args()
-    # Without sizes, every size is measured, unless --tables asks for conflicts and the gate alone.
-    sizes = args.sizes or ([] if args.tables else [100, 500, 1000, 2000])
+    # Without sizes, every size is measured, unless --tables or --yaml ask for theirs alone.
+    sizes = args.sizes or ([] if args.tables or args.yaml else [100, 500, 1000, 2000])
     SIZES.extend(sizes)
     rows = []
     for size in sizes:
         row = measure(size)
         rows.append(row)
         print(f'{size} models: {row}', file=sys.stderr)
+    yaml_rows = []
+    for models in args.yaml:
+        row = measure_yaml(models, args.old_yamlio)
+        yaml_rows.append(row)
+        print(f'{models} models of YAML: {row}', file=sys.stderr)
     measured = []
     for tables in args.tables:
         row = measure_measures(tables)
@@ -628,6 +728,16 @@ def main() -> int:
             f'{sql_files["sql_files"]} SQL files and no warehouse: cold build {sql_files["sql_cold_build_s"]} s, '
             f'`--update` {sql_files["sql_update_s"]} s.'
         )
+    for r in yaml_rows:
+        print(f'\nThe schema files of {r["models"]:,} models: {r["files"]} files, {r["megabytes"]} MB\n')
+        print('| Reader | CPU seconds | MB/s | Time, against the core |')
+        print('|---|---:|---:|---:|')
+        core = r['yamlio.load (the core)']['seconds']
+        for name, value in r.items():
+            if isinstance(value, dict):
+                print(
+                    f'| {name} | {value["seconds"]} | {value["mb_per_s"]} | {value["seconds"] / core:.1f}x |'
+                )
     if measured:
         print('\n| Tables | Conflicts | conflicts, CPU | Gate checks after one edit, CPU |')
         print('|---:|---:|---:|---:|')
@@ -642,6 +752,7 @@ def main() -> int:
             'machine': machine,
             'results': rows,
             'tables': measured,
+            'yaml': yaml_rows,
             'star_chains_ms': chains,
             'self_joins_ms': joined,
             'star_chains_cpu_ms': chains_cpu,
