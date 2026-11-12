@@ -296,26 +296,81 @@ class Ontology:
         return keyed[name] if name is not None else None
 
 
+INFORMATIONAL_KEYS = frozenset(
+    {
+        'snowflake',
+        'bigquery',
+        'redshift',
+        'databricks',
+        'spark',
+        'hive',
+        'trino',
+        'athena',
+        # ClickHouse's PRIMARY KEY is the order rows are sorted in, not a uniqueness constraint.
+        'clickhouse',
+        # T-SQL, as the project's dialect, is Synapse and Fabric too, whose keys are NOT ENFORCED.
+        'tsql',
+        'synapse',
+        'fabric',
+    }
+)
+"""SQL dialects where a primary key is informational: declared, never checked. A project names one
+dialect, so its relations are taken to be in it (keying this by each relation's warehouse is to
+come)."""
+
+
+def enforced_key(graph: Graph, relation: Node) -> list[str]:
+    """The columns, lower case, of ``relation``'s primary key when something enforces it: the
+    warehouse, which the warehouses of :data:`INFORMATIONAL_KEYS` never do, and for a dbt model only
+    an enforced contract (``primary_key_enforced``). Empty when nothing does. An Iceberg table's
+    identifier fields are never enforced. A key nothing enforces says a column is unique, and
+    nothing makes it so."""
+    primary = [str(c).lower() for c in relation.attrs.get('primary_key') or []]
+    if not primary or str(graph.meta.get('dialect') or 'duckdb') in INFORMATIONAL_KEYS:
+        return []
+    if 'dbt' in relation.origins and not relation.attrs.get('primary_key_enforced'):
+        return []
+    return primary
+
+
+def fails_on_any_row(test: Node) -> bool:
+    """Whether ``test`` fails when a single row breaks it, so that passing guarantees it: not one
+    with ``severity: warn``, whose failures only warn, nor one whose ``error_if`` threshold lets
+    some rows fail (``>10``)."""
+    severity = str(test.attrs.get('severity') or 'error').strip().lower()
+    threshold = str(test.attrs.get('error_if') or '!= 0').replace(' ', '')
+    return severity != 'warn' and threshold in ('!=0', '>0', '>=1')
+
+
+def unique_tested(graph: Graph, test: Node) -> list[Node]:
+    """The columns ``test`` shows unique on every row: those of a ``unique`` test that fails on any
+    row (:func:`fails_on_any_row`), unless it has a ``where`` config (``is_current``), which holds
+    only on the rows it selects."""
+    if test.attrs.get('test') != 'unique' or test.attrs.get('where') or not fails_on_any_row(test):
+        return []
+    found = []
+    for edge in graph.out_edges(test.id, 'tests'):
+        column = graph.nodes.get(edge.target)
+        if edge.attrs.get('role') is None and column is not None and column.kind == 'column':
+            found.append(column)
+    return found
+
+
 def unique_columns(graph: Graph) -> set[str]:
-    """The ids of the columns known to be unique, each on its own: a ``unique`` test, a
-    single-column primary key or identifier field, or an Ossie dataset's primary key."""
+    """The ids of the columns known to be unique, each on its own: a ``unique`` test that fails on
+    any row (:func:`unique_tested`), a single-column primary key something enforces
+    (:func:`enforced_key`), or an Ossie dataset's primary key."""
     found: set[str] = set()
     for node in graph.nodes.values():
-        if node.kind == 'test' and node.attrs.get('test') == 'unique':
-            for edge in graph.out_edges(node.id, 'tests'):
-                column = graph.nodes.get(edge.target)
-                if edge.attrs.get('role') is None and column is not None and column.kind == 'column':
-                    found.add(column.id)
+        if node.kind == 'test':
+            found.update(column.id for column in unique_tested(graph, node))
         elif node.kind == 'column' and node.attrs.get('ossie_key'):
             found.add(node.id)
         elif node.kind in RELATION_KINDS:
-            for attr in ('primary_key', 'identifier_fields'):
-                names = node.attrs.get(attr) or []
-                # One column of a composite key is not unique on its own.
-                if isinstance(names, list) and len(names) == 1:
-                    key_column = graph.column(node.id, str(names[0]))
-                    if key_column is not None:
-                        found.add(key_column.id)
+            names = enforced_key(graph, node)
+            # One column of a composite key is not unique on its own.
+            if len(names) == 1 and (key_column := graph.column(node.id, names[0])) is not None:
+                found.add(key_column.id)
     return found
 
 
@@ -498,6 +553,8 @@ class _Deriver:
             ),
             'entity-keys-are-unique': Rule(
                 'entity-keys-are-unique',
+                # The text is an answer old graphs give; it is kept, though only a primary key
+                # something enforces now counts (see enforced_key).
                 'The key of an entity named in definitions.yml has a uniqueness test, a primary key '
                 'or is an identifier field.',
             ),
@@ -600,17 +657,12 @@ class _Deriver:
         graph = self.graph
         self.unique = unique_columns(graph)
         found: dict[str, list[str]] = {}
+        unenforced: dict[str, list[str]] = {}
         for node in graph.nodes.values():
-            if node.kind == 'test' and node.attrs.get('test') == 'unique':
-                for edge in graph.out_edges(node.id, 'tests'):
-                    column = graph.nodes.get(edge.target)
+            if node.kind == 'test':
+                for column in unique_tested(graph, node):
                     # A unique email or name is not what identifies the business object.
-                    if (
-                        edge.attrs.get('role') is None
-                        and column is not None
-                        and column.kind == 'column'
-                        and id_like(column.name)
-                    ):
+                    if id_like(column.name):
                         found.setdefault(column.id, []).append(f'unique test on {graph.label(column)}')
             elif node.kind == 'column' and node.attrs.get('ossie_key'):
                 found.setdefault(node.id, []).append(f'primary key in {node.attrs["ossie_key"]}')
@@ -626,12 +678,20 @@ class _Deriver:
                             self.composite[node.id].append(key)
                         continue
                     key_column = graph.column(node.id, str(names[0]))
-                    if key_column is not None:
+                    if key_column is None:
+                        continue
+                    if attr == 'primary_key' and enforced_key(graph, node):
                         found.setdefault(key_column.id, []).append(f'{what} {graph.label(key_column)}')
-        for column_id in sorted(found):
-            for evidence in found[column_id]:
+                    else:
+                        # Declared and not enforced: it names the key, and shows it unique no more
+                        # than a column's name would.
+                        unenforced.setdefault(key_column.id, []).append(
+                            f'{what} {graph.label(key_column)}, not enforced'
+                        )
+        for column_id in sorted({*found, *unenforced}):
+            for evidence in [*found.get(column_id, []), *unenforced.get(column_id, [])]:
                 self.add_key(graph.nodes[column_id], evidence)
-        # A unique test, a primary key and an identifier field are each stated by a person.
+        # A unique test and an enforced primary key are each stated by a person.
         self.stated.update(found)
 
     def add_key(self, column: Node, evidence: str, name: str | None = None) -> Entity:

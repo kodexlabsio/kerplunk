@@ -645,6 +645,12 @@ def _where_filters(value: Any) -> list[str]:
     ]
 
 
+def _threshold(value: Any) -> str | None:
+    """A test's ``error_if`` when it is not dbt's default (``!= 0``), which fails on any row."""
+    text = str(value).strip() if value is not None else ''
+    return text if text and text.replace(' ', '') not in ('!=0', '>0', '>=1') else None
+
+
 def _add_test(graph: Graph, item: dict[str, Any], path: str | None) -> None:
     meta = item.get('test_metadata') or {}
     config = item.get('config') or {}
@@ -661,6 +667,8 @@ def _add_test(graph: Graph, item: dict[str, Any], path: str | None) -> None:
                 for k, v in {
                     'test': meta.get('name') or 'singular',
                     'severity': config.get('severity'),
+                    # A threshold other than dbt's own lets some rows fail the test.
+                    'error_if': _threshold(config.get('error_if')),
                     'column': item.get('column_name'),
                     'where': config.get('where'),
                     'columns': (meta.get('kwargs') or {}).get('combination_of_columns'),

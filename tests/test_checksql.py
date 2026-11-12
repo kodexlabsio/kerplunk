@@ -641,7 +641,11 @@ def test_every_correction_runs_and_changes_only_what_it_fixes(
     checker = dialects[dialect] if dialect else shop
     result = checker.check(sql)
     runs_alike(shop_db, sql, result, dialect)
-    assert loud(checker.check(result.corrected or '')) == []
+    # Snowflake and BigQuery never enforce the primary key that alone keys customers, so there a
+    # join onto it could repeat rows, before the correction and after.
+    unkeyed = dialect is not None and 'join raw.customers' in sql
+    assert loud(checker.check(result.corrected or '')) == (['fan-out'] if unkeyed else [])
+    assert ('fan-out' in {f.rule for f in result.findings}) is unkeyed
 
 
 @pytest.mark.parametrize(

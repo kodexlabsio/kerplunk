@@ -97,7 +97,7 @@ The query is read in the graph's dialect. Each output column that aggregates is 
 | `formula-differs` | A measure computed differently from the column that holds it |
 | `recomputes-measure` | A measure recomputed that a column of the project already holds |
 | `retired-column` | A column bound to a retired term |
-| `fan-out` | A sum, count or average over a join that repeats the rows it aggregates, from the keys, unique tests and relationships of the [ontology](ontology.md) |
+| `fan-out` | A sum, count or average over a join that repeats the rows it aggregates, from the keys, unique tests and relationships of the [ontology](ontology.md). A key only a primary key nothing enforces keys, as every primary key on Snowflake or BigQuery, does not show a join onto it safe, so a join onto a dimension keyed that way is reported: add a `unique` test on its key to show it |
 | `mixed-grain` | A measure of a coarser grain repeated on every row of a finer one |
 | `join-off-relationship` | Two related relations joined on columns their relationship does not use |
 | `unknown-join` | A join that no relationship or unique key vouches for |

@@ -218,16 +218,20 @@ def test_kind_term_keeps_a_computed_column_out_of_the_measures() -> None:
     assert derive(g).measures == []
 
 
-def test_iceberg_identifier_fields_are_keys() -> None:
+def test_iceberg_identifier_fields_are_keys_nothing_enforces() -> None:
+    """Iceberg never checks a table's identifier fields: they name its key, inferred."""
     g = Graph()
     events = _relation(g, 'events', ['event_id', 'payload'], kind='table')
     events.attrs['identifier_fields'] = ['event_id']
-    [entity] = derive(g).entities
-    assert (entity.name, entity.relations, entity.evidence) == (
+    ontology = derive(g)
+    [entity] = ontology.entities
+    assert (entity.name, entity.relations, entity.evidence, entity.confidence) == (
         'event',
         ['events'],
-        ['identifier field events.event_id'],
+        ['identifier field events.event_id, not enforced'],
+        'inferred',
     )
+    assert ontology.unique_ids == frozenset()
 
 
 def test_a_composite_key_is_unique_only_together() -> None:
@@ -349,6 +353,19 @@ def test_a_unique_column_not_named_like_an_identifier_is_not_a_key() -> None:
     assert [e.keys for e in ontology.entities] == [['customers.customer_id'], ['orders.order_id']]
 
 
+def test_a_unique_test_on_some_rows_is_no_key() -> None:
+    """A ``unique`` test with a ``where`` config (``is_current``, on a slowly changing dimension)
+    holds only on the rows it selects: the column repeats across the others, so it is no key, gives
+    no cardinality and makes no join safe."""
+    g = shop()
+    test = g.nodes['test.shop.unique_customers_customer_id']
+    test.attrs['where'] = 'is_current'
+    ontology = derive(g)
+    assert 'model.shop.customers#customer_id' not in ontology.unique_ids
+    assert [e.name for e in ontology.entities] == ['order']
+    assert all(r.cardinality is None for r in ontology.relationships if r.target == 'customer')
+
+
 def test_primary_keys_are_keys_and_composite_ones_are_not() -> None:
     g = Graph()
     accounts = _relation(g, 'dim_accounts', ['account_number', 'name'], kind='table')
@@ -361,6 +378,59 @@ def test_primary_keys_are_keys_and_composite_ones_are_not() -> None:
         'account_number',
         ['primary key dim_accounts.account_number'],
     )
+
+
+@pytest.mark.parametrize(
+    'config',
+    [{'severity': 'warn'}, {'error_if': '>10'}, {'severity': 'warn', 'error_if': '!= 0'}],
+    ids=['a warning', 'ten failures allowed', 'a warning on one failure'],
+)
+def test_a_unique_test_whose_failures_do_not_fail_it_is_no_key(config: dict[str, str]) -> None:
+    """A test that only warns, or that lets some rows fail, passes on a column that repeats."""
+    g = shop()
+    g.nodes['test.shop.unique_customers_customer_id'].attrs.update(config)
+    ontology = derive(g)
+    assert 'model.shop.customers#customer_id' not in ontology.unique_ids
+    assert [e.name for e in ontology.entities] == ['order']
+
+
+@pytest.mark.parametrize(
+    ('dialect', 'origins', 'enforced', 'unique'),
+    [
+        ('duckdb', ['sql'], False, True),
+        ('postgres', ['sql'], False, True),
+        ('snowflake', ['sql'], False, False),
+        ('bigquery', ['sql'], False, False),
+        ('redshift', ['sql'], False, False),
+        ('databricks', ['sql'], False, False),
+        ('clickhouse', ['sql'], False, False),
+        ('tsql', ['sql'], False, False),
+        ('hive', ['sql'], False, False),
+        ('trino', ['sql'], False, False),
+        ('athena', ['sql'], False, False),
+        ('duckdb', ['dbt'], False, False),
+        ('duckdb', ['dbt'], True, True),
+        ('clickhouse', ['dbt'], True, False),
+    ],
+)
+def test_a_primary_key_nothing_enforces_is_an_inferred_key(
+    dialect: str, origins: list[str], enforced: bool, unique: bool
+) -> None:
+    """A primary key the warehouse never checks, or a dbt constraint outside an enforced contract,
+    names the entity's key but shows it unique no more than a column's name would."""
+    g = Graph()
+    g.meta['dialect'] = dialect
+    accounts = _relation(g, 'dim_accounts', ['account_number', 'name'], kind='table')
+    accounts.origins = origins
+    accounts.attrs['primary_key'] = ['account_number']
+    if enforced:
+        accounts.attrs['primary_key_enforced'] = True
+    ontology = derive(g)
+    [entity] = ontology.entities
+    assert (f'{accounts.id}#account_number' in ontology.unique_ids) is unique
+    assert entity.confidence == ('declared' if unique else 'inferred')
+    suffix = '' if unique else ', not enforced'
+    assert entity.evidence == [f'primary key dim_accounts.account_number{suffix}']
 
 
 def test_iceberg_identifier_fields_must_be_one_column() -> None:

@@ -70,7 +70,7 @@ def shown(version: ApiVersion) -> str:
 _KONSTRUCT_ATTRS = frozenset(
     {
         'also_via', 'approved', 'bash_command', 'broader', 'checksum', 'column', 'columns', 'columns_guessed', 'command',
-        'conditions', 'connection', 'currency', 'dag', 'dbt_name', 'declared_loader', 'definition', 'documented_only',
+        'conditions', 'connection', 'currency', 'dag', 'dbt_name', 'declared_loader', 'definition', 'documented_only', 'error_if',
         'entities', 'exceptions', 'expression', 'fields', 'filters', 'formula', 'formula_dialect', 'fqn', 'grain',
         'identifier_fields', 'in_warehouse', 'incremental_strategy', 'inferred', 'iri', 'kind', 'label',
         'line', 'lineage', 'loaded', 'loaded_by', 'loader', 'loader_role', 'masking_policy', 'materialized', 'materialized_view', 'maturity', 'measure_filters', 'measures', 'model',
