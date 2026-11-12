@@ -49,12 +49,14 @@ def test_every_command_is_measured(tmp_path: Path, capsys: pytest.CaptureFixture
     (medians,) = found.values()
     assert list(medians) == [
         'cold build', '--update, no change', 'trace m059.c01', 'impact m010.c01', 'explain m059.c01',
-        'check-sql', 'conflicts', 'gate after an edit', 'MCP gate over its copy',
+        'check-sql', 'conflicts', 'hook, files as at its last run', 'hook after an edit to the last model',
+        'gate after an edit', 'MCP gate over its copy',
     ]  # fmt: skip
     assert all(v['total'] >= v['own'] > 0 for v in medians.values())
     assert '| cold build |' in capsys.readouterr().out
-    # The edit the gate judges is undone.
+    # The edits the hook and the gate judge are undone.
     assert '* 3 as c01' not in (tmp_path / 'dbt-60' / 'models' / 'm045.sql').read_text()
+    assert '* 3 as c01' not in (tmp_path / 'dbt-60' / 'models' / 'm059.sql').read_text()
 
 
 def test_a_command_that_fails_stops_the_benchmark(tmp_path: Path) -> None:

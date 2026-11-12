@@ -12,18 +12,17 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
-from sqlglot import exp
-from sqlglot.errors import SqlglotError
 
 from konstruct._core import Tree
 from konstruct._core import file_identity as identity
 from konstruct.core import jsonio, yamlio
 from konstruct.core.graph import Graph, Node, NodeKind, column_id, relation_key
-from konstruct.core.sql import dialect_for, strip_templating
-from konstruct.inputs.jinja import Renderer, render_model
+
+if TYPE_CHECKING:
+    from konstruct.inputs.jinja import Renderer
 
 log = logging.getLogger(__name__)
 
@@ -413,6 +412,9 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 def parse_relation_name(name: str | None, dialect: str | None) -> str | None:
     if not name:
         return None
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+
     try:
         table = exp.to_table(name, dialect=dialect)
     except (SqlglotError, ValueError):
@@ -518,6 +520,8 @@ _SOURCE = re.compile(r"\{\{\s*source\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+
 
 def render_refs(raw: str, manifest: dict[str, Any]) -> str:
     """Best-effort rendering of uncompiled dbt SQL: resolve ref() and source(), drop other Jinja."""
+    from konstruct.core.sql import strip_templating
+
     by_name: dict[str, str] = {}
     by_package: dict[tuple[str, str], str] = {}
     for node in manifest.get('nodes', {}).values():
@@ -551,6 +555,10 @@ def load(
 ) -> DbtLoad | None:
     """Add a dbt project's nodes, columns, tests and exposures to ``graph``. ``keep`` chooses
     which macro files may be read to render uncompiled models (by default, all)."""
+    # The SQL parser and Jinja, which finding a project and reading its configuration do not need.
+    from konstruct.core.sql import dialect_for
+    from konstruct.inputs.jinja import Renderer, render_model
+
     manifest = _read_json(project.manifest_path)
     if manifest is None:
         graph.warn(f'dbt: {project.name}: no readable manifest at {project.manifest_path}')

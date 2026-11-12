@@ -1016,7 +1016,7 @@ def test_a_change_cannot_turn_off_the_checks_that_judge_it(example: Path, tmp_pa
 
 
 def test_plugins_enabled_at_a_base_that_cannot_be_read_are_none(tmp_path: Path) -> None:
-    from konstruct.analysis.gate import plugins_at
+    from konstruct.engine.config import plugins_at
 
     assert plugins_at(tmp_path, 'HEAD') == []
     root = tmp_path / 'repo'

@@ -20,6 +20,9 @@ of the process and its worker processes together, for:
 * ``konstruct check-sql`` of a query that sums a column of the last model joined to the one
   before it;
 * ``konstruct conflicts --no-build``, after the build;
+* the coding agent hook (``konstruct hook post-edit``, given the event on standard input), after
+  a first run that makes its copy of the graph: with the files as that run left them, so it gives
+  that run's answer again, and after an edit to the formula of one column of the last model;
 * after an edit to the formula of one column of a model three quarters of the way down, in a git
   repository of the project: ``konstruct gate --no-dbt --no-warehouse``, and the MCP ``gate``
   tool's gate over its copy of the graph, made afresh (``mcp_server.gate_copy``).
@@ -151,18 +154,26 @@ def prepare(work: Path, models: int) -> Path:
 
 
 def run(
-    checkout: Path, project: Path, code: str, *args: str, allowed: tuple[int, ...] = (0,)
+    checkout: Path,
+    project: Path,
+    code: str,
+    *args: str,
+    allowed: tuple[int, ...] = (0,),
+    stdin: str | None = None,
 ) -> dict[str, float]:
     """Wall time, own CPU time and CPU time with workers of ``code`` in a fresh interpreter, which
     must exit with a status in ``allowed`` (the gate exits 1 on a change it fails) and raise
     nothing: a command that fails early is no fast time."""
+    # The hook would look for the project in the session's directory rather than the event's.
     env = {**os.environ, 'PYTHONPATH': str(checkout)}
+    env.pop('CLAUDE_PROJECT_DIR', None)
     with tempfile.NamedTemporaryFile(suffix='.json') as out:
         started = time.perf_counter()
         status = subprocess.run(
             [sys.executable, '-c', REPORT, out.name, code, *args],
             cwd=project,
             env=env,
+            input=stdin,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
@@ -190,6 +201,16 @@ def measure(checkout: Path, project: Path, work: Path, models: int) -> dict[str,
         'check-sql': run(checkout, project, CLI, 'check-sql', str(query)),
         'conflicts': run(checkout, project, CLI, 'conflicts', '--no-build'),
     }
+    leaf = project / 'models' / f'{last}.sql'
+    event = json.dumps({'cwd': str(project), 'tool_input': {'file_path': str(leaf)}})
+    hook = (CLI, 'hook', 'post-edit')
+    run(checkout, project, *hook, stdin=event)
+    found['hook, files as at its last run'] = run(checkout, project, *hook, stdin=event)
+    leaf.write_text(leaf.read_text().replace('b.c01 * 2 as c01', 'b.c01 * 3 as c01'))
+    try:
+        found['hook after an edit to the last model'] = run(checkout, project, *hook, stdin=event)
+    finally:
+        git(project, 'checkout', '--', str(leaf.relative_to(project)))
     edited = project / 'models' / f'm{models * 3 // 4:03}.sql'
     edited.write_text(edited.read_text().replace('b.c01 * 2 as c01', 'b.c01 * 3 as c01'))
     try:

@@ -20,7 +20,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-import lkml
 import sqlglot
 from sqlglot import exp
 
@@ -92,6 +91,10 @@ class LookerFile:
 
 def parse(text: str, path: str) -> LookerFile:
     """The view definitions of a LookML file, as the parser gives them."""
+    # Here rather than at the top: every build reads INPUT for its file patterns, with or without
+    # LookML in the repository.
+    import lkml
+
     result = LookerFile(path=path)
     try:
         data: dict[str, Any] = lkml.load(text) or {}

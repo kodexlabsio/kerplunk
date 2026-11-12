@@ -28,12 +28,14 @@ from typing import TYPE_CHECKING, Any
 from konstruct.analysis.query import Walk, impact
 from konstruct.analysis.verify import defining_sql_file
 from konstruct.core.graph import RELATION_KINDS, Graph, Node
-from konstruct.core.sql import StatementLineage, analyse, canonical_condition, strip_templating
 from konstruct.inputs import airflow, dbt
-from konstruct.inputs.jinja import Renderer, render_model
 from konstruct.semantics.definitions import FILE_NAMES as DEFINITION_FILES
 
+# The SQL parser and Jinja are imported where versions are compared, not here: the hook and the
+# laws read the base commit through this module's git functions alone.
 if TYPE_CHECKING:
+    from konstruct.core.sql import StatementLineage
+    from konstruct.inputs.jinja import Renderer
     from konstruct.interfaces.layout import Style
 
 
@@ -731,6 +733,8 @@ class Context:
     each dbt model's manifest entry and Jinja renderer."""
 
     def __init__(self, graph: Graph, root: Path) -> None:
+        from konstruct.inputs.jinja import Renderer
+
         self.graph = graph
         self.root = root
         self.dialect = graph.meta.get('dialect')
@@ -767,6 +771,8 @@ class Context:
         return schema
 
     def model_sql(self, node: Node, text: str) -> tuple[str, str | None, str | None]:
+        from konstruct.inputs.jinja import render_model
+
         item = self.items.get(node.id, {})
         manifest = self.manifests.get(node.id, {'nodes': {}, 'sources': {}})
         sql = render_model(text, self.renderers.get(node.id), lambda raw: dbt.render_refs(raw, manifest))
@@ -775,6 +781,8 @@ class Context:
     def lineage(
         self, sql: str, catalog: str | None, schema: str | None, target: str | None
     ) -> list[StatementLineage]:
+        from konstruct.core.sql import analyse
+
         return analyse(
             sql,
             dialect=self.dialect,
@@ -1035,6 +1043,8 @@ def compare_sql_file(
     context: Context, path: str, before: str | None, after: str | None
 ) -> list[RelationChange]:
     """How each relation a SQL file builds changed between two versions of the file."""
+    from konstruct.core.sql import strip_templating
+
     sides: dict[str, dict[str, StatementLineage]] = {'before': {}, 'after': {}}
     for side, text in (('before', before), ('after', after)):
         if text is None:
@@ -1090,6 +1100,8 @@ def _compare_statements(
             change.columns.append(entry)
     if old is not None and new is not None:
         # Compared in one form however each is written: ``a = b`` is ``b = a``.
+        from konstruct.core.sql import canonical_condition
+
         dialect = graph.meta.get('dialect')
         dialect = dialect if isinstance(dialect, str) else None
         was = {canonical_condition(c, dialect): c for c in old.conditions}
@@ -1112,6 +1124,8 @@ def _walk(graph: Graph, node: Node, column: str) -> dict[str, Any] | None:
 
 def _still_read(context: Context, node: Node, column: str) -> list[str]:
     """Downstream models and SQL-built tables whose current SQL still reads ``node.column``."""
+    from konstruct.core.sql import strip_templating
+
     graph = context.graph
     readers = []
     consumers = {e.target for e in graph.out_edges(node.id, 'feeds')}

@@ -107,14 +107,14 @@ from konstruct.analysis.diff import run_git
 from konstruct.analysis.explain import Explainer, composed_from, condition_terms
 from konstruct.analysis.history import defining_file, history, utc
 from konstruct.analysis.query import QueryError, resolve_one
-from konstruct.core import jsonio
+from konstruct.core import files, jsonio
 from konstruct.core.graph import RELATION_KINDS, Graph, Node, split_reading
 from konstruct.core.sql import OUTER_SIDES, canonical_tree, conjuncts, in_context
 
 if TYPE_CHECKING:
     from konstruct.interfaces.layout import Style
 
-FILE_NAME = 'konstruct.lock'
+FILE_NAME = files.LOCK
 FORMAT = 1
 """The layout of the file: which keys it has and what they hold."""
 CANONICAL_FORM = 5

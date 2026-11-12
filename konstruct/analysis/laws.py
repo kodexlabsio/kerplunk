@@ -70,7 +70,7 @@ from konstruct.analysis.verify import (
     read_only_query,
     rewrite,
 )
-from konstruct.core import formats, jsonio
+from konstruct.core import files, formats, jsonio
 from konstruct.core.formats import FIELD, FormatError, document
 from konstruct.core.graph import Graph, Node
 from konstruct.core.sql import PARSE_ERRORS, build_schema, case_insensitive, table_key, without_readings
@@ -79,7 +79,7 @@ from konstruct.semantics.ontology import enforced_key, fails_on_any_row
 if TYPE_CHECKING:
     from konstruct.interfaces.layout import Style
 
-FILE_NAME = 'laws.json'
+FILE_NAME = files.LAWS
 """The file in the output directory that holds the laws."""
 FORMAT = 1
 """The version of the ``laws.json`` format, raised when a reader of an older one would misread it.

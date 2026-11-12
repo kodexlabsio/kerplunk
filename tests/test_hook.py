@@ -303,6 +303,46 @@ def test_an_unchanged_tree_reuses_the_last_answer(repo: Path, monkeypatch: pytes
     assert builds
 
 
+def test_another_konstruct_or_another_plugin_is_checked_again(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The files alone do not decide the answer: an upgrade of Konstruct, or a plugin installed,
+    upgraded or removed, may judge the same files otherwise, so neither reuses the last one."""
+    import konstruct
+    from konstruct.interfaces.project import Project
+
+    from .test_plugins import install
+
+    monkeypatch.delenv('CLAUDE_PROJECT_DIR', raising=False)
+    monkeypatch.delenv('KONSTRUCT_NO_PLUGINS', raising=False)
+    staging = repo / 'models' / 'staging' / 'stg_payments.sql'
+    staging.write_text(staging.read_text() + '\n')
+
+    def builds() -> bool:
+        built: list[object] = []
+        with monkeypatch.context() as patch:
+            patch.setattr(Project, 'build', lambda *a, **k: built.append(a))
+            with contextlib.suppress(Exception):  # the stand-in build leaves the old graph to gate
+                hook.post_edit(event(repo, staging))
+        return bool(built)
+
+    hook.post_edit(event(repo, staging))
+    assert not builds()
+    monkeypatch.setattr(konstruct, '__version__', '99.0.0')
+    assert builds()
+    hook.post_edit(event(repo, staging))
+    assert not builds()
+    site = tmp_path / 'site'
+    install(site, 'konstruct-other', '1.0.0', {'konstruct.checks': {'other': 'konstruct_other:CHECK'}})
+    monkeypatch.syspath_prepend(str(site))
+    assert builds()
+    hook.post_edit(event(repo, staging))
+    assert not builds()
+    shutil.rmtree(next(site.glob('*.dist-info')))
+    install(site, 'konstruct-other', '1.1.0', {'konstruct.checks': {'other': 'konstruct_other:CHECK'}})
+    assert builds()
+
+
 def test_new_laws_or_a_consumers_new_lockfile_are_checked_again(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -319,9 +359,9 @@ def test_new_laws_or_a_consumers_new_lockfile_are_checked_again(
     seen: list[list[Path]] = []
     real = hook.fingerprint
 
-    def recording(root: Path, also: Any = ()) -> str | None:
+    def recording(root: Path, also: Any = (), facts: Any = ()) -> str | None:
         seen.append(list(also))
-        return real(root, also)
+        return real(root, also, facts)
 
     monkeypatch.setattr(hook, 'fingerprint', recording)
     first = hook.post_edit(event(repo, staging))

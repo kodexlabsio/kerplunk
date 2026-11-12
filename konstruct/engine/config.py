@@ -58,6 +58,7 @@ import contextlib
 import os
 import posixpath
 import re
+import subprocess
 import sys
 import tomllib
 from collections.abc import Callable, Iterable, Iterator
@@ -424,6 +425,10 @@ def _outside_link(path: Path, root: Path) -> Path:
 
 
 def _spark_dialect(value: Any) -> str:
+    # Only a dialect the file names is checked (TOML has no null), so reading a configuration
+    # without one, as the hook does after every edit, does not load sqlglot.
+    if value is None:
+        return 'spark'
     from sqlglot.dialects.dialect import Dialect
 
     try:
@@ -485,6 +490,35 @@ def enabled_plugins(text: str, *, pyproject: bool = False) -> list[str]:
         tool = data.get('tool', {}).get('konstruct')
         data = tool if isinstance(tool, dict) else {}
     return _plugins(data.get('plugins', {}))
+
+
+def plugins_at(root: Path, base: str | None) -> list[str]:
+    """The plugins the project's configuration enables at ``base`` (default: the merge base with
+    main, as for :func:`konstruct.analysis.diff.diff`); empty when it enables none there or the
+    file cannot be read. The gate runs these checks as well as the head's, so a change cannot
+    turn off a check that would judge it."""
+    from konstruct.analysis.diff import default_base, file_at, resolve_ref
+
+    top = subprocess.run(
+        ['git', '-C', str(root), 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=False
+    )
+    if top.returncode != 0:
+        return []
+    repository = Path(top.stdout.strip())
+    ref = resolve_ref(root, base) if base else default_base(root)
+    prefix = root.resolve().relative_to(repository.resolve())
+    for name, pyproject in (('konstruct.toml', False), ('pyproject.toml', True)):
+        text = file_at(repository, ref, (prefix / name).as_posix())
+        if text is None:
+            continue
+        try:
+            found = enabled_plugins(text, pyproject=pyproject)
+        except ConfigError:
+            return []
+        # As load_config does: konstruct.toml wins, then [tool.konstruct] in pyproject.toml.
+        if found or not pyproject:
+            return found
+    return []
 
 
 def _usage_settings(data: dict[str, Any]) -> UsageSettings:
@@ -696,7 +730,7 @@ def _read(root: Path, out_dir: Path | None) -> tuple[Config, dict[str, Any]]:
         dag_paths=_listed(data, root, 'airflow', 'dags'),
         dagster_paths=_listed(data, root, 'dagster', 'paths'),
         spark_paths=_listed(data, root, 'spark', 'paths'),
-        spark_dialect=_spark_dialect(data.get('spark', {}).get('dialect', 'spark')),
+        spark_dialect=_spark_dialect(data.get('spark', {}).get('dialect')),
         looker_paths=_listed(data, root, 'looker', 'paths'),
         powerbi_paths=_listed(data, root, 'powerbi', 'paths'),
         ontology_packs=_packs(data.get('ontologies', {}), plugins),

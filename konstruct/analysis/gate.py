@@ -32,7 +32,6 @@ check is, and :func:`gate` runs every check the registry has.
 
 from __future__ import annotations
 
-import subprocess
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -191,36 +190,6 @@ def gate(
     for plugin in registry.failed('checks'):
         result.findings.append(_failure(plugin, f'cannot run: {plugin.error}'))
     return result
-
-
-def plugins_at(root: Path, base: str | None) -> list[str]:
-    """The plugins the project's configuration enables at ``base`` (default: the merge base with
-    main, as for :func:`konstruct.analysis.diff.diff`); empty when it enables none there or the
-    file cannot be read. The gate runs these checks as well as the head's, so a change cannot
-    turn off a check that would judge it."""
-    from konstruct.analysis.diff import default_base, file_at, resolve_ref
-    from konstruct.engine.config import ConfigError, enabled_plugins
-
-    top = subprocess.run(
-        ['git', '-C', str(root), 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=False
-    )
-    if top.returncode != 0:
-        return []
-    repository = Path(top.stdout.strip())
-    ref = resolve_ref(root, base) if base else default_base(root)
-    prefix = root.resolve().relative_to(repository.resolve())
-    for name, pyproject in (('konstruct.toml', False), ('pyproject.toml', True)):
-        text = file_at(repository, ref, (prefix / name).as_posix())
-        if text is None:
-            continue
-        try:
-            found = enabled_plugins(text, pyproject=pyproject)
-        except ConfigError:
-            return []
-        # As load_config does: konstruct.toml wins, then [tool.konstruct] in pyproject.toml.
-        if found or not pyproject:
-            return found
-    return []
 
 
 def _run(plugin: Plugin, context: CheckContext) -> list[Finding]:

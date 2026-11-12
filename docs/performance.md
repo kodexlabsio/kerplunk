@@ -35,6 +35,13 @@ Plugins cost nothing in commands that cannot run one: only `build`, `export`, `g
 
 `konstruct hook post-edit`, which the Claude Code plugin runs after an agent edits SQL or YAML, runs `konstruct build --update` into a copy of the graph, from files alone, and then the gate, so it takes about as long as an `--update` build of the project. An edit to a file the plugin does not watch starts no process, and an edit to a YAML file outside the dbt project's resource paths starts no build. `.kodex/scripts/benchmark.py` reports the hook's time beside the other measurements.
 
+A hook first asks whether the files are as its last run left them (the commit, the content of every file git reports changed, the manifests, `laws.json` and the consumers' lockfiles), with the same Konstruct and the same plugins, and if they are, it gives that run's answer again, which loads neither sqlglot, Jinja nor the MCP SDK. On the 2,000-model project dbt compiles, on a four-core Intel Xeon cloud machine at 2.3 GHz with Python 3.12 that was running other work at the time, as a fresh process, in CPU time with its child processes, the median of five runs (`uv run .kodex/scripts/dbt_benchmark.py --work DIR`):
+
+| Hook run | CPU time |
+|---|---:|
+| the files as its last run left them | 0.15 s |
+| after an edit to one column of the last model | 4.28 s |
+
 ## Consumers' Lockfiles in the Gate
 
 In a producer that lists its consumers in `repositories`, the gate checks only the pins on the columns a change alters, and reads no lockfile when it alters none. With a consumer pinning every column of 2,000 SQL tables of six columns each (12,000 pins), checking every pin takes 10.1 s; the gate's check after a change to one table takes 2.0 s, most of it preparing to compose formulas, and after a change that alters no column (documentation, say) it takes no measurable time. `uv run .kodex/scripts/benchmark_consumer_pins.py DIR 2000` measures it on your machine.

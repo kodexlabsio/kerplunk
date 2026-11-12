@@ -480,20 +480,56 @@ def test_help_loads_neither_the_build_nor_the_sql_parser(args: list[str]) -> Non
     assert shown[-1] == '[]'
 
 
+def loaded_by(code: str, stdin: str = '') -> tuple[list[str], set[str]]:
+    """What ``code`` prints, run in a fresh interpreter, and which of the slow imports it loads:
+    the SQL parser, Jinja, YAML, the MCP SDK and the build."""
+    probe = (
+        'import json, sys\n'
+        f'{code}\n'
+        "print(json.dumps([m for m in ('sqlglot', 'jinja2', 'yaml', 'mcp', 'konstruct.engine.build') "
+        'if m in sys.modules]))\n'
+    )
+    shown = subprocess.run(
+        [sys.executable, '-c', probe], input=stdin, capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+    return shown[:-1], set(json.loads(shown[-1]))
+
+
 @pytest.mark.parametrize('command', ['trace', 'impact'])
 def test_walks_load_neither_the_build_nor_the_sql_parser(jaffle_built_graph: Path, command: str) -> None:
     """A walk reads the graph and asks whether its inputs changed; neither needs sqlglot, Jinja,
-    YAML or the build."""
-    code = (
-        'import sys\n'
+    YAML, the MCP SDK or the build."""
+    _, loaded = loaded_by(
         'from konstruct.interfaces.cli import main\n'
-        f'assert main(["-C", {str(jaffle_built_graph)!r}, {command!r}, "orders.amount"]) == 0\n'
-        "print(sorted(m for m in ('sqlglot', 'jinja2', 'yaml', 'konstruct.engine.build') if m in sys.modules))\n"
+        f'assert main(["-C", {str(jaffle_built_graph)!r}, {command!r}, "orders.amount"]) == 0'
     )
-    shown = subprocess.run(
-        [sys.executable, '-c', code], capture_output=True, text=True, check=True
-    ).stdout.splitlines()
-    assert shown[-1] == '[]'
+    assert loaded == set()
+
+
+def test_a_hook_that_finds_the_files_unchanged_loads_neither_the_sql_parser_nor_the_mcp_sdk(
+    jaffle_built_graph: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hook runs after every edit, and first asks whether the files are as its last run left
+    them. Answering that, and giving the last run's answer again, needs neither sqlglot nor
+    Jinja, nor the MCP SDK the answer's notice was once read from."""
+    from .test_hook import git
+
+    monkeypatch.delenv('CLAUDE_PROJECT_DIR', raising=False)
+    project = tmp_path / 'jaffle_shop'
+    shutil.copytree(jaffle_built_graph, project)
+    (project / '.gitignore').write_text('konstruct-out/\ntarget/\nlogs/\n*.duckdb*\n.user.yml\n')
+    git(project, 'init', '-q', '-b', 'main')
+    git(project, 'add', '-A')
+    git(project, 'commit', '-q', '-m', 'Example')
+    staging = project / 'models' / 'staging' / 'stg_payments.sql'
+    staging.write_text(staging.read_text() + '\n')
+    edit = json.dumps({'cwd': str(project), 'tool_input': {'file_path': str(staging)}})
+    hook = 'from konstruct.interfaces.cli import main\nmain(["hook", "post-edit"])'
+    first, loaded = loaded_by(hook, edit)
+    assert {'sqlglot', 'jinja2', 'konstruct.engine.build'} <= loaded and 'mcp' not in loaded
+    again, loaded = loaded_by(hook, edit)
+    assert again == first and 'Konstruct gate passed' in first[0]
+    assert loaded.isdisjoint({'sqlglot', 'jinja2', 'mcp', 'konstruct.engine.build'})
 
 
 def test_every_hint_names_a_command_the_parser_accepts() -> None:

@@ -1746,8 +1746,9 @@ class Project:
                 for finding in result.findings:
                     print(finding.rule, finding.message, finding.fix)
         """
-        from konstruct.analysis.gate import gate, plugins_at
+        from konstruct.analysis.gate import gate
         from konstruct.analysis.laws import recorded
+        from konstruct.engine.config import plugins_at
         from konstruct.plugins.registry import Plugins
 
         # The plugins the base enables run too, its inputs in the update and its checks in the
