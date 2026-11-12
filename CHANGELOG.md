@@ -1,3 +1,9 @@
+## v0.13.17 (2026-11-12)
+
+### Fix
+
+- **sql**: Name each reading of a relation a query reads more than once
+
 ## v0.13.16 (2026-11-11)
 
 ### Fix
