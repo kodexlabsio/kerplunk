@@ -607,3 +607,89 @@ def test_a_model_the_catalog_does_not_list_keeps_its_columns_for_sql_that_reads_
     assert [e.target for e in graph.out_edges(column.id, 'derived_from')] == [
         'model.shop.customers#customer_id'
     ]
+
+
+def test_a_var_dbt_would_render_is_not_known(tmp_path: Path) -> None:
+    """A var whose value is itself a template is rendered by dbt, with what only dbt has (the
+    environment, the target): it is not known here, so var() gives the call's default."""
+    from konstruct import Project
+    from konstruct.inputs.jinja import project_vars
+
+    (tmp_path / 'models').mkdir()
+    (tmp_path / 'dbt_project.yml').write_text(
+        "name: shop\nprofile: shop\nvars:\n  start: \"{{ env_var('START_DATE', '2020-01-01') }}\"\n"
+        '  dates: ["{% if target.name == \'prod\' %}2021{% endif %}"]\n  rate: 2\n'
+    )
+    assert project_vars(tmp_path) == {'rate': 2}
+    sql = "select id as order_id, amount * {{ var('rate') }} as amount from raw.orders\nwhere ordered_at >= '{{ var('start', '2020-01-01') }}'"
+    (tmp_path / 'models' / 'orders.sql').write_text(sql)
+    model = {
+        'unique_id': 'model.shop.orders',
+        'resource_type': 'model',
+        'name': 'orders',
+        'alias': 'orders',
+        'package_name': 'shop',
+        'database': 'wh',
+        'schema': 'main',
+        'relation_name': '"wh"."main"."orders"',
+        'original_file_path': 'models/orders.sql',
+        'raw_code': sql,
+        'language': 'sql',
+        'depends_on': {'nodes': []},
+        'columns': {},
+    }
+    (tmp_path / 'target').mkdir()
+    (tmp_path / 'target' / 'manifest.json').write_text(
+        json.dumps(
+            {'metadata': {'adapter_type': 'duckdb'}, 'nodes': {model['unique_id']: model}, 'sources': {}}
+        )
+    )
+    graph = Project(tmp_path).build(run_dbt=False, warehouses=False).graph
+    assert not [w for w in graph.warnings if 'lineage failed' in w or 'Invalid expression' in w]
+    assert [c.name for c in graph.columns_of('model.shop.orders')] == ['order_id', 'amount']
+
+
+def test_a_vars_block_under_a_packages_name_is_no_var(tmp_path: Path) -> None:
+    """A vars block under a package's name is that package's, not a var named after it. dbt picks
+    a var by the package of the model it compiles, and Konstruct renders only the project's own
+    models: every macro, a package's too, sees the global vars with the project's block over them."""
+    from konstruct.inputs.jinja import Renderer, project_vars
+
+    (tmp_path / 'dbt_project.yml').write_text(
+        'name: shop\nvars:\n  rate: 2\n  region: all\n  shop:\n    region: eu\n'
+        '  dbt_utils:\n    region: us\n  settings:\n    tax: 0.2\n'
+    )
+    macros = tmp_path / 'dbt_packages' / 'dbt_utils' / 'macros'
+    macros.mkdir(parents=True)
+    (macros / 'where.sql').write_text(
+        "{% macro region() %}'{{ var('region') }}' as region, {{ var('rate') }} as rate{% endmacro %}"
+    )
+    (tmp_path / 'macros').mkdir()
+    (tmp_path / 'macros' / 'own.sql').write_text(
+        "{% macro own_region() %}'{{ var('region') }}'{% endmacro %}"
+    )
+    assert project_vars(tmp_path, packages={'dbt_utils'}) == {
+        'rate': 2,
+        'region': 'eu',
+        'settings': {'tax': 0.2},
+    }
+    renderer = Renderer(tmp_path, {'metadata': {'project_name': 'shop'}})
+    assert renderer.render(
+        "select {{ dbt_utils.region() }}, {{ own_region() }}, '{{ var('dbt_utils', 'none') }}'"
+    ) == ("select 'eu' as region, 2 as rate, 'eu', 'none'")
+
+
+def test_var_takes_its_value_from_dbt_project_yml(tmp_path: Path) -> None:
+    from konstruct.inputs.jinja import Renderer, project_vars
+
+    (tmp_path / 'dbt_project.yml').write_text(
+        'name: shop\nvars:\n  rate: 2\n  shop:\n    region: eu\n  other_package:\n    region: us\n'
+    )
+    assert project_vars(tmp_path) == {'rate': 2, 'other_package': {'region': 'us'}, 'region': 'eu'}
+    renderer = Renderer(tmp_path, {'metadata': {'project_name': 'shop'}})
+    assert renderer.render("select {{ var('rate') }}, '{{ var('region') }}', {{ var('missing', 7) }}") == (
+        "select 2, 'eu', 7"
+    )
+    (tmp_path / 'dbt_project.yml').write_text('vars: [not, a, mapping]\n')
+    assert project_vars(tmp_path) == {}
+    assert project_vars(tmp_path / 'missing') == {}

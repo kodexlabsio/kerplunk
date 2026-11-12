@@ -10,7 +10,7 @@ an empty result.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -210,6 +210,47 @@ def _macro_text(paths: list[Path], keep: Callable[[Iterable[Path]], list[Path]] 
     return '\n'.join(texts)
 
 
+def project_vars(
+    project_root: Path, project_name: str | None = None, packages: Collection[str] = ()
+) -> dict[str, Any]:
+    """The values ``var()`` gives in a dbt project's own models, from ``vars`` in its
+    dbt_project.yml: those set for every package, and over them those set under the project's
+    name. dbt picks a var by the package of the model it compiles, so a macro, a package's
+    included, sees these in the project's models; a block under the name of one of ``packages``
+    is for that package's own models, which are not rendered here, and is not a var. A value that
+    is itself a template (``{{ env_var(...) }}``) is dbt's to render, with what only dbt has, so it
+    is not known here. Only read, as data; nothing in them runs."""
+    import yaml
+
+    from konstruct.core import yamlio
+
+    try:
+        config = yamlio.read(project_root / 'dbt_project.yml') or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    values = config.get('vars') if isinstance(config, dict) else None
+    if not isinstance(values, dict):
+        return {}
+    name = project_name or (config.get('name') if isinstance(config.get('name'), str) else None)
+    scoped = {*packages, *([name] if name else [])}
+    found = {str(k): v for k, v in values.items() if not (isinstance(v, dict) and k in scoped)}
+    own = values.get(name) if name else None
+    if isinstance(own, dict):
+        found.update({str(k): v for k, v in own.items()})
+    return {k: v for k, v in found.items() if not _templated(v)}
+
+
+def _templated(value: Any) -> bool:
+    """Whether ``value`` holds text that dbt renders as Jinja."""
+    if isinstance(value, str):
+        return '{{' in value or '{%' in value
+    if isinstance(value, dict):
+        return any(_templated(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_templated(v) for v in value)
+    return False
+
+
 class Renderer:
     """Renders models of one dbt project, with its macros and its installed packages' macros."""
 
@@ -236,18 +277,21 @@ class Renderer:
             for s in manifest.get('sources', {}).values()
             if s.get('relation_name')
         }
-        self.variables: dict[str, Any] = {}
         project_name = manifest.get('metadata', {}).get('project_name')
+        packages_dir = project_root / 'dbt_packages'
+        installed = sorted(p for p in packages_dir.iterdir() if p.is_dir()) if packages_dir.is_dir() else []
+        known = {p.name for p in installed} | {
+            str(m.get('package_name')) for m in (manifest.get('macros') or {}).values() if isinstance(m, dict)
+        }
+        self.variables: dict[str, Any] = project_vars(project_root, project_name, known)
         self.macros: dict[str, Any] = {}
         self.packages: dict[str, _Namespace] = {}
         context = self._context()
-        packages_dir = project_root / 'dbt_packages'
-        if packages_dir.is_dir():
-            for package in sorted(p for p in packages_dir.iterdir() if p.is_dir()):
-                macros = self._load(_macro_text([package / 'macros'], keep), context)
-                self.packages[package.name] = _Namespace(macros)
-                for name, macro in macros.items():
-                    self.macros.setdefault(name, macro)
+        for package in installed:
+            macros = self._load(_macro_text([package / 'macros'], keep), context)
+            self.packages[package.name] = _Namespace(macros)
+            for name, macro in macros.items():
+                self.macros.setdefault(name, macro)
         own = self._load(
             _macro_text(macro_paths if macro_paths is not None else [project_root / 'macros'], keep), context
         )
