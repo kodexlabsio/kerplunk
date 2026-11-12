@@ -38,6 +38,7 @@ from konstruct.interfaces.layout import (
 
 if TYPE_CHECKING:
     from konstruct.analysis.checksql import HistoryCheck, SqlCheck
+    from konstruct.analysis.compile import Compiled
     from konstruct.analysis.conflicts import Conflicts
     from konstruct.analysis.diff import Diff
     from konstruct.analysis.english import English
@@ -1551,6 +1552,65 @@ def connection_lines(result: Connection, style: Style) -> Lines:
     lines += [blank(), section('Path', len(result.hops)), *table(style, rows, flex=2)]
     if result.join:
         lines += [blank(), section('Join'), *[Text('  ', sql(line)) for line in result.join.splitlines()]]
+    return lines
+
+
+def compiled_lines(result: Compiled, style: Style) -> Lines:
+    arrow = style.glyph('arrow')
+    asked = result.query
+    subject = Text((result.metric or asked.metric, 'subject'))
+    if asked.by:
+        subject.append((' by ', 'dim')).append(', '.join(asked.by))
+    if not result.compiled:
+        lines = [header('Refused', subject), blank()]
+        for refusal in result.refused:
+            lines += wrap(
+                style, Text(refusal.reason), first=Text('  ', (refusal.item, 'strong'), '  '), hanging=4
+            )
+            lines += pairs(style, [('link', sql(refusal.link) if refusal.link else None)], indent=4)
+        return lines
+    how = {
+        'none': 'read as it is: one row per row of its relation',
+        'sum': 'added up with SUM',
+        'formula': "its own formula over its relation's rows",
+    }
+    facts: list[tuple[str, Cell]] = [
+        (
+            'relation',
+            Text(result.relation or '', (f'  one row per {result.grain}' if result.grain else '', 'dim')),
+        ),
+        ('read', how.get(result.aggregation or '', result.aggregation or '')),
+        ('confidence', _confidence(result.confidence or 'inferred')),
+        ('dialect', result.dialect),
+    ]
+    lines = [header('Compiled', subject), blank(), *pairs(style, facts, width=10)]
+    for flag in result.flags:
+        lines += _note(style, flag)
+    if result.path:
+        rows: list[list[Cell]] = [
+            [
+                Text((h.start, 'strong'), (f' {arrow} ', 'dim'), (h.end, 'strong')),
+                h.cardinality or '',
+                sql(h.via),
+                _confidence(h.confidence, h.check),
+            ]
+            for h in result.path
+        ]
+        lines += [blank(), section('Path', len(result.path)), *table(style, rows, flex=2)]
+    if result.filters:
+        lines += [blank(), section('Required filters', len(result.filters))]
+        rows = [
+            [
+                sql(f.applied or f.filter),
+                Text((f.source if f.applied else f'{f.source}; applied by {f.by}', 'dim')),
+            ]
+            for f in result.filters
+        ]
+        lines += table(style, rows, flex=0)
+    rows = [[Text((f.kind, 'dim')), f.name, _confidence(f.confidence, f.check)] for f in result.facts]
+    lines += [blank(), section('Facts', len(result.facts)), *table(style, rows, flex=1)]
+    lines += [blank(), section('SQL')]
+    lines += [Text('  ', sql(line), whole=True) for line in (result.sql or '').splitlines()]
     return lines
 
 

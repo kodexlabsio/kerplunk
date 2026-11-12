@@ -26,6 +26,7 @@ from konstruct.core.graph import Graph
 
 if TYPE_CHECKING:
     from konstruct.analysis.checksql import HistoryCheck, SqlCheck
+    from konstruct.analysis.compile import Compiled
     from konstruct.analysis.conflicts import Conflicts
     from konstruct.analysis.diff import Diff
     from konstruct.analysis.english import English
@@ -697,6 +698,62 @@ class Project:
         from konstruct.analysis.sensitivity import Settings
 
         return Settings.read(self.config().sections.get('sensitivity'))
+
+    def compile_metric(
+        self,
+        metric: str,
+        *,
+        by: Sequence[str] = (),
+        where: Sequence[str] = (),
+        since: str | None = None,
+        until: str | None = None,
+        time: str | None = None,
+        dialect: str | None = None,
+    ) -> Compiled:
+        """A metric, grouped and filtered by the business's entities and properties, compiled to
+        SQL without running it.
+
+        The SQL reads the metric from the relation that holds it and joins only along relationships the
+        project shows many-to-one or one-to-one, each onto a key a test, a primary key something
+        enforces or ``konstruct verify`` shows unique; it refuses to add up a value its lineage shows
+        copied from another grain, and it always applies the filters the metric's definition requires.
+        What it rests on is what the project states and Konstruct reads: a key that repeats despite its
+        test can still repeat rows. The result lists every fact it rests on with its confidence, and
+        flags those that are only inferred, and a ``where`` condition on a joined property, which leaves
+        out the rows that find no match. A query whose joins could repeat rows, that rests on a check
+        ``konstruct verify`` failed, or that asks for what cannot be placed is refused, with the reason
+        and the link, and has no SQL; so is a condition that is not one SQL condition, a date that is
+        not ``YYYY-MM-DD`` and a dialect sqlglot does not know.
+
+        Args:
+            metric: The metric's name or synonym, or a column holding it, as :meth:`metric` takes it.
+            by: Entities (``customer``, for its key), properties (``customer.first_name``, or
+                ``first_name`` when one entity reached has it) and time grains (``month``, or
+                ``order_date:month``) to group by.
+            where: Conditions on properties, as SQL (``customer.first_name = 'Michael'``).
+            since: The first date covered, ``YYYY-MM-DD``.
+            until: The date after the last one covered.
+            time: The property that dates the metric, for a grain or a range; by default the one
+                date or time column of the metric's relation.
+            dialect: The SQL dialect to write, by default the project's.
+
+        Returns:
+            The SQL, the relationships its joins follow, the required filters it added, the facts
+            with their confidence, the flags and anything refused.
+
+        Raises:
+            konstruct.QueryError: ``metric`` finds no metric.
+
+        Example::
+
+            result = project.compile_metric('lifetime value', by=['customer.first_name'])
+            print(result.sql)
+            result.confidence, result.flags, result.refused
+        """
+        from konstruct.analysis.compile import OntologyQuery, compile_query
+
+        asked = OntologyQuery(metric, list(by), list(where), since, until, time)
+        return compile_query(self.graph, asked, dialect=dialect, ontology=self._world())
 
     def define(self, ref: str) -> query.Definitions:
         """The business definition of a term, or the terms that define a column.

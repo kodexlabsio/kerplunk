@@ -142,6 +142,7 @@ print(ontology.measure('customer lifetime value').columns[0].formula)
 .. automethod:: konstruct.Project.relate
 .. automethod:: konstruct.Project.sensitivity
 .. automethod:: konstruct.Project.erasure
+.. automethod:: konstruct.Project.compile_metric
 ```
 
 ## Checking SQL
@@ -334,6 +335,21 @@ for pinned in pins.changes:
    :members:
 
 .. autoclass:: konstruct.semantics.world.Hop
+   :members:
+
+.. autoclass:: konstruct.analysis.compile.Compiled
+   :members:
+
+.. autoclass:: konstruct.analysis.compile.OntologyQuery
+   :members:
+
+.. autoclass:: konstruct.analysis.compile.Fact
+   :members:
+
+.. autoclass:: konstruct.analysis.compile.RequiredFilter
+   :members:
+
+.. autoclass:: konstruct.analysis.compile.Refusal
    :members:
 
 .. autoclass:: konstruct.semantics.ontology.Rule
