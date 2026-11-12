@@ -18,7 +18,7 @@ from typing import Any, Literal, NamedTuple, TypeVar
 import sqlglot
 from sqlglot import exp
 from sqlglot.dialects.dialect import Dialect, DialectType, NormalizationStrategy
-from sqlglot.errors import SqlglotError
+from sqlglot.errors import OptimizeError, SqlglotError
 from sqlglot.lineage import Node as LineageNode
 from sqlglot.lineage import lineage, to_node
 from sqlglot.optimizer.qualify import qualify
@@ -471,8 +471,14 @@ def _column_lineage(
     schema = build_schema(widened, dialect)
     qualify_kwargs['schema'] = schema
     # The statement was parsed for this analysis alone and is not read again, so it is qualified in
-    # place rather than copied first.
-    qualified = qualify(query, **qualify_kwargs)
+    # place rather than copied first. qualify names an unaliased relation's alias after it and
+    # parses that name again as SQL, so a name such as "a;b" reads as two statements and sqlglot
+    # raises a TypeError rather than one of its own errors. Only the call is guarded, so that a
+    # TypeError in Konstruct's own code below still raises.
+    try:
+        qualified = qualify(query, **qualify_kwargs)
+    except TypeError as error:
+        raise OptimizeError(_first_line(error)) from error
     scope = build_scope(qualified)
     if scope is None:
         result.errors.append(f'{LINEAGE_FAILED}: not a query')

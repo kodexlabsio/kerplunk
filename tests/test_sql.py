@@ -767,6 +767,32 @@ def test_sql_that_fails_a_check_of_sqlglots_reports_its_lineage_failed(sql: str)
     assert any(e.startswith('column lineage failed: STRUCT(') for r in results for e in r.errors)
 
 
+@pytest.mark.parametrize(
+    ('dialect', 'sql'),
+    [
+        (None, "select * from 'a;b'"),
+        ('postgres', 'select * from "a;b"'),
+        ('bigquery', 'create table x as select * from `a;b`'),
+        # The input the SQL fuzz target found, as it decodes it: the dialect, then the text.
+        (
+            'redshift',
+            "IIIIIIIII;;;;;;;;;;\x0b\nselect * from rena 'coupon', 'bank_tra;coupon',  rena 'co;\x7fupon', "
+            "'bank_transfer'\x00\x00G\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00;m @r;;;;;;;;;;;;;\x05;\x0b\n;"
+            '\x00\x00\x00;;;;;;;;;;;\x0b\nselect;\x01\x00;;;;;;\x00\x00\x00\x00\x00\x00;3\x00;\n;\n',
+        ),
+    ],
+)
+def test_a_relation_whose_name_holds_a_semicolon_reports_its_lineage_failed(
+    dialect: str | None, sql: str
+) -> None:
+    # qualify names an unaliased relation's alias after it and parses that name again as SQL, where
+    # `;` ends a statement: sqlglot raises a TypeError, not one of its own errors.
+    results = analyse(sql, dialect=dialect, target='db.schema.model')
+    failed = [r for r in results if any(e.startswith(LINEAGE_FAILED) for e in r.errors)]
+    assert failed and all(r.columns == {} for r in failed)
+    assert any(';' in read for r in failed for read in r.reads)
+
+
 @pytest.mark.parametrize(('dialect', 'sql'), CRASHES)
 def test_every_reader_of_sql_survives_what_the_parser_fails_on(dialect: str, sql: str) -> None:
     from konstruct.analysis import conflicts
