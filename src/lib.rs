@@ -45,6 +45,7 @@ pub mod substring;
 pub mod vector;
 pub mod words;
 pub mod write;
+pub mod yaml;
 
 #[cfg(test)]
 mod testing;

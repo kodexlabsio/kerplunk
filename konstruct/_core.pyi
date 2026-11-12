@@ -812,3 +812,37 @@ class Graph:
                 than 2 GiB (``source`` names it).
         """
     def stats(self) -> dict[str, int]: ...
+
+class YamlFailure(Exception):
+    """A YAML text that cannot be read. ``args`` is ``(stage, context, context_mark, problem,
+    problem_mark)``: the stage that refused it (``reader``, ``scanner``, ``parser``,
+    ``composer``, ``constructor``, ``unreadable`` or ``limit``), what it was doing and where that began, the
+    problem and where it is; a mark is ``(index, line, column)``. ``konstruct.core.yamlio`` raises
+    the PyYAML exception of the same stage from it."""
+
+    args: tuple[str, str | None, tuple[int, int, int] | None, str, tuple[int, int, int] | None]
+
+def yaml_load(
+    source: str | bytes,
+    lines: bool = False,
+    max_values: int = 1_000_000,
+    max_depth: int = 250,
+    digits: int = 4300,
+) -> Any:
+    """The value of the YAML document ``source``, read as PyYAML's ``safe_load`` reads it (YAML
+    1.1), None for an empty one. Raises :class:`YamlFailure` for text that cannot be read: not
+    YAML, not UTF-8 or UTF-16, a value its tag cannot make, an unpaired surrogate, an integer of
+    more than ``digits`` digits, nesting past ``max_depth`` (aliases expanded), or aliases that add
+    more than ``max_values`` values. With ``lines`` every mapping is a dict of string keys with
+    the line it starts on, from one, as ``__line__``."""
+
+def yaml_load_all(
+    source: str | bytes,
+    lines: bool = False,
+    max_values: int = 1_000_000,
+    max_depth: int = 250,
+    digits: int = 4300,
+) -> list[Any]:
+    """The value of each document of the stream ``source``, an empty document left out, each read
+    as :func:`yaml_load` reads one. The values aliases add are one budget of ``max_values`` for
+    the whole stream."""

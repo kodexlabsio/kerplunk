@@ -605,6 +605,8 @@ mod core_module {
     use crate::vector::python::{VectorIndex, concept, terms};
     #[pymodule_export]
     use crate::write::files::{real_directory, write_text};
+    #[pymodule_export]
+    use crate::yaml::python::{yaml_load, yaml_load_all};
 
     /// Refuses to load on a processor the routines cannot run on, before anything calls them,
     /// and adds the node kinds that are relations, and the order SQL that names a relation
@@ -627,6 +629,7 @@ mod core_module {
         module.add("RELATION_PRIORITY", order)?;
         crate::model::install_dataclass_metadata(py, module)?;
         crate::airflow::python::add_tables(module)?;
-        crate::dagster::python::add_tables(module)
+        crate::dagster::python::add_tables(module)?;
+        crate::yaml::python::add_exceptions(module)
     }
 }
