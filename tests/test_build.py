@@ -272,6 +272,81 @@ def test_an_insert_of_some_columns_leaves_the_relations_columns_guessed(tmp_path
     assert 'table.main.t#region' in {e.target for e in graph.out_edges('table.main.u#region', 'derived_from')}
 
 
+@pytest.mark.parametrize('order', [('a.sql', 'b.sql'), ('b.sql', 'a.sql')])
+def test_a_relation_two_statements_write_has_both_conditions_and_its_columns_hold_neither(
+    tmp_path: Path, order: tuple[str, str]
+) -> None:
+    """An unfiltered INSERT adds rows the CREATE's filter never saw: the relation has the
+    conditions of both statements, and each of its columns holds only those both hold."""
+    statements = {
+        'a.sql': "create table main.t as select id, amount from raw.src where status <> 'returned'",
+        'b.sql': 'insert into main.t select id, amount from raw.src',
+    }
+    first, second = order
+    (tmp_path / first).write_text(statements['a.sql'] if first == 'a.sql' else statements['b.sql'])
+    (tmp_path / second).write_text(statements['a.sql'] if second == 'a.sql' else statements['b.sql'])
+    one = tmp_path / 'one'
+    one.mkdir()
+    (one / 'both.sql').write_text(';\n'.join(statements.values()))
+    for root in (tmp_path, one):
+        graph = build(load_config(root)).graph
+        table = graph.nodes['table.main.t']
+        assert table.attrs['conditions'] == ["WHERE: raw.src.status <> 'returned'"]
+        for column in graph.columns_of(table.id):
+            assert column.attrs['row_conditions'] == [], (root, column.name)
+            held = [table.attrs.get('conditions', [])[i] for i in column.attrs.get('row_conditions', [])]
+            assert not any("status <> 'returned'" in c for c in held), (root, column.name)
+
+
+@pytest.mark.parametrize('order', [('a.sql', 'b.sql'), ('b.sql', 'a.sql')])
+def test_a_relation_two_statements_write_says_where_either_reads_its_relations(
+    tmp_path: Path, order: tuple[str, str]
+) -> None:
+    """Each statement reads a relation on the side of a LEFT JOIN that can find no row, before a
+    LIMIT, and another through a star it cannot expand: the relation records what each statement
+    reads where, whichever comes last, as either writes its rows."""
+    statements = {
+        'a.sql': (
+            'create table main.t as select e.*, r.amount from raw.extra e '
+            'left join (select * from raw.refunds limit 10) r on r.order_id = e.id'
+        ),
+        'b.sql': (
+            'insert into main.t select f.*, c.amount from raw.further f '
+            'left join (select * from raw.credits limit 5) c on c.order_id = f.id'
+        ),
+    }
+    for name in order:
+        (tmp_path / name).write_text(statements[name])
+    table = build(load_config(tmp_path)).graph.nodes['table.main.t']
+    assert {'raw.refunds', 'raw.credits'} <= set(table.attrs['nullable'])
+    assert table.attrs['read_before']['raw.refunds'] == table.attrs['read_before']['raw.credits'] == ['LIMIT']
+    assert {'raw.extra', 'raw.further'} <= set(table.attrs['star_reads'])
+
+
+@pytest.mark.parametrize('order', [('a.sql', 'b.sql'), ('b.sql', 'a.sql')])
+def test_a_column_says_its_value_aggregates_rows_where_any_statement_writing_it_does(
+    tmp_path: Path, order: tuple[str, str]
+) -> None:
+    """A filter in another relation that reads an aggregate or a window chooses among values made
+    from rows it never saw: the graph marks the column whose SQL makes such a value, in any of the
+    statements that write it, and not a column that only passes it on."""
+    statements = {
+        'a.sql': 'create table main.t as select id, sum(amount) over (partition by id) as total, amount from raw.src',
+        'b.sql': 'insert into main.t select id, amount, amount from raw.src',
+    }
+    for name, sql in zip(order, (statements[order[0]], statements[order[1]]), strict=True):
+        (tmp_path / name).write_text(sql)
+    (tmp_path / 'c.sql').write_text('create table main.u as select id, total, amount from main.t')
+    graph = build(load_config(tmp_path)).graph
+    assert graph.nodes['table.main.t#total'].attrs.get('aggregates_rows') is True
+    assert 'aggregates_rows' not in graph.nodes['table.main.t#amount'].attrs
+    assert 'aggregates_rows' not in graph.nodes['table.main.u#total'].attrs
+    # A column both statements write is read from the one reading of raw.src in each, named as
+    # canonical text names it.
+    assert graph.nodes['table.main.t#amount'].attrs['row_reading'] == 'raw.src'
+    assert graph.nodes['table.main.u#total'].attrs['row_reading'] == 'main.t'
+
+
 def test_an_update_reanalyses_sql_when_the_columns_it_reads_change(tmp_path: Path) -> None:
     (tmp_path / 'a.sql').write_text('create table main.a as select id, amount from raw.src')
     (tmp_path / 'b.sql').write_text('create table main.b as select * from main.a')

@@ -182,6 +182,36 @@ class RelationIndex:
         return None
 
 
+@dataclass
+class _Shape:
+    """What the statements that write a relation hold, together: every one's conditions, and for
+    each column those that hold in all of them, its reading where all agree, and the columns some
+    aggregate."""
+
+    conditions: set[str]
+    held: dict[str, set[str]]
+    readings: dict[str, str | None]
+    aggregates: set[str] = field(default_factory=set)
+    # Where each statement reads the relations it reads, as every statement writes some rows: a
+    # relation read on the nullable side of an outer join or before a window or LIMIT in one
+    # statement is read there, and one a star passes on whole in one passes on every column but
+    # those every such star leaves out. Two statements that read one relation on different sides
+    # keep the first side; each side is of an outer join, which is what the readers ask.
+    nullable: dict[str, str] = field(default_factory=dict)
+    read_before: dict[str, list[str]] = field(default_factory=dict)
+    star_reads: dict[str, list[str]] = field(default_factory=dict)
+
+    def read(self, statement: StatementLineage) -> None:
+        for key, side in statement.nullable.items():
+            self.nullable.setdefault(key, side)
+        for key, steps in statement.read_before.items():
+            kept = self.read_before.setdefault(key, [])
+            kept += [step for step in steps if step not in kept]
+        for key, left in statement.star_reads.items():
+            passed = self.star_reads.get(key)
+            self.star_reads[key] = list(left) if passed is None else [c for c in passed if c in left]
+
+
 class Builder:
     def __init__(self, config: Config, *, update: bool) -> None:
         self.config = config
@@ -223,6 +253,8 @@ class Builder:
         # The relations whose columns a dbt catalog or the SQL that writes them lists in full (the
         # warehouse's are marked in_warehouse); the others may have columns the graph does not list.
         self.complete: set[str] = set()
+        # What the statements that wrote each relation so far hold, by the relation's id.
+        self.written: dict[str, _Shape] = {}
 
     # Shared helpers
 
@@ -360,6 +392,59 @@ class Builder:
             )
         )
 
+    def conditions(self, target: Node, statement: StatementLineage) -> None:
+        """The joins, filters and grouping that shape the relation's rows, in terms of physical
+        columns, and for each column which of them hold on the rows its value is computed from,
+        the reading of a table it is read from, and whether it aggregates rows or computes a window
+        over them. A relation more than one statement writes has the conditions of every one of
+        them, and a column holds only those that hold in every one (an unfiltered INSERT adds rows a
+        CREATE's filter never saw), has a reading only where all agree, and aggregates where any
+        does."""
+        held = {
+            name: {statement.conditions[i] for i in positions}
+            for name, positions in statement.row_conditions.items()
+        }
+        readings = {name: statement.readings.get(name) for name in statement.columns}
+        shape = self.written.get(target.id)
+        if shape is None:
+            shape = self.written[target.id] = _Shape(set(statement.conditions), held, readings)
+        else:
+            shape.conditions |= set(statement.conditions)
+            # A column one of the statements does not write holds nothing on the rows of that one.
+            shape.held = {n: shape.held.get(n, set()) & held.get(n, set()) for n in {*shape.held, *held}}
+            shape.readings = {
+                n: shape.readings.get(n) if shape.readings.get(n) == readings.get(n) else None
+                for n in {*shape.readings, *readings}
+            }
+        shape.aggregates |= set(statement.aggregated)
+        shape.read(statement)
+        # Where the relations it reads sit, which decides where their own conditions apply.
+        for key, value in (
+            ('nullable', shape.nullable),
+            ('read_before', shape.read_before),
+            ('star_reads', shape.star_reads),
+        ):
+            if value:
+                target.attrs[key] = dict(value)
+            else:
+                target.attrs.pop(key, None)
+        conditions = sorted(shape.conditions)
+        if conditions:
+            target.attrs['conditions'] = conditions
+        else:
+            target.attrs.pop('conditions', None)
+        for column in self.graph.columns_of(target.id):
+            for attr in ('row_conditions', 'row_reading', 'aggregates_rows'):
+                column.attrs.pop(attr, None)
+            reading = shape.readings.get(column.name)
+            if reading:
+                column.attrs['row_reading'] = reading
+            if column.name in shape.aggregates:
+                column.attrs['aggregates_rows'] = True
+            if conditions and column.name in shape.held:
+                found = shape.held[column.name]
+                column.attrs['row_conditions'] = [i for i, text in enumerate(conditions) if text in found]
+
     def apply(
         self,
         statement: StatementLineage,
@@ -397,17 +482,6 @@ class Builder:
             target.attrs.setdefault('table_type', 'view')
             if statement.kind == 'create_materialized_view':
                 target.attrs['materialized_view'] = True
-        if statement.conditions:
-            # Joins, filters and grouping, in terms of physical columns: what shapes the rows.
-            target.attrs['conditions'] = statement.conditions
-        # Where the relations it reads sit, which decides where their own conditions apply.
-        for key, value in (
-            ('nullable', statement.nullable),
-            ('read_before', statement.read_before),
-            ('star_reads', statement.star_reads),
-        ):
-            if value:
-                target.attrs[key] = value
         # A query that writes the relation lists all its columns; an INSERT or MERGE may write some.
         if (
             statement.kind in WRITES_ALL
@@ -428,6 +502,7 @@ class Builder:
                         out.id, upstream.id, 'derived_from', transform=item.transform, **attrs
                     )
                 )
+        self.conditions(target, statement)
         for relation, column in statement.references:
             used = self.column(self.relation(relation, origin), column, origin)
             record(self.graph.add_edge(used.id, target.id, 'feeds', role='reference', **attrs))

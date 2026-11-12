@@ -119,6 +119,17 @@ class StatementLineage:
     # ignore formatting, quoting, aliases and CTE names, so `konstruct diff` can compare versions.
     expressions: dict[str, str] = field(default_factory=dict)
     conditions: list[str] = field(default_factory=list)
+    # For each output column, the positions in ``conditions`` of those that sit on a query the
+    # column is computed through: a filter in a CTE the column never reads does not shape its rows.
+    row_conditions: dict[str, list[int]] = field(default_factory=dict)
+    # The output columns whose value aggregates rows or computes a window over them: a filter of a
+    # query that reads one, here or in another relation, chooses among values made from rows it
+    # never saw.
+    aggregated: list[str] = field(default_factory=list)
+    # For each output column read from one reading of one relation, row for row, that reading's
+    # name as canonical text has it (``db.main.orders#2``, or the relation for one read once): two
+    # columns of the relation with the same reading come from the same rows.
+    readings: dict[str, str] = field(default_factory=dict)
     # The relations read only on the side of an outer join that may find no row of them, with
     # that join's side (LEFT, RIGHT or FULL), and those read before a window function, QUALIFY
     # or LIMIT, with those steps: their own conditions apply there. And the relations whose every
@@ -141,6 +152,9 @@ class StatementLineage:
             'errors': self.errors,
             'expressions': self.expressions,
             'conditions': self.conditions,
+            'row_conditions': self.row_conditions,
+            'aggregated': self.aggregated,
+            'readings': self.readings,
             'nullable': self.nullable,
             'read_before': self.read_before,
             'star_reads': self.star_reads,
@@ -160,6 +174,9 @@ class StatementLineage:
             errors=list(data.get('errors', [])),
             expressions=dict(data.get('expressions', {})),
             conditions=list(data.get('conditions', [])),
+            row_conditions={k: list(v) for k, v in data.get('row_conditions', {}).items()},
+            aggregated=list(data.get('aggregated', [])),
+            readings=dict(data.get('readings', {})),
             nullable=dict(data.get('nullable', {})),
             read_before={k: list(v) for k, v in data.get('read_before', {}).items()},
             star_reads={k: list(v) for k, v in data.get('star_reads', {}).items()},
@@ -507,6 +524,7 @@ def _column_lineage(
     if canon.repeated:
         scopes = _named_readings(canon, scope, key, result)
     result.nullable, result.read_before, result.star_reads = scopes.nullable, scopes.read_before, scopes.stars
+    _claims(canon, nodes, out_names, result)
 
 
 def _named_readings(
@@ -567,6 +585,112 @@ def _by_relation(found: dict[str, _V], readings: Mapping[str, set[str]]) -> dict
                 del found[name]
             found[relation] = first
     return found
+
+
+def _claims(
+    canon: Canonical, nodes: Mapping[str, LineageNode], out_names: list[str] | None, result: StatementLineage
+) -> None:
+    """What the statement shows of each output column's rows, in its conditions as printed, readings
+    named: which conditions hold on every source row (``row_conditions``), whether it aggregates
+    rows or computes a window over them, and the one reading of a table it is read from, if one."""
+    rename = canon.rename if canon.repeated else (lambda text: text)
+    position = {text: i for i, text in enumerate(result.conditions)}
+    memo: dict[int, tuple[frozenset[str], bool]] = {}
+    for index, (name, node) in enumerate(nodes.items()):
+        if name == '*':
+            continue
+        held, aggregated = _row_conditions(node, canon, memo, frozenset())
+        out_name = (out_names[index] if out_names else name).lower()
+        if result.conditions:
+            result.row_conditions[out_name] = sorted(
+                i for text in held if (i := position.get(rename(text))) is not None
+            )
+        if aggregated:
+            result.aggregated.append(out_name)
+        read = canon.read_from(node, '')
+        if len(read) == 1:
+            [reading] = read
+            if reading[0] != '*':
+                result.readings[out_name] = canon.reading_name(reading)
+
+
+_AFTER_AGGREGATING = (
+    'HAVING',
+    'QUALIFY',
+    'LIMIT',
+    'OFFSET',
+    'ORDER BY',
+    'DISTINCT',
+    'UNION',
+    'EXCEPT',
+    'INTERSECT',
+)
+"""Conditions that apply after a query aggregates or computes its windows, to the rows it returns."""
+
+
+def _row_conditions(
+    node: LineageNode,
+    canon: Canonical,
+    memo: dict[int, tuple[frozenset[str], bool]],
+    seen: frozenset[int],
+) -> tuple[frozenset[str], bool]:
+    """The conditions that hold on every source row a column's value is computed from, and whether
+    the value aggregates rows on the way. A query's conditions hold on the inputs of a value it
+    passes on row for row, and those it applies before aggregating on the inputs of an aggregate or
+    a window it computes; never on the inputs of a value aggregated below it, which a filter above
+    chooses among, nor on a value with an input they do not hold on (a COALESCE or a sum of a
+    filtered and an unfiltered CTE, or the branches of a union). Each input is read through an
+    alias of the query, and only the conditions that hold there count (:meth:`Canonical.held`)."""
+    if id(node) in memo:
+        return memo[id(node)]
+    if id(node) in seen:
+        return frozenset(), True  # a cycle: claim nothing
+    query = node.source if isinstance(node.source, exp.Query) else None
+    expression = node.expression
+    aggregates = isinstance(expression, exp.Expr) and expression.find(exp.AggFunc, exp.Window) is not None
+
+    def own(child: LineageNode | None) -> frozenset[str]:
+        found = canon.held(id(query), child) if query is not None else frozenset()
+        if aggregates:
+            found = frozenset(c for c in found if not c.split(':', 1)[0].startswith(_AFTER_AGGREGATING))
+        return found
+
+    below = [(*_row_conditions(child, canon, memo, seen | {id(node)}), child) for child in node.downstream]
+    if below:
+        inputs = [found if aggregated else found | own(child) for found, aggregated, child in below]
+        # One condition on each of two readings, as the same filter in two CTEs over orders, holds
+        # on every input: each input has it on its own reading, which is the only one it reads.
+        common = set.intersection(*({canon.unread(text) for text in found} for found in inputs))
+        held = frozenset(text for found in inputs for text in found if canon.unread(text) in common)
+        result = (held, aggregates or any(aggregated for _, aggregated, _ in below))
+    else:
+        result = (own(None), aggregates)
+    memo[id(node)] = result
+    return result
+
+
+def _apart(theirs: Reading, ours: Reading) -> bool:
+    """Whether two readings may read different rows of one relation: the same relation under
+    different reading names. A relation read once has one reading, never apart from itself; one
+    whose relation is not known (``*``) may be any reading, and is apart from every one."""
+    if '*' in (theirs[0], ours[0]):
+        return True
+    return theirs[0] == ours[0] and theirs[1] != ours[1]
+
+
+def _alias_read(node: LineageNode) -> str | None:
+    """The alias of the query above that ``node``, an input of one of its values, is read through:
+    lineage names an input ``alias.column``."""
+    return _alias_named(node.name)
+
+
+@functools.lru_cache(maxsize=4096)
+def _alias_named(name: str) -> str | None:
+    try:
+        column = exp.to_column(name)
+    except (SqlglotError, TypeError, ValueError):
+        return None  # a literal or a star
+    return column.table or None if isinstance(column, exp.Column) else None
 
 
 def _name_unknown_columns(
@@ -1116,6 +1240,56 @@ class _Printed(NamedTuple):
 
     expression: exp.Expr
     unbracket: bool = False
+
+
+Reading = tuple[str, str]
+"""A reading of a relation: its key, and its name, the token canonical text stands for this
+reading by until the readings are named (see :meth:`Canonical.name_readings`), or the key again
+for a relation the statement reads once. Two readings of one relation read different rows of it."""
+
+
+class _Where(NamedTuple):
+    """Where a condition of a query holds: on its values read through the aliases ``only`` (every
+    alias when None), and not on one read from another reading of a table than one of ``readings``,
+    those its filters' columns are read from, row for row."""
+
+    only: frozenset[str] | None
+    readings: frozenset[Reading]
+
+
+def _filtered_columns(clause: _Clause) -> list[exp.Column]:
+    """The columns the filters of ``clause`` name: not those of a join's equalities between two
+    aliases, which are the join itself, nor those of a clause that does not filter."""
+    found: list[exp.Column] = []
+    for term in clause.terms:
+        if not isinstance(term, exp.Expr) or (clause.label not in _FILTERED and clause.join is None):
+            continue
+        for part in split_conjuncts(term):
+            pair = (part.this, part.expression) if isinstance(part, exp.EQ) else ()
+            if pair and all(isinstance(x, exp.Column) for x in pair) and pair[0].table != pair[1].table:
+                continue
+            found += list(part.find_all(exp.Column))
+    return found
+
+
+def _only(clause: _Clause) -> frozenset[str] | None:
+    """The aliases a clause's condition holds on the values of: the ON of an outer join holds only
+    on the side that can find no row, a LEFT JOIN's own alias, and on no side of a RIGHT or FULL
+    one. None for every alias."""
+    join = clause.join
+    if join is None:
+        return None
+    side = (join.side or '').upper()
+    return (
+        frozenset({join.this.alias_or_name})
+        if side == 'LEFT'
+        else frozenset()
+        if side in ('RIGHT', 'FULL')
+        else None
+    )
+
+
+_FILTERED = ('WHERE', 'HAVING', 'QUALIFY')
 
 
 class _Clause(NamedTuple):
@@ -1820,6 +1994,91 @@ class Canonical:
         # their readings are named.
         self.term_lists: dict[str, list[str]] = {}
         self.star_lists: dict[str, list[str]] = {}  # a star over several relations, by its text
+        # Each condition's text, as printed before its readings are named, to the queries (by
+        # ``id``) whose clauses give it, with where in each it holds.
+        self.condition_scopes: dict[str, dict[int, list[_Where]]] = {}
+        self._wheres: dict[int, list[tuple[str, _Where]]] = {}
+        self._read: dict[tuple[int, str], tuple[LineageNode, frozenset[Reading]]] = {}
+
+    def held(self, query: int, child: LineageNode | None) -> frozenset[str]:
+        """The conditions of ``query`` that hold on the rows of ``child``, an input of one of its
+        values (None for a value with none, as ``COUNT(*)``): those on the alias it is read through,
+        whose filters read no other reading of a relation it is read from (:func:`_apart`)."""
+        wheres = self._wheres.get(query)
+        if not wheres:
+            return frozenset()
+        alias = _alias_read(child) if child is not None else None
+        mine: frozenset[Reading] | None = None
+        found: set[str] = set()
+        for text, where in wheres:
+            if where.only is not None and alias not in where.only:
+                continue
+            if where.readings and child is not None:
+                if mine is None:
+                    mine = self.read_from(child, self.reference(self.scopes.get(query), alias))
+                if any(_apart(theirs, ours) for theirs in where.readings for ours in mine):
+                    continue
+            found.add(text)
+        return frozenset(found)
+
+    def reference(self, scope: Scope | None, alias: str | None) -> str:
+        """The path segment of the reference to a CTE referenced more than once that ``alias`` in
+        ``scope`` names, if it names one (see :meth:`through`)."""
+        if scope is None or not alias:
+            return ''
+        selected = scope.selected_sources.get(alias)
+        segment = f'/{id(selected[0])}' if selected is not None else ''
+        return segment if segment in self.ctes else ''
+
+    def read_from(self, node: LineageNode, path: str) -> frozenset[Reading]:
+        """The readings of relations ``node``'s value is read from, row for row, through the CTE
+        references ``path`` names, as the statement's conditions and formulas name them."""
+        key = (id(node), path)
+        cached = self._read.get(key)
+        if cached is not None and cached[0] is node:
+            return cached[1]
+        if isinstance(node.expression, exp.Table):
+            found = frozenset({self.reading(node.expression, path)})
+        else:
+            self._read[key] = (node, frozenset())  # guards against a cycle
+            scope = self.scopes.get(id(node.source))
+            below: set[Reading] = set()
+            for child in node.downstream:
+                below |= self.read_from(child, path + self.reference(scope, _alias_read(child)))
+            found = frozenset(below)
+        self._read[key] = (node, found)
+        return found
+
+    def reading(self, table: exp.Table, path: str = '') -> Reading:
+        """A reading of ``table`` through the CTE references ``path`` names: its relation, and the
+        token that stands for this reading where the statement reads the relation more than once,
+        else the relation again, as one reading of a relation read once is any other."""
+        key = table_key(table, self.default_catalog, self.default_db)
+        return (key, self.relation(table, path) if id(table) in self.repeated else key)
+
+    def reading_name(self, reading: Reading) -> str:
+        """A reading's name as canonical text has it, once the readings are named
+        (``db.main.orders#2``, or the relation key for a relation read once)."""
+        relation, token = reading
+        return self.reading_of(token) if token in self.relations else reading_key(relation)
+
+    def column_readings(
+        self, column: exp.Column, scope: Scope, schema: MappingSchema, path: str = ''
+    ) -> frozenset[Reading]:
+        """The readings of relations a column of ``scope``'s query is read from, row for row."""
+        alias = column.table
+        found = scope.selected_sources.get(alias)
+        source = found[1] if found else None
+        if isinstance(source, exp.Table) and isinstance(source.this, exp.Identifier):
+            return frozenset({self.reading(source, path)})
+        if isinstance(source, Scope):
+            try:
+                traced = self.tracer.trace(column.name, source, schema)
+                return self.read_from(traced, path + self.through(scope, column))
+            except (SqlglotError, ValueError, KeyError, IndexError, AttributeError):
+                pass
+        # Where it comes from is not known: apart from every reading (see :func:`_apart`).
+        return frozenset({('*', f'{path}/{alias}')})
 
     def prepare(self, root: Scope) -> None:
         """Find the relations ``root`` reads more than once: in two places, or in a CTE that two
@@ -2029,6 +2288,16 @@ class Canonical:
     def _parsed(self, text: str) -> _Template:
         return _template(sqlglot.parse_one(text, read=self.dialect))
 
+    def unread(self, text: str) -> str:
+        """``text``, as printed before its readings are named, with each reading printed as its
+        relation, as a relation read once is."""
+        if '__kreading' not in text:
+            return text
+        return _TOKEN.sub(lambda m: self._printed(self.relations.get(m.group(), m.group())), text)
+
+    def _printed(self, key: str) -> str:
+        return _sql_name(reading_key(key), self.dialect) if '#' in key else key
+
     def rename(self, text: str) -> str:
         """``text`` with each token in it named, and the branches of a set operation, and the terms
         of a GROUP BY or another clause whose terms are in no order, in order by their names."""
@@ -2199,6 +2468,28 @@ class Canonical:
                         if reading not in text:
                             label = clause.label.replace('JOIN ON', f'JOIN {reading} ON')
                             found.add(in_context(f'{label}: {text}', side, steps + before))
+                filtered = {
+                    r
+                    for c in _filtered_columns(clause)
+                    if c.table in scope.selected_sources
+                    for r in self.column_readings(c, scope, schema)
+                }
+                held = self.condition_scopes.setdefault(condition, {})
+                # A filter folded into the join that reads its query is that query's own as well,
+                # and in the query that joins it, it filters the rows read through that join.
+                if inner is not None and clause.join is not None:
+                    through_join = self.reference(scope, clause.join.this.alias_or_name)
+                    filtered |= {
+                        r
+                        for c in inner.expression.args['where'].find_all(exp.Column)
+                        for r in self.column_readings(c, inner, schema, through_join)
+                    }
+                    held.setdefault(id(inner.expression), []).append(_Where(None, frozenset()))
+                held.setdefault(id(query), []).append(_Where(_only(clause), frozenset(filtered)))
+        self._wheres = {}
+        for text, queries in self.condition_scopes.items():
+            for query_id, wheres in queries.items():
+                self._wheres.setdefault(query_id, []).extend((text, w) for w in wheres)
         return sorted(found)
 
     def _readings_in(self, source: exp.Table | Scope, path: str) -> list[str]:

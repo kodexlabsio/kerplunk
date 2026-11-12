@@ -69,7 +69,7 @@ def shown(version: ApiVersion) -> str:
 # a name assigned it, or from ``dict(...)``, ``{**...}``, ``getattr`` or ``... or {}`` of it.
 _KONSTRUCT_ATTRS = frozenset(
     {
-        'also_via', 'approved', 'bash_command', 'broader', 'checksum', 'column', 'columns', 'columns_guessed', 'command',
+        'aggregates_rows', 'also_via', 'approved', 'bash_command', 'broader', 'checksum', 'column', 'columns', 'columns_guessed', 'command',
         'conditions', 'connection', 'currency', 'dag', 'dbt_name', 'declared_loader', 'definition', 'documented_only', 'error_if',
         'entities', 'exceptions', 'expression', 'fields', 'filters', 'formula', 'formula_dialect', 'fqn', 'grain',
         'identifier_fields', 'in_warehouse', 'incremental_strategy', 'inferred', 'iri', 'kind', 'label',
@@ -77,7 +77,7 @@ _KONSTRUCT_ATTRS = frozenset(
         'nested', 'nullable', 'operator', 'orchestrator', 'ossie_authored', 'ossie_columns',
         'ossie_dataset', 'ossie_expression', 'ossie_key', 'ossie_metric', 'ossie_reads',
         'outside_warehouse', 'owner', 'package', 'partitioned_by', 'parts', 'pipeline', 'primary_key',
-        'primary_key_enforced', 'read_before', 'registry', 'related', 'repository', 'role',
+        'primary_key_enforced', 'read_before', 'registry', 'related', 'repository', 'role', 'row_conditions', 'row_reading',
         'same_relation', 'schedule', 'sensitivity', 'sensors', 'severity', 'source_name', 'sql_path',
         'star_reads', 'status', 'synonyms', 'table_type', 'tags', 'test', 'transform', 'type', 'unique_key',
         'unit', 'url', 'usage', 'verified', 'via', 'view_sql', 'warehouse_tags', 'where',

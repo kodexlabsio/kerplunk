@@ -20,6 +20,7 @@ from konstruct.core.sql import (
     canonical_condition,
     dialect_for,
     strip_templating,
+    without_readings,
 )
 
 SCHEMA = {
@@ -939,6 +940,269 @@ def test_distinct_set_operations_and_group_by_all_are_conditions() -> None:
     grouped = one('select customer_id, status, sum(amount) as total from db.main.orders group by all')
     assert grouped.conditions == ['GROUP BY: db.main.orders.customer_id, db.main.orders.status']
     assert ('db.main.orders', 'status') in grouped.references
+
+
+def test_each_column_lists_the_conditions_on_the_rows_it_is_computed_from() -> None:
+    """A filter in a CTE shapes the rows of the columns computed through that CTE, not of a
+    column a sibling CTE computes; and a filter on one branch of a UNION ALL holds on only that
+    branch's rows, so on no column of the union."""
+    statement = one(
+        """
+        with net as (select customer_id, sum(amount) as net from db.main.orders where status <> 'returned'
+                     group by customer_id),
+             gross as (select customer_id, sum(amount) as gross from db.main.orders group by customer_id)
+        select net.customer_id, net.net, gross.gross from net join gross on gross.customer_id = net.customer_id
+        """
+    )
+    # orders is read twice, so each reading is named: the claims are on the named texts.
+    assert all('orders#' in c for c in statement.conditions)
+    held = {
+        name: [_unread(statement.conditions[i]) for i in found]
+        for name, found in statement.row_conditions.items()
+    }
+    returned = "WHERE: db.main.orders.status <> 'returned'"
+    assert returned in held['net'] and returned in held['customer_id']
+    assert returned not in held['gross']
+    assert 'GROUP BY: db.main.orders.customer_id' in held['gross']
+    union = one(
+        "select customer_id, amount from db.main.orders where status = 'x' "
+        'union all select customer_id, amount from db.main.orders'
+    )
+    assert union.row_conditions == {'customer_id': [], 'amount': []}
+    single = one("select customer_id, sum(amount) as a from db.main.orders where status = 'x' group by 1")
+    assert single.row_conditions == {'customer_id': [0, 1], 'a': [0, 1]}
+    assert StatementLineage.from_dict(statement.to_dict()).row_conditions == statement.row_conditions
+
+
+def _unread(condition: str) -> str:
+    """A condition with each reading named by its relation."""
+    label, _, text = condition.partition(': ')
+    return f'{label}: {without_readings(text, "duckdb")}'
+
+
+def _held(statement: StatementLineage, name: str) -> list[str]:
+    return [statement.conditions[i] for i in statement.row_conditions[name]]
+
+
+def test_a_condition_holds_on_a_value_only_where_it_holds_on_every_input() -> None:
+    """A value computed from a filtered CTE and an unfiltered one (COALESCE, +), or from the
+    branches of a UNION ALL in a subquery of which one is filtered, does not hold the filter."""
+    returned = "WHERE: db.main.orders.status <> 'returned'"
+    both = one(
+        """
+        with net as (select customer_id, sum(amount) as net from db.main.orders where status <> 'returned'
+                     group by customer_id),
+             gross as (select customer_id, sum(amount) as gross from db.main.orders group by customer_id)
+        select gross.customer_id, coalesce(net.net, gross.gross) as either, net.net + gross.gross as plus,
+               net.net as kept
+        from gross left join net on net.customer_id = gross.customer_id
+        """
+    )
+    assert not any("status <> 'returned'" in c for c in _held(both, 'either') + _held(both, 'plus'))
+    assert any("status <> 'returned'" in c for c in _held(both, 'kept'))
+    union = one(
+        """
+        select customer_id, sum(amount) as total from (
+            select customer_id, amount from db.main.orders where status <> 'returned'
+            union all
+            select customer_id, amount from db.main.orders
+        ) u group by customer_id
+        """
+    )
+    assert returned not in _held(union, 'total')
+
+
+def test_a_condition_above_a_window_or_an_aggregate_does_not_hold_on_its_inputs() -> None:
+    """A filter on the query that reads a window's or an aggregate's value chooses rows of the
+    result, not the rows the value was computed from."""
+    window = one(
+        """
+        with w as (select customer_id, status, sum(amount) over (partition by customer_id) as total
+                   from db.main.orders)
+        select distinct customer_id, total from w where status <> 'returned'
+        """
+    )
+    returned = "WHERE: db.main.orders.status <> 'returned'"
+    assert returned in _held(window, 'customer_id')
+    assert returned not in _held(window, 'total')
+    # The relations that read it are told the value is a window's, so their filters do not hold on it.
+    assert window.aggregated == ['total']
+    assert StatementLineage.from_dict(window.to_dict()).aggregated == ['total']
+    assert one('select customer_id, count(*) over () as n from db.main.orders').aggregated == ['n']
+    assert one('select customer_id, amount from db.main.orders').aggregated == []
+    grouped = one(
+        'select customer_id, a from (select customer_id, sum(amount) as a from db.main.orders '
+        "where status = 'x' group by 1) q where a > 0"
+    )
+    assert "WHERE: db.main.orders.status = 'x'" in _held(grouped, 'a')
+    assert 'WHERE: (SUM(db.main.orders.amount)) > 0' not in _held(grouped, 'a')
+
+
+SHOP = {
+    'db.main.orders': {'order_id': 'int', 'customer_id': 'int', 'amount': 'int', 'status': 'text'},
+    'db.main.customers': {'customer_id': 'int', 'region': 'text'},
+}
+
+
+@pytest.mark.parametrize(
+    'sql',
+    [
+        """
+        select c.region, o.amount as a, o2.amount as b from db.main.orders o
+        join db.main.customers c on c.customer_id = o.customer_id
+        left join db.main.orders o2 on o2.order_id = o.order_id and o2.status <> 'returned'
+        """,
+        """
+        with f as (select * from db.main.orders)
+        select c.region, f2.amount as a, f1.amount as b from db.main.customers c
+        left join f f1 on f1.customer_id = c.customer_id and f1.status <> 'returned'
+        left join f f2 on f2.order_id = f1.order_id
+        """,
+        """
+        with f as (select * from db.main.orders)
+        select c.region, f2.amount as a, f1.amount as b from db.main.customers c
+        left join f f1 on f1.customer_id = c.customer_id and f1.status <> 'returned'
+        left join (select * from f) f2 on f2.order_id = f1.order_id
+        """,
+        """
+        select o.amount as a, o2.amount as b from db.main.orders o
+        join db.main.orders o2 on o2.customer_id = o.customer_id where o2.status <> 'returned'
+        """,
+    ],
+    ids=['a self left join', 'a CTE read twice', 'a subquery over a CTE read twice', 'a self join'],
+)
+def test_a_filter_on_one_reading_of_a_relation_holds_only_on_values_read_through_it(sql: str) -> None:
+    """The filter of a LEFT JOIN's ON holds on the rows of the side that can find no row, read
+    through that join's alias; and a filter on one alias of a relation read twice says nothing of
+    the rows of the other, though both are the same relation's."""
+    statement = one(sql, schema=SHOP)
+    assert not any("status <> 'returned'" in c for c in _held(statement, 'a'))
+    assert any("status <> 'returned'" in c for c in _held(statement, 'b'))
+
+
+_PAIRED = (
+    'select a.order_id, a.customer_id, a.amount, b.status as pst from db.main.orders a '
+    'left join db.main.orders b on b.order_id = a.order_id - 1'
+)
+
+
+@pytest.mark.parametrize(
+    'sql',
+    [
+        f"""
+        with sj as ({_PAIRED})
+        select c.region, sj.amount as a, sj.pst as b from db.main.customers c
+        left join sj on sj.customer_id = c.customer_id and sj.pst <> 'returned'
+        """,
+        f"""
+        with sj as ({_PAIRED})
+        select c.region, sj.amount as a, sj.pst as b from db.main.customers c
+        join sj on sj.customer_id = c.customer_id where sj.pst <> 'returned'
+        """,
+        f"""
+        select c.region, x.amount as a, x.pst as b from db.main.customers c
+        left join ({_PAIRED}) x on x.customer_id = c.customer_id and x.pst <> 'returned'
+        """,
+        """
+        with last as (select customer_id, max(order_id) as last_id from db.main.orders group by 1),
+             x as (select o.order_id, o.customer_id, o.amount, l2.status as last_status
+                   from db.main.orders o join last l on l.customer_id = o.customer_id
+                   join db.main.orders l2 on l2.order_id = l.last_id)
+        select c.region, x.amount as a, x.last_status as b from db.main.customers c
+        join x on x.customer_id = c.customer_id where x.last_status <> 'returned'
+        """,
+    ],
+    ids=['a left join of a CTE', 'a join of a CTE', 'a subquery', 'the last order'],
+)
+def test_a_filter_on_a_column_copied_from_another_reading_does_not_hold_on_the_values_rows(
+    sql: str,
+) -> None:
+    """The filter names one alias, but the column it filters was copied there from another reading
+    of the table than the value's: it says nothing of the rows the value comes from."""
+    statement = one(sql, schema=SHOP)
+    assert not any("status <> 'returned'" in c for c in _held(statement, 'a'))
+    assert any("status <> 'returned'" in c for c in _held(statement, 'b'))
+    # The relation records each column's reading, for the relations that read it in turn.
+    assert statement.readings['a'] != statement.readings['b']
+    # Named as the conditions name them, whatever the aliases.
+    assert {statement.readings['a'], statement.readings['b']} <= {
+        f'db.main.orders#{n}' for n in ('1', '2', '3', '1/1', '2/1', '3/1')
+    }
+    assert any(statement.readings['a'] in c.replace('"', '') for c in statement.conditions)
+    assert 'region' in statement.readings
+    assert StatementLineage.from_dict(statement.to_dict()).readings == statement.readings
+
+
+def test_readings_are_apart_only_as_two_names_of_one_relation_or_one_not_known() -> None:
+    from konstruct.core.sql import _apart
+
+    orders = 'db.main.orders'
+    assert _apart((orders, 'tok1'), (orders, 'tok2'))
+    assert not _apart((orders, orders), (orders, orders))  # a relation read once
+    assert not _apart((orders, 'tok1'), ('db.main.customers', 'db.main.customers'))
+    # A column whose reading could not be traced may be any reading of any relation.
+    assert _apart(('*', '/o'), (orders, orders)) and _apart((orders, orders), ('*', '/o'))
+
+
+def test_a_columns_reading_does_not_depend_on_aliases() -> None:
+    sql = (
+        'with sj as ({}) select c.region, sj.amount as a, sj.pst as b from db.main.customers c '
+        "join sj on sj.customer_id = c.customer_id where sj.pst <> 'returned'"
+    )
+    first = one(sql.format(_PAIRED), schema=SHOP)
+    renamed = (
+        'select x.order_id, x.customer_id, x.amount, y.status as pst from db.main.orders x '
+        'left join db.main.orders y on y.order_id = x.order_id - 1'
+    )
+    second = one(sql.format(renamed), schema=SHOP)
+    assert first.readings == second.readings and first.row_conditions == second.row_conditions
+
+
+def test_a_join_labelled_with_the_reading_it_joins_holds_on_no_row() -> None:
+    """A LEFT JOIN of a relation to itself whose ON names only the other reading is listed again
+    with the reading it joins in its label: that copy holds on no column's rows, and the ON itself
+    holds on neither side, as it filters the side that keeps every row."""
+    statement = one(
+        'select o.amount as a, o2.amount as b from db.main.orders o '
+        "left join db.main.orders o2 on o.status <> 'returned'",
+        schema=SHOP,
+    )
+    labelled = [
+        i for i, c in enumerate(statement.conditions) if re.match(r'LEFT JOIN db\.main\."orders#\d" ON', c)
+    ]
+    assert labelled, statement.conditions
+    assert not any(set(labelled) & set(found) for found in statement.row_conditions.values())
+    assert not any('status' in c for c in _held(statement, 'a') + _held(statement, 'b'))
+
+
+def test_one_filter_on_each_of_two_readings_holds_on_a_value_of_both() -> None:
+    """Each CTE filters its own reading of orders: a value of both has the filter on every row it
+    is computed from, on each reading's own text."""
+    statement = one(
+        """
+        with a as (select customer_id, amount from db.main.orders where status <> 'returned'),
+             b as (select customer_id, amount from db.main.orders where status <> 'returned')
+        select a.customer_id, coalesce(a.amount, b.amount) as either from a join b on b.customer_id = a.customer_id
+        """,
+        schema=SHOP,
+    )
+    held = [_unread(c) for c in _held(statement, 'either')]
+    assert held.count("WHERE: db.main.orders.status <> 'returned'") == 2
+
+
+def test_the_filter_of_a_left_join_holds_on_neither_side_but_the_one_that_can_find_no_row() -> None:
+    statement = one(
+        schema=SHOP,
+        sql="""
+        select o.amount, c.region from db.main.orders o
+        left join db.main.customers c on c.customer_id = o.customer_id and c.region <> 'X'
+        """,
+    )
+    assert _held(statement, 'amount') == []
+    assert _held(statement, 'region') == [
+        'LEFT JOIN ON: db.main.customers.customer_id = '
+        "db.main.orders.customer_id AND db.main.customers.region <> 'X'"
+    ]
 
 
 @pytest.mark.parametrize('dialect', ['duckdb', 'snowflake', 'databricks', 'bigquery'])

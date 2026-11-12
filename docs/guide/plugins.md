@@ -177,7 +177,7 @@ member or a UUID, is refused, so a date that `yaml.safe_load` gives must be writ
 such as `value.isoformat()`. A plugin's attributes may not use a name Konstruct reads from a node or
 an edge, so that what it claims about lineage, usage and the warehouse comes only from Konstruct:
 {data}`~konstruct.plugins.api.RESERVED_NODE_ATTRS` lists the names a node may not set (such as
-`expression`, `conditions`, `usage`, `inferred`, `in_warehouse` and `sql_path`), and
+`expression`, `conditions`, `row_conditions`, `row_reading`, `aggregates_rows`, `usage`, `inferred`, `in_warehouse` and `sql_path`), and
 {data}`~konstruct.plugins.api.RESERVED_EDGE_ATTRS` those an edge may not set (such as `origin`,
 `kind`, `verified`, `transform`, `via` and `role`). A node may set the names in
 {data}`~konstruct.plugins.api.PLUGIN_NODE_ATTRS`, each a string with the meaning Konstruct gives it:

@@ -1525,6 +1525,28 @@ def test_why_masks_each_share_of_a_sensitive_source(tmp_path: Path) -> None:
     assert all(r.values.get('amount') == '<masked: personal>' for c in result.contributions for r in c.rows)
 
 
+def test_erasure_finds_the_joins_of_every_statement_that_writes_a_relation(tmp_path: Path) -> None:
+    """A relation a CREATE and an INSERT write has the joins of both: each finds the person's rows
+    in the relation it joins, though neither copies the key."""
+    sql = (
+        'create table stg.people as select p.id as person_id, p.email from raw.people p;\n'
+        'create table mart.activity as select o.amount from raw.orders o '
+        'join stg.people s on o.buyer = s.person_id;\n'
+        'insert into mart.activity select r.amount from raw.refunds r '
+        'join stg.people s on r.claimant = s.person_id;\n'
+    )
+    defs = 'version: 1\nterms:\n  - name: Contact\n    definition: c.\n    sensitivity: personal\n    columns: [raw.people.email]\n'
+    project = build(tmp_path, {'models.sql': sql, 'definitions.yml': defs})
+    activity = project.graph.nodes['table.mart.activity']
+    assert sum(' JOIN ON: ' in f' {c}' for c in activity.attrs['conditions']) == 2
+    hows = {
+        h.relation: [(k.column, k.how) for k in h.keys]
+        for h in project.erasure('stg.people.person_id').holdings
+    }
+    assert hows['orders'] == [('orders.buyer', 'foreign key')]
+    assert hows['refunds'] == [('refunds.claimant', 'foreign key')]
+
+
 def test_erasure_finds_cast_keys_copies_without_the_key_and_joins(tmp_path: Path) -> None:
     sql = (
         'create table stg.people as select cast(p.id as varchar) as person_id, p.email from raw.people p;\n'
