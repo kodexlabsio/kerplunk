@@ -1,3 +1,9 @@
+## v0.13.19 (2026-11-12)
+
+### Perf
+
+- **build**: Find files in one native walk and record what a build read in Rust
+
 ## v0.13.18 (2026-11-12)
 
 ### Fix
