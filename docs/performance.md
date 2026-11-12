@@ -125,3 +125,15 @@ A build makes no index for search by meaning; the first search by meaning does, 
 ## Loaders
 
 Recognising which loader landed each table checks a table only against the marks its own columns could satisfy. On 50,000 warehouse relations of twelve columns each, one in ten landed, detection takes about 0.05 s of CPU and the whole landing step about 1 s, most of it reading each relation's columns from the graph (`test_detection_over_fifty_thousand_relations_stays_fast` in `tests/test_loaders.py`). Finding loader configuration files reads each Python, YAML, JSON, Terraform and `.properties` file once and parses only those whose name and text show a known format: about 0.2 s of CPU over 3,000 files (`test_discovery_over_thousands_of_files_stays_cheap` in `tests/test_ingestion.py`).
+
+## Airflow and Dagster Files
+
+Konstruct finds the files that declare Airflow DAGs or Dagster definitions by looking at the bytes of every candidate file for the words that mark them, and reads each file it finds without importing it. `uv run .kodex/scripts/orchestrator_benchmark.py` measures both on a generated repository of 2,000 DAG files, 500 Dagster definition files and 5,000 other files (one in twenty mentions Airflow without defining a DAG), each step the median of five runs; its arguments set the sizes:
+
+| Step | Time |
+|---|---:|
+| Looking at the 7,500 files to see which hold DAGs or Dagster definitions | 0.05 s |
+| Reading the 2,000 DAG files (12,000 tasks) | 0.28 s |
+| Reading the 500 Dagster files (1,000 assets) | 0.013 s |
+
+Listing the files, which takes about 0.5 s and is done once for DAG files and once for Dagster files, is the largest part of finding them. The look at a file's bytes runs at about 20 GB/s on a megabyte of source (`cargo bench --bench core scan`).

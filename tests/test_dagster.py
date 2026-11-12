@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import copy
+import json
+import pickle
 import shutil
+import subprocess
+import sys
 import textwrap
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -183,6 +190,64 @@ def test_round_trip() -> None:
 
     parsed = parse_file(FIXTURE)
     assert DagsterFile.from_dict(parsed.to_dict()) == parsed
+    assert DagsterFile.from_dict(json.loads(json.dumps(parsed.to_dict()))) == parsed
+
+
+def test_a_syntax_error_names_its_line_and_a_missing_file_raises(tmp_path: Path) -> None:
+    path = tmp_path / 'broken.py'
+    path.write_text('from dagster import asset\n@asset\ndef a(:\n    pass\n')
+    with pytest.raises(SyntaxError) as raised:
+        parse_file(path)
+    assert raised.value.filename == str(path) and raised.value.lineno == 3
+    with pytest.raises(FileNotFoundError):
+        parse_file(tmp_path / 'missing.py')
+
+
+def test_calls_are_visited_breadth_first_as_ast_walk_visits_them(tmp_path: Path) -> None:
+    """Calls assigned to a name come first, then the others by their depth in the tree and, at the
+    same depth, their place in it."""
+    parsed = parse_source(
+        tmp_path / 'x.py',
+        textwrap.dedent(
+            """
+            from dagster import define_asset_job
+
+            def f(a=define_asset_job("in_default")):
+                return [define_asset_job("in_return")]
+
+            first = define_asset_job("module_level")
+            wrapped = [define_asset_job("in_list")]
+            """
+        ),
+    )
+    assert [job.name for job in parsed.jobs] == ['module_level', 'in_default', 'in_list', 'in_return']
+
+
+def test_records_are_edited_in_place_like_dataclasses(tmp_path: Path) -> None:
+    parsed = parse_file(FIXTURE)
+    asset = parsed.assets[0]
+    assert asset is parsed.assets[0] and asset.deps is asset.deps
+    asset.deps.append('extra')
+    asset.group = 'moved'
+    assert parsed.assets[0].deps[-1] == 'extra' and parsed.assets[0].group == 'moved'
+    assert 'AssetInfo(key=' in repr(asset)
+
+
+def test_files_are_read_from_many_threads_at_once() -> None:
+    expected = parse_file(FIXTURE).to_dict()
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _: parse_file(FIXTURE).to_dict(), range(64)))
+    assert all(result == expected for result in results)
+
+
+@pytest.mark.parametrize(
+    'body',
+    ['x = ' + '-' * 200_000 + '1', 'x = ' + ' + '.join(['1'] * 20_000)],
+    ids=['minus', 'sum'],
+)
+def test_nesting_too_deep_to_read_is_a_syntax_error(tmp_path: Path, body: str) -> None:
+    with pytest.raises(SyntaxError):
+        parse_source(tmp_path / 'x.py', 'from dagster import asset\n' + body + '\n')
 
 
 @pytest.mark.dbt
@@ -462,3 +527,70 @@ def test_dagster_in_the_build(tmp_path: Path) -> None:
         'lake/report',
     }
     assert project.describe('lake/daily').node.kind == 'task'
+
+
+def test_folding_values_that_double_is_capped(tmp_path: Path) -> None:
+    source = tmp_path / 'doubling.py'
+    source.write_text(
+        'from dagster import asset\ns = "x"\n'
+        + 's = s + s\n' * 40
+        + 'l = ["a"]\n'
+        + 'l = l + l\n' * 40
+        + 'n = ["a"]\n'
+        + 'n = [n, n]\n' * 40
+        + '@asset(description=s, kinds=l, deps=n)\ndef a(): pass\n@asset(description="ok")\ndef b(): pass\n'
+    )
+    code = (
+        'import sys; from konstruct.inputs.dagster import parse_file\n'
+        'print([(a.key, a.description) for a in parse_file(sys.argv[1]).assets])'
+    )
+    started = time.perf_counter()
+    done = subprocess.run([sys.executable, '-c', code, str(source)], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr[-300:]
+    assert done.stdout.strip() == "[('a', None), ('b', 'ok')]"
+    assert time.perf_counter() - started < 5
+
+
+def test_records_copy_and_pickle_like_dataclasses() -> None:
+    parsed = parse_file(FIXTURE)
+    records = [parsed, parsed.assets[0], parsed.jobs[0], parsed.ops[0], parsed.sensors[0]]
+    records.append(next(j for j in parsed.jobs if j.ops).ops[0])
+    for record in records:
+        assert copy.copy(record) == record
+        assert copy.deepcopy(record) == record
+        assert pickle.loads(pickle.dumps(record)) == record
+    assert copy.deepcopy(parsed).assets[0] is not parsed.assets[0]
+
+
+def test_the_tables_the_reader_is_built_from_are_still_there() -> None:
+    from konstruct.inputs import dagster
+
+    assert (
+        frozenset({'asset', 'multi_asset', 'graph_asset', 'observable_source_asset'})
+        == dagster.ASSET_DECORATORS
+    )
+    assert frozenset({'execute', 'sql', 'query', 'run_query', 'executescript'}) == dagster.SQL_METHODS
+    assert (
+        frozenset({'sensor', 'asset_sensor', 'multi_asset_sensor', 'run_status_sensor', 'run_failure_sensor'})
+        == dagster.SENSOR_DECORATORS
+    )
+    assert frozenset({'alias', 'tag', 'with_hooks', 'with_retry_policy', 'configured'}) == dagster.OP_WRAPPERS
+
+
+def test_long_lists_of_ternaries_and_lambdas_are_read(tmp_path: Path) -> None:
+    ternaries = ''.join(f"    {{'id': {i}, 'v': 1 if a else 2}},\n" for i in range(6000))
+    lambdas = ''.join(f'    lambda: {i},\n' for i in range(6000))
+    parsed = parse_source(
+        tmp_path / 'x.py',
+        'from dagster import asset\nCONFIG = [\n'
+        + ternaries
+        + ']\nHOOKS = [\n'
+        + lambdas
+        + ']\n@asset\ndef a(): pass\n',
+    )
+    assert [a.key for a in parsed.assets] == ['a']
+
+
+def test_indentation_errors_are_indentation_errors(tmp_path: Path) -> None:
+    with pytest.raises(IndentationError):
+        parse_source(tmp_path / 'x.py', 'from dagster import asset\n@asset\ndef a():\nreturn 1\n')

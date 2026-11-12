@@ -1,6 +1,7 @@
-"""Fuzz the readers of Airflow, Dagster and PySpark files, which parse Python with ``ast`` and
-never run it: for any text, each reads it or reports that it cannot (a SyntaxError from the
-Airflow and Dagster readers, a problem from the PySpark one), and nothing else escapes.
+"""Fuzz the readers of Airflow, Dagster and PySpark files, which read Python as a syntax tree and
+never run it (the first two are native code, the third uses ``ast``): for any text, each reads it
+or reports that it cannot (a SyntaxError from the Airflow and Dagster readers, a problem from the
+PySpark one), and nothing else escapes.
 
 Run with ``uv run --with atheris python tests/fuzz_targets/fuzz_python.py -max_total_time=60``; see
 docs/development.md.

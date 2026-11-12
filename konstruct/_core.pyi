@@ -246,6 +246,12 @@ GROUP: str
 a Cosmos task, the keyword arguments that hold SQL or name tables, the dbt commands it reads, and
 the marks it puts in ids."""
 
+ASSET_DECORATORS: frozenset[str]
+SQL_METHODS: frozenset[str]
+SENSOR_DECORATORS: frozenset[str]
+OP_WRAPPERS: frozenset[str]
+"""The tables the Dagster reader is built from."""
+
 class DbtInvocation:
     """One ``dbt <command>`` that an Airflow task runs, and what it selects."""
 
@@ -348,6 +354,164 @@ def parse_dag_source(path: str | PathLike[str], source: str) -> list[DagInfo]:
 
 def parse_dbt_commands(command: str) -> list[DbtInvocation]:
     """The ``dbt <command>`` invocations in a shell command, with their selection flags."""
+
+class AssetInfo:
+    """A Dagster asset, or a dbt selection that builds many (``dbt_select`` is set for it)."""
+
+    key: str
+    function: str
+    line: int
+    group: str | None
+    description: str | None
+    deps: list[str]
+    sql: str | None
+    kinds: list[str]
+    dbt_select: list[str] | None
+    dbt_exclude: list[str]
+    def __init__(
+        self,
+        key: str,
+        function: str,
+        line: int,
+        group: str | None = None,
+        description: str | None = None,
+        deps: list[str] | None = None,
+        sql: str | None = None,
+        kinds: list[str] | None = None,
+        dbt_select: list[str] | None = None,
+        dbt_exclude: list[str] | None = None,
+    ) -> None: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self: ...
+    def __reduce__(self) -> tuple[Any, ...]: ...
+
+class OpInfo:
+    """An ``@op`` definition. It runs once per invocation in a job; see ``OpCall``."""
+
+    name: str
+    function: str
+    line: int
+    description: str | None
+    sql: str | None
+    kinds: list[str]
+    dbt_commands: list[str]
+    def __init__(
+        self,
+        name: str,
+        function: str,
+        line: int,
+        description: str | None = None,
+        sql: str | None = None,
+        kinds: list[str] | None = None,
+        dbt_commands: list[str] | None = None,
+    ) -> None: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self: ...
+    def __reduce__(self) -> tuple[Any, ...]: ...
+
+class OpCall:
+    """One invocation of an op in a job, by its handle, and the handles it takes inputs from."""
+
+    handle: str
+    op: str
+    upstream: list[str]
+    def __init__(self, handle: str, op: str, upstream: list[str] | None = None) -> None: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self: ...
+    def __reduce__(self) -> tuple[Any, ...]: ...
+
+class JobInfo:
+    """A Dagster job: the assets it selects, or (``ops``) the op invocations it runs."""
+
+    name: str
+    line: int
+    selection: list[str]
+    schedule: str | None
+    description: str | None
+    ops: list[OpCall]
+    def __init__(
+        self,
+        name: str,
+        line: int,
+        selection: list[str] | None = None,
+        schedule: str | None = None,
+        description: str | None = None,
+        ops: list[OpCall] | None = None,
+    ) -> None: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self: ...
+    def __reduce__(self) -> tuple[Any, ...]: ...
+
+class SensorInfo:
+    """A Dagster sensor: the jobs it starts, the assets it watches and, for run status sensors,
+    the jobs whose runs it watches."""
+
+    name: str
+    kind: str
+    line: int
+    jobs: list[str]
+    assets: list[str]
+    monitored_jobs: list[str]
+    status: str | None
+    description: str | None
+    def __init__(
+        self,
+        name: str,
+        kind: str,
+        line: int,
+        jobs: list[str] | None = None,
+        assets: list[str] | None = None,
+        monitored_jobs: list[str] | None = None,
+        status: str | None = None,
+        description: str | None = None,
+    ) -> None: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self: ...
+    def __reduce__(self) -> tuple[Any, ...]: ...
+
+class DagsterFile:
+    """What one Dagster file declares."""
+
+    path: str
+    assets: list[AssetInfo]
+    jobs: list[JobInfo]
+    warnings: list[str]
+    ops: list[OpInfo]
+    sensors: list[SensorInfo]
+    def __init__(
+        self,
+        path: str,
+        assets: list[AssetInfo] | None = None,
+        jobs: list[JobInfo] | None = None,
+        warnings: list[str] | None = None,
+        ops: list[OpInfo] | None = None,
+        sensors: list[SensorInfo] | None = None,
+    ) -> None: ...
+    def to_dict(self) -> dict[str, Any]:
+        """The record as plain dicts and lists."""
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DagsterFile:
+        """The record ``to_dict`` describes."""
+    def __eq__(self, other: object) -> bool: ...
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self: ...
+    def __reduce__(self) -> tuple[Any, ...]: ...
+
+def looks_like_dagster_file(text: str) -> bool:
+    """Whether ``text`` looks like the file of Dagster definitions: it mentions Dagster and one of
+    the decorators or calls that declare them."""
+
+def parse_dagster_file(path: str | PathLike[str]) -> DagsterFile:
+    """The assets, jobs, ops and sensors of a Dagster file, read without importing or running it.
+    Raises ``SyntaxError`` for text that is not Python, or is nested too deeply to read."""
+
+def parse_dagster_source(path: str | PathLike[str], source: str) -> DagsterFile:
+    """The definitions of Python ``source``, read as if it were the file at ``path``."""
 
 def scan_python_files(paths: Sequence[str | PathLike[str]]) -> list[tuple[bool, bool]]:
     """For each path, whether the file looks like an Airflow DAG file and whether it looks like a

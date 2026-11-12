@@ -590,6 +590,11 @@ mod core_module {
         parse_dbt_commands,
     };
     #[pymodule_export]
+    use crate::dagster::python::{
+        AssetInfo, DagsterFile, JobInfo, OpCall, OpInfo, SensorInfo, looks_like_dagster_file,
+        parse_dagster_file, parse_dagster_source,
+    };
+    #[pymodule_export]
     use crate::identity::python::FormulaSet;
     #[pymodule_export]
     use crate::load::python::GraphFile;
@@ -604,6 +609,7 @@ mod core_module {
         if let Some(reason) = crate::unsupported_processor() {
             return Err(PyImportError::new_err(reason));
         }
-        crate::airflow::python::add_tables(module)
+        crate::airflow::python::add_tables(module)?;
+        crate::dagster::python::add_tables(module)
     }
 }

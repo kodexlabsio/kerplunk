@@ -5,8 +5,8 @@ description: Add a new input to Konstruct, such as an orchestrator, a warehouse 
 
 # Adding an input
 
-1. **Parse without executing.** Orchestrator files are read with `ast` (see
-   `konstruct/inputs/airflow.py`, `konstruct/inputs/dagster.py`); file formats with a safe parser
+1. **Parse without executing.** Orchestrator files are read as syntax trees by the Rust core (see
+   `src/airflow/`, `src/dagster/` and `src/pysyntax/`); file formats with a safe parser
    reporting `path:line: message` problems (see `konstruct/semantics/definitions.py`). Warehouses
    read metadata only (see `konstruct/inputs/warehouse.py`; cloud drivers are optional extras
    raising `MissingDriver`).
