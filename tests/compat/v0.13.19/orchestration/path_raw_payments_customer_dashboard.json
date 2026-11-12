@@ -1,0 +1,61 @@
+{
+ "format_version": 1,
+ "from": {
+  "id": "seed.jaffle_shop.raw_payments",
+  "kind": "seed",
+  "label": "raw_payments",
+  "name": "raw_payments",
+  "path": "seeds/raw_payments.csv"
+ },
+ "to": {
+  "id": "exposure.jaffle_shop.customer_dashboard",
+  "kind": "exposure",
+  "label": "customer_dashboard",
+  "name": "customer_dashboard",
+  "path": "models/exposures.yml",
+  "description": "Weekly view of customers, their orders and lifetime value."
+ },
+ "found": true,
+ "steps": [
+  {
+   "id": "seed.jaffle_shop.raw_payments",
+   "kind": "seed",
+   "label": "raw_payments",
+   "name": "raw_payments",
+   "path": "seeds/raw_payments.csv",
+   "depth": 0
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments",
+   "kind": "model",
+   "label": "stg_payments",
+   "name": "stg_payments",
+   "path": "models/staging/stg_payments.sql",
+   "depth": 1,
+   "via": "feeds",
+   "direction": "forward"
+  },
+  {
+   "id": "model.jaffle_shop.customers",
+   "kind": "model",
+   "label": "customers",
+   "name": "customers",
+   "path": "models/customers.sql",
+   "description": "This table has basic information about a customer, as well as some derived facts based on a customer's orders",
+   "depth": 2,
+   "via": "feeds",
+   "direction": "forward"
+  },
+  {
+   "id": "exposure.jaffle_shop.customer_dashboard",
+   "kind": "exposure",
+   "label": "customer_dashboard",
+   "name": "customer_dashboard",
+   "path": "models/exposures.yml",
+   "description": "Weekly view of customers, their orders and lifetime value.",
+   "depth": 3,
+   "via": "feeds",
+   "direction": "forward"
+  }
+ ]
+}

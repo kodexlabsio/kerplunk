@@ -1,0 +1,4708 @@
+{
+ "format_version": 1,
+ "meta": {
+  "konstruct_version": "0.13.19",
+  "root": "<root>",
+  "overviews": {
+   "jaffle_shop": "## Data Documentation for Jaffle Shop\n\n`jaffle_shop` is a fictional ecommerce store.\n\nThis [dbt](https://www.getdbt.com/) project is for testing out code.\n\nThe source code can be found [here](https://github.com/dbt-labs/jaffle_shop_duckdb)."
+  },
+  "dialect": "duckdb",
+  "default_catalog": "jaffle_shop",
+  "default_schema": "main",
+  "inputs": {
+   "dbt_projects": 1,
+   "warehouses": 1,
+   "dbt_models": 5,
+   "airflow_dags": 6,
+   "dagster_assets": 6,
+   "dagster_ops": 7,
+   "sql_files": 0,
+   "definitions": 6
+  },
+  "sources": [
+   {
+    "input": "dbt",
+    "name": "jaffle_shop",
+    "path": ".",
+    "note": "ran dbt docs generate",
+    "detail": "5 models, 3 seeds, 24 tests, 1 exposure"
+   },
+   {
+    "input": "duckdb",
+    "name": "duckdb jaffle_shop.duckdb",
+    "detail": "9 relations",
+    "note": "dbt profile jaffle_shop"
+   },
+   {
+    "input": "airflow",
+    "path": "dags/assigned.py",
+    "detail": "2 DAGs, 3 tasks"
+   },
+   {
+    "input": "airflow",
+    "path": "dags/dependencies.py",
+    "detail": "1 DAG, 7 tasks"
+   },
+   {
+    "input": "airflow",
+    "path": "dags/groups.py",
+    "detail": "1 DAG, 4 tasks"
+   },
+   {
+    "input": "airflow",
+    "path": "dags/jaffle_shop_daily.py",
+    "detail": "1 DAG, 6 tasks"
+   },
+   {
+    "input": "airflow",
+    "path": "dags/taskflow.py",
+    "detail": "1 DAG, 4 tasks"
+   },
+   {
+    "input": "dagster",
+    "path": "orchestration/definitions.py",
+    "detail": "6 assets, 4 ops, 3 jobs, 3 sensors"
+   },
+   {
+    "input": "definitions",
+    "path": "definitions.yml",
+    "detail": "6 terms"
+   }
+  ],
+  "watched": [
+   "dags/assigned.py",
+   "dags/dependencies.py",
+   "dags/groups.py",
+   "dags/jaffle_shop_daily.py",
+   "dags/sql/customer_ltv.sql",
+   "dags/taskflow.py",
+   "dbt_project.yml",
+   "definitions.yml",
+   "models",
+   "orchestration/definitions.py",
+   "profiles.yml",
+   "seeds",
+   "target/catalog.json",
+   "target/manifest.json"
+  ],
+  "watched_files": [
+   {
+    "path": "dags/assigned.py",
+    "size": 838,
+    "mtime_ns": 1794456159807840893,
+    "ctime_ns": 1794456174137536071,
+    "device": 65024,
+    "inode": 1052614
+   },
+   {
+    "path": "dags/dependencies.py",
+    "size": 631,
+    "mtime_ns": 1794456159807916042,
+    "ctime_ns": 1794456174137329399,
+    "device": 65024,
+    "inode": 1052611
+   },
+   {
+    "path": "dags/groups.py",
+    "size": 549,
+    "mtime_ns": 1794456159807979192,
+    "ctime_ns": 1794456174137242265,
+    "device": 65024,
+    "inode": 1052610
+   },
+   {
+    "path": "dags/jaffle_shop_daily.py",
+    "size": 1291,
+    "mtime_ns": 1794428680213971220,
+    "ctime_ns": 1794456174137624104,
+    "device": 65024,
+    "inode": 1052615
+   },
+   {
+    "path": "dags/sql/customer_ltv.sql",
+    "size": 346,
+    "mtime_ns": 1794428680214186679,
+    "ctime_ns": 1794456174137151927,
+    "device": 65024,
+    "inode": 1052609
+   },
+   {
+    "path": "dags/taskflow.py",
+    "size": 634,
+    "mtime_ns": 1794456159808040434,
+    "ctime_ns": 1794456174137437387,
+    "device": 65024,
+    "inode": 1052613
+   },
+   {
+    "path": "dbt_project.yml",
+    "size": 540,
+    "mtime_ns": 1794428680214186679,
+    "ctime_ns": 1794456174140159200,
+    "device": 65024,
+    "inode": 1052635
+   },
+   {
+    "path": "definitions.yml",
+    "size": 2238,
+    "mtime_ns": 1794439827495935772,
+    "ctime_ns": 1794456174139251589,
+    "device": 65024,
+    "inode": 1052633
+   },
+   {
+    "path": "models/customers.sql",
+    "size": 1195,
+    "mtime_ns": 1794428680214186679,
+    "ctime_ns": 1794456174138039226,
+    "device": 65024,
+    "inode": 1052619
+   },
+   {
+    "path": "models/docs.md",
+    "size": 1068,
+    "mtime_ns": 1794428680214433730,
+    "ctime_ns": 1794456174137889228,
+    "device": 65024,
+    "inode": 1052618
+   },
+   {
+    "path": "models/exposures.yml",
+    "size": 295,
+    "mtime_ns": 1794428680214433730,
+    "ctime_ns": 1794456174138828955,
+    "device": 65024,
+    "inode": 1052628
+   },
+   {
+    "path": "models/orders.sql",
+    "size": 970,
+    "mtime_ns": 1794428680214433730,
+    "ctime_ns": 1794456174137799276,
+    "device": 65024,
+    "inode": 1052617
+   },
+   {
+    "path": "models/overview.md",
+    "size": 281,
+    "mtime_ns": 1794428680214433730,
+    "ctime_ns": 1794456174138741958,
+    "device": 65024,
+    "inode": 1052626
+   },
+   {
+    "path": "models/schema.yml",
+    "size": 2367,
+    "mtime_ns": 1794428680214433730,
+    "ctime_ns": 1794456174138171858,
+    "device": 65024,
+    "inode": 1052620
+   },
+   {
+    "path": "models/staging/schema.yml",
+    "size": 1096,
+    "mtime_ns": 1794428680214433730,
+    "ctime_ns": 1794456174138461706,
+    "device": 65024,
+    "inode": 1052623
+   },
+   {
+    "path": "models/staging/stg_customers.sql",
+    "size": 326,
+    "mtime_ns": 1794428680214746517,
+    "ctime_ns": 1794456174138554920,
+    "device": 65024,
+    "inode": 1052624
+   },
+   {
+    "path": "models/staging/stg_orders.sql",
+    "size": 349,
+    "mtime_ns": 1794428680214746517,
+    "ctime_ns": 1794456174138645758,
+    "device": 65024,
+    "inode": 1052625
+   },
+   {
+    "path": "models/staging/stg_payments.sql",
+    "size": 438,
+    "mtime_ns": 1794428680214746517,
+    "ctime_ns": 1794456174138344699,
+    "device": 65024,
+    "inode": 1052622
+   },
+   {
+    "path": "orchestration/definitions.py",
+    "size": 4505,
+    "mtime_ns": 1794456159807316903,
+    "ctime_ns": 1794456174136706629,
+    "device": 65024,
+    "inode": 1052604
+   },
+   {
+    "path": "profiles.yml",
+    "size": 118,
+    "mtime_ns": 1794428680214746517,
+    "ctime_ns": 1794456174136496271,
+    "device": 65024,
+    "inode": 1052602
+   },
+   {
+    "path": "seeds/raw_customers.csv",
+    "size": 1302,
+    "mtime_ns": 1794428680214746517,
+    "ctime_ns": 1794456174139086698,
+    "device": 65024,
+    "inode": 1052631
+   },
+   {
+    "path": "seeds/raw_orders.csv",
+    "size": 2723,
+    "mtime_ns": 1794428680214976523,
+    "ctime_ns": 1794456174139167580,
+    "device": 65024,
+    "inode": 1052632
+   },
+   {
+    "path": "seeds/raw_payments.csv",
+    "size": 2560,
+    "mtime_ns": 1794428680214976523,
+    "ctime_ns": 1794456174139006392,
+    "device": 65024,
+    "inode": 1052630
+   },
+   {
+    "path": "target/catalog.json",
+    "size": 6776,
+    "mtime_ns": 1794456180829944355,
+    "ctime_ns": 1794456180829944355,
+    "device": 65024,
+    "inode": 1058885
+   },
+   {
+    "path": "target/manifest.json",
+    "size": 715027,
+    "mtime_ns": 1794456180888520615,
+    "ctime_ns": 1794456180888520615,
+    "device": 65024,
+    "inode": 1058829
+   }
+  ],
+  "watched_siblings": [
+   {
+    "root": ".",
+    "folder": ".",
+    "extension": ".yml",
+    "test": "definitions",
+    "patterns": [],
+    "exclude": [],
+    "digest": "27e1aed7544ae57f",
+    "names": [
+     "dbt_project.yml",
+     "definitions.yml",
+     "profiles.yml"
+    ],
+    "found": [
+     "1b218a31352f31f6",
+     "8170ff8151116b76",
+     "e811aba806bd3cca"
+    ]
+   },
+   {
+    "root": ".",
+    "folder": "dags",
+    "extension": ".py",
+    "test": "airflow",
+    "patterns": [],
+    "exclude": [],
+    "digest": "77d96159fbc5a3b5",
+    "names": [
+     "assigned.py",
+     "dependencies.py",
+     "groups.py",
+     "jaffle_shop_daily.py",
+     "taskflow.py"
+    ],
+    "found": [
+     "9ad4884239fe66e7",
+     "df234da8050477d5",
+     "92b6cf434d88dc5e",
+     "a9d1fe6c0dd9583b",
+     "c871b651008812bb"
+    ]
+   },
+   {
+    "root": ".",
+    "folder": "dags/sql",
+    "extension": ".sql",
+    "test": "any",
+    "patterns": [],
+    "exclude": [],
+    "digest": "4bebd8f88a9f1708",
+    "names": [
+     "customer_ltv.sql"
+    ],
+    "found": [
+     "bc4e1b2b74704bde"
+    ]
+   },
+   {
+    "root": ".",
+    "folder": "orchestration",
+    "extension": ".py",
+    "test": "dagster",
+    "patterns": [],
+    "exclude": [],
+    "digest": "dd5eb31d072fc600",
+    "names": [
+     "definitions.py"
+    ],
+    "found": [
+     "b96e2ad837921859"
+    ]
+   }
+  ]
+ },
+ "nodes": [
+  {
+   "id": "dag.archive_orders",
+   "kind": "dag",
+   "name": "archive_orders",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "schedule": "0 2 * * *",
+    "orchestrator": "dagster",
+    "line": 116,
+    "sensors": [
+     "ltv_refreshed on asset reporting/customer_ltv"
+    ]
+   }
+  },
+  {
+   "id": "dag.dependencies",
+   "kind": "dag",
+   "name": "dependencies",
+   "path": "dags/dependencies.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "line": 8
+   }
+  },
+  {
+   "id": "dag.everything",
+   "kind": "dag",
+   "name": "everything",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "orchestrator": "dagster",
+    "line": 73,
+    "sensors": [
+     "after_archive on job archive_orders (success)",
+     "archive_failed on job archive_orders (failure)"
+    ]
+   }
+  },
+  {
+   "id": "dag.first",
+   "kind": "dag",
+   "name": "first",
+   "path": "dags/assigned.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "schedule": "0 3 * * *",
+    "line": 10
+   }
+  },
+  {
+   "id": "dag.grouped",
+   "kind": "dag",
+   "name": "grouped",
+   "path": "dags/groups.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "line": 8
+   }
+  },
+  {
+   "id": "dag.jaffle_shop_daily",
+   "kind": "dag",
+   "name": "jaffle_shop_daily",
+   "description": "Daily jaffle_shop run: load seeds, build the dbt models, test them, then refresh reporting.",
+   "path": "dags/jaffle_shop_daily.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "schedule": "@daily",
+    "tags": [
+     "jaffle_shop"
+    ],
+    "line": 11
+   }
+  },
+  {
+   "id": "dag.reporting_job",
+   "kind": "dag",
+   "name": "reporting_job",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "schedule": "0 6 * * *",
+    "orchestrator": "dagster",
+    "line": 72
+   }
+  },
+  {
+   "id": "dag.second",
+   "kind": "dag",
+   "name": "second",
+   "path": "dags/assigned.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "line": 11
+   }
+  },
+  {
+   "id": "dag.taskflow_pipeline",
+   "kind": "dag",
+   "name": "taskflow_pipeline",
+   "path": "dags/taskflow.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "tags": [
+     "etl"
+    ],
+    "line": 9
+   }
+  },
+  {
+   "id": "exposure.jaffle_shop.customer_dashboard",
+   "kind": "exposure",
+   "name": "customer_dashboard",
+   "description": "Weekly view of customers, their orders and lifetime value.",
+   "path": "models/exposures.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "type": "dashboard",
+    "label": "Customer dashboard",
+    "maturity": "medium",
+    "owner": "Analytics"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers",
+   "kind": "model",
+   "name": "customers",
+   "relation": "jaffle_shop.main.customers",
+   "description": "This table has basic information about a customer, as well as some derived facts based on a customer's orders",
+   "path": "models/customers.sql",
+   "origins": [
+    "airflow",
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "customers"
+    ],
+    "materialized": "table",
+    "tags": [],
+    "dbt_name": "customers",
+    "checksum": "bca921cdf53692cbf7922e8044bb47df3d0cedd21afc25b37193db6291962b71",
+    "table_type": "table",
+    "in_warehouse": true,
+    "conditions": [
+     "GROUP BY: jaffle_shop.main.\"stg_orders#1/1\".customer_id",
+     "GROUP BY: jaffle_shop.main.\"stg_orders#1/2\".customer_id",
+     "LEFT JOIN ON: jaffle_shop.main.stg_customers.customer_id = jaffle_shop.main.\"stg_orders#1/1\".customer_id",
+     "LEFT JOIN ON: jaffle_shop.main.stg_customers.customer_id = jaffle_shop.main.\"stg_orders#1/2\".customer_id",
+     "LEFT JOIN ON: jaffle_shop.main.stg_payments.order_id = jaffle_shop.main.\"stg_orders#1/1\".order_id"
+    ],
+    "nullable": {
+     "jaffle_shop.main.stg_payments": "LEFT",
+     "jaffle_shop.main.stg_orders": "LEFT"
+    },
+    "entities": [
+     "customer"
+    ]
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#customer_id",
+   "kind": "column",
+   "name": "customer_id",
+   "parent": "model.jaffle_shop.customers",
+   "description": "This is a unique identifier for a customer",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.stg_customers.customer_id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#customer_lifetime_value",
+   "kind": "column",
+   "name": "customer_lifetime_value",
+   "parent": "model.jaffle_shop.customers",
+   "data_type": "DOUBLE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "SUM(jaffle_shop.main.stg_payments.amount)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#first_name",
+   "kind": "column",
+   "name": "first_name",
+   "parent": "model.jaffle_shop.customers",
+   "description": "Customer's first name. PII.",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.stg_customers.first_name"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#first_order",
+   "kind": "column",
+   "name": "first_order",
+   "parent": "model.jaffle_shop.customers",
+   "description": "Date (UTC) of a customer's first order",
+   "data_type": "DATE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "MIN(jaffle_shop.main.\"stg_orders#1/2\".order_date)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#last_name",
+   "kind": "column",
+   "name": "last_name",
+   "parent": "model.jaffle_shop.customers",
+   "description": "Customer's last name. PII.",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.stg_customers.last_name"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#most_recent_order",
+   "kind": "column",
+   "name": "most_recent_order",
+   "parent": "model.jaffle_shop.customers",
+   "description": "Date (UTC) of a customer's most recent order",
+   "data_type": "DATE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "MAX(jaffle_shop.main.\"stg_orders#1/2\".order_date)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#number_of_orders",
+   "kind": "column",
+   "name": "number_of_orders",
+   "parent": "model.jaffle_shop.customers",
+   "description": "Count of the number of orders a customer has placed",
+   "data_type": "BIGINT",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "COUNT(jaffle_shop.main.\"stg_orders#1/2\".order_id)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.customers#total_order_amount",
+   "kind": "column",
+   "name": "total_order_amount",
+   "parent": "model.jaffle_shop.customers",
+   "description": "Total value (AUD) of a customer's orders",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "documented_only": true
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders",
+   "kind": "model",
+   "name": "orders",
+   "relation": "jaffle_shop.main.orders",
+   "description": "This table has basic information about orders, as well as some derived facts based on payments",
+   "path": "models/orders.sql",
+   "origins": [
+    "airflow",
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "orders"
+    ],
+    "materialized": "table",
+    "tags": [],
+    "dbt_name": "orders",
+    "checksum": "60c17722f35983a7948bd24f39bec8509719babcfe50316750c1a63eaebd4995",
+    "table_type": "table",
+    "in_warehouse": true,
+    "conditions": [
+     "GROUP BY: jaffle_shop.main.stg_payments.order_id",
+     "LEFT JOIN ON: jaffle_shop.main.stg_orders.order_id = jaffle_shop.main.stg_payments.order_id"
+    ],
+    "nullable": {
+     "jaffle_shop.main.stg_payments": "LEFT"
+    },
+    "entities": [
+     "order"
+    ]
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#amount",
+   "kind": "column",
+   "name": "amount",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Total amount (AUD) of the order",
+   "data_type": "DOUBLE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "SUM(jaffle_shop.main.stg_payments.amount)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#bank_transfer_amount",
+   "kind": "column",
+   "name": "bank_transfer_amount",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Amount of the order (AUD) paid for by bank transfer",
+   "data_type": "DOUBLE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "SUM(CASE WHEN jaffle_shop.main.stg_payments.payment_method = 'bank_transfer' THEN jaffle_shop.main.stg_payments.amount ELSE 0 END)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#coupon_amount",
+   "kind": "column",
+   "name": "coupon_amount",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Amount of the order (AUD) paid for by coupon",
+   "data_type": "DOUBLE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "SUM(CASE WHEN jaffle_shop.main.stg_payments.payment_method = 'coupon' THEN jaffle_shop.main.stg_payments.amount ELSE 0 END)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#credit_card_amount",
+   "kind": "column",
+   "name": "credit_card_amount",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Amount of the order (AUD) paid for by credit card",
+   "data_type": "DOUBLE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "SUM(CASE WHEN jaffle_shop.main.stg_payments.payment_method = 'credit_card' THEN jaffle_shop.main.stg_payments.amount ELSE 0 END)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#customer_id",
+   "kind": "column",
+   "name": "customer_id",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Foreign key to the customers table",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.stg_orders.customer_id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#gift_card_amount",
+   "kind": "column",
+   "name": "gift_card_amount",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Amount of the order (AUD) paid for by gift card",
+   "data_type": "DOUBLE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "SUM(CASE WHEN jaffle_shop.main.stg_payments.payment_method = 'gift_card' THEN jaffle_shop.main.stg_payments.amount ELSE 0 END)"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#order_date",
+   "kind": "column",
+   "name": "order_date",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Date (UTC) that the order was placed",
+   "data_type": "DATE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.stg_orders.order_date"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#order_id",
+   "kind": "column",
+   "name": "order_id",
+   "parent": "model.jaffle_shop.orders",
+   "description": "This is a unique identifier for an order",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.stg_orders.order_id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.orders#status",
+   "kind": "column",
+   "name": "status",
+   "parent": "model.jaffle_shop.orders",
+   "description": "Orders can be one of the following statuses:\n\n| status         | description                                                                                                            |\n|----------------|------------------------------------------------------------------------------------------------------------------------|\n| placed         | The order has been placed but has not yet left the warehouse                                                           |\n| shipped        | The order has ben shipped to the customer and is currently in transit                                                  |\n| completed      | The order has been received by the customer                                                                            |\n| return_pending | The customer has indicated that they would like to return the order, but it has not yet been received at the warehouse |\n| returned       | The order has been returned by the customer and received at the warehouse                                              |",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.stg_orders.status"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_customers",
+   "kind": "model",
+   "name": "stg_customers",
+   "relation": "jaffle_shop.main.stg_customers",
+   "path": "models/staging/stg_customers.sql",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "staging",
+     "stg_customers"
+    ],
+    "materialized": "view",
+    "tags": [],
+    "dbt_name": "stg_customers",
+    "checksum": "3725e5b3ea920a683f86eff94c164cc14a764fdcc29d3cb2d2cde5f728caad20",
+    "table_type": "view",
+    "in_warehouse": true,
+    "entities": [
+     "customer"
+    ]
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_customers#customer_id",
+   "kind": "column",
+   "name": "customer_id",
+   "parent": "model.jaffle_shop.stg_customers",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_customers.id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_customers#first_name",
+   "kind": "column",
+   "name": "first_name",
+   "parent": "model.jaffle_shop.stg_customers",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_customers.first_name"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_customers#last_name",
+   "kind": "column",
+   "name": "last_name",
+   "parent": "model.jaffle_shop.stg_customers",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_customers.last_name"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders",
+   "kind": "model",
+   "name": "stg_orders",
+   "relation": "jaffle_shop.main.stg_orders",
+   "path": "models/staging/stg_orders.sql",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "staging",
+     "stg_orders"
+    ],
+    "materialized": "view",
+    "tags": [],
+    "dbt_name": "stg_orders",
+    "checksum": "ad8a5c6db10184816bf2c01a4cb5fb765b170135624ca2e6b3d4863923947d42",
+    "table_type": "view",
+    "in_warehouse": true,
+    "entities": [
+     "order"
+    ]
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders#customer_id",
+   "kind": "column",
+   "name": "customer_id",
+   "parent": "model.jaffle_shop.stg_orders",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_orders.user_id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders#order_date",
+   "kind": "column",
+   "name": "order_date",
+   "parent": "model.jaffle_shop.stg_orders",
+   "data_type": "DATE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_orders.order_date"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "column",
+   "name": "order_id",
+   "parent": "model.jaffle_shop.stg_orders",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_orders.id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_orders#status",
+   "kind": "column",
+   "name": "status",
+   "parent": "model.jaffle_shop.stg_orders",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_orders.status"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments",
+   "kind": "model",
+   "name": "stg_payments",
+   "relation": "jaffle_shop.main.stg_payments",
+   "path": "models/staging/stg_payments.sql",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "staging",
+     "stg_payments"
+    ],
+    "materialized": "view",
+    "tags": [],
+    "dbt_name": "stg_payments",
+    "checksum": "8a4ab0678fcb894c991a3526963caf37c810cc6f94d8e1bbd9d503c73225d3ed",
+    "table_type": "view",
+    "in_warehouse": true,
+    "entities": [
+     "payment"
+    ]
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#amount",
+   "kind": "column",
+   "name": "amount",
+   "parent": "model.jaffle_shop.stg_payments",
+   "data_type": "DOUBLE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_payments.amount / 100"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#order_id",
+   "kind": "column",
+   "name": "order_id",
+   "parent": "model.jaffle_shop.stg_payments",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_payments.order_id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#payment_id",
+   "kind": "column",
+   "name": "payment_id",
+   "parent": "model.jaffle_shop.stg_payments",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_payments.id"
+   }
+  },
+  {
+   "id": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "column",
+   "name": "payment_method",
+   "parent": "model.jaffle_shop.stg_payments",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.raw_payments.payment_method"
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_customers",
+   "kind": "seed",
+   "name": "raw_customers",
+   "relation": "jaffle_shop.main.raw_customers",
+   "path": "seeds/raw_customers.csv",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "raw_customers"
+    ],
+    "materialized": "seed",
+    "tags": [],
+    "dbt_name": "raw_customers",
+    "checksum": "357d173dda65a741ad97d6683502286cc2655bb396ab5f4dfad12b8c39bd2a63",
+    "table_type": "table",
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_customers#first_name",
+   "kind": "column",
+   "name": "first_name",
+   "parent": "seed.jaffle_shop.raw_customers",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_customers#id",
+   "kind": "column",
+   "name": "id",
+   "parent": "seed.jaffle_shop.raw_customers",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_customers#last_name",
+   "kind": "column",
+   "name": "last_name",
+   "parent": "seed.jaffle_shop.raw_customers",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders",
+   "kind": "seed",
+   "name": "raw_orders",
+   "relation": "jaffle_shop.main.raw_orders",
+   "path": "seeds/raw_orders.csv",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "raw_orders"
+    ],
+    "materialized": "seed",
+    "tags": [],
+    "dbt_name": "raw_orders",
+    "checksum": "6228dde8e17b9621f35c13e272ec67d3ff55b55499433f47d303adf2be72c17f",
+    "table_type": "table",
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders#id",
+   "kind": "column",
+   "name": "id",
+   "parent": "seed.jaffle_shop.raw_orders",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders#order_date",
+   "kind": "column",
+   "name": "order_date",
+   "parent": "seed.jaffle_shop.raw_orders",
+   "data_type": "DATE",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders#status",
+   "kind": "column",
+   "name": "status",
+   "parent": "seed.jaffle_shop.raw_orders",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_orders#user_id",
+   "kind": "column",
+   "name": "user_id",
+   "parent": "seed.jaffle_shop.raw_orders",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments",
+   "kind": "seed",
+   "name": "raw_payments",
+   "relation": "jaffle_shop.main.raw_payments",
+   "path": "seeds/raw_payments.csv",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "package": "jaffle_shop",
+    "fqn": [
+     "jaffle_shop",
+     "raw_payments"
+    ],
+    "materialized": "seed",
+    "tags": [],
+    "dbt_name": "raw_payments",
+    "checksum": "6de0626a8db9c1750eefd1b2e17fac4c2a4b9f778eb50532d8b377b90de395e6",
+    "table_type": "table",
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#amount",
+   "kind": "column",
+   "name": "amount",
+   "parent": "seed.jaffle_shop.raw_payments",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#id",
+   "kind": "column",
+   "name": "id",
+   "parent": "seed.jaffle_shop.raw_payments",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#order_id",
+   "kind": "column",
+   "name": "order_id",
+   "parent": "seed.jaffle_shop.raw_payments",
+   "data_type": "INTEGER",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "seed.jaffle_shop.raw_payments#payment_method",
+   "kind": "column",
+   "name": "payment_method",
+   "parent": "seed.jaffle_shop.raw_payments",
+   "data_type": "VARCHAR",
+   "origins": [
+    "dbt",
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true
+   }
+  },
+  {
+   "id": "table.asset:crm_export",
+   "kind": "table",
+   "name": "crm_export",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "asset": "crm_export"
+   }
+  },
+  {
+   "id": "table.asset:loyal_customers",
+   "kind": "table",
+   "name": "loyal_customers",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "asset": "loyal_customers"
+   }
+  },
+  {
+   "id": "table.asset:order_counts",
+   "kind": "table",
+   "name": "order_counts",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "asset": "order_counts"
+   }
+  },
+  {
+   "id": "table.asset:order_totals",
+   "kind": "table",
+   "name": "order_totals",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "asset": "order_totals"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.analytics.events",
+   "kind": "table",
+   "name": "events",
+   "relation": "jaffle_shop.analytics.events",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "inferred": true,
+    "star_reads": {
+     "jaffle_shop.raw.events": []
+    }
+   }
+  },
+  {
+   "id": "table.jaffle_shop.archive.daily_totals",
+   "kind": "table",
+   "name": "daily_totals",
+   "relation": "jaffle_shop.archive.daily_totals",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "inferred": true,
+    "conditions": [
+     "GROUP BY: jaffle_shop.archive.orders.order_date"
+    ]
+   }
+  },
+  {
+   "id": "table.jaffle_shop.archive.daily_totals#order_date",
+   "kind": "column",
+   "name": "order_date",
+   "parent": "table.jaffle_shop.archive.daily_totals",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "inferred": true,
+    "expression": "jaffle_shop.archive.orders.order_date"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.archive.daily_totals#total",
+   "kind": "column",
+   "name": "total",
+   "parent": "table.jaffle_shop.archive.daily_totals",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "inferred": true,
+    "expression": "SUM(jaffle_shop.archive.orders.amount)"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders",
+   "kind": "table",
+   "name": "orders",
+   "relation": "jaffle_shop.archive.orders",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "inferred": true
+   }
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders#amount",
+   "kind": "column",
+   "name": "amount",
+   "parent": "table.jaffle_shop.archive.orders",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "inferred": true,
+    "expression": "jaffle_shop.main.orders.amount"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders#customer_id",
+   "kind": "column",
+   "name": "customer_id",
+   "parent": "table.jaffle_shop.archive.orders",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "inferred": true,
+    "expression": "jaffle_shop.main.orders.customer_id"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders#order_date",
+   "kind": "column",
+   "name": "order_date",
+   "parent": "table.jaffle_shop.archive.orders",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "inferred": true,
+    "expression": "jaffle_shop.main.orders.order_date"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders#order_id",
+   "kind": "column",
+   "name": "order_id",
+   "parent": "table.jaffle_shop.archive.orders",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "inferred": true,
+    "expression": "jaffle_shop.main.orders.order_id"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.raw.events",
+   "kind": "table",
+   "name": "events",
+   "relation": "jaffle_shop.raw.events",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "inferred": true
+   }
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "table",
+   "name": "customer_ltv",
+   "relation": "jaffle_shop.reporting.customer_ltv",
+   "origins": [
+    "airflow",
+    "dagster",
+    "duckdb"
+   ],
+   "attrs": {
+    "table_type": "table",
+    "in_warehouse": true,
+    "conditions": [
+     "WHERE: jaffle_shop.main.customers.customer_lifetime_value > 0"
+    ]
+   }
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#customer_id",
+   "kind": "column",
+   "name": "customer_id",
+   "parent": "table.jaffle_shop.reporting.customer_ltv",
+   "data_type": "INTEGER",
+   "origins": [
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.customers.customer_id"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#first_name",
+   "kind": "column",
+   "name": "first_name",
+   "parent": "table.jaffle_shop.reporting.customer_ltv",
+   "data_type": "VARCHAR",
+   "origins": [
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.customers.first_name"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#lifetime_value",
+   "kind": "column",
+   "name": "lifetime_value",
+   "parent": "table.jaffle_shop.reporting.customer_ltv",
+   "data_type": "DOUBLE",
+   "origins": [
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.customers.customer_lifetime_value"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#number_of_orders",
+   "kind": "column",
+   "name": "number_of_orders",
+   "parent": "table.jaffle_shop.reporting.customer_ltv",
+   "data_type": "BIGINT",
+   "origins": [
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "jaffle_shop.main.customers.number_of_orders"
+   }
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#segment",
+   "kind": "column",
+   "name": "segment",
+   "parent": "table.jaffle_shop.reporting.customer_ltv",
+   "data_type": "VARCHAR",
+   "origins": [
+    "duckdb"
+   ],
+   "attrs": {
+    "in_warehouse": true,
+    "expression": "CASE WHEN jaffle_shop.main.customers.number_of_orders >= 3 THEN 'loyal' ELSE 'new' END"
+   }
+  },
+  {
+   "id": "task.archive_orders.archive.copy_orders",
+   "kind": "task",
+   "name": "archive.copy_orders",
+   "description": "Copy the orders model into the archive.",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "dag": "archive_orders",
+    "orchestrator": "dagster",
+    "operator": "@op",
+    "function": "copy_orders",
+    "line": 80
+   }
+  },
+  {
+   "id": "task.archive_orders.archive.total_by_day",
+   "kind": "task",
+   "name": "archive.total_by_day",
+   "description": "Order value per day, from the archive.",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "dag": "archive_orders",
+    "orchestrator": "dagster",
+    "operator": "@op",
+    "function": "summarise",
+    "line": 90
+   }
+  },
+  {
+   "id": "task.archive_orders.archive_again.copy_orders",
+   "kind": "task",
+   "name": "archive_again.copy_orders",
+   "description": "Copy the orders model into the archive.",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "dag": "archive_orders",
+    "orchestrator": "dagster",
+    "operator": "@op",
+    "function": "copy_orders",
+    "line": 80
+   }
+  },
+  {
+   "id": "task.archive_orders.archive_again.total_by_day",
+   "kind": "task",
+   "name": "archive_again.total_by_day",
+   "description": "Order value per day, from the archive.",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "dag": "archive_orders",
+    "orchestrator": "dagster",
+    "operator": "@op",
+    "function": "summarise",
+    "line": 90
+   }
+  },
+  {
+   "id": "task.archive_orders.notify",
+   "kind": "task",
+   "name": "notify",
+   "description": "Tell someone the totals are ready.",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "dag": "archive_orders",
+    "orchestrator": "dagster",
+    "operator": "@op",
+    "function": "notify",
+    "line": 100
+   }
+  },
+  {
+   "id": "task.archive_orders.notify_finance",
+   "kind": "task",
+   "name": "notify_finance",
+   "description": "Tell someone the totals are ready.",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "dag": "archive_orders",
+    "orchestrator": "dagster",
+    "operator": "@op",
+    "op": "notify",
+    "function": "notify",
+    "line": 100
+   }
+  },
+  {
+   "id": "task.archive_orders.refresh_customers",
+   "kind": "task",
+   "name": "refresh_customers",
+   "description": "Rebuild the customers model.",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "dag": "archive_orders",
+    "orchestrator": "dagster",
+    "operator": "@op",
+    "function": "refresh_customers",
+    "line": 105
+   }
+  },
+  {
+   "id": "task.dagster.crm_export",
+   "kind": "task",
+   "name": "crm_export",
+   "description": "Push loyal customers to the CRM.",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "dag": "exports",
+    "orchestrator": "dagster",
+    "operator": "@asset",
+    "function": "crm_export",
+    "line": 68
+   }
+  },
+  {
+   "id": "task.dagster.jaffle_shop_dbt",
+   "kind": "task",
+   "name": "jaffle_shop_dbt",
+   "description": "Build the jaffle_shop dbt models.",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "dag": "dagster",
+    "orchestrator": "dagster",
+    "operator": "@dbt_assets",
+    "function": "jaffle_shop_dbt",
+    "line": 35,
+    "kinds": [
+     "dbt"
+    ]
+   }
+  },
+  {
+   "id": "task.dagster.loyal_customers",
+   "kind": "task",
+   "name": "loyal_customers",
+   "description": "Customers worth more than 100.",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "dag": "reporting",
+    "orchestrator": "dagster",
+    "operator": "@asset",
+    "function": "loyal_customers",
+    "line": 51
+   }
+  },
+  {
+   "id": "task.dagster.order_counts",
+   "kind": "task",
+   "name": "order_counts",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "dag": "reporting",
+    "orchestrator": "dagster",
+    "operator": "@asset",
+    "function": "daily_orders",
+    "line": 63
+   }
+  },
+  {
+   "id": "task.dagster.order_totals",
+   "kind": "task",
+   "name": "order_totals",
+   "description": "Total value per day",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "dag": "reporting",
+    "orchestrator": "dagster",
+    "operator": "@asset",
+    "function": "daily_orders",
+    "line": 63
+   }
+  },
+  {
+   "id": "task.dagster.reporting/customer_ltv",
+   "kind": "task",
+   "name": "reporting/customer_ltv",
+   "description": "Lifetime value per customer, from the customers model.",
+   "path": "orchestration/definitions.py",
+   "origins": [
+    "dagster"
+   ],
+   "attrs": {
+    "dag": "reporting",
+    "orchestrator": "dagster",
+    "operator": "@asset",
+    "function": "customer_ltv",
+    "line": 41,
+    "kinds": [
+     "duckdb"
+    ]
+   }
+  },
+  {
+   "id": "task.dependencies.a",
+   "kind": "task",
+   "name": "a",
+   "path": "dags/dependencies.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "dependencies",
+    "operator": "EmptyOperator",
+    "line": 9
+   }
+  },
+  {
+   "id": "task.dependencies.b",
+   "kind": "task",
+   "name": "b",
+   "path": "dags/dependencies.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "dependencies",
+    "operator": "EmptyOperator",
+    "line": 9
+   }
+  },
+  {
+   "id": "task.dependencies.c",
+   "kind": "task",
+   "name": "c",
+   "path": "dags/dependencies.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "dependencies",
+    "operator": "EmptyOperator",
+    "line": 10
+   }
+  },
+  {
+   "id": "task.dependencies.d",
+   "kind": "task",
+   "name": "d",
+   "path": "dags/dependencies.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "dependencies",
+    "operator": "EmptyOperator",
+    "line": 11
+   }
+  },
+  {
+   "id": "task.dependencies.x",
+   "kind": "task",
+   "name": "x",
+   "path": "dags/dependencies.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "dependencies",
+    "operator": "EmptyOperator",
+    "line": 12
+   }
+  },
+  {
+   "id": "task.dependencies.y",
+   "kind": "task",
+   "name": "y",
+   "path": "dags/dependencies.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "dependencies",
+    "operator": "EmptyOperator",
+    "line": 13
+   }
+  },
+  {
+   "id": "task.dependencies.z",
+   "kind": "task",
+   "name": "z",
+   "path": "dags/dependencies.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "dependencies",
+    "operator": "EmptyOperator",
+    "line": 14
+   }
+  },
+  {
+   "id": "task.first.load",
+   "kind": "task",
+   "name": "load",
+   "path": "dags/assigned.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "first",
+    "operator": "SQLExecuteQueryOperator",
+    "line": 13
+   }
+  },
+  {
+   "id": "task.first.report",
+   "kind": "task",
+   "name": "report",
+   "path": "dags/assigned.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "first",
+    "operator": "BashOperator",
+    "line": 20,
+    "bash_command": "dbt build -s +events --exclude tag:slow"
+   }
+  },
+  {
+   "id": "task.grouped.end",
+   "kind": "task",
+   "name": "end",
+   "path": "dags/groups.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "grouped",
+    "operator": "EmptyOperator",
+    "line": 15
+   }
+  },
+  {
+   "id": "task.grouped.load.a",
+   "kind": "task",
+   "name": "load.a",
+   "path": "dags/groups.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "grouped",
+    "operator": "EmptyOperator",
+    "line": 11
+   }
+  },
+  {
+   "id": "task.grouped.load.inner.b",
+   "kind": "task",
+   "name": "load.inner.b",
+   "path": "dags/groups.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "grouped",
+    "operator": "EmptyOperator",
+    "line": 13
+   }
+  },
+  {
+   "id": "task.grouped.start",
+   "kind": "task",
+   "name": "start",
+   "path": "dags/groups.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "grouped",
+    "operator": "EmptyOperator",
+    "line": 9
+   }
+  },
+  {
+   "id": "task.jaffle_shop_daily.build_customer_ltv",
+   "kind": "task",
+   "name": "build_customer_ltv",
+   "path": "dags/jaffle_shop_daily.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "jaffle_shop_daily",
+    "operator": "SQLExecuteQueryOperator",
+    "line": 24,
+    "sql_path": "dags/sql/customer_ltv.sql"
+   }
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_run_marts",
+   "kind": "task",
+   "name": "dbt_run_marts",
+   "path": "dags/jaffle_shop_daily.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "jaffle_shop_daily",
+    "operator": "BashOperator",
+    "line": 21,
+    "bash_command": "cd /opt/airflow/jaffle_shop && dbt run --select customers orders"
+   }
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_run_staging",
+   "kind": "task",
+   "name": "dbt_run_staging",
+   "path": "dags/jaffle_shop_daily.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "jaffle_shop_daily",
+    "operator": "BashOperator",
+    "line": 20,
+    "bash_command": "cd /opt/airflow/jaffle_shop && dbt run --select staging"
+   }
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_seed",
+   "kind": "task",
+   "name": "dbt_seed",
+   "path": "dags/jaffle_shop_daily.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "jaffle_shop_daily",
+    "operator": "BashOperator",
+    "line": 19,
+    "bash_command": "cd /opt/airflow/jaffle_shop && dbt seed"
+   }
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_test",
+   "kind": "task",
+   "name": "dbt_test",
+   "path": "dags/jaffle_shop_daily.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "jaffle_shop_daily",
+    "operator": "BashOperator",
+    "line": 22,
+    "bash_command": "cd /opt/airflow/jaffle_shop && dbt test"
+   }
+  },
+  {
+   "id": "task.jaffle_shop_daily.notify_crm",
+   "kind": "task",
+   "name": "notify_crm",
+   "description": "Tell the CRM that lifetime values have been refreshed.",
+   "path": "dags/jaffle_shop_daily.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "jaffle_shop_daily",
+    "operator": "@task",
+    "line": 31
+   }
+  },
+  {
+   "id": "task.second.other",
+   "kind": "task",
+   "name": "other",
+   "path": "dags/assigned.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "second",
+    "operator": "BashOperator",
+    "line": 19,
+    "bash_command": "echo hi"
+   }
+  },
+  {
+   "id": "task.taskflow_pipeline.extract",
+   "kind": "task",
+   "name": "extract",
+   "path": "dags/taskflow.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "taskflow_pipeline",
+    "operator": "@task",
+    "line": 11
+   }
+  },
+  {
+   "id": "task.taskflow_pipeline.run_dbt",
+   "kind": "task",
+   "name": "run_dbt",
+   "path": "dags/taskflow.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "taskflow_pipeline",
+    "operator": "@task.bash",
+    "line": 19,
+    "bash_command": "dbt run --select marts"
+   }
+  },
+  {
+   "id": "task.taskflow_pipeline.transform_again",
+   "kind": "task",
+   "name": "transform_again",
+   "path": "dags/taskflow.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "taskflow_pipeline",
+    "operator": "@task",
+    "line": 15
+   }
+  },
+  {
+   "id": "task.taskflow_pipeline.transform_rows",
+   "kind": "task",
+   "name": "transform_rows",
+   "path": "dags/taskflow.py",
+   "origins": [
+    "airflow"
+   ],
+   "attrs": {
+    "dag": "taskflow_pipeline",
+    "operator": "@task",
+    "line": 15
+   }
+  },
+  {
+   "id": "term.completed_order",
+   "kind": "term",
+   "name": "Completed order",
+   "description": "An order the customer has received and not returned.",
+   "path": "definitions.yml",
+   "origins": [
+    "definitions"
+   ],
+   "attrs": {
+    "status": "agreed",
+    "owner": {
+     "name": "Tom Okafor",
+     "role": "Operations Manager"
+    },
+    "grain": "one row per order",
+    "columns": [
+     "orders.status"
+    ],
+    "filters": [
+     "orders.status = 'completed'"
+    ],
+    "line": 32
+   }
+  },
+  {
+   "id": "term.customer",
+   "kind": "term",
+   "name": "Customer",
+   "description": "A person with an account, whether or not they have ordered.",
+   "path": "definitions.yml",
+   "origins": [
+    "definitions"
+   ],
+   "attrs": {
+    "synonyms": [
+     "shopper"
+    ],
+    "status": "approved",
+    "owner": {
+     "name": "Tom Okafor",
+     "role": "Operations Manager"
+    },
+    "approved": "2026-11-02",
+    "grain": "one row per customer",
+    "columns": [
+     "customers.customer_id"
+    ],
+    "line": 40
+   }
+  },
+  {
+   "id": "term.customer_lifetime_value",
+   "kind": "term",
+   "name": "Customer lifetime value",
+   "description": "Total value of every payment a customer has made, across all orders and payment methods, in Australian dollars.",
+   "path": "definitions.yml",
+   "origins": [
+    "definitions"
+   ],
+   "attrs": {
+    "synonyms": [
+     "lifetime value",
+     "LTV",
+     "CLV"
+    ],
+    "status": "approved",
+    "owner": {
+     "name": "Priya Shah",
+     "role": "Head of Finance"
+    },
+    "approved": "2026-10-30",
+    "grain": "one row per customer",
+    "columns": [
+     "customers.customer_lifetime_value",
+     "customer_ltv.lifetime_value"
+    ],
+    "unit": "currency",
+    "currency": "AUD",
+    "related": [
+     "Order amount",
+     "Customer"
+    ],
+    "exceptions": "Refunds are not netted off; returned orders still count.",
+    "line": 5
+   }
+  },
+  {
+   "id": "term.customer_name",
+   "kind": "term",
+   "name": "Customer name",
+   "description": "A customer's first name and the initial of their last name, which identify a person, so the columns that hold them hold personal data.",
+   "path": "definitions.yml",
+   "origins": [
+    "definitions"
+   ],
+   "attrs": {
+    "status": "agreed",
+    "owner": {
+     "name": "Tom Okafor",
+     "role": "Operations Manager"
+    },
+    "columns": [
+     "raw_customers.first_name",
+     "raw_customers.last_name"
+    ],
+    "sensitivity": "personal",
+    "line": 54
+   }
+  },
+  {
+   "id": "term.order_amount",
+   "kind": "term",
+   "name": "Order amount",
+   "description": "Total of all payments recorded against an order, in Australian dollars.",
+   "path": "definitions.yml",
+   "origins": [
+    "definitions"
+   ],
+   "attrs": {
+    "synonyms": [
+     "order value",
+     "order total"
+    ],
+    "status": "approved",
+    "owner": {
+     "name": "Priya Shah",
+     "role": "Head of Finance"
+    },
+    "approved": "2026-10-30",
+    "grain": "one row per order",
+    "columns": [
+     "orders.amount"
+    ],
+    "unit": "currency",
+    "currency": "AUD",
+    "related": [
+     "Completed order"
+    ],
+    "line": 20
+   }
+  },
+  {
+   "id": "term.payment_method",
+   "kind": "term",
+   "name": "Payment method",
+   "description": "How a payment was made, as recorded by the payment provider.",
+   "path": "definitions.yml",
+   "origins": [
+    "definitions"
+   ],
+   "attrs": {
+    "status": "draft",
+    "columns": [
+     "stg_payments.payment_method"
+    ],
+    "line": 49
+   }
+  },
+  {
+   "id": "test.jaffle_shop.accepted_values_orders_status__placed__shipped__completed__return_pending__returned.be6b5b5ec3",
+   "kind": "test",
+   "name": "accepted_values_orders_status__placed__shipped__completed__return_pending__returned",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "accepted_values",
+    "severity": "ERROR",
+    "column": "status"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.accepted_values_stg_orders_status__placed__shipped__completed__return_pending__returned.080fb20aad",
+   "kind": "test",
+   "name": "accepted_values_stg_orders_status__placed__shipped__completed__return_pending__returned",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "accepted_values",
+    "severity": "ERROR",
+    "column": "status"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card.3c3820f278",
+   "kind": "test",
+   "name": "accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "accepted_values",
+    "severity": "ERROR",
+    "column": "payment_method"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_customers_customer_id.5c9bf9911d",
+   "kind": "test",
+   "name": "not_null_customers_customer_id",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "customer_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_amount.106140f9fd",
+   "kind": "test",
+   "name": "not_null_orders_amount",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "amount"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_bank_transfer_amount.7743500c49",
+   "kind": "test",
+   "name": "not_null_orders_bank_transfer_amount",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "bank_transfer_amount"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_coupon_amount.ab90c90625",
+   "kind": "test",
+   "name": "not_null_orders_coupon_amount",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "coupon_amount"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_credit_card_amount.d3ca593b59",
+   "kind": "test",
+   "name": "not_null_orders_credit_card_amount",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "credit_card_amount"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_customer_id.c5f02694af",
+   "kind": "test",
+   "name": "not_null_orders_customer_id",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "customer_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_gift_card_amount.413a0d2d7a",
+   "kind": "test",
+   "name": "not_null_orders_gift_card_amount",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "gift_card_amount"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_order_id.cf6c17daed",
+   "kind": "test",
+   "name": "not_null_orders_order_id",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "order_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_stg_customers_customer_id.e2cfb1f9aa",
+   "kind": "test",
+   "name": "not_null_stg_customers_customer_id",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "customer_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_stg_orders_customer_id.af79d5e4b5",
+   "kind": "test",
+   "name": "not_null_stg_orders_customer_id",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "customer_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_stg_orders_order_id.81cfe2fe64",
+   "kind": "test",
+   "name": "not_null_stg_orders_order_id",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "order_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_stg_payments_order_id.601cf57649",
+   "kind": "test",
+   "name": "not_null_stg_payments_order_id",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "order_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.not_null_stg_payments_payment_id.c19cc50075",
+   "kind": "test",
+   "name": "not_null_stg_payments_payment_id",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "not_null",
+    "severity": "ERROR",
+    "column": "payment_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.relationships_orders_customer_id__customer_id__ref_customers_.c6ec7f58f2",
+   "kind": "test",
+   "name": "relationships_orders_customer_id__customer_id__ref_customers_",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "relationships",
+    "severity": "ERROR",
+    "column": "customer_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.relationships_stg_orders_customer_id__customer_id__ref_stg_customers_.430bf21500",
+   "kind": "test",
+   "name": "relationships_stg_orders_customer_id__customer_id__ref_stg_customers_",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "relationships",
+    "severity": "ERROR",
+    "column": "customer_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.relationships_stg_payments_order_id__order_id__ref_stg_orders_.8426a3f3d3",
+   "kind": "test",
+   "name": "relationships_stg_payments_order_id__order_id__ref_stg_orders_",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "relationships",
+    "severity": "ERROR",
+    "column": "order_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.unique_customers_customer_id.c5af1ff4b1",
+   "kind": "test",
+   "name": "unique_customers_customer_id",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "unique",
+    "severity": "ERROR",
+    "column": "customer_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.unique_orders_order_id.fed79b3a6e",
+   "kind": "test",
+   "name": "unique_orders_order_id",
+   "path": "models/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "unique",
+    "severity": "ERROR",
+    "column": "order_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.unique_stg_customers_customer_id.c7614daada",
+   "kind": "test",
+   "name": "unique_stg_customers_customer_id",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "unique",
+    "severity": "ERROR",
+    "column": "customer_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.unique_stg_orders_order_id.e3b841c71a",
+   "kind": "test",
+   "name": "unique_stg_orders_order_id",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "unique",
+    "severity": "ERROR",
+    "column": "order_id"
+   }
+  },
+  {
+   "id": "test.jaffle_shop.unique_stg_payments_payment_id.3744510712",
+   "kind": "test",
+   "name": "unique_stg_payments_payment_id",
+   "path": "models/staging/schema.yml",
+   "origins": [
+    "dbt"
+   ],
+   "attrs": {
+    "test": "unique",
+    "severity": "ERROR",
+    "column": "payment_id"
+   }
+  }
+ ],
+ "edges": [
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#order_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#customer_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#order_date",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#status",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#credit_card_amount",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#coupon_amount",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#bank_transfer_amount",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#gift_card_amount",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "model.jaffle_shop.orders#amount",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders",
+   "target": "model.jaffle_shop.orders",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments",
+   "target": "model.jaffle_shop.orders",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#customer_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#first_name",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#last_name",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#first_order",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#most_recent_order",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#number_of_orders",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#customer_lifetime_value",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "model.jaffle_shop.customers#total_order_amount",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers",
+   "target": "model.jaffle_shop.customers",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders",
+   "target": "model.jaffle_shop.customers",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments",
+   "target": "model.jaffle_shop.customers",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments",
+   "target": "model.jaffle_shop.stg_payments#payment_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments",
+   "target": "model.jaffle_shop.stg_payments#order_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments",
+   "target": "model.jaffle_shop.stg_payments#amount",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_payments",
+   "target": "model.jaffle_shop.stg_payments",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers",
+   "target": "model.jaffle_shop.stg_customers#customer_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers",
+   "target": "model.jaffle_shop.stg_customers#first_name",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers",
+   "target": "model.jaffle_shop.stg_customers#last_name",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_customers",
+   "target": "model.jaffle_shop.stg_customers",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders",
+   "target": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders",
+   "target": "model.jaffle_shop.stg_orders#customer_id",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders",
+   "target": "model.jaffle_shop.stg_orders#order_date",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders",
+   "target": "model.jaffle_shop.stg_orders#status",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_orders",
+   "target": "model.jaffle_shop.stg_orders",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "seed.jaffle_shop.raw_payments",
+   "target": "seed.jaffle_shop.raw_payments#id",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_payments",
+   "target": "seed.jaffle_shop.raw_payments#order_id",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_payments",
+   "target": "seed.jaffle_shop.raw_payments#payment_method",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_payments",
+   "target": "seed.jaffle_shop.raw_payments#amount",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_customers",
+   "target": "seed.jaffle_shop.raw_customers#id",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_customers",
+   "target": "seed.jaffle_shop.raw_customers#first_name",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_customers",
+   "target": "seed.jaffle_shop.raw_customers#last_name",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_orders",
+   "target": "seed.jaffle_shop.raw_orders#id",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_orders",
+   "target": "seed.jaffle_shop.raw_orders#user_id",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_orders",
+   "target": "seed.jaffle_shop.raw_orders#order_date",
+   "kind": "contains"
+  },
+  {
+   "source": "seed.jaffle_shop.raw_orders",
+   "target": "seed.jaffle_shop.raw_orders#status",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "exposure.jaffle_shop.customer_dashboard",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "exposure.jaffle_shop.customer_dashboard",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "test.jaffle_shop.unique_customers_customer_id.c5af1ff4b1",
+   "target": "model.jaffle_shop.customers#customer_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_customers_customer_id.5c9bf9911d",
+   "target": "model.jaffle_shop.customers#customer_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.unique_orders_order_id.fed79b3a6e",
+   "target": "model.jaffle_shop.orders#order_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_orders_order_id.cf6c17daed",
+   "target": "model.jaffle_shop.orders#order_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_orders_customer_id.c5f02694af",
+   "target": "model.jaffle_shop.orders#customer_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.relationships_orders_customer_id__customer_id__ref_customers_.c6ec7f58f2",
+   "target": "model.jaffle_shop.orders#customer_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.relationships_orders_customer_id__customer_id__ref_customers_.c6ec7f58f2",
+   "target": "model.jaffle_shop.customers#customer_id",
+   "kind": "tests",
+   "attrs": {
+    "role": "relationship target"
+   }
+  },
+  {
+   "source": "test.jaffle_shop.accepted_values_orders_status__placed__shipped__completed__return_pending__returned.be6b5b5ec3",
+   "target": "model.jaffle_shop.orders#status",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_orders_amount.106140f9fd",
+   "target": "model.jaffle_shop.orders#amount",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_orders_credit_card_amount.d3ca593b59",
+   "target": "model.jaffle_shop.orders#credit_card_amount",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_orders_coupon_amount.ab90c90625",
+   "target": "model.jaffle_shop.orders#coupon_amount",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_orders_bank_transfer_amount.7743500c49",
+   "target": "model.jaffle_shop.orders#bank_transfer_amount",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_orders_gift_card_amount.413a0d2d7a",
+   "target": "model.jaffle_shop.orders#gift_card_amount",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.unique_stg_customers_customer_id.c7614daada",
+   "target": "model.jaffle_shop.stg_customers#customer_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_stg_customers_customer_id.e2cfb1f9aa",
+   "target": "model.jaffle_shop.stg_customers#customer_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.unique_stg_orders_order_id.e3b841c71a",
+   "target": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_stg_orders_order_id.81cfe2fe64",
+   "target": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_stg_orders_customer_id.af79d5e4b5",
+   "target": "model.jaffle_shop.stg_orders#customer_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.relationships_stg_orders_customer_id__customer_id__ref_stg_customers_.430bf21500",
+   "target": "model.jaffle_shop.stg_orders#customer_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.relationships_stg_orders_customer_id__customer_id__ref_stg_customers_.430bf21500",
+   "target": "model.jaffle_shop.stg_customers#customer_id",
+   "kind": "tests",
+   "attrs": {
+    "role": "relationship target"
+   }
+  },
+  {
+   "source": "test.jaffle_shop.accepted_values_stg_orders_status__placed__shipped__completed__return_pending__returned.080fb20aad",
+   "target": "model.jaffle_shop.stg_orders#status",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.unique_stg_payments_payment_id.3744510712",
+   "target": "model.jaffle_shop.stg_payments#payment_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_stg_payments_payment_id.c19cc50075",
+   "target": "model.jaffle_shop.stg_payments#payment_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.not_null_stg_payments_order_id.601cf57649",
+   "target": "model.jaffle_shop.stg_payments#order_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.relationships_stg_payments_order_id__order_id__ref_stg_orders_.8426a3f3d3",
+   "target": "model.jaffle_shop.stg_payments#order_id",
+   "kind": "tests"
+  },
+  {
+   "source": "test.jaffle_shop.relationships_stg_payments_order_id__order_id__ref_stg_orders_.8426a3f3d3",
+   "target": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "tests",
+   "attrs": {
+    "role": "relationship target"
+   }
+  },
+  {
+   "source": "test.jaffle_shop.accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card.3c3820f278",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "tests"
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv",
+   "target": "table.jaffle_shop.reporting.customer_ltv#customer_id",
+   "kind": "contains"
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv",
+   "target": "table.jaffle_shop.reporting.customer_ltv#first_name",
+   "kind": "contains"
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv",
+   "target": "table.jaffle_shop.reporting.customer_ltv#lifetime_value",
+   "kind": "contains"
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv",
+   "target": "table.jaffle_shop.reporting.customer_ltv#number_of_orders",
+   "kind": "contains"
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv",
+   "target": "table.jaffle_shop.reporting.customer_ltv#segment",
+   "kind": "contains"
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders#order_id",
+   "target": "seed.jaffle_shop.raw_orders#id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders#customer_id",
+   "target": "seed.jaffle_shop.raw_orders#user_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders#order_date",
+   "target": "seed.jaffle_shop.raw_orders#order_date",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders#status",
+   "target": "seed.jaffle_shop.raw_orders#status",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments#payment_id",
+   "target": "seed.jaffle_shop.raw_payments#id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments#order_id",
+   "target": "seed.jaffle_shop.raw_payments#order_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments#payment_method",
+   "target": "seed.jaffle_shop.raw_payments#payment_method",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments#amount",
+   "target": "seed.jaffle_shop.raw_payments#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#order_id",
+   "target": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#customer_id",
+   "target": "model.jaffle_shop.stg_orders#customer_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#order_date",
+   "target": "model.jaffle_shop.stg_orders#order_date",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#status",
+   "target": "model.jaffle_shop.stg_orders#status",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#credit_card_amount",
+   "target": "model.jaffle_shop.stg_payments#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#credit_card_amount",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#coupon_amount",
+   "target": "model.jaffle_shop.stg_payments#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#coupon_amount",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#bank_transfer_amount",
+   "target": "model.jaffle_shop.stg_payments#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#bank_transfer_amount",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#gift_card_amount",
+   "target": "model.jaffle_shop.stg_payments#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#gift_card_amount",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders#amount",
+   "target": "model.jaffle_shop.stg_payments#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments#order_id",
+   "target": "model.jaffle_shop.orders",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders#order_id",
+   "target": "model.jaffle_shop.orders",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers#customer_id",
+   "target": "seed.jaffle_shop.raw_customers#id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers#first_name",
+   "target": "seed.jaffle_shop.raw_customers#first_name",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers#last_name",
+   "target": "seed.jaffle_shop.raw_customers#last_name",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#customer_id",
+   "target": "model.jaffle_shop.stg_customers#customer_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#first_name",
+   "target": "model.jaffle_shop.stg_customers#first_name",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#last_name",
+   "target": "model.jaffle_shop.stg_customers#last_name",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#first_order",
+   "target": "model.jaffle_shop.stg_orders#order_date",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#most_recent_order",
+   "target": "model.jaffle_shop.stg_orders#order_date",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#number_of_orders",
+   "target": "model.jaffle_shop.stg_orders#order_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#customer_lifetime_value",
+   "target": "model.jaffle_shop.stg_payments#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders#customer_id",
+   "target": "model.jaffle_shop.customers",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_payments#order_id",
+   "target": "model.jaffle_shop.customers",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_orders#order_id",
+   "target": "model.jaffle_shop.customers",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.stg_customers#customer_id",
+   "target": "model.jaffle_shop.customers",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "dbt"
+   }
+  },
+  {
+   "source": "dag.first",
+   "target": "task.first.load",
+   "kind": "runs"
+  },
+  {
+   "source": "task.first.load",
+   "target": "table.jaffle_shop.analytics.events",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow"
+   }
+  },
+  {
+   "source": "table.jaffle_shop.raw.events",
+   "target": "table.jaffle_shop.analytics.events",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow",
+    "via": "task.first.load"
+   }
+  },
+  {
+   "source": "table.jaffle_shop.raw.events",
+   "target": "task.first.load",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow"
+   }
+  },
+  {
+   "source": "dag.first",
+   "target": "task.first.report",
+   "kind": "runs"
+  },
+  {
+   "source": "task.first.load",
+   "target": "task.first.report",
+   "kind": "precedes"
+  },
+  {
+   "source": "dag.second",
+   "target": "task.second.other",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.dependencies",
+   "target": "task.dependencies.a",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.dependencies",
+   "target": "task.dependencies.b",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.dependencies",
+   "target": "task.dependencies.c",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.dependencies",
+   "target": "task.dependencies.d",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.dependencies",
+   "target": "task.dependencies.x",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.dependencies",
+   "target": "task.dependencies.y",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.dependencies",
+   "target": "task.dependencies.z",
+   "kind": "runs"
+  },
+  {
+   "source": "task.dependencies.a",
+   "target": "task.dependencies.b",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.dependencies.a",
+   "target": "task.dependencies.c",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.dependencies.b",
+   "target": "task.dependencies.d",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.dependencies.c",
+   "target": "task.dependencies.d",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.dependencies.a",
+   "target": "task.dependencies.x",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.dependencies.a",
+   "target": "task.dependencies.y",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.dependencies.b",
+   "target": "task.dependencies.x",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.dependencies.b",
+   "target": "task.dependencies.y",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.dependencies.y",
+   "target": "task.dependencies.d",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.dependencies.x",
+   "target": "task.dependencies.c",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.dependencies.z",
+   "target": "task.dependencies.d",
+   "kind": "precedes"
+  },
+  {
+   "source": "dag.grouped",
+   "target": "task.grouped.start",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.grouped",
+   "target": "task.grouped.load.a",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.grouped",
+   "target": "task.grouped.load.inner.b",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.grouped",
+   "target": "task.grouped.end",
+   "kind": "runs"
+  },
+  {
+   "source": "task.grouped.load.a",
+   "target": "task.grouped.load.inner.b",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.grouped.start",
+   "target": "task.grouped.load.a",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.grouped.load.inner.b",
+   "target": "task.grouped.end",
+   "kind": "precedes"
+  },
+  {
+   "source": "dag.jaffle_shop_daily",
+   "target": "task.jaffle_shop_daily.dbt_seed",
+   "kind": "runs"
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_seed",
+   "target": "seed.jaffle_shop.raw_payments",
+   "kind": "runs",
+   "attrs": {
+    "command": "seed"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_seed",
+   "target": "seed.jaffle_shop.raw_customers",
+   "kind": "runs",
+   "attrs": {
+    "command": "seed"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_seed",
+   "target": "seed.jaffle_shop.raw_orders",
+   "kind": "runs",
+   "attrs": {
+    "command": "seed"
+   }
+  },
+  {
+   "source": "dag.jaffle_shop_daily",
+   "target": "task.jaffle_shop_daily.dbt_run_staging",
+   "kind": "runs"
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_run_staging",
+   "target": "model.jaffle_shop.stg_payments",
+   "kind": "runs",
+   "attrs": {
+    "command": "run"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_run_staging",
+   "target": "model.jaffle_shop.stg_customers",
+   "kind": "runs",
+   "attrs": {
+    "command": "run"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_run_staging",
+   "target": "model.jaffle_shop.stg_orders",
+   "kind": "runs",
+   "attrs": {
+    "command": "run"
+   }
+  },
+  {
+   "source": "dag.jaffle_shop_daily",
+   "target": "task.jaffle_shop_daily.dbt_run_marts",
+   "kind": "runs"
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_run_marts",
+   "target": "model.jaffle_shop.orders",
+   "kind": "runs",
+   "attrs": {
+    "command": "run"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_run_marts",
+   "target": "model.jaffle_shop.customers",
+   "kind": "runs",
+   "attrs": {
+    "command": "run"
+   }
+  },
+  {
+   "source": "dag.jaffle_shop_daily",
+   "target": "task.jaffle_shop_daily.dbt_test",
+   "kind": "runs"
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.unique_customers_customer_id.c5af1ff4b1",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_customers_customer_id.5c9bf9911d",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.unique_orders_order_id.fed79b3a6e",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_orders_order_id.cf6c17daed",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_orders_customer_id.c5f02694af",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.relationships_orders_customer_id__customer_id__ref_customers_.c6ec7f58f2",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.accepted_values_orders_status__placed__shipped__completed__return_pending__returned.be6b5b5ec3",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_orders_amount.106140f9fd",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_orders_credit_card_amount.d3ca593b59",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_orders_coupon_amount.ab90c90625",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_orders_bank_transfer_amount.7743500c49",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_orders_gift_card_amount.413a0d2d7a",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.unique_stg_customers_customer_id.c7614daada",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_stg_customers_customer_id.e2cfb1f9aa",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.unique_stg_orders_order_id.e3b841c71a",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_stg_orders_order_id.81cfe2fe64",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_stg_orders_customer_id.af79d5e4b5",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.relationships_stg_orders_customer_id__customer_id__ref_stg_customers_.430bf21500",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.accepted_values_stg_orders_status__placed__shipped__completed__return_pending__returned.080fb20aad",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.unique_stg_payments_payment_id.3744510712",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_stg_payments_payment_id.c19cc50075",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.not_null_stg_payments_order_id.601cf57649",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.relationships_stg_payments_order_id__order_id__ref_stg_orders_.8426a3f3d3",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "test.jaffle_shop.accepted_values_stg_payments_payment_method__credit_card__coupon__bank_transfer__gift_card.3c3820f278",
+   "kind": "runs",
+   "attrs": {
+    "command": "test"
+   }
+  },
+  {
+   "source": "dag.jaffle_shop_daily",
+   "target": "task.jaffle_shop_daily.build_customer_ltv",
+   "kind": "runs"
+  },
+  {
+   "source": "task.jaffle_shop_daily.build_customer_ltv",
+   "target": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow",
+    "via": "task.jaffle_shop_daily.build_customer_ltv",
+    "also_via": [
+     "task.dagster.reporting/customer_ltv"
+    ]
+   }
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv#customer_id",
+   "target": "model.jaffle_shop.customers#customer_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "airflow",
+    "via": "task.jaffle_shop_daily.build_customer_ltv",
+    "also_via": [
+     "task.dagster.reporting/customer_ltv"
+    ]
+   }
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv#first_name",
+   "target": "model.jaffle_shop.customers#first_name",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "airflow",
+    "via": "task.jaffle_shop_daily.build_customer_ltv"
+   }
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv#lifetime_value",
+   "target": "model.jaffle_shop.customers#customer_lifetime_value",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "airflow",
+    "via": "task.jaffle_shop_daily.build_customer_ltv",
+    "also_via": [
+     "task.dagster.reporting/customer_ltv"
+    ]
+   }
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv#number_of_orders",
+   "target": "model.jaffle_shop.customers#number_of_orders",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "airflow",
+    "via": "task.jaffle_shop_daily.build_customer_ltv"
+   }
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv#segment",
+   "target": "model.jaffle_shop.customers#number_of_orders",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "airflow",
+    "via": "task.jaffle_shop_daily.build_customer_ltv"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers#customer_lifetime_value",
+   "target": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "airflow",
+    "via": "task.jaffle_shop_daily.build_customer_ltv"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "task.jaffle_shop_daily.build_customer_ltv",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow"
+   }
+  },
+  {
+   "source": "dag.jaffle_shop_daily",
+   "target": "task.jaffle_shop_daily.notify_crm",
+   "kind": "runs"
+  },
+  {
+   "source": "task.jaffle_shop_daily.notify_crm",
+   "target": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow",
+    "asset": "duckdb://jaffle_shop/reporting/customer_ltv"
+   }
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_seed",
+   "target": "task.jaffle_shop_daily.dbt_run_staging",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_run_staging",
+   "target": "task.jaffle_shop_daily.dbt_run_marts",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_run_marts",
+   "target": "task.jaffle_shop_daily.dbt_test",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.jaffle_shop_daily.dbt_test",
+   "target": "task.jaffle_shop_daily.build_customer_ltv",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.jaffle_shop_daily.build_customer_ltv",
+   "target": "task.jaffle_shop_daily.notify_crm",
+   "kind": "precedes"
+  },
+  {
+   "source": "dag.taskflow_pipeline",
+   "target": "task.taskflow_pipeline.extract",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.taskflow_pipeline",
+   "target": "task.taskflow_pipeline.transform_rows",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.taskflow_pipeline",
+   "target": "task.taskflow_pipeline.transform_again",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.taskflow_pipeline",
+   "target": "task.taskflow_pipeline.run_dbt",
+   "kind": "runs"
+  },
+  {
+   "source": "task.taskflow_pipeline.extract",
+   "target": "task.taskflow_pipeline.transform_rows",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.taskflow_pipeline.extract",
+   "target": "task.taskflow_pipeline.transform_again",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.taskflow_pipeline.transform_rows",
+   "target": "task.taskflow_pipeline.run_dbt",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.taskflow_pipeline.transform_again",
+   "target": "task.taskflow_pipeline.run_dbt",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.dagster.jaffle_shop_dbt",
+   "target": "model.jaffle_shop.orders",
+   "kind": "runs",
+   "attrs": {
+    "command": "build"
+   }
+  },
+  {
+   "source": "task.dagster.jaffle_shop_dbt",
+   "target": "model.jaffle_shop.customers",
+   "kind": "runs",
+   "attrs": {
+    "command": "build"
+   }
+  },
+  {
+   "source": "task.dagster.jaffle_shop_dbt",
+   "target": "model.jaffle_shop.stg_payments",
+   "kind": "runs",
+   "attrs": {
+    "command": "build"
+   }
+  },
+  {
+   "source": "task.dagster.jaffle_shop_dbt",
+   "target": "model.jaffle_shop.stg_customers",
+   "kind": "runs",
+   "attrs": {
+    "command": "build"
+   }
+  },
+  {
+   "source": "task.dagster.jaffle_shop_dbt",
+   "target": "model.jaffle_shop.stg_orders",
+   "kind": "runs",
+   "attrs": {
+    "command": "build"
+   }
+  },
+  {
+   "source": "task.dagster.reporting/customer_ltv",
+   "target": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dagster"
+   }
+  },
+  {
+   "source": "task.dagster.loyal_customers",
+   "target": "table.asset:loyal_customers",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dagster"
+   }
+  },
+  {
+   "source": "task.dagster.order_counts",
+   "target": "table.asset:order_counts",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dagster"
+   }
+  },
+  {
+   "source": "task.dagster.order_totals",
+   "target": "table.asset:order_totals",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dagster"
+   }
+  },
+  {
+   "source": "task.dagster.crm_export",
+   "target": "table.asset:crm_export",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dagster"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.customers",
+   "target": "task.dagster.reporting/customer_ltv",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dagster"
+   }
+  },
+  {
+   "source": "table.jaffle_shop.reporting.customer_ltv",
+   "target": "task.dagster.loyal_customers",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dagster"
+   }
+  },
+  {
+   "source": "task.dagster.reporting/customer_ltv",
+   "target": "task.dagster.loyal_customers",
+   "kind": "precedes"
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "task.dagster.order_counts",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dagster"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "task.dagster.order_totals",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dagster"
+   }
+  },
+  {
+   "source": "table.asset:loyal_customers",
+   "target": "task.dagster.crm_export",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dagster"
+   }
+  },
+  {
+   "source": "task.dagster.loyal_customers",
+   "target": "task.dagster.crm_export",
+   "kind": "precedes"
+  },
+  {
+   "source": "table.asset:order_totals",
+   "target": "task.dagster.crm_export",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "dagster"
+   }
+  },
+  {
+   "source": "task.dagster.order_totals",
+   "target": "task.dagster.crm_export",
+   "kind": "precedes"
+  },
+  {
+   "source": "dag.archive_orders",
+   "target": "task.archive_orders.archive.copy_orders",
+   "kind": "runs"
+  },
+  {
+   "source": "task.archive_orders.archive.copy_orders",
+   "target": "table.jaffle_shop.archive.orders",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "table.jaffle_shop.archive.orders",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow",
+    "via": "task.archive_orders.archive.copy_orders",
+    "also_via": [
+     "task.archive_orders.archive_again.copy_orders"
+    ]
+   }
+  },
+  {
+   "source": "table.jaffle_shop.archive.orders",
+   "target": "table.jaffle_shop.archive.orders#order_id",
+   "kind": "contains"
+  },
+  {
+   "source": "table.jaffle_shop.archive.orders#order_id",
+   "target": "model.jaffle_shop.orders#order_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "airflow",
+    "via": "task.archive_orders.archive.copy_orders",
+    "also_via": [
+     "task.archive_orders.archive_again.copy_orders"
+    ]
+   }
+  },
+  {
+   "source": "table.jaffle_shop.archive.orders",
+   "target": "table.jaffle_shop.archive.orders#customer_id",
+   "kind": "contains"
+  },
+  {
+   "source": "table.jaffle_shop.archive.orders#customer_id",
+   "target": "model.jaffle_shop.orders#customer_id",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "airflow",
+    "via": "task.archive_orders.archive.copy_orders",
+    "also_via": [
+     "task.archive_orders.archive_again.copy_orders"
+    ]
+   }
+  },
+  {
+   "source": "table.jaffle_shop.archive.orders",
+   "target": "table.jaffle_shop.archive.orders#order_date",
+   "kind": "contains"
+  },
+  {
+   "source": "table.jaffle_shop.archive.orders#order_date",
+   "target": "model.jaffle_shop.orders#order_date",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "airflow",
+    "via": "task.archive_orders.archive.copy_orders",
+    "also_via": [
+     "task.archive_orders.archive_again.copy_orders"
+    ]
+   }
+  },
+  {
+   "source": "table.jaffle_shop.archive.orders",
+   "target": "table.jaffle_shop.archive.orders#amount",
+   "kind": "contains"
+  },
+  {
+   "source": "table.jaffle_shop.archive.orders#amount",
+   "target": "model.jaffle_shop.orders#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "airflow",
+    "via": "task.archive_orders.archive.copy_orders",
+    "also_via": [
+     "task.archive_orders.archive_again.copy_orders"
+    ]
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "task.archive_orders.archive.copy_orders",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow"
+   }
+  },
+  {
+   "source": "dag.archive_orders",
+   "target": "task.archive_orders.archive.total_by_day",
+   "kind": "runs"
+  },
+  {
+   "source": "task.archive_orders.archive.total_by_day",
+   "target": "table.jaffle_shop.archive.daily_totals",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow"
+   }
+  },
+  {
+   "source": "table.jaffle_shop.archive.orders",
+   "target": "table.jaffle_shop.archive.daily_totals",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow",
+    "via": "task.archive_orders.archive.total_by_day",
+    "also_via": [
+     "task.archive_orders.archive_again.total_by_day"
+    ]
+   }
+  },
+  {
+   "source": "table.jaffle_shop.archive.daily_totals",
+   "target": "table.jaffle_shop.archive.daily_totals#order_date",
+   "kind": "contains"
+  },
+  {
+   "source": "table.jaffle_shop.archive.daily_totals#order_date",
+   "target": "table.jaffle_shop.archive.orders#order_date",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "direct",
+    "origin": "airflow",
+    "via": "task.archive_orders.archive.total_by_day",
+    "also_via": [
+     "task.archive_orders.archive_again.total_by_day"
+    ]
+   }
+  },
+  {
+   "source": "table.jaffle_shop.archive.daily_totals",
+   "target": "table.jaffle_shop.archive.daily_totals#total",
+   "kind": "contains"
+  },
+  {
+   "source": "table.jaffle_shop.archive.daily_totals#total",
+   "target": "table.jaffle_shop.archive.orders#amount",
+   "kind": "derived_from",
+   "attrs": {
+    "transform": "transformed",
+    "origin": "airflow",
+    "via": "task.archive_orders.archive.total_by_day",
+    "also_via": [
+     "task.archive_orders.archive_again.total_by_day"
+    ]
+   }
+  },
+  {
+   "source": "table.jaffle_shop.archive.orders#order_date",
+   "target": "table.jaffle_shop.archive.daily_totals",
+   "kind": "feeds",
+   "attrs": {
+    "role": "reference",
+    "origin": "airflow",
+    "via": "task.archive_orders.archive.total_by_day",
+    "also_via": [
+     "task.archive_orders.archive_again.total_by_day"
+    ]
+   }
+  },
+  {
+   "source": "table.jaffle_shop.archive.orders",
+   "target": "task.archive_orders.archive.total_by_day",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow"
+   }
+  },
+  {
+   "source": "dag.archive_orders",
+   "target": "task.archive_orders.notify",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.archive_orders",
+   "target": "task.archive_orders.notify_finance",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.archive_orders",
+   "target": "task.archive_orders.archive_again.copy_orders",
+   "kind": "runs"
+  },
+  {
+   "source": "task.archive_orders.archive_again.copy_orders",
+   "target": "table.jaffle_shop.archive.orders",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow"
+   }
+  },
+  {
+   "source": "model.jaffle_shop.orders",
+   "target": "task.archive_orders.archive_again.copy_orders",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow"
+   }
+  },
+  {
+   "source": "dag.archive_orders",
+   "target": "task.archive_orders.archive_again.total_by_day",
+   "kind": "runs"
+  },
+  {
+   "source": "task.archive_orders.archive_again.total_by_day",
+   "target": "table.jaffle_shop.archive.daily_totals",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow"
+   }
+  },
+  {
+   "source": "table.jaffle_shop.archive.orders",
+   "target": "task.archive_orders.archive_again.total_by_day",
+   "kind": "feeds",
+   "attrs": {
+    "origin": "airflow"
+   }
+  },
+  {
+   "source": "dag.archive_orders",
+   "target": "task.archive_orders.refresh_customers",
+   "kind": "runs"
+  },
+  {
+   "source": "task.archive_orders.refresh_customers",
+   "target": "model.jaffle_shop.customers",
+   "kind": "runs",
+   "attrs": {
+    "command": "run"
+   }
+  },
+  {
+   "source": "task.archive_orders.archive.copy_orders",
+   "target": "task.archive_orders.archive.total_by_day",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.archive_orders.archive.total_by_day",
+   "target": "task.archive_orders.notify",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.archive_orders.archive.total_by_day",
+   "target": "task.archive_orders.notify_finance",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.archive_orders.archive_again.copy_orders",
+   "target": "task.archive_orders.archive_again.total_by_day",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.archive_orders.archive.total_by_day",
+   "target": "task.archive_orders.refresh_customers",
+   "kind": "precedes"
+  },
+  {
+   "source": "task.archive_orders.archive_again.total_by_day",
+   "target": "task.archive_orders.refresh_customers",
+   "kind": "precedes"
+  },
+  {
+   "source": "dag.reporting_job",
+   "target": "task.dagster.reporting/customer_ltv",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.reporting_job",
+   "target": "task.dagster.loyal_customers",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.reporting_job",
+   "target": "task.dagster.order_counts",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.reporting_job",
+   "target": "task.dagster.order_totals",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.everything",
+   "target": "task.dagster.jaffle_shop_dbt",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.everything",
+   "target": "task.dagster.reporting/customer_ltv",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.everything",
+   "target": "task.dagster.loyal_customers",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.everything",
+   "target": "task.dagster.order_counts",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.everything",
+   "target": "task.dagster.order_totals",
+   "kind": "runs"
+  },
+  {
+   "source": "dag.everything",
+   "target": "task.dagster.crm_export",
+   "kind": "runs"
+  },
+  {
+   "source": "task.dagster.reporting/customer_ltv",
+   "target": "task.archive_orders.archive.copy_orders",
+   "kind": "precedes",
+   "attrs": {
+    "sensor": "ltv_refreshed"
+   }
+  },
+  {
+   "source": "task.dagster.reporting/customer_ltv",
+   "target": "task.archive_orders.archive_again.copy_orders",
+   "kind": "precedes",
+   "attrs": {
+    "sensor": "ltv_refreshed"
+   }
+  },
+  {
+   "source": "task.archive_orders.notify",
+   "target": "task.dagster.jaffle_shop_dbt",
+   "kind": "precedes",
+   "attrs": {
+    "sensor": "after_archive"
+   }
+  },
+  {
+   "source": "task.archive_orders.notify",
+   "target": "task.dagster.reporting/customer_ltv",
+   "kind": "precedes",
+   "attrs": {
+    "sensor": "after_archive"
+   }
+  },
+  {
+   "source": "task.archive_orders.notify",
+   "target": "task.dagster.order_counts",
+   "kind": "precedes",
+   "attrs": {
+    "sensor": "after_archive"
+   }
+  },
+  {
+   "source": "task.archive_orders.notify",
+   "target": "task.dagster.order_totals",
+   "kind": "precedes",
+   "attrs": {
+    "sensor": "after_archive"
+   }
+  },
+  {
+   "source": "task.archive_orders.notify_finance",
+   "target": "task.dagster.jaffle_shop_dbt",
+   "kind": "precedes",
+   "attrs": {
+    "sensor": "after_archive"
+   }
+  },
+  {
+   "source": "task.archive_orders.notify_finance",
+   "target": "task.dagster.reporting/customer_ltv",
+   "kind": "precedes",
+   "attrs": {
+    "sensor": "after_archive"
+   }
+  },
+  {
+   "source": "task.archive_orders.notify_finance",
+   "target": "task.dagster.order_counts",
+   "kind": "precedes",
+   "attrs": {
+    "sensor": "after_archive"
+   }
+  },
+  {
+   "source": "task.archive_orders.notify_finance",
+   "target": "task.dagster.order_totals",
+   "kind": "precedes",
+   "attrs": {
+    "sensor": "after_archive"
+   }
+  },
+  {
+   "source": "task.archive_orders.refresh_customers",
+   "target": "task.dagster.jaffle_shop_dbt",
+   "kind": "precedes",
+   "attrs": {
+    "sensor": "after_archive"
+   }
+  },
+  {
+   "source": "task.archive_orders.refresh_customers",
+   "target": "task.dagster.reporting/customer_ltv",
+   "kind": "precedes",
+   "attrs": {
+    "sensor": "after_archive"
+   }
+  },
+  {
+   "source": "task.archive_orders.refresh_customers",
+   "target": "task.dagster.order_counts",
+   "kind": "precedes",
+   "attrs": {
+    "sensor": "after_archive"
+   }
+  },
+  {
+   "source": "task.archive_orders.refresh_customers",
+   "target": "task.dagster.order_totals",
+   "kind": "precedes",
+   "attrs": {
+    "sensor": "after_archive"
+   }
+  },
+  {
+   "source": "term.customer_lifetime_value",
+   "target": "model.jaffle_shop.customers#customer_lifetime_value",
+   "kind": "defines"
+  },
+  {
+   "source": "term.customer_lifetime_value",
+   "target": "table.jaffle_shop.reporting.customer_ltv#lifetime_value",
+   "kind": "defines"
+  },
+  {
+   "source": "term.completed_order",
+   "target": "model.jaffle_shop.orders#status",
+   "kind": "defines"
+  },
+  {
+   "source": "term.customer",
+   "target": "model.jaffle_shop.customers#customer_id",
+   "kind": "defines"
+  },
+  {
+   "source": "term.payment_method",
+   "target": "model.jaffle_shop.stg_payments#payment_method",
+   "kind": "defines"
+  },
+  {
+   "source": "term.customer_name",
+   "target": "seed.jaffle_shop.raw_customers#first_name",
+   "kind": "defines"
+  },
+  {
+   "source": "term.customer_name",
+   "target": "seed.jaffle_shop.raw_customers#last_name",
+   "kind": "defines"
+  },
+  {
+   "source": "term.customer_lifetime_value",
+   "target": "term.order_amount",
+   "kind": "relates_to"
+  },
+  {
+   "source": "term.customer_lifetime_value",
+   "target": "term.customer",
+   "kind": "relates_to"
+  },
+  {
+   "source": "term.order_amount",
+   "target": "term.completed_order",
+   "kind": "relates_to"
+  }
+ ],
+ "warnings": [
+  "airflow task first.load: SELECT * over relations with unknown columns: jaffle_shop.raw.events",
+  "airflow: dags/assigned.py: task report: `dbt build --select +events` matched no dbt nodes",
+  "airflow: dags/taskflow.py: task run_dbt: `dbt run --select marts` matched no dbt nodes",
+  "definitions: definitions.yml:20: term 'Order amount': bound column 'orders.amount' is ambiguous (model.jaffle_shop.orders#amount, table.jaffle_shop.archive.orders#amount); qualify it"
+ ]
+}
