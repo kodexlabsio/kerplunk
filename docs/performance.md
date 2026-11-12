@@ -104,7 +104,7 @@ On a repository of SQL tables with the same five measures, each table reading it
 | 100 | 24,750 | 0.8 s | 0.09 s |
 | 400 | 399,000 | 9.55 s | 0.34 s |
 
-On the 2,000-model project of the first table, `conflicts` over every candidate column takes 0.85 s of wall time after the graph is loaded (`uv run .kodex/scripts/benchmark.py 2000`).
+On the 2,000-model project of the first table, `conflicts` over every candidate column takes 0.85 s of wall time after the graph is loaded (`uv run .kodex/scripts/benchmark.py 2000`). `konstruct conflicts` then shows what it found in `graph.html` and `explain.json`: when the page was written for the same graph, the formulas, ontology and world it holds are kept rather than made again, and only the SQL files are read again. The gate's copy of the graph, which the MCP `gate` tool and the coding agent hook bring up to date, holds no `graph.html`, `REPORT.md` or `ontology.yml`.
 
 When a sensitive term binds nothing, as a term bound to a column only the warehouse knows does in a build from files alone, the gate builds the graph of the base to compare marks (see [Sensitive Data and Erasure](guide/sensitivity.md#the-gate)), and keeps it in the user's cache directory (`$XDG_CACHE_HOME/konstruct/base`, otherwise `~/.cache/konstruct/base`, `~/Library/Caches/konstruct/base` or `%LOCALAPPDATA%\konstruct\base`), by repository, commit and project, for the gates that follow on the same machine. In CI (`CI` or `GITHUB_ACTIONS` set) the gate keeps nothing and builds the base each time it needs it. On the 2,000-model project with such a term, from files alone and with no change (`uv run .kodex/scripts/gate_base_benchmark.py`):
 

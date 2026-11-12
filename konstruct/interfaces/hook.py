@@ -8,10 +8,11 @@ when the gate passes, and the findings, as a ``block`` decision, when it fails.
 
 The update never runs dbt and connects to no warehouse: a hook runs after every edit, unasked, so
 it reads files only, and Konstruct never imports or runs the project's own code. It builds into
-``.hook`` inside the output directory, starting from the build cache and without graph.html, so
-the graph the user built (with its warehouse metadata) is left as it is. Hooks for edits made in
-parallel take turns on ``.hook``, and one that finds the files as the last run left them gives
-that run's answer again rather than building once more.
+``.hook`` inside the output directory, starting from the build cache and writing there the
+graph, the cache, its own records and a ``.gitignore`` (no graph.html, REPORT.md or ontology.yml,
+which no one reads there), so the graph the user built (with its warehouse metadata) is left as
+it is. Hooks for edits made in parallel take turns on ``.hook``, and one that finds the files as
+the last run left them gives that run's answer again rather than building once more.
 """
 
 from __future__ import annotations
@@ -363,7 +364,7 @@ def _gate(root: Path, out_dir: Path, path: Path, shown: str) -> dict[str, Any]:
             if (out_dir / 'cache.json').is_file() and not (scratch / 'cache.json').is_file():
                 shutil.copy2(out_dir / 'cache.json', scratch / 'cache.json')
             config.override(run_dbt=False, warehouses=False)
-            config.html = False
+            config.html = config.report = False
             # The copy reads no warehouse: it keeps the tags and masking policies the project's
             # own graph holds, as the last full build read them, and none it has since dropped.
             config.governance_from = out_dir / 'graph.json'

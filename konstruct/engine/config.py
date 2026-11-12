@@ -302,7 +302,12 @@ class Config:
     """Every table of the configuration file as written, such as ``[looker]``, so an input finds
     its own settings by its name."""
     html: bool = True
-    """Write graph.html. A build only another tool reads, such as the coding agent hook's, skips it."""
+    """Write graph.html and explain.json. A build only another tool reads, such as the coding agent
+    hook's, skips them, and deletes those an earlier build left in ``out_dir``, which would show
+    another graph."""
+    report: bool = True
+    """Write REPORT.md and ontology.yml, which only people read: a build only another tool reads
+    skips them too, and deletes those an earlier build left in ``out_dir``."""
     governance_from: Path | None = None
     """The graph.json whose warehouse tags and masking policies a build from files alone keeps:
     by default the one it replaces; for a copy of the graph, such as the gate's, the project's."""

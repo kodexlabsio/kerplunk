@@ -418,21 +418,16 @@ class Project:
 
         result = find_conflicts(self.graph, limit)
         if write:
-            from konstruct.outputs.html import graph_fingerprint, viewer_data, write_html, write_viewer_data
+            from konstruct.outputs.html import graph_fingerprint, show_conflicts
 
             jsonio.write_text(self.out_dir / 'CONFLICTS.md', result.markdown())
             # The fingerprint says which graph these are true of, so graph.html shows them only
             # while the graph is unchanged.
-            data = {**document(result), 'graph': graph_fingerprint(self.graph)}
+            graph_data = self.graph.to_dict()
+            fingerprint = graph_fingerprint(self.graph, graph_data)
+            data = {**document(result), 'graph': fingerprint}
             jsonio.write_text(self.out_dir / 'conflicts.json', json.dumps(data, indent=1) + '\n')
-            page, explain = self.out_dir / 'graph.html', self.out_dir / 'explain.json'
-            if page.is_file() or explain.is_file():
-                # explain.json too: `konstruct serve` reloads it when it changes.
-                shown = viewer_data(self.graph, self.out_dir)
-                if explain.is_file():
-                    write_viewer_data(shown, explain)
-                if page.is_file():
-                    write_html(self.graph, page, data=shown)
+            show_conflicts(self.graph, self.out_dir, graph_data, fingerprint)
         return result
 
     def check_sql(self, sql: str) -> SqlCheck:

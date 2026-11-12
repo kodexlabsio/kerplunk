@@ -368,6 +368,7 @@ def test_gate_leaves_the_project_graph_as_it_is(jaffle_built_graph: Path, tmp_pa
     assert (root / 'konstruct-out' / '.gate' / 'graph.json').is_file()
     # The gate reads no graph.html, so its copy has none.
     assert not (root / 'konstruct-out' / '.gate' / 'graph.html').exists()
+    assert not (root / 'konstruct-out' / '.gate' / 'REPORT.md').exists()
 
 
 def test_a_gate_waits_its_turn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

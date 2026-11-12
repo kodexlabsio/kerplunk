@@ -421,8 +421,120 @@ def test_explain_json_is_what_graph_html_embeds(tmp_path: Path) -> None:
     assert explain == _embedded(out / 'graph.html', 'konstruct-explain')
     assert explain == json.loads(json.dumps(viewer_data(Graph.read(out / 'graph.json'), out)))
     assert explain['columns'] and {'sql', 'ontology', 'world', 'conflicts'} <= set(explain)
-    # A build that writes no graph.html writes no explain.json either.
+    # A build that writes no graph.html writes no explain.json either, and drops those an earlier
+    # build left, which would show another graph.
     shutil.rmtree(out)
+    out.mkdir()
+    (out / 'graph.html').write_text('stale')
+    (out / 'explain.json').write_text('{}')
     config.html = False
     assert [path.name for path in build(config).outputs] == ['graph.json', 'REPORT.md', 'ontology.yml']
-    assert not (out / 'explain.json').exists()
+    assert not (out / 'explain.json').exists() and not (out / 'graph.html').exists()
+    # A build only another tool reads, as the gate's copy is, writes the graph alone, and drops
+    # the report and the ontology an earlier version wrote there.
+    shutil.rmtree(out)
+    out.mkdir()
+    (out / 'REPORT.md').write_text('stale')
+    (out / 'ontology.yml').write_text('stale')
+    config.report = False
+    assert [path.name for path in build(config).outputs] == ['graph.json']
+    assert sorted(path.name for path in out.iterdir()) == ['cache.json', 'graph.json']
+
+
+def test_conflicts_shown_keep_the_page_and_read_its_sql_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``show_conflicts`` trusts the page it finds as it trusts graph.json: a page this viewer
+    wrote for the same graph keeps its formulas, ontology and world, and takes the conflicts, the
+    locale and the SQL files as they are now. A page of another graph is made again."""
+    from konstruct.outputs import html
+
+    root = tmp_path / 'project'
+    (root / 'models').mkdir(parents=True)
+    (root / 'models' / 'orders.sql').write_text('select 1 as order_id\n')
+    graph = Graph()
+    graph.meta = {'root': str(root)}
+    model = graph.add_node(
+        Node('model.shop.orders', 'model', 'orders', relation='db.main.orders', path='models/orders.sql')
+    )
+    graph.add_column(model, 'order_id', attrs={'expression': '1'})
+    out = root / 'konstruct-out'
+    out.mkdir()
+    page = html.write_html(graph, out / 'graph.html')
+    html.write_viewer_data(html.viewer_data(graph, out), out / 'explain.json')
+    built = html._embedded(page, html._embed_json(graph.to_dict()))
+    assert built is not None and built['sql']['model.shop.orders']['s'] == 'select 1 as order_id\n'
+
+    (root / 'models' / 'orders.sql').write_text('select 2 as order_id\n')
+    graph_data = graph.to_dict()
+    fingerprint = html.graph_fingerprint(graph, graph_data)
+    (out / 'conflicts.json').write_text(json.dumps({'candidates': 1, 'conflicts': [], 'graph': fingerprint}))
+    monkeypatch.setenv('KONSTRUCT_LOCALE', 'de')
+
+    def composed(*args: object, **kwargs: object) -> dict[str, object]:
+        raise AssertionError('the formulas were composed again')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(html, 'explanations', composed)
+        html.show_conflicts(graph, out, graph_data, fingerprint)
+    shown = json.loads((out / 'explain.json').read_text())
+    assert shown == html._embedded(page, html._embed_json(graph_data))
+    assert shown['sql']['model.shop.orders']['s'] == 'select 2 as order_id\n'
+    assert shown['conflicts'] == {'candidates': 1, 'conflicts': []} and shown['locale'] == 'de'
+    assert {k: v for k, v in shown.items() if k not in ('sql', 'conflicts', 'locale')} == {
+        k: v for k, v in built.items() if k not in ('sql', 'conflicts', 'locale')
+    }
+
+    # A page of another graph is not taken for this one's.
+    html.write_html(Graph(), page)
+    html.show_conflicts(graph, out, graph_data, fingerprint)
+    assert json.loads((out / 'explain.json').read_text()) == json.loads(
+        json.dumps(html.viewer_data(graph, out))
+    )
+
+
+def test_conflicts_shown_list_the_formulas_as_graph_json_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A build lists formulas in the order it made the nodes; a page kept for conflicts lists them
+    as graph.json does, byte for byte as made again. A page whose formulas are not those of every
+    column is made again."""
+    from konstruct.core import jsonio
+    from konstruct.outputs import html
+
+    built = Graph()
+    built.meta = {'root': str(tmp_path / 'nowhere')}
+    for name in ('zeta', 'alpha'):
+        model = built.add_node(
+            Node(
+                f'model.shop.{name}',
+                'model',
+                name,
+                relation=f'db.main.{name}',
+                attrs={'conditions': [f'WHERE: {name}.x > 1']},
+            )
+        )
+        built.add_column(model, 'x', attrs={'expression': f'{name}.x'})
+    out = tmp_path / 'out'
+    out.mkdir()
+    html.write_html(built, out / 'graph.html')
+    html.write_viewer_data(html.viewer_data(built, out), out / 'explain.json')
+    graph = Graph.from_dict(built.to_dict())  # as a command reads graph.json
+    graph_data = graph.to_dict()
+    fingerprint = html.graph_fingerprint(graph, graph_data)
+    expected = jsonio.dumps(html.viewer_data(graph, out))
+    assert expected != (out / 'explain.json').read_text()
+
+    def composed(*args: object, **kwargs: object) -> dict[str, object]:
+        raise AssertionError('the formulas were composed again')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(html, 'explanations', composed)
+        html.show_conflicts(graph, out, graph_data, fingerprint)
+    assert (out / 'explain.json').read_text() == expected
+
+    page = html.viewer_data(built, out)
+    del page['columns']['model.shop.alpha#x']
+    html.write_html(built, out / 'graph.html', data=page)
+    html.show_conflicts(graph, out, graph_data, fingerprint)
+    assert (out / 'explain.json').read_text() == expected

@@ -268,16 +268,21 @@ def graph_fingerprint(graph: Graph, data: dict[str, Any] | None = None) -> str:
     return hashlib.sha256(jsonio.dumps(content).encode('utf-8')).hexdigest()
 
 
-def conflicts_data(graph: Graph, directory: Path, graph_data: dict[str, Any] | None = None) -> dict[str, Any]:
+def conflicts_data(
+    graph: Graph, directory: Path, graph_data: dict[str, Any] | None = None, *, fingerprint: str | None = None
+) -> dict[str, Any]:
     """The conflicts ``konstruct conflicts`` last wrote to ``conflicts.json`` beside the graph, if
     they were found in this same graph; otherwise none. Finding conflicts is a question asked on
-    demand: a build does not spend its time on it. ``graph_data`` is ``graph.to_dict()``."""
+    demand: a build does not spend its time on it. ``graph_data`` is ``graph.to_dict()`` and
+    ``fingerprint`` its :func:`graph_fingerprint`, when they have been made already."""
     path = directory / 'conflicts.json'
     try:
         data = jsonio.loads(path.read_bytes())
     except (OSError, ValueError):
         return {}
-    if not isinstance(data, dict) or data.get('graph') != graph_fingerprint(graph, graph_data):
+    if fingerprint is None:
+        fingerprint = graph_fingerprint(graph, graph_data)
+    if not isinstance(data, dict) or data.get('graph') != fingerprint:
         return {}
     found = {k: v for k, v in data.items() if k != 'graph'}
     if isinstance(found.get('conflicts'), list):
@@ -303,8 +308,13 @@ def viewer_data(
     data['ontology'] = ontology_data(graph, found)
     data['world'] = world_data(graph, found)
     data['conflicts'] = conflicts_data(graph, directory, graph_data)
+    return _with_locale(data)
+
+
+def _with_locale(data: dict[str, Any]) -> dict[str, Any]:
     # The page's language follows the reader's browser; KONSTRUCT_LOCALE (such as de or pt-BR)
     # sets the one to use when the reader has not chosen one.
+    data.pop('locale', None)
     locale = os.environ.get('KONSTRUCT_LOCALE', '').strip()
     if locale:
         data['locale'] = locale
@@ -327,13 +337,82 @@ def write_html(
         graph_data = graph.to_dict()
     if data is None:
         data = viewer_data(graph, path.parent, cache, ontology, graph_data)
-    page = (
-        template()
-        .replace(_EXPLAIN_PLACEHOLDER, _embed_json(data), 1)
-        .replace(_DATA_PLACEHOLDER, _embed_json(graph_data), 1)
-    )
-    jsonio.write_text(path, page)
+    jsonio.write_text(path, _page(_embed_json(data), _embed_json(graph_data)))
     return path
+
+
+def _page(data_text: str, graph_text: str) -> str:
+    return template().replace(_EXPLAIN_PLACEHOLDER, data_text, 1).replace(_DATA_PLACEHOLDER, graph_text, 1)
+
+
+def _embedded(path: Path, graph_text: str) -> dict[str, Any] | None:
+    """The viewer data the page at ``path`` holds, when this Konstruct's viewer wrote it for the
+    graph ``graph_text`` embeds; otherwise None."""
+    page = template()
+    if page.index(_DATA_PLACEHOLDER) > page.index(_EXPLAIN_PLACEHOLDER):
+        return None
+    before, rest = page.split(_DATA_PLACEHOLDER, 1)
+    between, after = rest.split(_EXPLAIN_PLACEHOLDER, 1)
+    head = before + graph_text + between
+    try:
+        text = path.read_text(encoding='utf-8')
+    except (OSError, UnicodeDecodeError):
+        return None
+    if len(text) < len(head) + len(after) or not text.startswith(head) or not text.endswith(after):
+        return None
+    try:
+        data = jsonio.loads(text[len(head) : len(text) - len(after)])
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _in_graph_order(data: dict[str, Any], graph: Graph) -> bool:
+    """Put the formulas and conditions of ``data`` in the order of ``graph``'s nodes, as
+    :func:`explanations` lists them for a graph read from graph.json (a build lists them in the
+    order it made the nodes); False, changing nothing, when they are not those of every node that
+    has one."""
+    formulas, conditioned = [], []
+    for node in graph.nodes.values():
+        if node.kind == 'column' and isinstance(node.attrs.get('expression'), str):
+            formulas.append(node.id)
+        elif node.attrs.get('conditions'):
+            conditioned.append(node.id)
+    columns, conditions = data.get('columns'), data.get('conditions')
+    if not isinstance(columns, dict) or not isinstance(conditions, dict):
+        return False
+    if set(columns) != set(formulas) or set(conditions) != set(conditioned):
+        return False
+    data['columns'] = {node_id: columns[node_id] for node_id in formulas}
+    data['conditions'] = {node_id: conditions[node_id] for node_id in conditioned}
+    return True
+
+
+def show_conflicts(graph: Graph, directory: Path, graph_data: dict[str, Any], fingerprint: str) -> None:
+    """Show the conflicts ``conflicts.json`` holds in ``graph.html`` and ``explain.json`` in
+    ``directory``, those of the two that are there. ``graph_data`` is ``graph.to_dict()`` and
+    ``fingerprint`` its :func:`graph_fingerprint`. When the page embeds this same graph, what it
+    shows beside the conflicts and the SQL files (formulas, the ontology, the world) is kept as it
+    is; otherwise it is made again, as a build makes it."""
+    page, explain = directory / 'graph.html', directory / 'explain.json'
+    if not page.is_file() and not explain.is_file():
+        return
+    graph_text = _embed_json(graph_data)
+    # The page is trusted as graph.json is, and no further: it is taken only when this viewer
+    # wrote it for this same graph, and what it holds beside the graph (formulas, the ontology,
+    # the world) is what the build of that graph made. The SQL is read again, as the files are now.
+    data = _embedded(page, graph_text)
+    if data is None or not _in_graph_order(data, graph):
+        data = viewer_data(graph, directory, graph_data=graph_data)
+    else:
+        data['sql'] = code(graph)
+        data['conflicts'] = conflicts_data(graph, directory, fingerprint=fingerprint)
+        data = _with_locale(data)
+    # explain.json too: `konstruct serve` reloads it when it changes.
+    if explain.is_file():
+        write_viewer_data(data, explain)
+    if page.is_file():
+        jsonio.write_text(page, _page(_embed_json(data), graph_text))
 
 
 def write_viewer_data(data: dict[str, Any], path: Path) -> Path:

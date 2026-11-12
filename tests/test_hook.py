@@ -194,6 +194,7 @@ def test_runs_the_gate_after_an_edit(
     assert (repo / 'konstruct-out' / 'graph.json').read_bytes() == graph
     assert (repo / 'konstruct-out' / '.hook' / 'graph.json').is_file()
     assert not (repo / 'konstruct-out' / '.hook' / 'graph.html').exists()
+    assert not (repo / 'konstruct-out' / '.hook' / 'REPORT.md').exists()
     assert (repo / 'konstruct-out' / '.hook' / '.gitignore').read_text() == '*\n'
     assert discovered and all(found == [] for found in discovered)
 

@@ -204,6 +204,40 @@ def test_command_files_and_formats(tmp_path: Path, capsys: pytest.CaptureFixture
     assert json.loads(capsys.readouterr().out)['conflicts'] == []
 
 
+def test_the_page_shows_the_conflicts_without_composing_its_formulas_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """graph.html and explain.json from the build of this graph keep their formulas, SQL and
+    ontology, and gain the conflicts; a page of another graph is made again in full."""
+    from konstruct.outputs import html
+
+    project = make_shop(tmp_path)
+    out = tmp_path / 'konstruct-out'
+    built = json.loads((out / 'explain.json').read_text())
+    assert built['conflicts'] == {}
+
+    def composed(*args: object, **kwargs: object) -> dict[str, object]:
+        raise AssertionError('the formulas were composed again')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(html, 'explanations', composed)
+        project.conflicts(write=True)
+    shown = json.loads((out / 'explain.json').read_text())
+    assert shown['conflicts']['conflicts'][0]['idea'] == 'revenue'
+    assert {k: v for k, v in shown.items() if k != 'conflicts'} == {
+        k: v for k, v in built.items() if k != 'conflicts'
+    }
+    page = (out / 'graph.html').read_text()
+    assert html._embedded(out / 'graph.html', html._embed_json(project.graph.to_dict())) == shown
+    assert page == html._page(html._embed_json(shown), html._embed_json(project.graph.to_dict()))
+
+    html.write_html(Graph(), out / 'graph.html')
+    project.conflicts(write=True)
+    again = html.viewer_data(project.graph, out)
+    assert json.loads((out / 'explain.json').read_text()) == json.loads(json.dumps(again))
+    assert html._embedded(out / 'graph.html', html._embed_json(project.graph.to_dict())) is not None
+
+
 NET_FINANCE = """\
 create table finance.revenue as
 select order_date, sum(amount) - sum(discount) as net_revenue

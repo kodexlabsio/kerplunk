@@ -642,8 +642,8 @@ GATE_WAIT = 120.0
 
 
 class _GateCopy(Project):
-    """The project seen from the gate's copy of its graph, built without graph.html, which the
-    gate does not read. The laws it judges against are the project's own."""
+    """The project seen from the gate's copy of its graph, built without graph.html, REPORT.md and
+    ontology.yml, which the gate does not read. The laws it judges against are the project's own."""
 
     def __init__(self, path: Path, *, out_dir: Path, plugins: bool, laws_dir: Path) -> None:
         super().__init__(path, out_dir=out_dir, plugins=plugins)
@@ -654,7 +654,7 @@ class _GateCopy(Project):
 
     def config(self) -> Config:
         config = super().config()
-        config.html = False
+        config.html = config.report = False
         config.governance_from = self.governance_from
         return config
 

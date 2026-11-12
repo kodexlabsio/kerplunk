@@ -3047,12 +3047,24 @@ def build(config: Config, *, update: bool = False) -> BuildResult:
     graph.meta['build_seconds'] = round(time.perf_counter() - started, 2)
     log.info('writing graph.json, REPORT.md, graph.html, ontology.yml and explain.json')
     graph.write(graph_path)
-    outputs = [graph_path, write_report(graph, config.out_dir / 'REPORT.md')]
+    outputs = [graph_path]
+    if config.report:
+        outputs.append(write_report(graph, config.out_dir / 'REPORT.md'))
     if data is not None:
         outputs.append(write_html(graph, config.out_dir / 'graph.html', data=data))
-    outputs.append(ontology.write(config.out_dir / 'ontology.yml'))
+    if config.report:
+        outputs.append(ontology.write(config.out_dir / 'ontology.yml'))
     if explain_path is not None:
         outputs.append(explain_path)
+    # An output this build does not write, left by an earlier one, would describe another graph.
+    for name, written in (
+        ('REPORT.md', config.report),
+        ('ontology.yml', config.report),
+        ('graph.html', config.html),
+        ('explain.json', config.html),
+    ):
+        if not written:
+            (config.out_dir / name).unlink(missing_ok=True)
     builder.cache.save()
     return BuildResult(
         graph=graph,

@@ -1726,7 +1726,7 @@ def base_graph(root: Path, ref: str, cache: Path | None = None) -> Graph | None:
             _write_tree(top, commit, prefix, tree)
             config = load_config(tree / prefix, Path(scratch) / 'out', trusted=False)
             config.override(run_dbt=False, warehouses=False)
-            config.html = False
+            config.html = config.report = False
             graph = build(config).graph
         except (DiffError, ConfigError, OSError, ValueError):
             return None
