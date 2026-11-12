@@ -33,14 +33,13 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
-import sqlglot
-from sqlglot import exp
-from sqlglot.errors import ErrorLevel, SqlglotError
-
 from konstruct.core.graph import Graph, Node
-from konstruct.core.sql import PARSE_ERRORS, strip_templating, table_key
 
+# sqlglot is imported where a query is read, not here: the diff imports this module, and with it
+# the hook and the gate, for defining_sql_file alone.
 if TYPE_CHECKING:
+    from sqlglot import exp
+
     from konstruct.analysis.integrity import KeyCheck, LinkCheck
     from konstruct.interfaces.layout import Style
 
@@ -312,6 +311,11 @@ def defining_sql_file(graph: Graph, node: Node, root: Path) -> Path | None:
 
 def query_for(text: str, relation: str, graph: Graph) -> str | None:
     """The query of the statement in the SQL file ``text`` that builds ``relation``, if one does."""
+    import sqlglot
+    from sqlglot import exp
+
+    from konstruct.core.sql import PARSE_ERRORS, strip_templating, table_key
+
     catalog, schema = defaults(graph)
     try:
         statements = sqlglot.parse(strip_templating(text), dialect='duckdb')
@@ -364,30 +368,32 @@ def quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-# A model's SQL is run only when it is one statement that reads: no second statement after a
-# semicolon, no data-changing CTE, no SELECT INTO and no DDL, so verify can never write to a warehouse.
-_WRITES = (
-    exp.Insert,
-    exp.Update,
-    exp.Delete,
-    exp.Merge,
-    exp.Create,
-    exp.Drop,
-    exp.Alter,
-    exp.Command,
-    exp.Into,
-)
-
-
 def read_only_query(sql: str, dialect: str = 'duckdb') -> exp.Query:
     """Parse ``sql`` as exactly one query that only reads, or raise ``ValueError``."""
+    import sqlglot
+    from sqlglot import exp
+
+    # A model's SQL is run only when it is one statement that reads: no second statement after a
+    # semicolon, no data-changing CTE, no SELECT INTO and no DDL, so verify can never write to a
+    # warehouse.
+    writes = (
+        exp.Insert,
+        exp.Update,
+        exp.Delete,
+        exp.Merge,
+        exp.Create,
+        exp.Drop,
+        exp.Alter,
+        exp.Command,
+        exp.Into,
+    )
     statements = [s for s in sqlglot.parse(sql, dialect=dialect) if s is not None]
     if len(statements) != 1:
         raise ValueError(f'the model is {len(statements)} statements, and only a single query is run')
     tree = statements[0]
     if not isinstance(tree, exp.Query):
         raise ValueError(f'the model is a {tree.key.upper()} statement, and only a query is run')
-    written = next(tree.find_all(*_WRITES), None)
+    written = next(tree.find_all(*writes), None)
     if written is not None:
         raise ValueError(f'the model contains {written.key.upper()}, and only a query that reads is run')
     return tree
@@ -409,6 +415,11 @@ def rewrite(
     printed in ``write`` (by default ``dialect``, the dialect it is read in), and the relation keys
     of every table it reads.
     """
+    from sqlglot import exp
+    from sqlglot.errors import ErrorLevel
+
+    from konstruct.core.sql import table_key
+
     tree = read_only_query(sql, dialect)
     ctes = {cte.alias_or_name.lower() for cte in tree.find_all(exp.CTE)}
     seen: set[str] = set()
@@ -477,6 +488,7 @@ def _targets(column: str, dtype: str) -> list[tuple[tuple[str, ...], str]]:
     """What to perturb in one input column: the column, and each field reachable through structs
     alone (fields inside list elements are covered by perturbing the list itself)."""
     from sqlglot import exp
+    from sqlglot.errors import SqlglotError
 
     targets: list[tuple[tuple[str, ...], str]] = [((column,), dtype)]
     if not dtype.upper().startswith('STRUCT'):
@@ -814,6 +826,8 @@ class DbApiSource:
     def table(self, parts: tuple[str, ...]) -> str:
         # Relation keys are lower case. Snowflake folds unquoted names to upper case, so each part
         # is quoted in upper case; elsewhere each part is quoted as it is, so reserved words work.
+        from sqlglot import exp
+
         quoted = [p.upper() if self.dialect == 'snowflake' else p for p in parts]
         table = exp.table_(
             exp.to_identifier(quoted[-1], quoted=True),
