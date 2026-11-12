@@ -1,0 +1,140 @@
+{
+ "impact_stg_orders": {
+  "args": [
+   "impact",
+   "stg_orders"
+  ],
+  "exit": 0
+ },
+ "impact_stg_payments_amount": {
+  "args": [
+   "impact",
+   "stg_payments.amount"
+  ],
+  "exit": 0
+ },
+ "trace_customer_ltv_lifetime_value": {
+  "args": [
+   "trace",
+   "customer_ltv.lifetime_value"
+  ],
+  "exit": 0
+ },
+ "trace_orders_amount_depth_1": {
+  "args": [
+   "trace",
+   "orders.amount",
+   "--depth",
+   "1"
+  ],
+  "exit": 1
+ },
+ "path_raw_payments_customer_dashboard": {
+  "args": [
+   "path",
+   "raw_payments",
+   "customer_dashboard"
+  ],
+  "exit": 0
+ },
+ "search_lifetime_value": {
+  "args": [
+   "search",
+   "lifetime",
+   "value",
+   "-n",
+   "5"
+  ],
+  "exit": 0
+ },
+ "describe_orders": {
+  "args": [
+   "describe",
+   "orders"
+  ],
+  "exit": 1
+ },
+ "describe_build_customer_ltv": {
+  "args": [
+   "describe",
+   "jaffle_shop_daily.build_customer_ltv"
+  ],
+  "exit": 0
+ },
+ "list": {
+  "args": [
+   "list"
+  ],
+  "exit": 0
+ },
+ "list_columns": {
+  "args": [
+   "list",
+   "columns"
+  ],
+  "exit": 0
+ },
+ "query_payment_method": {
+  "args": [
+   "query",
+   "what breaks if I change payment_method"
+  ],
+  "exit": 0
+ },
+ "define_lifetime_value": {
+  "args": [
+   "define",
+   "lifetime",
+   "value"
+  ],
+  "exit": 0
+ },
+ "ontology": {
+  "args": [
+   "ontology"
+  ],
+  "exit": 0
+ },
+ "explain_customers_customer_lifetime_value": {
+  "args": [
+   "explain",
+   "customers.customer_lifetime_value"
+  ],
+  "exit": 0
+ },
+ "conflicts": {
+  "args": [
+   "conflicts",
+   "--no-write"
+  ],
+  "exit": 0
+ },
+ "trace_daily_totals_total": {
+  "args": [
+   "trace",
+   "daily_totals.total"
+  ],
+  "exit": 0
+ },
+ "impact_customer_ltv_task": {
+  "args": [
+   "impact",
+   "reporting/customer_ltv"
+  ],
+  "exit": 0
+ },
+ "describe_archive_orders": {
+  "args": [
+   "describe",
+   "archive_orders"
+  ],
+  "exit": 0
+ },
+ "describe_dependencies": {
+  "args": [
+   "describe",
+   "dependencies"
+  ],
+  "exit": 0
+ }
+}
