@@ -13,6 +13,24 @@ A cold build analyses dbt models in worker processes, one per CPU up to eight, a
 
 Plugins cost nothing in commands that cannot run one: only `build`, `export`, `gate`, `hook`, `mcp`, `status` and `plugins` (and a query command that builds a missing graph) read the installed distributions' entry points, once for each repository a build reads. With 170 distributions installed, reading them takes about 40 ms and building the registry from them (`Plugins.discover()`) about 85 ms, and a plugin is imported only when its group is first used. `uv run .kodex/scripts/plugin_startup.py` measures it on your machine.
 
+## A Project dbt Compiles
+
+`.kodex/scripts/dbt_benchmark.py` measures Konstruct on the same 2,000 models written as a dbt project, each relation a `ref` or a `source` and each model's tag in its config, with the Airflow DAGs of the first table, compiled by dbt in DuckDB, so that dbt writes the manifest, in its own order, and the catalog. Each command runs in a fresh process, and its CPU time is that of the process and its worker processes together, the median of three runs on a four-core Intel Xeon cloud machine at 2.3 GHz with Python 3.12 and four worker processes (`uv run .kodex/scripts/dbt_benchmark.py --work DIR --repeat 3`).
+
+| Command | CPU time |
+|---|---:|
+| `konstruct build --no-dbt --no-warehouse`, cold (13.8 s of it in the workers) | 36.25 s |
+| the same with `--update`, nothing changed | 3.99 s |
+| `konstruct trace m1999.c01` | 0.36 s |
+| `konstruct impact m010.c01` | 0.39 s |
+| `konstruct explain m1999.c01` | 0.44 s |
+| `konstruct check-sql` of a sum over a join of two models | 0.74 s |
+| `konstruct conflicts --no-build` | 3.15 s |
+| `konstruct gate --no-dbt --no-warehouse` after an edit to one model | 5.06 s |
+| the MCP `gate` tool after that edit, over a new copy of the graph | 4.05 s |
+
+`--checkout` measures other checkouts of Konstruct on the same project, run by run in turn, to compare two versions.
+
 ## The Coding Agent Hook
 
 `konstruct hook post-edit`, which the Claude Code plugin runs after an agent edits SQL or YAML, runs `konstruct build --update` into a copy of the graph, from files alone, and then the gate, so it takes about as long as an `--update` build of the project. An edit to a file the plugin does not watch starts no process, and an edit to a YAML file outside the dbt project's resource paths starts no build. `.kodex/scripts/benchmark.py` reports the hook's time beside the other measurements.
@@ -104,7 +122,7 @@ On a repository of SQL tables with the same five measures, each table reading it
 | 100 | 24,750 | 0.8 s | 0.09 s |
 | 400 | 399,000 | 9.55 s | 0.34 s |
 
-On the 2,000-model project of the first table, `conflicts` over every candidate column takes 0.85 s of wall time after the graph is loaded (`uv run .kodex/scripts/benchmark.py 2000`). `konstruct conflicts` then shows what it found in `graph.html` and `explain.json`: when the page was written for the same graph, the formulas, ontology and world it holds are kept rather than made again, and only the SQL files are read again. The gate's copy of the graph, which the MCP `gate` tool and the coding agent hook bring up to date, holds no `graph.html`, `REPORT.md` or `ontology.yml`.
+On the 2,000-model project of the first table, `conflicts` over every candidate column takes 0.85 s of wall time after the graph is loaded (`uv run .kodex/scripts/benchmark.py 2000`). `konstruct conflicts` then shows what it found in `graph.html` and `explain.json`. The gate's copy of the graph, which the MCP `gate` tool and the coding agent hook bring up to date, holds no `graph.html`, `REPORT.md` or `ontology.yml`.
 
 When a sensitive term binds nothing, as a term bound to a column only the warehouse knows does in a build from files alone, the gate builds the graph of the base to compare marks (see [Sensitive Data and Erasure](guide/sensitivity.md#the-gate)), and keeps it in the user's cache directory (`$XDG_CACHE_HOME/konstruct/base`, otherwise `~/.cache/konstruct/base`, `~/Library/Caches/konstruct/base` or `%LOCALAPPDATA%\konstruct\base`), by repository, commit and project, for the gates that follow on the same machine. In CI (`CI` or `GITHUB_ACTIONS` set) the gate keeps nothing and builds the base each time it needs it. On the 2,000-model project with such a term, from files alone and with no change (`uv run .kodex/scripts/gate_base_benchmark.py`):
 
