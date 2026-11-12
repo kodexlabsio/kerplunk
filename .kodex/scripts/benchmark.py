@@ -33,7 +33,9 @@ over every pair, and of the gate's checks after an edit to one measure of one ta
 It also measures SQL over relations whose columns no warehouse or catalog lists: the median time
 to analyse a chain of 20, 40 and 80 CTEs, each a ``SELECT *`` of the one before with a filter,
 over a relation with unknown columns, selecting 20 of its columns at the end; and a cold build and
-the best of three ``--update`` builds of a project of 400 SQL files with no warehouse.
+the best of three ``--update`` builds of a project of 400 SQL files with no warehouse. It times
+statements that read one relation twice the same way, and both those and the chains also in CPU
+time, the least of 25 runs (10 for a chain), which other work on the machine does not inflate.
 
 It also measures start-up: the CPU time of ``konstruct --help``, of ``konstruct status`` and of
 ``konstruct impact`` on a column on the largest project, each in a fresh process, and in the same way ``konstruct search`` with and
@@ -79,6 +81,7 @@ from tests.test_scale import give_entities, make_measures, make_project  # noqa:
 
 COLUMNS = 20
 REPEAT = 5
+CPU_REPEAT = 25
 """Runs of each query; its median is reported."""
 
 
@@ -86,6 +89,17 @@ def timed(func: Any, *args: Any, **kwargs: Any) -> tuple[float, Any]:
     started = time.perf_counter()
     result = func(*args, **kwargs)
     return time.perf_counter() - started, result
+
+
+def least_cpu(func: Any, *args: Any, repeat: int = CPU_REPEAT) -> float:
+    """The least CPU time of ``repeat`` runs of ``func``: what it costs, apart from what else the
+    machine runs at the time."""
+    best = float('inf')
+    for _ in range(repeat):
+        started = time.process_time()
+        func(*args)
+        best = min(best, time.process_time() - started)
+    return best
 
 
 def median_time(func: Any, *args: Any, repeat: int = REPEAT) -> float:
@@ -380,21 +394,26 @@ def star_chain(length: int, width: int = 20) -> str:
     return f'with {", ".join(ctes)} select {columns} from c{length - 1}'
 
 
-def measure_star_chains() -> dict[int, float]:
-    """Milliseconds to analyse each chain of stars over unknown columns."""
+def measure_star_chains() -> tuple[dict[int, float], dict[int, float]]:
+    """Milliseconds to analyse each chain of stars over unknown columns: the median, and the least
+    CPU time."""
     from konstruct.core.sql import analyse
 
-    return {
-        length: round(
-            1000 * median_time(lambda sql: analyse(sql, dialect='duckdb', schema={}), star_chain(length)), 1
-        )
-        for length in (20, 40, 80)
-    }
+    def run(sql: str) -> None:
+        analyse(sql, dialect='duckdb', schema={})
+
+    chains = {length: star_chain(length) for length in (20, 40, 80)}
+    return (
+        {length: round(1000 * median_time(run, sql), 1) for length, sql in chains.items()},
+        {length: round(1000 * least_cpu(run, sql, repeat=10), 1) for length, sql in chains.items()},
+    )
 
 
 def self_joins() -> dict[str, tuple[str, dict[str, dict[str, str]]]]:
     """Statements that read one relation twice, with their schemas: the scale test's model template
-    over one model joined to itself, and 400 columns of one table set against its parent row's."""
+    over one model joined to itself, 400 columns of one table set against its parent row's, and
+    the same through a CTE that each side of a LEFT JOIN references, and through a CTE of a UNION
+    ALL of the table with itself."""
     model = {f'c{j:02}': 'int' for j in range(COLUMNS)}
     picks = ', '.join(
         f'a.{c}' if j % 3 == 0 else (f'b.{c} * 2 as {c}' if j % 3 == 1 else f'coalesce(a.{c}, b.{c}) as {c}')
@@ -406,25 +425,32 @@ def self_joins() -> dict[str, tuple[str, dict[str, dict[str, str]]]]:
     )
     wide = {'id': 'int', 'parent_id': 'int', **{f'c{j}': 'int' for j in range(400)}}
     differences = ', '.join(f'a.c{j} - b.c{j} as d{j}' for j in range(400))
+    joined = f'select a.id, {differences} from r a left join r b on b.parent_id = a.id'
+    union = 'q as (select * from raw.wide union all select * from raw.wide), r as (select * from q)'
     return {
         'template': (template, {'wh.analytics.m': model}),
         'wide': (
             f'select a.id, {differences} from raw.wide a join raw.wide b on b.parent_id = a.id',
             {'raw.wide': wide},
         ),
+        'cte': (f'with r as (select * from raw.wide) {joined}', {'raw.wide': wide}),
+        'union': (f'with {union} {joined}', {'raw.wide': wide}),
     }
 
 
-def measure_self_joins() -> dict[str, float]:
-    """Milliseconds to analyse each statement of :func:`self_joins`."""
+def measure_self_joins() -> tuple[dict[str, float], dict[str, float]]:
+    """Milliseconds to analyse each statement of :func:`self_joins`: the median, and the least CPU
+    time."""
     from konstruct.core.sql import analyse
 
-    return {
-        name: round(
-            1000 * median_time(lambda s, known: analyse(s, dialect='duckdb', schema=known), sql, schema), 1
-        )
-        for name, (sql, schema) in self_joins().items()
-    }
+    def run(sql: str, known: dict[str, dict[str, str]]) -> None:
+        analyse(sql, dialect='duckdb', schema=known)
+
+    statements = self_joins()
+    return (
+        {name: round(1000 * median_time(run, *statement), 1) for name, statement in statements.items()},
+        {name: round(1000 * least_cpu(run, *statement), 1) for name, statement in statements.items()},
+    )
 
 
 def sql_files_project(root: Path, files: int = 400) -> None:
@@ -558,8 +584,8 @@ def main() -> int:
         measured.append(row)
         print(f'{tables} tables: {row}', file=sys.stderr)
     # SQL over unknown columns is measured with the model sizes, as it was before --tables.
-    chains = measure_star_chains() if rows else {}
-    joined = measure_self_joins() if rows else {}
+    chains, chains_cpu = measure_star_chains() if rows else ({}, {})
+    joined, joined_cpu = measure_self_joins() if rows else ({}, {})
     sql_files = measure_sql_files() if rows else {}
     machine = (
         f'{platform.machine()}, {platform.system()} {platform.release()}, Python {platform.python_version()}'
@@ -575,7 +601,15 @@ def main() -> int:
         )
         print(
             f'A model of the scale test joined to itself: {joined["template"]} ms; 400 columns of a table set '
-            f"against its parent row's: {joined['wide']} ms."
+            f"against its parent row's: {joined['wide']} ms, through a CTE each side of a LEFT JOIN reads "
+            f'{joined["cte"]} ms, and through a CTE of a UNION ALL {joined["union"]} ms.'
+        )
+        print(
+            f'In CPU time, the least of {CPU_REPEAT} runs (10 for a chain): the model joined to itself '
+            f'{joined_cpu["template"]} ms, the 400 columns {joined_cpu["wide"]} ms, through a CTE '
+            f'{joined_cpu["cte"]} ms, through a CTE of a UNION ALL {joined_cpu["union"]} ms; '
+            + ', '.join(f'{length} CTEs {ms} ms' for length, ms in chains_cpu.items())
+            + '.'
         )
         print(
             'Discovery of every input: '
@@ -602,6 +636,8 @@ def main() -> int:
             'tables': measured,
             'star_chains_ms': chains,
             'self_joins_ms': joined,
+            'star_chains_cpu_ms': chains_cpu,
+            'self_joins_cpu_ms': joined_cpu,
             **sql_files,
         }
         args.json.write_text(json.dumps(data, indent=1))

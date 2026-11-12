@@ -117,7 +117,7 @@ if TYPE_CHECKING:
 FILE_NAME = 'konstruct.lock'
 FORMAT = 1
 """The layout of the file: which keys it has and what they hold."""
-CANONICAL_FORM = 4
+CANONICAL_FORM = 5
 """How Konstruct prints the formulas and conditions it fingerprints. Raise it with any change
 that prints one differently (a new normalisation, a core that is not sqlglot's printer)."""
 CANONICAL = f'konstruct-{CANONICAL_FORM}/sqlglot-{".".join(package_version("sqlglot").split(".")[:2])}'

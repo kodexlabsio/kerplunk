@@ -9,10 +9,11 @@ from typing import Any
 
 import duckdb
 import pytest
-from hypothesis import given, settings
+from hypothesis import assume, example, given, settings
 from hypothesis import strategies as st
 
 from konstruct.core.sql import (
+    LINEAGE_FAILED,
     ColumnSource,
     StatementLineage,
     analyse,
@@ -1731,6 +1732,21 @@ ALIASES = 'abc'
 _ALIAS = re.compile(r'\b([abc])\.')
 
 
+# How a self-join reads t: itself, or through CTEs, each a reading of t that every reference reads
+# once more; with the CTEs it defines and those its readings of t reference in turn.
+_UNION = "select * from t union all select * from t where kind = 'y'"
+SELF_JOIN_CTES: dict[str, tuple[list[str], list[str]]] = {
+    'plain': ([], []),
+    'one cte': (['r as (select * from t)'], ['r']),
+    'two ctes': (['ra as (select * from t)', 'rb as (select * from t)'], ['ra', 'rb']),
+    'a union cte': ([f'r as ({_UNION})'], ['r']),
+    'a cte of a union cte': (
+        ['q as (select * from t union all select * from t)', 'r as (select * from q)'],
+        ['r'],
+    ),
+}
+
+
 @st.composite
 def self_joins(draw: st.DrawFn) -> dict[str, Any]:
     """Two or three readings of t and u, the first of t, each joined to an earlier one, with a
@@ -1765,7 +1781,7 @@ def self_joins(draw: st.DrawFn) -> dict[str, Any]:
         'joins': joins,
         'filter': filter_,
         'items': items,
-        'form': draw(st.sampled_from(['plain', 'one cte', 'two ctes'])),
+        'form': draw(st.sampled_from(list(SELF_JOIN_CTES))),
         'unknown': draw(st.booleans()),
     }
 
@@ -1813,7 +1829,7 @@ def _self_join(spec: dict[str, Any], *, reorder: bool = False) -> str:
     ]
     if reorder:
         items.reverse()
-    ctes = {'plain': [], 'one cte': ['r'], 'two ctes': ['ra', 'rb']}[spec['form']]
+    defined, ctes = SELF_JOIN_CTES[spec['form']]
     sources = []
     t_readings = 0
     for relation in spec['relations']:
@@ -1829,10 +1845,37 @@ def _self_join(spec: dict[str, Any], *, reorder: bool = False) -> str:
     )
     where = f' where {aliased(spec["filter"])}' if spec['filter'] else ''
     body = f'select {", ".join(items)} from {first}{joined}{where}'
-    defined = [f'{name} as (select * from t)' for name in ctes]
-    if reorder:
-        defined.reverse()
+    if reorder and len(defined) == len(ctes):
+        # CTEs that read each other stay in order; those that do not are written the other way.
+        defined = list(reversed(defined))
     return f'with {", ".join(defined)} {body}' if defined else body
+
+
+def _left_self_join(item: str, unknown: bool) -> dict[str, Any]:
+    """``with r as (select * from t) select <item> as c0 from r a left join r b on b.parent_id =
+    a.parent_id``: through a CTE, ``b`` is the reading on the nullable side."""
+    return {
+        'relations': ['t', 't'],
+        'joins': [('left ', 'b.parent_id = a.parent_id')],
+        'filter': '',
+        'items': [item],
+        'form': 'one cte',
+        'unknown': unknown,
+    }
+
+
+def _union_self_join(first: str, second: str) -> dict[str, Any]:
+    """``with q as (select * from t union all select * from t), r as (select * from q) select
+    <first>.amount as c0, <second>.id as c1 from r a left join r b on b.amount > a.amount where
+    <first>.kind = 'x'``: each reference to r reads both branches of q once more."""
+    return {
+        'relations': ['t', 't'],
+        'joins': [('left ', 'b.amount > a.amount')],
+        'filter': f"{first}.kind = 'x'",
+        'items': [f'{first}.amount', f'{second}.id'],
+        'form': 'a cte of a union cte',
+        'unknown': False,
+    }
 
 
 def _printed(sql: str, unknown: bool = False) -> tuple[Any, ...]:
@@ -1841,6 +1884,12 @@ def _printed(sql: str, unknown: bool = False) -> tuple[Any, ...]:
     result = one(sql, schema={} if unknown else PAIRS_TABLE)
     conditions = sorted(canonical_condition(c, 'duckdb') for c in result.conditions)
     return conditions, result.expressions, result.nullable, result.star_reads
+
+
+def _analysed(sql: str, unknown: bool = False) -> bool:
+    """Whether the build traces the lineage of ``sql``."""
+    errors = one(sql, schema={} if unknown else PAIRS_TABLE).errors
+    return not any(error.startswith(LINEAGE_FAILED) for error in errors)
 
 
 def _rows(sql: str) -> list[tuple[Any, ...]]:
@@ -1862,6 +1911,30 @@ def test_a_self_join_prints_the_same_whatever_its_aliases_and_the_order_of_its_i
     )
 
 
+def _through_one_reference(printed: Any) -> Any:
+    """``printed`` with each reading of t, ``t#2``, named as read through a CTE's reference,
+    ``t#1/2``."""
+    if isinstance(printed, str):
+        return re.sub(r'(?<!\w)t#(\d+)', r't#1/\1', printed)
+    if isinstance(printed, dict):
+        return {_through_one_reference(k): _through_one_reference(v) for k, v in printed.items()}
+    if isinstance(printed, (list, tuple)):
+        return type(printed)(_through_one_reference(item) for item in printed)
+    return printed
+
+
+@settings(max_examples=200, deadline=None)
+@given(self_joins())
+@example(_left_self_join('b.id', False))
+def test_a_self_join_through_a_cte_prints_as_it_does_over_the_relation_itself(spec: dict[str, Any]) -> None:
+    """Each reference to ``with r as (select * from t)`` reads t once more, on its own side of the
+    join: a self-join of r prints as the same self-join of t, with each reading ``t#2`` named
+    ``t#1/2``, the CTE's one reading of t through the reference's."""
+    plain = _printed(_self_join({**spec, 'form': 'plain'}), spec['unknown'])
+    through = _printed(_self_join({**spec, 'form': 'one cte'}), spec['unknown'])
+    assert through == _through_one_reference(plain)
+
+
 @settings(max_examples=150, deadline=None)
 @given(self_joins(), st.sampled_from(['a', 'b']))
 def test_the_branches_of_a_union_print_the_same_either_way_round(spec: dict[str, Any], kept: str) -> None:
@@ -1871,17 +1944,194 @@ def test_the_branches_of_a_union_print_the_same_either_way_round(spec: dict[str,
     assert _printed(f'{first} union all {other}') == _printed(f'{other} union all {first}')
 
 
+@st.composite
+def self_join_pairs(draw: st.DrawFn) -> tuple[dict[str, Any], dict[str, Any]]:
+    """A self-join, and one of its parts moved to another reading or another self-join in the same
+    form, both with columns known or both without."""
+    spec = draw(self_joins())
+    other = draw(st.one_of(changed(spec), self_joins().map(lambda o: {**o, 'form': spec['form']})))
+    return spec, {**other, 'unknown': spec['unknown']}
+
+
 @settings(max_examples=400, deadline=None)
-@given(st.data())
-def test_self_joins_that_return_other_rows_print_differently(data: st.DataObject) -> None:
+@given(self_join_pairs())
+@example((_left_self_join('a.id', False), _left_self_join('b.id', False)))
+@example((_left_self_join('a.id', True), _left_self_join('b.id', True)))
+@example((_union_self_join('a', 'b'), _union_self_join('b', 'a')))
+def test_self_joins_that_return_other_rows_print_differently(
+    pair: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
     """A change to which reading a self-join's parts read, or another self-join of the same
     readings, that changes its rows is a change to what it prints."""
-    spec = data.draw(self_joins())
-    other = data.draw(st.one_of(changed(spec), self_joins().map(lambda o: {**o, 'form': spec['form']})))
-    other = {**other, 'unknown': spec['unknown']}
+    spec, other = pair
     first, second = _self_join(spec), _self_join(other)
+    # A statement the build cannot analyse is reported as such, and prints nothing to compare.
+    assume(_analysed(first, spec['unknown']) and _analysed(second, spec['unknown']))
     if _rows(first) != _rows(second):
         assert _printed(first, spec['unknown']) != _printed(second, spec['unknown']), (first, second)
+
+
+# A self-join of t on its parent, read directly, through a CTE each reading references, through
+# a CTE that reads another, and through one CTE and the CTE it reads; with the names it gives the
+# two readings of t.
+SELF_JOIN_FORMS = {
+    'plain': ('select {s}.id as c0 from t a {j} join t b on b.parent_id = a.parent_id', ('1', '2')),
+    'through a cte': (
+        'with r as (select * from t) select {s}.id as c0 from r a {j} join r b on b.parent_id = a.parent_id',
+        ('1/1', '1/2'),
+    ),
+    'through two ctes': (
+        'with q as (select * from t), r as (select * from q) '
+        'select {s}.id as c0 from r a {j} join r b on b.parent_id = a.parent_id',
+        ('1/1', '1/2'),
+    ),
+    'through ctes two levels apart': (
+        'with q as (select * from t), r as (select * from q) '
+        'select {s}.id as c0 from r a {j} join q b on b.parent_id = a.parent_id',
+        ('1/1', '1/2'),
+    ),
+}
+
+
+@pytest.mark.parametrize('form', list(SELF_JOIN_FORMS))
+@pytest.mark.parametrize(
+    ('join', 'expected'),
+    [
+        # For a.id and then b.id as c0: the reading c0 is of, and the reading on the nullable side
+        # (None where both are, as of t read once).
+        ('left', ((2, 1), (2, 2))),
+        ('right', ((1, 1), (2, 1))),
+        ('full', ((2, None), (2, None))),
+    ],
+)
+def test_which_reading_of_a_self_join_is_on_the_nullable_side_is_printed_through_ctes(
+    form: str, join: str, expected: tuple[tuple[int, int | None], ...]
+) -> None:
+    """``r a LEFT JOIN r b`` finds no row of ``b``'s reading of t through ``r`` where ``a``'s has
+    one: ``b.id`` can be NULL and ``a.id`` cannot, through CTEs as when the join reads t itself.
+    Each reference to a CTE reads what the CTE reads once more, on its own side of the join. The
+    symmetric FULL JOIN returns the same rows either way, and prints the same."""
+    sql, names = SELF_JOIN_FORMS[form]
+    one_way, other_way = (sql.format(s=s, j=join) for s in 'ab')
+    reading = {n: f'db.main."t#{name}"' for n, name in enumerate(names, 1)}
+    for statement, (column, nullable) in zip((one_way, other_way), expected, strict=True):
+        side = join.upper()
+        assert _printed(statement) == (
+            [f'{side} JOIN ON: {reading[1]}.parent_id = {reading[2]}.parent_id'],
+            {'c0': f'{reading[column]}.id'},
+            {'db.main.t' if nullable is None else f'db.main.t#{names[nullable - 1]}': side},
+            {},
+        )
+        assert _printed(statement, unknown=True) == _printed(statement)
+    assert (_rows(one_way) != _rows(other_way)) == (join != 'full')
+    assert (_printed(one_way) != _printed(other_way)) == (join != 'full')
+
+
+UNION_SELF_JOIN = (
+    "select {x}.amount as c0, {y}.id as c1 from r a left join r b on b.amount > a.amount where {x}.kind = 'x'"
+)
+
+
+def test_a_self_join_through_a_cte_of_a_union_names_the_readings_of_each_branch() -> None:
+    """Each reference to r reads both branches of q once more: a column of r is the UNION of its
+    branches' columns, each through the reading of r it is read in (``t#2/1`` is the second
+    branch through the first reference), and the reading of r on the nullable side is both of
+    its branches'. Moving the columns and the filter from one reading to the other prints so."""
+    sql = 'with q as (select * from t union all select * from t), r as (select * from q) ' + UNION_SELF_JOIN
+
+    def through(reference: int, column: str) -> str:
+        return f'UNION(db.main."t#1/{reference}".{column}, db.main."t#2/{reference}".{column})'
+
+    one_way, other_way = sql.format(x='a', y='b'), sql.format(x='b', y='a')
+    assert _rows(one_way) != _rows(other_way)
+    join = f'LEFT JOIN ON: (({through(1, "amount")})) > (({through(2, "amount")}))'
+    nullable = {'db.main.t#1/1': 'LEFT', 'db.main.t#2/1': 'LEFT'}
+    assert _printed(one_way) == (
+        [join, f"WHERE: (({through(2, 'kind')})) = 'x'"],
+        {'c0': through(2, 'amount'), 'c1': through(1, 'id')},
+        nullable,
+        {},
+    )
+    assert _printed(other_way) == (
+        [join, f"WHERE: (({through(1, 'kind')})) = 'x'"],
+        {'c0': through(1, 'amount'), 'c1': through(2, 'id')},
+        nullable,
+        {},
+    )
+
+
+@pytest.mark.parametrize(
+    'ctes',
+    [
+        'r as (select * from t union all select * from t)',
+        'q as (select * from t union all select * from t), r as (select * from q)',
+        'q as (select * from t union all select * from t), r as (select * from q where amount > 15)',
+        'q as (select id, amount, kind from t union all select id, score, region from u), r as (select * from q)',
+    ],
+    ids=['a union cte', 'a cte of a union cte', 'a filtered cte of a union cte', 'a union of two relations'],
+)
+@pytest.mark.parametrize('unknown', [False, True], ids=['known columns', 'unknown columns'])
+def test_a_self_join_through_a_union_prints_which_reading_each_part_reads(ctes: str, unknown: bool) -> None:
+    """A union read through a CTE referenced twice, or through a CTE that reads it, or filtered on
+    the way: which reading the columns and the filter are of changes the rows, and the print."""
+    one_way, other_way = (f'with {ctes} {UNION_SELF_JOIN.format(x=x, y=y)}' for x, y in ('ab', 'ba'))
+    assert _rows(one_way) != _rows(other_way)
+    assert _printed(one_way, unknown) != _printed(other_way, unknown)
+    # Every column of the formulas is named by its relation, not by a CTE or an alias.
+    assert not any(re.search(r'(?<![\w"])[abqr]\.', text) for text in _printed(one_way, unknown)[1].values())
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        'qualify meets an identifier with no name in a star of a CTE whose UNION branches are stars '
+        'over a relation with unknown columns, and the build reports that column lineage failed'
+    ),
+)
+def test_a_star_of_a_union_of_stars_over_unknown_columns_is_analysed() -> None:
+    assert _analysed(
+        "with r as (select * from t union all select * from t where kind = 'y') "
+        "select a.* from r a where a.kind = 'x'",
+        unknown=True,
+    )
+
+
+BY_NAME = 'with q as (select id, amount from t union all {op} select amount, id from t) '
+
+
+def test_a_union_by_name_takes_its_branches_columns_by_name() -> None:
+    """``UNION ALL BY NAME`` matches its branches' columns by name, and ``UNION ALL`` by position:
+    the same branches return other rows, and a column and a condition of each print so."""
+    query = 'select a.amount as c0 from q a where a.id > 2'
+    by_name, by_position = (BY_NAME.format(op=op) + query for op in ('by name', ''))
+    assert _rows(by_name) != _rows(by_position)
+    assert _printed(by_name) == (
+        ['WHERE: (UNION(db.main."t#1".id, db.main."t#2".id)) > 2'],
+        {'c0': 'UNION(db.main."t#1".amount, db.main."t#2".amount)'},
+        {},
+        {},
+    )
+    assert _printed(by_position) != _printed(by_name)
+    # BigQuery's CORRESPONDING is the same match by name.
+    corresponding = one(
+        BY_NAME.format(op='corresponding').replace('by name', '') + query,
+        schema=PAIRS_TABLE,
+        dialect='bigquery',
+    )
+    assert corresponding.expressions == {'c0': 'UNION(db.main.`t#1`.amount, db.main.`t#2`.amount)'}
+
+
+def test_a_self_join_of_a_union_by_name_prints_which_reading_it_returns() -> None:
+    """Each reading of a union by name reads its branches by name, on its own side of the join."""
+    sql = BY_NAME.format(op='by name') + 'select {x}.amount as c0 from q a left join q b on b.id = a.amount'
+    one_way, other_way = sql.format(x='a'), sql.format(x='b')
+    assert _rows(one_way) != _rows(other_way)
+    assert _printed(one_way) != _printed(other_way)
+    # b, joined by its id, is the reading on the nullable side, and a.amount the other's column.
+    nullable = {'db.main.t#1/1': 'LEFT', 'db.main.t#2/1': 'LEFT'}
+    for statement, reference in ((one_way, 2), (other_way, 1)):
+        column = f'UNION(db.main."t#1/{reference}".amount, db.main."t#2/{reference}".amount)'
+        assert _printed(statement)[1:3] == ({'c0': column}, nullable)
 
 
 def test_a_symmetric_self_join_is_not_a_tautology() -> None:

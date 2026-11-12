@@ -492,7 +492,7 @@ def _column_lineage(
         scope, _Sources(scope), tracer, dialect, schema, default_catalog, default_db
     )
     canon = Canonical(dialect, default_catalog, default_db)
-    canon.tracer = tracer
+    canon.tracer, canon.schema = tracer, schema
     canon.prepare(scope)
     for index, (name, node) in enumerate(nodes.items()):
         if name != '*':
@@ -502,7 +502,7 @@ def _column_lineage(
     def key(table: exp.Table) -> str:
         return table_key(table, default_catalog, default_db)
 
-    scopes = _scopes(scope, key)
+    scopes = _scopes(scope, lambda table, _: key(table))
     result.conditions = canon.conditions(scope, schema, scopes)
     if canon.repeated:
         scopes = _named_readings(canon, scope, key, result)
@@ -517,18 +517,18 @@ def _named_readings(
     beyond them: ``o LEFT JOIN p`` is not ``o RIGHT JOIN p``, nor ``SELECT o.*`` ``SELECT p.*``.
     The statement's scopes, with each table keyed by its reading."""
 
-    def reading(table: exp.Table) -> str:
-        return canon.relation(table) if id(table) in canon.repeated else key(table)
+    # The readings of each relation the statement makes, as its scopes are walked: through each
+    # reference to a CTE referenced more than once, the CTE's tables are read once more.
+    tokens: dict[str, set[str]] = defaultdict(set)
 
-    scopes = _scopes(root, reading)
-    # A star through a CTE referenced more than once passes on the columns of one reference.
-    scopes.stars = {}
-    _star_reads(
-        root,
-        lambda table, path: canon.relation(table, path) if id(table) in canon.repeated else key(table),
-        scopes.stars,
-        canon.segment,
-    )
+    def reading(table: exp.Table, path: str) -> str:
+        if id(table) not in canon.repeated:
+            return key(table)
+        token = canon.relation(table, path)
+        tokens[canon.relations[token]].add(token)
+        return token
+
+    scopes = _scopes(root, reading, canon.segment)
     canon.name_readings(
         [
             *result.conditions,
@@ -540,10 +540,7 @@ def _named_readings(
     )
     result.expressions = {k: canon.rename(v) for k, v in result.expressions.items()}
     conditions = {canon.rename(c) for c in result.conditions}
-    readings: dict[str, set[str]] = defaultdict(set)
-    for (path, _), token in canon.tokens.items():
-        if not path:
-            readings[canon.relations[token]].add(canon.reading_of(token))
+    readings = {relation: {canon.reading_of(t) for t in named} for relation, named in tokens.items()}
     scopes.nullable = _by_relation({canon.reading_of(k): v for k, v in scopes.nullable.items()}, readings)
     scopes.read_before = _by_relation(
         {canon.reading_of(k): v for k, v in scopes.read_before.items()}, readings
@@ -1598,9 +1595,10 @@ class _Scopes:
     before: dict[int, list[str]] = field(default_factory=dict)
     """The steps that see each scope's rows after the scope itself, nearest first."""
     nullable: dict[str, str] = field(default_factory=dict)
-    """Tables read only on the nullable side of an outer join, with its side."""
+    """Tables read only on the nullable side of an outer join, with its side, each keyed as
+    :func:`_scopes` is asked to key its readings."""
     read_before: dict[str, list[str]] = field(default_factory=dict)
-    """Tables read before a window function, QUALIFY or LIMIT, with those steps."""
+    """Tables read before a window function, QUALIFY or LIMIT, with those steps, keyed so too."""
     folded: dict[int, Scope] = field(default_factory=dict)
     """For a LEFT JOIN (by id) of a CTE or subquery that only selects and filters, that scope:
     its WHERE is part of the join's ON, as it decides the same rows."""
@@ -1609,51 +1607,66 @@ class _Scopes:
     expanded, with the columns the star leaves out."""
 
 
-def _scopes(root: Scope, key: Callable[[exp.Table], str]) -> _Scopes:
+def _scopes(
+    root: Scope, key: Callable[[exp.Table, str], str], segment: Callable[[exp.Expr], str] | None = None
+) -> _Scopes:
+    """Where each scope of ``root``, and each table it reads, sits, by reading: each table is keyed
+    by ``key`` from the table and the path of the CTE references it is read through, each
+    reference's part of it given by ``segment``. Each reference to a CTE reads its rows once more,
+    and two references can sit on two sides of a join: ``r a LEFT JOIN r b`` finds no row of
+    ``b``'s reading of what ``r`` reads, and every row of ``a``'s."""
     found = _Scopes()
-    scope_reads: dict[int, list[tuple[str | None, list[str]]]] = {}
+    # Each scope's readings, in the order they are found: the path of the CTE references it is
+    # read through, the side of an outer join it is on the nullable side of, and the steps after it.
+    readings: dict[int, dict[tuple[str, str | None, tuple[str, ...]], None]] = {}
     table_reads: dict[str, list[tuple[str | None, list[str]]]] = {}
+    references: Counter[int] = Counter()
     # Reversed, a scope comes before the scopes it reads.
     for scope in reversed(list(root.traverse())):
-        reads = scope_reads.get(id(scope))
-        if reads:
-            side = reads[0][0] if all(r[0] for r in reads) else None
-            before = reads[0][1]
-        elif scope.parent is not None:
-            # A union's branch, or a subquery in a filter: where its parent's filters are.
-            side = found.sides.get(id(scope.parent))
-            before = _steps_after(scope.parent.expression, 'WHERE') + found.before.get(id(scope.parent), [])
-        else:
-            side, before = None, []
-        if side:
-            found.sides[id(scope)] = side
-        found.before[id(scope)] = before
+        reads = list(readings.get(id(scope), ()))
+        if not reads and scope.parent is not None:
+            # A union's branch, or a subquery in a filter: where its parent's filters are, in each
+            # of its parent's readings.
+            steps = tuple(_steps_after(scope.parent.expression, 'WHERE'))
+            parent = readings.get(id(scope.parent), {})
+            reads = [(path, side, steps + before) for path, side, before in parent]
+        if not reads:
+            reads = [('', None, ())]
+        readings[id(scope)] = dict.fromkeys(reads)
+        if all(side for _, side, _ in reads):
+            found.sides[id(scope)] = str(reads[0][1])
+        found.before[id(scope)] = list(reads[0][2])
         select = scope.expression
         if not isinstance(select, exp.Select):
             continue
-        inner = _steps_after(select, 'WHERE') + before
         nullable = _nullable_names(select, list(scope.selected_sources))
-        for name, (_, source) in scope.selected_sources.items():
-            read = (side or nullable.get(name), inner)
+        for path, side, before in reads:
+            inner = (*_steps_after(select, 'WHERE'), *before)
+            for name, (node, source) in scope.selected_sources.items():
+                read = side or nullable.get(name)
+                if isinstance(source, Scope):
+                    through = path + (segment(node) if segment else '')
+                    readings.setdefault(id(source), {})[through, read, inner] = None
+                elif isinstance(source, exp.Table):
+                    table_reads.setdefault(key(source, path), []).append((read, list(inner)))
+        for _, source in scope.selected_sources.values():
             if isinstance(source, Scope):
-                scope_reads.setdefault(id(source), []).append(read)
-            elif isinstance(source, exp.Table):
-                table_reads.setdefault(key(source), []).append(read)
+                references[id(source)] += 1
         for join in select.args.get('joins') or []:
             joined = scope.selected_sources.get(join.this.alias_or_name)
             target = joined[1] if joined else None
             if (join.side or '').upper() == 'LEFT' and isinstance(target, Scope) and _filters_only(target):
                 found.folded[id(join)] = target
-    for table, reads in table_reads.items():
-        if all(r[0] for r in reads):
-            found.nullable[table] = str(reads[0][0])
-        if reads[0][1]:
-            found.read_before[table] = reads[0][1]
+    for table, table_read in table_reads.items():
+        if all(r[0] for r in table_read):
+            found.nullable[table] = str(table_read[0][0])
+        if table_read[0][1]:
+            found.read_before[table] = table_read[0][1]
     # A folded scope read more than once is read elsewhere too, where its WHERE is its own.
     for join_id, source in list(found.folded.items()):
-        if len(scope_reads.get(id(source), [])) != 1:
+        if references[id(source)] != 1:
             del found.folded[join_id]
-    _star_reads(root, lambda table, _: key(table), found.stars)
+    _star_reads(root, key, found.stars, segment)
     return found
 
 
@@ -1793,6 +1806,8 @@ class Canonical:
         self.sources: _Sources | None = None
         self.scopes: dict[int, Scope] = {}
         self.tracer = _Tracer(dialect)
+        self.schema: MappingSchema | None = None  # what the tracer traces a set operation's columns by
+        self.by_name: dict[tuple[int, str], LineageNode | None] = {}  # see trace()
         # Readings of a relation the statement reads more than once are printed as tokens, and
         # named once every condition and formula is printed (see :meth:`name_readings`).
         self.repeated: set[int] = set()  # the ids of the tables of such relations
@@ -2073,9 +2088,10 @@ class Canonical:
             if not isinstance(item, exp.Column):
                 return item
             name = f'{item.table}.{item.name}' if item.table else item.name
-            child = children.get(_plain(name))
+            scope = self.scopes.get(id(node.source))
+            child = children.get(_plain(name)) or self._set_operation(scope, item)
             if child is not None:
-                return _inline(self.node(child, path + self.through(self.scopes.get(id(node.source)), item)))
+                return _inline(self.node(child, path + self.through(scope, item)))
             if len(star_tables) == 1 and isinstance(star_tables[0].expression, exp.Table):
                 relation = self.relation(star_tables[0].expression, path)
                 return exp.Var(this=f'{relation}.{item.name.lower()}')
@@ -2097,6 +2113,49 @@ class Canonical:
         finally:
             for new, old in reversed(swapped):
                 new.replace(old)
+
+    def _set_operation(self, scope: Scope | None, column: exp.Column) -> LineageNode | None:
+        """The lineage of ``column`` of ``scope`` where it reads a set operation. sqlglot's lineage
+        gives such a column the columns of the operation's branches, by position, rather than a
+        node of its own, so it is traced as a condition's column is: ``UNION(...)`` of its
+        branches, each through the reading it is read in."""
+        selected = scope.selected_sources.get(column.table) if scope is not None and column.table else None
+        source = selected[1] if selected is not None else None
+        if self.schema is None or not isinstance(source, Scope):
+            return None
+        return self.trace(column.name, source, self.schema)
+
+    def trace(self, name: str, source: Scope, schema: MappingSchema) -> LineageNode | None:
+        """The lineage of the column ``name`` of ``source``, a CTE, subquery or set operation, or
+        None where it cannot be traced. sqlglot's lineage takes a set operation's columns by
+        position; those of one that matches its branches' columns by name (DuckDB's ``UNION BY
+        NAME``, ``CORRESPONDING``) are taken by name, and a column some branch lacks, which that
+        branch fills with NULL or leaves out, has no formula."""
+        query = source.expression
+        try:
+            if not (isinstance(query, exp.SetOperation) and query.args.get('by_name')):
+                return self.tracer.trace(name, source, schema)
+            key = (id(source), name.lower())
+            if key not in self.by_name:
+                branches = []
+                for branch in source.set_operation_scopes:
+                    names = {s.alias_or_name.lower() for s in getattr(branch.expression, 'selects', [])}
+                    found = (
+                        self.trace(name, branch, schema)
+                        if isinstance(branch.expression, exp.SetOperation) or name.lower() in names
+                        else None
+                    )
+                    if found is None:
+                        break
+                    branches.append(found)
+                else:
+                    self.by_name[key] = LineageNode(
+                        name=type(query).__name__.upper(), source=query, expression=query, downstream=branches
+                    )
+                self.by_name.setdefault(key, None)
+            return self.by_name[key]
+        except (SqlglotError, ValueError, KeyError, IndexError, AttributeError):
+            return None
 
     def conditions(self, root: Scope, schema: MappingSchema, scopes: _Scopes) -> list[str]:
         """The statement's joins, filters, grouping, DISTINCT, LIMIT and OFFSET, and the ORDER BY
@@ -2260,9 +2319,8 @@ class Canonical:
             if isinstance(source, exp.Table):
                 return exp.Var(this=f'{self.relation(source)}.{item.name.lower()}')
             if isinstance(source, Scope):
-                try:
-                    traced = self.tracer.trace(item.name, source, schema)
-                except (SqlglotError, ValueError, KeyError, IndexError, AttributeError):
+                traced = self.trace(item.name, source, schema)
+                if traced is None:
                     return item
                 found = resolver.found(item, scope)
                 return _inline(self.node(traced, self.through(found[0], item) if found is not None else ''))
