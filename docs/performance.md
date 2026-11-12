@@ -177,3 +177,21 @@ Konstruct finds the files that declare Airflow DAGs or Dagster definitions by lo
 | Reading the 500 Dagster files (1,000 assets) | 0.013 s |
 
 Listing the files, which takes about 0.5 s and is done once for DAG files and once for Dagster files, is the largest part of finding them. The look at a file's bytes runs at about 20 GB/s on a megabyte of source (`cargo bench --bench core scan`).
+
+## Reading YAML
+
+Every YAML file Konstruct reads, a dbt project's schema files first among them, goes through one reader in the Rust core. It reads YAML as PyYAML's safe loader did (YAML 1.1) and builds the Python values itself, with the interpreter's lock released while it scans, so files can be read from several threads. `uv run .kodex/scripts/benchmark.py --yaml 2000` times the readers on the schema files of 2,000 models of 20 columns each (descriptions, tests with arguments, tags, anchors and a merge key in every model: 40 files of 13.5 MB). Each reader is one thread and the time is the CPU time of reading all the files, the best of five runs (one for the readers in Python), on the bytes of the files already read. `--old-yamlio PATH` adds a `yamlio.py` to time as well, here the one on main at d08c73d, which read through PyYAML's pure Python loader:
+
+```
+git show d08c73d:konstruct/core/yamlio.py > /tmp/old_yamlio.py
+uv run .kodex/scripts/benchmark.py --yaml 2000 --old-yamlio /tmp/old_yamlio.py
+```
+
+| Reader | CPU time | MB/s | Time, against the core |
+|---|---:|---:|---:|
+| `yamlio.load`, the core | 0.21 s | 63 | 1.0x |
+| `yamlio.load` before the core | 18.7 s | 0.7 | 87x |
+| PyYAML, `SafeLoader` | 16.9 s | 0.8 | 79x |
+| PyYAML, `CSafeLoader` (libyaml) | 3.8 s | 3.5 | 18x |
+
+`CSafeLoader` is the fastest reader of YAML for Python besides the core.
