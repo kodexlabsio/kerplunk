@@ -1,0 +1,54 @@
+{
+ "format_version": 1,
+ "query": "lifetime value",
+ "terms": [
+  {
+   "name": "Customer lifetime value",
+   "definition": "Total value of every payment a customer has made, across all orders and payment methods, in Australian dollars.",
+   "status": "approved",
+   "owner": {
+    "name": "Priya Shah",
+    "role": "Head of Finance"
+   },
+   "approved": "2026-10-30",
+   "synonyms": [
+    "lifetime value",
+    "LTV",
+    "CLV"
+   ],
+   "grain": "one row per customer",
+   "columns": [
+    {
+     "id": "table.jaffle_shop.reporting.customer_ltv#lifetime_value",
+     "kind": "column",
+     "label": "customer_ltv.lifetime_value",
+     "name": "lifetime_value",
+     "relation_kind": "table",
+     "data_type": "DOUBLE"
+    },
+    {
+     "id": "model.jaffle_shop.customers#customer_lifetime_value",
+     "kind": "column",
+     "label": "customers.customer_lifetime_value",
+     "name": "customer_lifetime_value",
+     "relation_kind": "model",
+     "path": "models/customers.sql",
+     "data_type": "DOUBLE"
+    }
+   ],
+   "filters": [],
+   "unit": "currency",
+   "currency": "AUD",
+   "related": [
+    "Order amount",
+    "Customer"
+   ],
+   "broader": [],
+   "narrower": [],
+   "exceptions": "Refunds are not netted off; returned orders still count.",
+   "path": "definitions.yml",
+   "line": 5,
+   "id": "term.customer_lifetime_value"
+  }
+ ]
+}
