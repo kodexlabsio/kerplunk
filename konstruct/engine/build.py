@@ -1107,13 +1107,15 @@ class Builder:
 
     def dbt_lineage(self) -> None:
         count = 0
-        prepared: dict[str, tuple[str, Any]] = {}
+        # Each model analysed early: the key it was analysed with, its analysis, and whether a
+        # worker made it.
+        prepared: dict[str, tuple[str, Any, bool]] = {}
         try:
             for loaded in self.loads:
                 ordered = _topological(loaded.models)
                 ids = {m.node_id for m in ordered}
                 applied: set[str] = set()
-                considered: set[str] = set()
+                considered = self.prepare_levels(ordered, ids, loaded, prepared)
                 for index, model in enumerate(ordered):
                     if model.node_id not in considered:
                         # Every later model whose upstream models are all applied can be analysed
@@ -1137,11 +1139,11 @@ class Builder:
                         guessed: list[str] = guessed,
                         dialect: str | None = dialect,
                         loaded: dbt.DbtLoad = loaded,
-                        early: tuple[str, Any] | None = early,
+                        early: tuple[str, Any, bool] | None = early,
                         key: str = key,
                     ) -> Any:
                         if early is not None and early[0] == key:
-                            self.workers.used += 1
+                            self.workers.used += early[2]
                             return early[1]
                         return _analyse_model(
                             (
@@ -1185,39 +1187,104 @@ class Builder:
         )
         return key, schema, guessed, loaded.dialect or self.dialect
 
+    def prepare_levels(
+        self,
+        ordered: list[dbt.ModelSql],
+        ids: set[str],
+        loaded: dbt.DbtLoad,
+        prepared: dict[str, tuple[str, Any, bool]],
+    ) -> set[str]:
+        """Analyse early, a level of the DAG at a time, every model whose upstream models' columns
+        are known before they are applied, and return the models it looked at. A model's columns
+        are known when a dbt catalog or the warehouse lists them all and its own SQL, when it was
+        analysed a level before, gives it no other (see :meth:`keeps_columns`): then they are what
+        its readers will be analysed with, whatever order the manifest lists the models in and the
+        build applies them in. A level of fewer models than starting the workers repays is
+        analysed here, so that the readers of a model whose SQL adds columns wait for it.
+
+        A model not looked at (an upstream model's columns are not known) counts as keeping the
+        columns its catalog lists in a build with nothing cached, so that its readers are analysed
+        side by side all the same; in a build with a cache only the models judged count, a cached
+        one by its cached analysis, so that an update analyses what it would one by one."""
+        if len(ordered) < PARALLEL_MINIMUM or _workers() < 2 or self.workers.failed:
+            return set()
+        depth: dict[str, int] = {}
+        levels: list[list[dbt.ModelSql]] = []
+        for model in ordered:
+            level = 1 + max((depth[u] for u in model.upstream if u in depth), default=-1)
+            depth[model.node_id] = level
+            if level == len(levels):
+                levels.append([])
+            levels[level].append(model)
+        known: set[str] = set()
+        looked: set[str] = set()
+        for models in levels:
+            ready = [m for m in models if all(u not in ids or u in known for u in m.upstream)]
+            looked.update(m.node_id for m in ready)
+            found = self.prepare_models(ready, loaded, prepared, everything=True)
+            judged = ready if self.cache.entries else models
+            known.update(m.node_id for m in judged if self.keeps_columns(m, found.get(m.node_id)))
+        return looked
+
+    def keeps_columns(self, model: dbt.ModelSql, result: Any) -> bool:
+        """Whether a model's columns, when it is applied, stay as a catalog or the warehouse lists
+        them all: they are listed so, and ``result``, its analysis when it is made already, gives
+        it no other. A model whose catalog is out of date is caught at its readers' turns, by
+        their keys."""
+        node = self.graph.nodes[model.node_id]
+        if node.id not in self.complete and not node.attrs.get('in_warehouse'):
+            return False
+        statements = [StatementLineage.from_dict(s) for s in result or []]
+        selects = [s for s in statements if s.kind in ('select', 'unparsed')]
+        return all(self.graph.column(node.id, name) is not None for s in selects[-1:] for name in s.columns)
+
     def prepare_models(
-        self, models: list[dbt.ModelSql], loaded: dbt.DbtLoad, prepared: dict[str, tuple[str, Any]]
-    ) -> None:
+        self,
+        models: list[dbt.ModelSql],
+        loaded: dbt.DbtLoad,
+        prepared: dict[str, tuple[str, Any, bool]],
+        *,
+        everything: bool = False,
+    ) -> dict[str, Any]:
         """Analyse the models that are not cached in worker processes, when there are enough of
-        them to repay starting the workers."""
-        if len(models) < PARALLEL_MINIMUM or _workers() < 2 or self.workers.failed:
-            return
+        them to repay starting the workers, and with ``everything`` the rest in this process.
+        Returns each model's analysis known now: made here, or cached, which this leaves unused."""
+        if not everything and (len(models) < PARALLEL_MINIMUM or _workers() < 2 or self.workers.failed):
+            return {}
+        found: dict[str, Any] = {}
         work = []
         for model in models:
             key, schema, guessed, dialect = self.model_key(model, loaded)
-            if key not in self.cache.entries:
-                work.append(
+            if key in self.cache.entries:
+                found[model.node_id] = self.cache.entries.get(key)
+                continue
+            work.append(
+                (
+                    model.node_id,
+                    key,
                     (
-                        model.node_id,
-                        key,
-                        (
-                            model.sql,
-                            dialect,
-                            schema,
-                            loaded.default_catalog,
-                            loaded.default_schema,
-                            model.relation,
-                            guessed,
-                        ),
-                    )
+                        model.sql,
+                        dialect,
+                        schema,
+                        loaded.default_catalog,
+                        loaded.default_schema,
+                        model.relation,
+                        guessed,
+                    ),
                 )
-        if len(work) < PARALLEL_MINIMUM:
-            return
-        results = self.workers.map([list(w[2]) for w in work])
+            )
+        workers = len(work) >= PARALLEL_MINIMUM
+        if not workers and not everything:
+            return found
+        results = (
+            self.workers.map([list(w[2]) for w in work]) if workers else [_analyse_model(w[2]) for w in work]
+        )
         if results is None:
-            return
+            return found
         for (node_id, key, _), result in zip(work, results, strict=True):
-            prepared[node_id] = (key, result)
+            prepared[node_id] = (key, result, workers)
+            found[node_id] = result
+        return found
 
     def warehouse_view_lineage(self) -> None:
         for node in list(self.graph.relations()):

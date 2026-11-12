@@ -229,6 +229,109 @@ def test_models_analysed_in_workers_give_the_same_graph(
     assert used[1] > 0 and used[3] > 0  # the three-worker builds used results from workers
 
 
+def _count_analyses(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Every analysis of a model a build makes: the batches given to workers, the results from
+    workers it used, and those made in its own process."""
+    from konstruct.engine import build
+
+    monkeypatch.setattr(build, 'PARALLEL_MINIMUM', 4)
+    counts: dict[str, Any] = {'batches': [], 'used': [], 'here': 0}
+    real_map, real_close, real_analyse = build._Workers.map, build._Workers.close, build._analyse_model
+
+    def map_(self: Any, jobs: list[Any]) -> Any:
+        counts['batches'].append(len(jobs))
+        return real_map(self, jobs)
+
+    def close(self: Any) -> None:
+        counts['used'].append(self.used)
+        real_close(self)
+
+    def analyse(job: Any) -> Any:
+        counts['here'] += 1
+        return real_analyse(job)
+
+    monkeypatch.setattr(build._Workers, 'map', map_)
+    monkeypatch.setattr(build._Workers, 'close', close)
+    monkeypatch.setattr(build, '_analyse_model', analyse)
+    return counts
+
+
+def _reversed_project(root: Path, *, stale: str | list[str] | None = None) -> None:
+    """make_project's 80 models with the manifest's nodes in reverse, as dbt lists them in no
+    particular order; with ``stale``, models whose catalog lacks a column their SQL gives them."""
+    make_project(root, 80, 6)
+    manifest_path = root / 'target' / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    manifest['nodes'] = dict(reversed(manifest['nodes'].items()))
+    manifest_path.write_text(json.dumps(manifest))
+    if stale:
+        catalog_path = root / 'target' / 'catalog.json'
+        catalog = json.loads(catalog_path.read_text())
+        for name in [stale] if isinstance(stale, str) else stale:
+            del catalog['nodes'][f'model.big.{name}']['columns']['c05']
+        catalog_path.write_text(json.dumps(catalog))
+
+
+def test_an_update_with_a_stale_catalog_analyses_what_one_worker_would(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With every tenth model's catalog out of date, an --update with nothing changed analyses
+    nothing, and one after an edit to two models analyses what a build in one process does: the
+    cached analyses say which models' columns their SQL changes."""
+    counts = _count_analyses(monkeypatch)
+    analysed: dict[str, list[int]] = {}
+    for workers in ('1', '2'):
+        monkeypatch.setenv('KONSTRUCT_WORKERS', workers)
+        root = tmp_path / workers
+        root.mkdir()
+        _reversed_project(root, stale=[f'm{i:03}' for i in range(0, 80, 10)])
+        Project(root).build(warehouses=False, run_dbt=False)
+        found = analysed.setdefault(workers, [])
+        for edit in (False, True):
+            if edit:
+                manifest_path = root / 'target' / 'manifest.json'
+                manifest = json.loads(manifest_path.read_text())
+                for name in ('m030', 'm055'):
+                    node = manifest['nodes'][f'model.big.{name}']
+                    node['compiled_code'] = node['raw_code'] = node['raw_code'].replace(
+                        'b.c01 > 0', 'b.c01 > 1'
+                    )
+                    node['checksum'] = {'checksum': f'{name}-edited'}
+                manifest_path.write_text(json.dumps(manifest))
+            counts['here'], counts['batches'] = 0, []
+            Project(root).build(update=True, warehouses=False, run_dbt=False)
+            found.append(counts['here'] + sum(counts['batches']))
+    assert analysed['2'] == analysed['1'] and analysed['1'][0] == 0 and analysed['1'][1] >= 2
+
+
+@pytest.mark.parametrize('stale', [None, 'm010'])
+def test_catalogued_models_are_analysed_in_workers_in_any_manifest_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stale: str | None
+) -> None:
+    """dbt writes a manifest's nodes in no particular order, so models are applied deepest chain
+    first; models whose upstream columns a catalog lists are still analysed in workers, a level
+    at a time, and each model once. Those that read a model whose SQL gives it a column its
+    catalog does not list wait for it, rather than being analysed again."""
+    counts = _count_analyses(monkeypatch)
+    graphs = []
+    for workers in ('1', '2'):
+        monkeypatch.setenv('KONSTRUCT_WORKERS', workers)
+        root = tmp_path / workers
+        root.mkdir()
+        _reversed_project(root, stale=stale)
+        Project(root).build(warehouses=False, run_dbt=False)
+        graphs.append(_graph(root))
+        if workers == '1':
+            assert counts['here'] == 80 and counts['batches'] == []
+            counts['here'] = 0
+    assert graphs[0] == graphs[1]
+    # Two workers: no model analysed twice, and most in the workers.
+    assert sum(counts['batches']) + counts['here'] == 80
+    assert counts['used'][1] == sum(counts['batches']) >= 60
+    readers = {'m020', 'm021', 'm030', 'm031', 'm032'}
+    assert len(counts['batches']) > 1 and (stale is None or sum(counts['batches']) <= 80 - len(readers))
+
+
 def test_workers_import_nothing_from_the_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from konstruct.engine import build
 
