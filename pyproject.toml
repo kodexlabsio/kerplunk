@@ -1,6 +1,6 @@
 [project]
 name = "konstruct"
-version = "0.13.21"
+version = "0.13.22"
 description = "An ontology of a business derived from its data stack (dbt, SQL, Airflow, Dagster, Looker and Power BI), with column-level lineage checked against the warehouse, served to AI agents over MCP."
 readme = "README.md"
 license = "MIT AND Apache-2.0 AND OFL-1.1"
