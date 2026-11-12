@@ -1,0 +1,87 @@
+{
+ "format_version": 1,
+ "direction": "downstream",
+ "target": {
+  "id": "task.dagster.reporting/customer_ltv",
+  "kind": "task",
+  "label": "reporting.reporting/customer_ltv",
+  "name": "reporting/customer_ltv",
+  "path": "orchestration/definitions.py",
+  "description": "Lifetime value per customer, from the customers model."
+ },
+ "columns": [],
+ "relations": [
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "table",
+   "label": "customer_ltv",
+   "name": "customer_ltv",
+   "depth": 1,
+   "via": "feeds"
+  },
+  {
+   "id": "table.asset:loyal_customers",
+   "kind": "table",
+   "label": "loyal_customers",
+   "name": "loyal_customers",
+   "depth": 3,
+   "via": "feeds"
+  },
+  {
+   "id": "table.asset:crm_export",
+   "kind": "table",
+   "label": "crm_export",
+   "name": "crm_export",
+   "depth": 5,
+   "via": "feeds"
+  }
+ ],
+ "joins_and_filters": [],
+ "filtered_by": [],
+ "tests": [],
+ "exposures": [],
+ "tasks": [
+  {
+   "id": "dag.everything",
+   "kind": "dag",
+   "label": "everything",
+   "name": "everything",
+   "path": "orchestration/definitions.py",
+   "depth": 1,
+   "via": "runs"
+  },
+  {
+   "id": "dag.reporting_job",
+   "kind": "dag",
+   "label": "reporting_job",
+   "name": "reporting_job",
+   "path": "orchestration/definitions.py",
+   "depth": 1,
+   "via": "runs"
+  },
+  {
+   "id": "task.dagster.loyal_customers",
+   "kind": "task",
+   "label": "reporting.loyal_customers",
+   "name": "loyal_customers",
+   "path": "orchestration/definitions.py",
+   "description": "Customers worth more than 100.",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.dagster.crm_export",
+   "kind": "task",
+   "label": "exports.crm_export",
+   "name": "crm_export",
+   "path": "orchestration/definitions.py",
+   "description": "Push loyal customers to the CRM.",
+   "depth": 4,
+   "via": "feeds"
+  }
+ ],
+ "terms": [],
+ "entities": {},
+ "total": 7,
+ "summary": "3 relations and 4 tasks downstream."
+}

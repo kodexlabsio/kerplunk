@@ -1,0 +1,570 @@
+{
+ "format_version": 1,
+ "direction": "downstream",
+ "target": {
+  "id": "model.jaffle_shop.stg_orders",
+  "kind": "model",
+  "label": "stg_orders",
+  "name": "stg_orders",
+  "path": "models/staging/stg_orders.sql"
+ },
+ "columns": [
+  {
+   "id": "model.jaffle_shop.customers#first_order",
+   "kind": "column",
+   "label": "customers.first_order",
+   "name": "first_order",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "DATE",
+   "description": "Date (UTC) of a customer's first order",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "transformed"
+  },
+  {
+   "id": "model.jaffle_shop.customers#most_recent_order",
+   "kind": "column",
+   "label": "customers.most_recent_order",
+   "name": "most_recent_order",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "DATE",
+   "description": "Date (UTC) of a customer's most recent order",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "transformed"
+  },
+  {
+   "id": "model.jaffle_shop.customers#number_of_orders",
+   "kind": "column",
+   "label": "customers.number_of_orders",
+   "name": "number_of_orders",
+   "relation_kind": "model",
+   "path": "models/customers.sql",
+   "data_type": "BIGINT",
+   "description": "Count of the number of orders a customer has placed",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "transformed"
+  },
+  {
+   "id": "model.jaffle_shop.orders#customer_id",
+   "kind": "column",
+   "label": "orders.customer_id",
+   "name": "customer_id",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "INTEGER",
+   "description": "Foreign key to the customers table",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "direct"
+  },
+  {
+   "id": "model.jaffle_shop.orders#order_date",
+   "kind": "column",
+   "label": "orders.order_date",
+   "name": "order_date",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "DATE",
+   "description": "Date (UTC) that the order was placed",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "direct"
+  },
+  {
+   "id": "model.jaffle_shop.orders#order_id",
+   "kind": "column",
+   "label": "orders.order_id",
+   "name": "order_id",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "INTEGER",
+   "description": "This is a unique identifier for an order",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "direct"
+  },
+  {
+   "id": "model.jaffle_shop.orders#status",
+   "kind": "column",
+   "label": "orders.status",
+   "name": "status",
+   "relation_kind": "model",
+   "path": "models/orders.sql",
+   "data_type": "VARCHAR",
+   "description": "Orders can be one of the following statuses:\n\n| status         | description                                                                                                            |\n|----------------|------------------------------------------------------------------------------------------------------------------------|\n| placed         | The order has been placed but has not yet left the warehouse                                                           |\n| shipped        | The order has ben shipped to the customer and is currently in transit                                                  |\n| completed      | The order has been received by the customer                                                                            |\n| return_pending | The customer has indicated that they would like to return the order, but it has not yet been received at the warehouse |\n| returned       | The order has been returned by the customer and received at the warehouse                                              |",
+   "depth": 1,
+   "via": "derived_from",
+   "transform": "direct"
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders#customer_id",
+   "kind": "column",
+   "label": "orders.customer_id",
+   "name": "customer_id",
+   "relation_kind": "table",
+   "depth": 2,
+   "via": "derived_from",
+   "transform": "direct",
+   "through": "archive_orders.archive.copy_orders"
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders#order_date",
+   "kind": "column",
+   "label": "orders.order_date",
+   "name": "order_date",
+   "relation_kind": "table",
+   "depth": 2,
+   "via": "derived_from",
+   "transform": "direct",
+   "through": "archive_orders.archive.copy_orders"
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders#order_id",
+   "kind": "column",
+   "label": "orders.order_id",
+   "name": "order_id",
+   "relation_kind": "table",
+   "depth": 2,
+   "via": "derived_from",
+   "transform": "direct",
+   "through": "archive_orders.archive.copy_orders"
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#number_of_orders",
+   "kind": "column",
+   "label": "customer_ltv.number_of_orders",
+   "name": "number_of_orders",
+   "relation_kind": "table",
+   "data_type": "BIGINT",
+   "depth": 2,
+   "via": "derived_from",
+   "transform": "direct",
+   "through": "jaffle_shop_daily.build_customer_ltv"
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv#segment",
+   "kind": "column",
+   "label": "customer_ltv.segment",
+   "name": "segment",
+   "relation_kind": "table",
+   "data_type": "VARCHAR",
+   "depth": 2,
+   "via": "derived_from",
+   "transform": "transformed",
+   "through": "jaffle_shop_daily.build_customer_ltv"
+  },
+  {
+   "id": "table.jaffle_shop.archive.daily_totals#order_date",
+   "kind": "column",
+   "label": "daily_totals.order_date",
+   "name": "order_date",
+   "relation_kind": "table",
+   "depth": 3,
+   "via": "derived_from",
+   "transform": "direct",
+   "through": "archive_orders.archive.total_by_day"
+  }
+ ],
+ "relations": [
+  {
+   "id": "model.jaffle_shop.customers",
+   "kind": "model",
+   "label": "customers",
+   "name": "customers",
+   "path": "models/customers.sql",
+   "description": "This table has basic information about a customer, as well as some derived facts based on a customer's orders",
+   "depth": 1,
+   "via": "feeds"
+  },
+  {
+   "id": "model.jaffle_shop.orders",
+   "kind": "model",
+   "label": "orders",
+   "name": "orders",
+   "path": "models/orders.sql",
+   "description": "This table has basic information about orders, as well as some derived facts based on payments",
+   "depth": 1,
+   "via": "feeds"
+  },
+  {
+   "id": "table.jaffle_shop.archive.orders",
+   "kind": "table",
+   "label": "orders",
+   "name": "orders",
+   "depth": 2,
+   "via": "feeds",
+   "through": "archive_orders.archive.copy_orders"
+  },
+  {
+   "id": "table.jaffle_shop.reporting.customer_ltv",
+   "kind": "table",
+   "label": "customer_ltv",
+   "name": "customer_ltv",
+   "depth": 2,
+   "via": "feeds",
+   "through": "jaffle_shop_daily.build_customer_ltv"
+  },
+  {
+   "id": "table.asset:order_counts",
+   "kind": "table",
+   "label": "order_counts",
+   "name": "order_counts",
+   "depth": 3,
+   "via": "feeds"
+  },
+  {
+   "id": "table.asset:order_totals",
+   "kind": "table",
+   "label": "order_totals",
+   "name": "order_totals",
+   "depth": 3,
+   "via": "feeds"
+  },
+  {
+   "id": "table.jaffle_shop.archive.daily_totals",
+   "kind": "table",
+   "label": "daily_totals",
+   "name": "daily_totals",
+   "depth": 3,
+   "via": "feeds",
+   "through": "archive_orders.archive.total_by_day"
+  },
+  {
+   "id": "table.asset:loyal_customers",
+   "kind": "table",
+   "label": "loyal_customers",
+   "name": "loyal_customers",
+   "depth": 4,
+   "via": "feeds"
+  },
+  {
+   "id": "table.asset:crm_export",
+   "kind": "table",
+   "label": "crm_export",
+   "name": "crm_export",
+   "depth": 5,
+   "via": "feeds"
+  }
+ ],
+ "joins_and_filters": [],
+ "filtered_by": [],
+ "tests": [
+  {
+   "id": "test.jaffle_shop.accepted_values_stg_orders_status__placed__shipped__completed__return_pending__returned.080fb20aad",
+   "kind": "test",
+   "label": "accepted_values_stg_orders_status__placed__shipped__completed__return_pending__returned",
+   "name": "accepted_values_stg_orders_status__placed__shipped__completed__return_pending__returned",
+   "path": "models/staging/schema.yml",
+   "depth": 1,
+   "via": "tests"
+  },
+  {
+   "id": "test.jaffle_shop.not_null_stg_orders_customer_id.af79d5e4b5",
+   "kind": "test",
+   "label": "not_null_stg_orders_customer_id",
+   "name": "not_null_stg_orders_customer_id",
+   "path": "models/staging/schema.yml",
+   "depth": 1,
+   "via": "tests"
+  },
+  {
+   "id": "test.jaffle_shop.not_null_stg_orders_order_id.81cfe2fe64",
+   "kind": "test",
+   "label": "not_null_stg_orders_order_id",
+   "name": "not_null_stg_orders_order_id",
+   "path": "models/staging/schema.yml",
+   "depth": 1,
+   "via": "tests"
+  },
+  {
+   "id": "test.jaffle_shop.relationships_stg_orders_customer_id__customer_id__ref_stg_customers_.430bf21500",
+   "kind": "test",
+   "label": "relationships_stg_orders_customer_id__customer_id__ref_stg_customers_",
+   "name": "relationships_stg_orders_customer_id__customer_id__ref_stg_customers_",
+   "path": "models/staging/schema.yml",
+   "depth": 1,
+   "via": "tests"
+  },
+  {
+   "id": "test.jaffle_shop.relationships_stg_payments_order_id__order_id__ref_stg_orders_.8426a3f3d3",
+   "kind": "test",
+   "label": "relationships_stg_payments_order_id__order_id__ref_stg_orders_",
+   "name": "relationships_stg_payments_order_id__order_id__ref_stg_orders_",
+   "path": "models/staging/schema.yml",
+   "depth": 1,
+   "via": "tests",
+   "role": "relationship target"
+  },
+  {
+   "id": "test.jaffle_shop.unique_stg_orders_order_id.e3b841c71a",
+   "kind": "test",
+   "label": "unique_stg_orders_order_id",
+   "name": "unique_stg_orders_order_id",
+   "path": "models/staging/schema.yml",
+   "depth": 1,
+   "via": "tests"
+  },
+  {
+   "id": "test.jaffle_shop.accepted_values_orders_status__placed__shipped__completed__return_pending__returned.be6b5b5ec3",
+   "kind": "test",
+   "label": "accepted_values_orders_status__placed__shipped__completed__return_pending__returned",
+   "name": "accepted_values_orders_status__placed__shipped__completed__return_pending__returned",
+   "path": "models/schema.yml",
+   "depth": 2,
+   "via": "tests"
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_customer_id.c5f02694af",
+   "kind": "test",
+   "label": "not_null_orders_customer_id",
+   "name": "not_null_orders_customer_id",
+   "path": "models/schema.yml",
+   "depth": 2,
+   "via": "tests"
+  },
+  {
+   "id": "test.jaffle_shop.not_null_orders_order_id.cf6c17daed",
+   "kind": "test",
+   "label": "not_null_orders_order_id",
+   "name": "not_null_orders_order_id",
+   "path": "models/schema.yml",
+   "depth": 2,
+   "via": "tests"
+  },
+  {
+   "id": "test.jaffle_shop.relationships_orders_customer_id__customer_id__ref_customers_.c6ec7f58f2",
+   "kind": "test",
+   "label": "relationships_orders_customer_id__customer_id__ref_customers_",
+   "name": "relationships_orders_customer_id__customer_id__ref_customers_",
+   "path": "models/schema.yml",
+   "depth": 2,
+   "via": "tests"
+  },
+  {
+   "id": "test.jaffle_shop.unique_orders_order_id.fed79b3a6e",
+   "kind": "test",
+   "label": "unique_orders_order_id",
+   "name": "unique_orders_order_id",
+   "path": "models/schema.yml",
+   "depth": 2,
+   "via": "tests"
+  }
+ ],
+ "exposures": [
+  {
+   "id": "exposure.jaffle_shop.customer_dashboard",
+   "kind": "exposure",
+   "label": "customer_dashboard",
+   "name": "customer_dashboard",
+   "path": "models/exposures.yml",
+   "description": "Weekly view of customers, their orders and lifetime value.",
+   "depth": 2,
+   "via": "feeds"
+  }
+ ],
+ "tasks": [
+  {
+   "id": "task.dagster.jaffle_shop_dbt",
+   "kind": "task",
+   "label": "dagster.jaffle_shop_dbt",
+   "name": "jaffle_shop_dbt",
+   "path": "orchestration/definitions.py",
+   "description": "Build the jaffle_shop dbt models.",
+   "depth": 1,
+   "via": "runs",
+   "command": "build"
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_run_staging",
+   "kind": "task",
+   "label": "jaffle_shop_daily.dbt_run_staging",
+   "name": "dbt_run_staging",
+   "path": "dags/jaffle_shop_daily.py",
+   "depth": 1,
+   "via": "runs",
+   "command": "run"
+  },
+  {
+   "id": "task.archive_orders.archive.copy_orders",
+   "kind": "task",
+   "label": "archive_orders.archive.copy_orders",
+   "name": "archive.copy_orders",
+   "path": "orchestration/definitions.py",
+   "description": "Copy the orders model into the archive.",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.archive_orders.archive_again.copy_orders",
+   "kind": "task",
+   "label": "archive_orders.archive_again.copy_orders",
+   "name": "archive_again.copy_orders",
+   "path": "orchestration/definitions.py",
+   "description": "Copy the orders model into the archive.",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.archive_orders.refresh_customers",
+   "kind": "task",
+   "label": "archive_orders.refresh_customers",
+   "name": "refresh_customers",
+   "path": "orchestration/definitions.py",
+   "description": "Rebuild the customers model.",
+   "depth": 2,
+   "via": "runs",
+   "command": "run"
+  },
+  {
+   "id": "task.dagster.order_counts",
+   "kind": "task",
+   "label": "reporting.order_counts",
+   "name": "order_counts",
+   "path": "orchestration/definitions.py",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.dagster.order_totals",
+   "kind": "task",
+   "label": "reporting.order_totals",
+   "name": "order_totals",
+   "path": "orchestration/definitions.py",
+   "description": "Total value per day",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.dagster.reporting/customer_ltv",
+   "kind": "task",
+   "label": "reporting.reporting/customer_ltv",
+   "name": "reporting/customer_ltv",
+   "path": "orchestration/definitions.py",
+   "description": "Lifetime value per customer, from the customers model.",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.jaffle_shop_daily.build_customer_ltv",
+   "kind": "task",
+   "label": "jaffle_shop_daily.build_customer_ltv",
+   "name": "build_customer_ltv",
+   "path": "dags/jaffle_shop_daily.py",
+   "depth": 2,
+   "via": "feeds"
+  },
+  {
+   "id": "task.jaffle_shop_daily.dbt_run_marts",
+   "kind": "task",
+   "label": "jaffle_shop_daily.dbt_run_marts",
+   "name": "dbt_run_marts",
+   "path": "dags/jaffle_shop_daily.py",
+   "depth": 2,
+   "via": "runs",
+   "command": "run"
+  },
+  {
+   "id": "dag.archive_orders",
+   "kind": "dag",
+   "label": "archive_orders",
+   "name": "archive_orders",
+   "path": "orchestration/definitions.py",
+   "depth": 3,
+   "via": "runs"
+  },
+  {
+   "id": "dag.everything",
+   "kind": "dag",
+   "label": "everything",
+   "name": "everything",
+   "path": "orchestration/definitions.py",
+   "depth": 3,
+   "via": "runs"
+  },
+  {
+   "id": "dag.jaffle_shop_daily",
+   "kind": "dag",
+   "label": "jaffle_shop_daily",
+   "name": "jaffle_shop_daily",
+   "path": "dags/jaffle_shop_daily.py",
+   "description": "Daily jaffle_shop run: load seeds, build the dbt models, test them, then refresh reporting.",
+   "depth": 3,
+   "via": "runs"
+  },
+  {
+   "id": "dag.reporting_job",
+   "kind": "dag",
+   "label": "reporting_job",
+   "name": "reporting_job",
+   "path": "orchestration/definitions.py",
+   "depth": 3,
+   "via": "runs"
+  },
+  {
+   "id": "task.archive_orders.archive.total_by_day",
+   "kind": "task",
+   "label": "archive_orders.archive.total_by_day",
+   "name": "archive.total_by_day",
+   "path": "orchestration/definitions.py",
+   "description": "Order value per day, from the archive.",
+   "depth": 3,
+   "via": "feeds"
+  },
+  {
+   "id": "task.archive_orders.archive_again.total_by_day",
+   "kind": "task",
+   "label": "archive_orders.archive_again.total_by_day",
+   "name": "archive_again.total_by_day",
+   "path": "orchestration/definitions.py",
+   "description": "Order value per day, from the archive.",
+   "depth": 3,
+   "via": "feeds"
+  },
+  {
+   "id": "task.dagster.loyal_customers",
+   "kind": "task",
+   "label": "reporting.loyal_customers",
+   "name": "loyal_customers",
+   "path": "orchestration/definitions.py",
+   "description": "Customers worth more than 100.",
+   "depth": 3,
+   "via": "feeds"
+  },
+  {
+   "id": "task.dagster.crm_export",
+   "kind": "task",
+   "label": "exports.crm_export",
+   "name": "crm_export",
+   "path": "orchestration/definitions.py",
+   "description": "Push loyal customers to the CRM.",
+   "depth": 4,
+   "via": "feeds"
+  }
+ ],
+ "terms": [
+  {
+   "id": "term.completed_order",
+   "kind": "term",
+   "label": "Completed order",
+   "name": "Completed order",
+   "path": "definitions.yml",
+   "description": "An order the customer has received and not returned.",
+   "status": "agreed"
+  }
+ ],
+ "entities": {
+  "customer": [
+   "customers"
+  ],
+  "order": [
+   "orders",
+   "stg_orders"
+  ]
+ },
+ "total": 53,
+ "summary": "13 columns, 9 relations, 11 tests, 1 exposure, 18 tasks and 1 business term downstream."
+}
